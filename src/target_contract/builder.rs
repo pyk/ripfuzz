@@ -20,15 +20,14 @@ impl TargetContractBuilder {
     ///
     /// If `project_root` is `Some`, the auto-discovery step is skipped and the
     /// provided directory is used instead.
-    pub fn build(
-        contract_path: &Path,
-        project_root: Option<&Path>,
-    ) -> Result<TargetContract> {
+    pub fn build(contract_path: &Path, project_root: Option<&Path>) -> Result<TargetContract> {
         let contract_path = contract_path.canonicalize()?;
         let project_root = project_root
             .map(Path::to_path_buf)
             .or_else(|| find_project_root(&contract_path))
-            .ok_or_else(|| anyhow::anyhow!("could not find foundry.toml in any parent directory"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("could not find foundry.toml in any parent directory")
+            })?;
 
         forge::build(&project_root, &contract_path)?;
 
@@ -111,5 +110,14 @@ mod tests {
             TargetContractBuilder::build(Path::new("fixtures/basic-target/test/Target.sol"), None)
                 .unwrap();
         assert_eq!(target.abi.functions().count(), 3);
+    }
+
+    #[test]
+    fn build_fails_with_compiler_error() {
+        let err =
+            TargetContractBuilder::build(Path::new("fixtures/build-failed/test/Broken.sol"), None)
+                .unwrap_err();
+        let expected = "forge build failed:\nError: Compiler run failed:\nError (2314): Expected ';' but got 'function'\n --> test/Broken.sol:7:5:\n  |\n7 |     function set(uint256 x) external {\n  |     ^^^^^^^^\n";
+        assert_eq!(format!("{err}"), expected);
     }
 }
