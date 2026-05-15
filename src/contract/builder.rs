@@ -6,7 +6,7 @@ use alloy_json_abi::JsonAbi;
 use anyhow::Result;
 use revm::primitives::Bytes;
 
-use crate::contract::artifact::{ContractArtifact, discover_properties};
+use crate::contract::artifact::{ContractArtifact, find_and_validate_properties};
 use crate::foundry::artifact::ArtifactJson;
 use crate::foundry::forge;
 use crate::foundry::toml::FoundryToml;
@@ -133,7 +133,7 @@ impl ContractBuilder {
         let all_contracts = Self::load_all_contracts(&out_dir)?;
         let mut artifact =
             artifact_json.into_artifact_with_all(contract_name.to_string(), all_contracts);
-        artifact.properties = discover_properties(&artifact.abi)?;
+        artifact.properties = find_and_validate_properties(&artifact.abi)?;
 
         Ok(artifact)
     }

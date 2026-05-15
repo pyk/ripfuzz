@@ -22,7 +22,7 @@ pub struct ContractArtifact {
 
 /// Scan the ABI for functions that start with `property_` and validate
 /// that every one of them is either `pure` or `view` and returns a single `bool`.
-pub fn discover_properties(abi: &JsonAbi) -> Result<Vec<([u8; 4], String)>> {
+pub fn find_and_validate_properties(abi: &JsonAbi) -> Result<Vec<([u8; 4], String)>> {
     let mut properties = Vec::new();
 
     for func in abi.functions() {
