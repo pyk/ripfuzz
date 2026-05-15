@@ -6,9 +6,9 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/pyk/raptor"
 
-[[bin]]
+[lib]
 name = "raptor"
-path = "src/main.rs"
+path = "src/lib.rs"
 
 [dependencies]
 # Error handling

@@ -1,10 +1,5 @@
 use clap::{Parser, Subcommand};
-
-mod commands;
-mod evm;
-mod foundry;
-mod fuzzer;
-mod inspector;
+use raptor::commands;
 
 #[derive(Debug, Parser)]
 #[command(name = "raptor", version, about)]
