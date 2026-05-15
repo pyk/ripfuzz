@@ -28,6 +28,10 @@ serde_json = "1.0.148"
 
 # Fuzzer
 libafl = "0.15.3"
+libafl_bolts = "0.15.3"
 
 # EVM
 revm = "38.0.0"
+
+# Hex decoding for foundry artifacts
+hex = "0.4.3"

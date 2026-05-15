@@ -1,2 +1,6 @@
 /target
 external
+
+# foundry
+out
+cache
