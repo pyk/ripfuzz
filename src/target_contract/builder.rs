@@ -21,6 +21,17 @@ impl TargetContractBuilder {
     /// If `project_root` is `Some`, the auto-discovery step is skipped and the
     /// provided directory is used instead.
     pub fn build(contract_path: &Path, project_root: Option<&Path>) -> Result<TargetContract> {
+        if !contract_path.exists() {
+            anyhow::bail!("File not found: {}", contract_path.display());
+        }
+
+        if contract_path.extension() != Some("sol".as_ref()) {
+            anyhow::bail!(
+                "Expected a Solidity file (.sol), got: {}",
+                contract_path.display()
+            );
+        }
+
         let contract_path = contract_path.canonicalize()?;
         let project_root = project_root
             .map(Path::to_path_buf)
@@ -117,7 +128,28 @@ mod tests {
         let err =
             TargetContractBuilder::build(Path::new("fixtures/build-failed/test/Broken.sol"), None)
                 .unwrap_err();
-        let expected = "forge build failed:\nError: Compiler run failed:\nError (2314): Expected ';' but got 'function'\n --> test/Broken.sol:7:5:\n  |\n7 |     function set(uint256 x) external {\n  |     ^^^^^^^^\n";
+        let expected = "Error: Compiler run failed:\nError (2314): Expected ';' but got 'function'\n --> test/Broken.sol:7:5:\n  |\n7 |     function set(uint256 x) external {\n  |     ^^^^^^^^";
+        assert_eq!(format!("{err}"), expected);
+    }
+
+    #[test]
+    fn build_fails_when_file_not_found() {
+        let err =
+            TargetContractBuilder::build(Path::new("fixtures/build-failed/test/Missing.sol"), None)
+                .unwrap_err();
+        let expected = "File not found: fixtures/build-failed/test/Missing.sol";
+        assert_eq!(format!("{err}"), expected);
+    }
+
+    #[test]
+    fn build_fails_when_not_solidity() {
+        let err = TargetContractBuilder::build(
+            Path::new("fixtures/build-failed/test/something.txt"),
+            None,
+        )
+        .unwrap_err();
+        let expected =
+            "Expected a Solidity file (.sol), got: fixtures/build-failed/test/something.txt";
         assert_eq!(format!("{err}"), expected);
     }
 }

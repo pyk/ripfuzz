@@ -15,7 +15,7 @@ pub fn build(project_root: &Path, contract_path: &Path) -> Result<()> {
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("forge build failed:\n{stderr}")
+        anyhow::bail!("{}", stderr.trim())
     }
 }
 
