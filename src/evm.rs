@@ -9,8 +9,8 @@ use revm::{
     MainBuilder, MainContext,
 };
 
-use crate::foundry::FoundryArtifact;
 use crate::inspector::CoverageInspector;
+use crate::target_contract::TargetContract;
 
 pub const CALLER: Address = Address::new([0xde; 20]);
 pub const GAS_LIMIT: u64 = 1_000_000;
@@ -21,7 +21,7 @@ pub struct EvmRunner {
 }
 
 impl EvmRunner {
-    pub fn deploy(artifact: &FoundryArtifact) -> anyhow::Result<Self> {
+    pub fn from_target(target: &TargetContract) -> anyhow::Result<Self> {
         let mut db = InMemoryDB::default();
 
         db.insert_account_info(
@@ -38,11 +38,10 @@ impl EvmRunner {
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet();
 
-        let creation_bytecode = artifact.creation_bytecode()?;
         let tx = TxEnv {
             caller: CALLER,
             kind: TxKind::Create,
-            data: Bytes::from(creation_bytecode),
+            data: target.initcode.clone(),
             gas_limit: GAS_LIMIT,
             ..Default::default()
         };

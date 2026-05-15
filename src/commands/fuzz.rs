@@ -1,58 +1,46 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::Parser;
-use revm::primitives::keccak256;
 
 use crate::evm::EvmRunner;
-use crate::foundry::FoundryArtifact;
+use crate::target_contract::TargetContractBuilder;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Path to the target Solidity file.
+    /// Path to the target Solidity file (e.g. ./test/Contract.sol).
     pub path: PathBuf,
+
+    /// Path to the Foundry project root.
+    #[arg(long, short = 'p')]
+    pub project: Option<PathBuf>,
 }
 
 pub fn run(args: Args) -> anyhow::Result<()> {
-    let artifact_path = find_artifact(&args.path)?;
-    println!("Loading artifact: {}", artifact_path.display());
+    let target = TargetContractBuilder::build(&args.path, args.project.as_deref())?;
 
-    let artifact = FoundryArtifact::from_file(&artifact_path)?;
-    let runner = EvmRunner::deploy(&artifact)?;
-    println!("Deployed contract at: {}", runner.contract_address);
+    let contract_name = args
+        .path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("<unknown>");
 
-    let seeds = build_seeds(&artifact);
+    println!("Loaded contract: {contract_name}");
+    println!("Deployed at:     {}", target.deployed_address);
+    println!(
+        "Properties:      {:?}",
+        target.properties.iter().map(|(_, n)| n).collect::<Vec<_>>()
+    );
+
+    let runner = EvmRunner::from_target(&target)?;
+    let seeds = build_seeds(&target);
     crate::fuzzer::run(&runner, seeds)
 }
 
-fn find_artifact(sol_path: &Path) -> anyhow::Result<PathBuf> {
-    let file_name = sol_path
-        .file_name()
-        .and_then(|f| f.to_str())
-        .ok_or_else(|| anyhow::anyhow!("invalid source path"))?;
-
-    let contract_name = file_name
-        .strip_suffix(".sol")
-        .ok_or_else(|| anyhow::anyhow!("path must end with .sol"))?;
-
-    let candidate = PathBuf::from("out")
-        .join(file_name)
-        .join(format!("{}.json", contract_name));
-
-    if candidate.exists() {
-        return Ok(candidate);
-    }
-
-    anyhow::bail!(
-        "could not find artifact at {}. Make sure you ran `forge build` first.",
-        candidate.display()
-    )
-}
-
-fn build_seeds(artifact: &FoundryArtifact) -> Vec<Vec<u8>> {
+fn build_seeds(target: &crate::target_contract::TargetContract) -> Vec<Vec<u8>> {
     let mut seeds = Vec::new();
 
-    for sig in artifact.method_identifiers.keys() {
-        let selector = &keccak256(sig.as_bytes())[..4];
+    for func in target.abi.functions() {
+        let selector = func.selector();
         let mut seed = selector.to_vec();
         seed.resize(36, 0);
         seeds.push(seed);
@@ -60,9 +48,9 @@ fn build_seeds(artifact: &FoundryArtifact) -> Vec<Vec<u8>> {
 
     // Add a combined seed with all functions in order
     let mut combined = Vec::new();
-    for sig in artifact.method_identifiers.keys() {
-        let selector = &keccak256(sig.as_bytes())[..4];
-        combined.extend_from_slice(selector);
+    for func in target.abi.functions() {
+        let selector = func.selector();
+        combined.extend_from_slice(selector.as_slice());
         combined.resize(combined.len() + 32, 0);
     }
     if !combined.is_empty() {
