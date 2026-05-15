@@ -6,7 +6,7 @@ pragma solidity 0.8.28;
  * @notice one() two() three() -> 🐲
  * @dev Level 1: Call the functions in the correct sequence.
  */
-contract SimpleKnob2 {
+contract SimpleKnob {
     uint256 public property;
     uint256 internal _one;
     uint256 internal _two;
