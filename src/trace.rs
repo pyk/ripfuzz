@@ -3,27 +3,26 @@ use std::collections::HashMap;
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_json_abi::JsonAbi;
 use revm::{
+    Database,
     context_interface::ContextTr,
     inspector::Inspector,
     interpreter::{
-        CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas,
-        InstructionResult, InterpreterResult,
+        CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
+        InterpreterResult,
     },
     primitives::{Address, Bytes},
-    Database,
 };
 
 /// Foundry cheatcode VM contract address.
 pub(crate) const VM_ADDRESS: Address = Address::new([
-    0x71, 0x09, 0x70, 0x9e, 0xcf, 0xa9, 0x1a, 0x80, 0x62, 0x6f, 0xf3, 0x98, 0x9d, 0x68,
-    0xf6, 0x7f, 0x5b, 0x1d, 0xd1, 0x2d,
+    0x71, 0x09, 0x70, 0x9e, 0xcf, 0xa9, 0x1a, 0x80, 0x62, 0x6f, 0xf3, 0x98, 0x9d, 0x68, 0xf6, 0x7f,
+    0x5b, 0x1d, 0xd1, 0x2d,
 ]);
 
 /// Insert a dummy VM contract into the database so Solidity's
 /// `extcodesize` check passes when a target calls Foundry cheatcodes.
 pub(crate) fn insert_foundry_vm(db: &mut revm::database::InMemoryDB) {
-    let vm_code =
-        revm::bytecode::Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x00]));
+    let vm_code = revm::bytecode::Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x00]));
     db.insert_account_info(
         VM_ADDRESS,
         revm::state::AccountInfo {
@@ -57,7 +56,9 @@ struct TraceFrame {
 
 #[derive(Debug, Clone)]
 enum TraceKind {
-    Call { target: Address },
+    Call {
+        target: Address,
+    },
     Create,
     /// Intercepted Foundry cheatcode call (hidden from trace output).
     VmCall,
@@ -195,22 +196,20 @@ fn format_frame(frame: &TraceFrame) -> String {
                 None => format!("{}::{}{}", format_address(*target), func, args),
             }
         }
-        TraceKind::Create => {
-            match (&frame.contract_name, frame.created_address) {
-                (Some(name), Some(addr)) => {
-                    format!("→ new {}@{:?}", name, addr)
-                }
-                (None, Some(addr)) => {
-                    format!("→ new 0x{:?}", addr)
-                }
-                (Some(name), None) => {
-                    format!("{}::constructor()", name)
-                }
-                (None, None) => {
-                    format!("{}::constructor()", format_address(frame.address))
-                }
+        TraceKind::Create => match (&frame.contract_name, frame.created_address) {
+            (Some(name), Some(addr)) => {
+                format!("→ new {}@{:?}", name, addr)
             }
-        }
+            (None, Some(addr)) => {
+                format!("→ new 0x{:?}", addr)
+            }
+            (Some(name), None) => {
+                format!("{}::constructor()", name)
+            }
+            (None, None) => {
+                format!("{}::constructor()", format_address(frame.address))
+            }
+        },
         TraceKind::VmCall => {
             // VmCall nodes are discarded before formatting; unreachable.
             unreachable!("VmCall should never appear in formatted trace")
@@ -248,11 +247,7 @@ fn format_return(frame: &TraceFrame) -> String {
 }
 
 impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
-    fn call(
-        &mut self,
-        context: &mut CTX,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         let input = inputs.input.bytes_local(context.local());
 
         // Intercept Foundry cheatcode calls to the VM address.
@@ -334,12 +329,7 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
         None
     }
 
-    fn call_end(
-        &mut self,
-        _context: &mut CTX,
-        _inputs: &CallInputs,
-        outcome: &mut CallOutcome,
-    ) {
+    fn call_end(&mut self, _context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
         let mut node = match self.stack.pop() {
             Some(n) => n,
             None => return,
@@ -353,8 +343,7 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
         let ir = &outcome.result;
         node.frame.gas_used = ir.gas.total_gas_spent();
         let abi = self.address_abis.get(&node.frame.address);
-        node.frame.result =
-            classify_result(ir.result, &ir.output, abi, &self.address_names);
+        node.frame.result = classify_result(ir.result, &ir.output, abi, &self.address_names);
 
         // Fallback: if the revert is still raw hex, try all known ABIs.
         if let TraceResult::Revert { reason } = &node.frame.result
@@ -374,12 +363,8 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
             && node.frame.input.len() >= 4
             && let Some(abi) = abi
         {
-            node.frame.decoded_return = decode_return(
-                abi,
-                &node.frame.input[..4],
-                &ir.output,
-                &self.address_names,
-            );
+            node.frame.decoded_return =
+                decode_return(abi, &node.frame.input[..4], &ir.output, &self.address_names);
         }
 
         if let Some(parent) = self.stack.last_mut() {
@@ -389,18 +374,10 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
         }
     }
 
-    fn create(
-        &mut self,
-        context: &mut CTX,
-        inputs: &mut CreateInputs,
-    ) -> Option<CreateOutcome> {
+    fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         let input = inputs.init_code().clone();
 
-        let (contract_name, abi) = self
-            .initcode_map
-            .get(&input)
-            .cloned()
-            .unzip();
+        let (contract_name, abi) = self.initcode_map.get(&input).cloned().unzip();
 
         // Pre-compute and register the created address so inner calls can
         // resolve the contract name before create_end fires.
@@ -454,12 +431,8 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
         };
         let ir = &outcome.result;
         node.frame.gas_used = ir.gas.total_gas_spent();
-        let abi = self
-            .initcode_map
-            .get(&node.frame.input)
-            .map(|(_, abi)| abi);
-        node.frame.result =
-            classify_result(ir.result, &ir.output, abi, &self.address_names);
+        let abi = self.initcode_map.get(&node.frame.input).map(|(_, abi)| abi);
+        node.frame.result = classify_result(ir.result, &ir.output, abi, &self.address_names);
 
         // Fallback: if the revert is still raw hex, try all known ABIs.
         if let TraceResult::Revert { reason } = &node.frame.result
@@ -703,11 +676,8 @@ mod tests {
 
     fn run_trace_case(name: &str, value: U256) -> String {
         let path = format!("src/{}.sol", name);
-        let artifact = ContractBuilder::build(
-            Path::new("fixtures/traces"),
-            Path::new(&path),
-        )
-        .unwrap_or_else(|e| panic!("failed to build {}: {}", name, e));
+        let artifact = ContractBuilder::build(Path::new("fixtures/traces"), Path::new(&path))
+            .unwrap_or_else(|e| panic!("failed to build {}: {}", name, e));
 
         let mut db = InMemoryDB::default();
         db.insert_account_info(
@@ -748,11 +718,9 @@ mod tests {
         ($name:ident, $case:expr, $value:expr) => {
             #[test]
             fn $name() {
-                let expected = std::fs::read_to_string(format!(
-                    "fixtures/traces/trace/{}.txt",
-                    $case
-                ))
-                .unwrap_or_else(|e| panic!("missing fixture for {}: {}", $case, e));
+                let expected =
+                    std::fs::read_to_string(format!("fixtures/traces/trace/{}.txt", $case))
+                        .unwrap_or_else(|e| panic!("missing fixture for {}: {}", $case, e));
                 let actual = run_trace_case($case, $value);
                 assert_eq!(
                     actual.trim(),

@@ -98,13 +98,11 @@ impl EvmRunner {
         };
 
         let result = evm.inspect_tx_commit(tx)?;
-        let contract_address = result
-            .created_address()
-            .ok_or_else(|| {
-                let reason = extract_deployment_error(&result);
-                let trace = evm.inspector.format();
-                anyhow::anyhow!("deployment failed: {reason}\n\nTrace:\n{trace}")
-            })?;
+        let contract_address = result.created_address().ok_or_else(|| {
+            let reason = extract_deployment_error(&result);
+            let trace = evm.inspector.format();
+            anyhow::anyhow!("deployment failed: {reason}\n\nTrace:\n{trace}")
+        })?;
 
         let deployed_db = evm.ctx.journaled_state.database;
         Ok(Self {

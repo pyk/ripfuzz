@@ -159,10 +159,9 @@ mod tests {
 
         let err = Fuzzer::from_artifact(artifact).unwrap_err();
         let msg = format!("{err}");
-        let expected = std::fs::read_to_string(
-            "fixtures/basic-target/test/ConstructorRevertOutput.txt",
-        )
-        .unwrap();
+        let expected =
+            std::fs::read_to_string("fixtures/basic-target/test/ConstructorRevertOutput.txt")
+                .unwrap();
         assert_eq!(msg, expected);
     }
 
