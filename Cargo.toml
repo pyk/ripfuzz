@@ -13,7 +13,6 @@ path = "src/lib.rs"
 [dependencies]
 # Error handling
 anyhow = "1.0.100"
-thiserror = "2.0.18"
 
 # CLI
 clap = { version="4.5.54", features = ["derive"] }

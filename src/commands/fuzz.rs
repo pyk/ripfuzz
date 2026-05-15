@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use anyhow::Result;
 use clap::Parser;
 
 use crate::evm::EvmRunner;
@@ -15,7 +16,7 @@ pub struct Args {
     pub project: Option<PathBuf>,
 }
 
-pub fn run(args: Args) -> anyhow::Result<()> {
+pub fn run(args: Args) -> Result<()> {
     let target = TargetContractBuilder::build(&args.path, args.project.as_deref())?;
 
     let contract_name = args

@@ -1,9 +1,10 @@
-use std::io;
 use std::path::Path;
 use std::process::Command;
 
+use anyhow::Result;
+
 /// Run `forge build <contract_path>` inside the given project root.
-pub fn build(project_root: &Path, contract_path: &Path) -> anyhow::Result<()> {
+pub fn build(project_root: &Path, contract_path: &Path) -> Result<()> {
     let output = Command::new("forge")
         .arg("build")
         .arg(contract_path)
@@ -20,7 +21,7 @@ pub fn build(project_root: &Path, contract_path: &Path) -> anyhow::Result<()> {
 
 /// Return the relative path of the *latest* build-info file inside
 /// `<out>/build-info/`.
-pub fn latest_build_info(out_dir: &Path) -> io::Result<Option<String>> {
+pub fn latest_build_info(out_dir: &Path) -> Result<Option<String>> {
     let build_info = out_dir.join("build-info");
     if !build_info.exists() {
         return Ok(None);
@@ -39,7 +40,7 @@ pub fn latest_build_info(out_dir: &Path) -> io::Result<Option<String>> {
 
 /// List the names of compiled artifacts (`.json` files) inside
 /// `<out>/<contract>.sol/`.
-pub fn list_artifacts(out_dir: &Path, contract_name: &str) -> io::Result<Vec<String>> {
+pub fn list_artifacts(out_dir: &Path, contract_name: &str) -> Result<Vec<String>> {
     let dir = out_dir.join(format!("{contract_name}.sol"));
     if !dir.exists() {
         return Ok(vec![]);

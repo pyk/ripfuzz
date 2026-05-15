@@ -1,3 +1,4 @@
+use anyhow::Result;
 use libafl::{
     corpus::{Corpus, InMemoryCorpus, Testcase},
     events::SimpleEventManager,
@@ -17,7 +18,7 @@ use libafl_bolts::{ownedref::OwnedMutSlice, rands::StdRand, tuples::tuple_list};
 
 use crate::evm::EvmRunner;
 
-pub fn run(runner: &EvmRunner, seeds: Vec<Vec<u8>>) -> anyhow::Result<()> {
+pub fn run(runner: &EvmRunner, seeds: Vec<Vec<u8>>) -> Result<()> {
     let map = unsafe {
         std::slice::from_raw_parts_mut(
             std::ptr::addr_of_mut!(crate::inspector::COVERAGE_MAP).cast::<u8>(),

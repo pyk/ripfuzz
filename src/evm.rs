@@ -1,3 +1,4 @@
+use anyhow::Result;
 use revm::{
     context::{Context, TxEnv},
     database::InMemoryDB,
@@ -21,7 +22,7 @@ pub struct EvmRunner {
 }
 
 impl EvmRunner {
-    pub fn from_target(target: &TargetContract) -> anyhow::Result<Self> {
+    pub fn from_target(target: &TargetContract) -> Result<Self> {
         let mut db = InMemoryDB::default();
 
         db.insert_account_info(

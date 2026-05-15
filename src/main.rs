@@ -1,3 +1,4 @@
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use raptor::commands;
 
@@ -14,7 +15,7 @@ enum Commands {
     Fuzz(commands::fuzz::Args),
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {

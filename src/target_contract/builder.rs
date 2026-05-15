@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use anyhow::Result;
+
 use crate::target_contract::artifact::ArtifactJson;
 use crate::target_contract::config::FoundryToml;
 use crate::target_contract::contract::{TargetContract, discover_properties};
@@ -21,25 +23,19 @@ impl TargetContractBuilder {
     pub fn build(
         contract_path: &Path,
         project_root: Option<&Path>,
-    ) -> Result<TargetContract, BuildError> {
+    ) -> Result<TargetContract> {
         let contract_path = contract_path.canonicalize()?;
         let project_root = project_root
             .map(Path::to_path_buf)
             .or_else(|| find_project_root(&contract_path))
-            .ok_or(BuildError::ProjectNotFound)?;
+            .ok_or_else(|| anyhow::anyhow!("could not find foundry.toml in any parent directory"))?;
 
-        forge::build(&project_root, &contract_path)
-            .map_err(|e| BuildError::ForgeBuild(e.to_string()))?;
+        forge::build(&project_root, &contract_path)?;
 
         let contract_name = contract_path
             .file_stem()
             .and_then(|s| s.to_str())
-            .ok_or_else(|| {
-                BuildError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "invalid contract path",
-                ))
-            })?;
+            .ok_or_else(|| anyhow::anyhow!("invalid contract path"))?;
 
         let toml_path = project_root.join("foundry.toml");
         let toml_str = fs::read_to_string(&toml_path)?;
@@ -62,7 +58,7 @@ impl TargetContractBuilder {
         Ok(target)
     }
 
-    fn resolve_artifact_name(out_dir: &Path, contract_name: &str) -> Result<String, BuildError> {
+    fn resolve_artifact_name(out_dir: &Path, contract_name: &str) -> Result<String> {
         let artifacts = forge::list_artifacts(out_dir, contract_name)?;
 
         if artifacts.len() == 1 {
@@ -70,7 +66,7 @@ impl TargetContractBuilder {
         }
 
         if artifacts.is_empty() {
-            return Err(BuildError::NoArtifacts(contract_name.to_string()));
+            anyhow::bail!("no compiled artifacts for contract {}", contract_name);
         }
 
         // Multiple artifacts -- try to use build-info timestamp to disambiguate.
@@ -79,16 +75,18 @@ impl TargetContractBuilder {
                 let preferred = artifacts.iter().find(|a| a.contains(ts.as_str()));
                 match preferred {
                     Some(a) => Ok(a.clone()),
-                    None => Err(BuildError::AmbiguousArtifact {
-                        contract: contract_name.to_string(),
-                        candidates: artifacts,
-                    }),
+                    None => anyhow::bail!(
+                        "multiple artifacts for {} and could not disambiguate: {:?}",
+                        contract_name,
+                        artifacts
+                    ),
                 }
             }
-            None => Err(BuildError::AmbiguousArtifact {
-                contract: contract_name.to_string(),
-                candidates: artifacts,
-            }),
+            None => anyhow::bail!(
+                "multiple artifacts for {} and could not disambiguate: {:?}",
+                contract_name,
+                artifacts
+            ),
         }
     }
 }
@@ -100,45 +98,6 @@ fn find_project_root(path: &Path) -> Option<PathBuf> {
             return Some(dir.to_path_buf());
         }
         dir = dir.parent()?;
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum BuildError {
-    #[error("no compiled artifacts for contract `{0}`")]
-    NoArtifacts(String),
-
-    #[error("multiple artifacts for `{contract}` and could not disambiguate: {candidates:?}")]
-    AmbiguousArtifact {
-        contract: String,
-        candidates: Vec<String>,
-    },
-
-    #[error("could not find foundry.toml in any parent directory")]
-    ProjectNotFound,
-
-    #[error("forge build failed: {0}")]
-    ForgeBuild(String),
-
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-
-    #[error("TOML parse error: {0}")]
-    TomlParse(String),
-
-    #[error("JSON parse error: {0}")]
-    JsonParse(String),
-}
-
-impl From<toml::de::Error> for BuildError {
-    fn from(err: toml::de::Error) -> Self {
-        BuildError::TomlParse(err.to_string())
-    }
-}
-
-impl From<serde_json::Error> for BuildError {
-    fn from(err: serde_json::Error) -> Self {
-        BuildError::JsonParse(err.to_string())
     }
 }
 

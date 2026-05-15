@@ -2622,7 +2622,6 @@ dependencies = [
  "revm",
  "serde",
  "serde_json",
- "thiserror",
  "toml",
  "tracing",
  "tracing-subscriber 0.3.23",
