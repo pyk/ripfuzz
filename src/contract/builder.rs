@@ -133,7 +133,7 @@ impl ContractBuilder {
         let all_contracts = Self::load_all_contracts(&out_dir)?;
         let mut artifact =
             artifact_json.into_artifact_with_all(contract_name.to_string(), all_contracts);
-        artifact.properties = discover_properties(&artifact.abi);
+        artifact.properties = discover_properties(&artifact.abi)?;
 
         Ok(artifact)
     }
@@ -308,6 +308,44 @@ mod tests {
         assert!(
             msg.contains("multiple contracts found"),
             "expected 'multiple contracts found' error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn build_fails_on_property_not_view_pure() {
+        let err = ContractBuilder::build(
+            Path::new("fixtures/basic-target"),
+            Path::new("test/PropertiesDiscovery.sol"),
+        )
+        .unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("property_not_view"),
+            "expected error mentioning property_not_view, got: {msg}"
+        );
+        assert!(
+            msg.contains("pure or view"),
+            "expected error mentioning 'pure or view', got: {msg}"
+        );
+    }
+
+    #[test]
+    fn build_discovers_properties_with_correct_signature() {
+        let artifact = ContractBuilder::build(
+            Path::new("fixtures/basic-target"),
+            Path::new("src/NamedMismatch.sol"),
+        )
+        .unwrap();
+        assert_eq!(artifact.contract_name, "DifferentName");
+
+        // NamedMismatch.sol has one valid property: property_is_set.
+        assert_eq!(
+            artifact
+                .properties
+                .iter()
+                .map(|(_, n)| n.as_str())
+                .collect::<Vec<_>>(),
+            vec!["property_is_set"]
         );
     }
 

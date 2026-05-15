@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::{JsonAbi, StateMutability};
+use anyhow::Result;
 use revm::bytecode::Bytecode;
 use revm::primitives::Bytes;
 
@@ -19,27 +20,35 @@ pub struct ContractArtifact {
     pub all_contracts: HashMap<String, (Bytes, JsonAbi)>,
 }
 
-/// Scan the ABI for functions that:
-///   1. Start with `property_`,
-///   2. Return a single `bool`, and
-///   3. Are either `pure` or `view`.
-pub fn discover_properties(abi: &JsonAbi) -> Vec<([u8; 4], String)> {
-    abi.functions()
-        .filter(|f| {
-            f.name.starts_with("property_")
-                && f.outputs.len() == 1
-                && f.outputs[0].ty == "bool"
-                && matches!(
-                    f.state_mutability,
-                    StateMutability::Pure | StateMutability::View
-                )
-        })
-        .map(|f| {
-            let sel: [u8; 4] = f.selector().into();
-            let name = f.name.clone();
-            (sel, name)
-        })
-        .collect()
+/// Scan the ABI for functions that start with `property_` and validate
+/// that every one of them is either `pure` or `view` and returns a single `bool`.
+pub fn discover_properties(abi: &JsonAbi) -> Result<Vec<([u8; 4], String)>> {
+    let mut properties = Vec::new();
+
+    for func in abi.functions() {
+        if !func.name.starts_with("property_") {
+            continue;
+        }
+        if func.outputs.len() != 1 || func.outputs[0].ty != "bool" {
+            anyhow::bail!(
+                "property function '{}' must return a single bool",
+                func.name
+            );
+        }
+        if !matches!(
+            func.state_mutability,
+            StateMutability::Pure | StateMutability::View
+        ) {
+            anyhow::bail!(
+                "property function '{}' must be declared pure or view",
+                func.name
+            );
+        }
+        let sel: [u8; 4] = func.selector().into();
+        properties.push((sel, func.name.clone()));
+    }
+
+    Ok(properties)
 }
 
 /// ABI-encode a function call given its ABI and human-readable arguments.
