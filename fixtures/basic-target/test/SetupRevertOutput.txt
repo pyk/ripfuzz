@@ -1,0 +1,8 @@
+setUp failed: reverted with 'setUp always reverts'
+
+Trace:
+[85733] → new SetupRevert@0xe3a207e4225d459095491ea75d30b31968dff887
+  └─ ← [Return] 428 bytes of code
+
+[406] SetupRevert::setUp()
+  └─ ← [Revert] setUp always reverts

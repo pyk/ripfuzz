@@ -82,7 +82,7 @@ struct CallNode {
 #[derive(Debug)]
 pub struct CallTraceInspector {
     stack: Vec<CallNode>,
-    root: Option<CallNode>,
+    roots: Vec<CallNode>,
     /// Maps initcode to (contract name, abi) for CREATE name resolution.
     initcode_map: HashMap<Bytes, (String, JsonAbi)>,
     /// Maps deployed address to contract name.
@@ -96,7 +96,7 @@ impl CallTraceInspector {
     pub fn new(initcode_map: HashMap<Bytes, (String, JsonAbi)>) -> Self {
         Self {
             stack: Vec::new(),
-            root: None,
+            roots: Vec::new(),
             initcode_map,
             address_names: HashMap::new(),
             address_abis: HashMap::new(),
@@ -136,7 +136,10 @@ impl CallTraceInspector {
 
     pub fn format(&self) -> String {
         let mut lines = Vec::new();
-        if let Some(root) = &self.root {
+        for (i, root) in self.roots.iter().enumerate() {
+            if i > 0 {
+                lines.push(String::new());
+            }
             format_node(root, "", true, &mut lines);
         }
         lines.join("\n")
@@ -370,7 +373,7 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
         if let Some(parent) = self.stack.last_mut() {
             parent.children.push(node);
         } else {
-            self.root = Some(node);
+            self.roots.push(node);
         }
     }
 
@@ -472,7 +475,7 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
         if let Some(parent) = self.stack.last_mut() {
             parent.children.push(node);
         } else {
-            self.root = Some(node);
+            self.roots.push(node);
         }
     }
 }

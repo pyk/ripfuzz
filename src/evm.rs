@@ -104,6 +104,35 @@ impl EvmRunner {
             anyhow::anyhow!("deployment failed: {reason}\n\nTrace:\n{trace}")
         })?;
 
+        // If the contract declares a `setUp()` function, call it after deployment.
+        const SETUP_SELECTOR: [u8; 4] = [0x0a, 0x92, 0x54, 0xe4];
+        let has_setup = target.abi.functions().any(|f| f.selector() == SETUP_SELECTOR);
+        if has_setup {
+            let nonce = evm
+                .ctx
+                .journaled_state
+                .database
+                .basic(CALLER)
+                .ok()
+                .flatten()
+                .map(|info| info.nonce)
+                .unwrap_or(0);
+            let setup_tx = TxEnv {
+                caller: CALLER,
+                kind: TxKind::Call(contract_address),
+                data: Bytes::copy_from_slice(&SETUP_SELECTOR),
+                gas_limit: GAS_LIMIT,
+                nonce,
+                ..Default::default()
+            };
+            let setup_result = evm.inspect_tx_commit(setup_tx)?;
+            if !setup_result.is_success() {
+                let reason = extract_deployment_error(&setup_result);
+                let trace = evm.inspector.format();
+                return Err(anyhow::anyhow!("setUp failed: {reason}\n\nTrace:\n{trace}"));
+            }
+        }
+
         let deployed_db = evm.ctx.journaled_state.database;
         Ok(Self {
             contract_address,

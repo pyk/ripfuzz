@@ -181,4 +181,19 @@ mod tests {
         .unwrap();
         assert_eq!(msg, expected);
     }
+    #[test]
+    fn deployment_reports_set_up_revert_trace() {
+        let artifact = ContractBuilder::build(
+            Path::new("fixtures/basic-target"),
+            Path::new("test/SetupRevert.sol"),
+        )
+        .unwrap();
+
+        let err = Fuzzer::from_artifact(artifact).unwrap_err();
+        let msg = format!("{err}");
+        let expected =
+            std::fs::read_to_string("fixtures/basic-target/test/SetupRevertOutput.txt")
+                .unwrap();
+        assert_eq!(msg, expected);
+    }
 }
