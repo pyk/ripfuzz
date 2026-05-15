@@ -1,5 +1,6 @@
 pub mod commands;
+pub mod contract;
 pub mod evm;
-pub mod target_contract;
+pub mod foundry;
 pub mod fuzzer;
 pub mod inspector;

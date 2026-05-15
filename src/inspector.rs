@@ -1,6 +1,6 @@
 use revm::{
     inspector::Inspector,
-    interpreter::{interpreter::EthInterpreter, interpreter_types::Jumps, Interpreter},
+    interpreter::{Interpreter, interpreter::EthInterpreter, interpreter_types::Jumps},
 };
 
 pub const MAP_SIZE: usize = 65_536;

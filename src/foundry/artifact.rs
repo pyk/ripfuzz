@@ -4,7 +4,7 @@ use revm::bytecode::Bytecode;
 use revm::primitives::Bytes;
 use serde::Deserialize;
 
-use crate::target_contract::artifact::TargetContractArtifact;
+use crate::contract::artifact::ContractArtifact;
 
 /// The subset of a Foundry artifact JSON that Raptor needs.
 #[derive(Debug, Clone, Deserialize)]
@@ -24,12 +24,12 @@ pub struct ArtifactBytecode {
 }
 
 impl ArtifactJson {
-    /// Build a [`TargetContractArtifact`] from this artifact.
-    pub fn into_artifact(self, contract_name: String) -> TargetContractArtifact {
+    /// Build a [`ContractArtifact`] from this artifact.
+    pub fn into_artifact(self, contract_name: String) -> ContractArtifact {
         let initcode = parse_hex(&self.bytecode.object).unwrap_or_default();
         let runtime = parse_hex(&self.deployed_bytecode.object).unwrap_or_default();
 
-        TargetContractArtifact {
+        ContractArtifact {
             contract_name,
             initcode,
             runtime: Bytecode::new_raw(runtime),

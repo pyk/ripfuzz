@@ -5,7 +5,7 @@ use revm::primitives::Bytes;
 
 /// A Foundry-compiled artifact loaded from disk.
 #[derive(Debug, Clone)]
-pub struct TargetContractArtifact {
+pub struct ContractArtifact {
     pub contract_name: String,
     pub initcode: Bytes,
     pub runtime: Bytecode,

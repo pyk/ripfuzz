@@ -3,20 +3,20 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::target_contract::artifact::{TargetContractArtifact, discover_properties};
-use crate::target_contract::foundry_artifact::ArtifactJson;
-use crate::target_contract::foundry_forge as forge;
-use crate::target_contract::foundry_toml::FoundryToml;
+use crate::contract::artifact::{ContractArtifact, discover_properties};
+use crate::foundry::artifact::ArtifactJson;
+use crate::foundry::forge;
+use crate::foundry::toml::FoundryToml;
 
-/// Builder that resolves a Foundry project into a [`TargetContractArtifact`].
-pub struct TargetContractBuilder;
+/// Builder that resolves a Foundry project into a [`ContractArtifact`].
+pub struct ContractBuilder;
 
-impl TargetContractBuilder {
+impl ContractBuilder {
     /// Build and load the contract artifact.
     ///
     /// `project_path` is the directory containing `foundry.toml`.
     /// `contract_path` is the Solidity source file relative to the project root.
-    pub fn build(project_path: &Path, contract_path: &Path) -> Result<TargetContractArtifact> {
+    pub fn build(project_path: &Path, contract_path: &Path) -> Result<ContractArtifact> {
         let resolved = project_path.join(contract_path);
 
         if !resolved.exists() {
@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn build_succeeds_with_basic_target() {
-        let artifact = TargetContractBuilder::build(
+        let artifact = ContractBuilder::build(
             Path::new("fixtures/basic-target"),
             Path::new("test/Target.sol"),
         )
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn build_fails_with_compiler_error() {
-        let err = TargetContractBuilder::build(
+        let err = ContractBuilder::build(
             Path::new("fixtures/build-failed"),
             Path::new("test/Broken.sol"),
         )
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn build_fails_when_file_not_found() {
-        let err = TargetContractBuilder::build(
+        let err = ContractBuilder::build(
             Path::new("fixtures/build-failed"),
             Path::new("test/Missing.sol"),
         )
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn build_fails_when_not_solidity() {
-        let err = TargetContractBuilder::build(
+        let err = ContractBuilder::build(
             Path::new("fixtures/build-failed"),
             Path::new("test/something.txt"),
         )

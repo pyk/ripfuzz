@@ -1,17 +1,17 @@
 use anyhow::Result;
 use revm::{
+    MainBuilder, MainContext,
     context::{Context, TxEnv},
     database::InMemoryDB,
     database_interface::Database,
     handler::ExecuteCommitEvm,
     inspector::InspectCommitEvm,
-    primitives::{Address, Bytes, TxKind, U256, KECCAK_EMPTY},
+    primitives::{Address, Bytes, KECCAK_EMPTY, TxKind, U256},
     state::AccountInfo,
-    MainBuilder, MainContext,
 };
 
+use crate::contract::ContractArtifact;
 use crate::inspector::CoverageInspector;
-use crate::target_contract::TargetContractArtifact;
 
 pub const CALLER: Address = Address::new([0xde; 20]);
 pub const GAS_LIMIT: u64 = 1_000_000;
@@ -22,7 +22,7 @@ pub struct EvmRunner {
 }
 
 impl EvmRunner {
-    pub fn from_target(target: &TargetContractArtifact) -> Result<Self> {
+    pub fn from_target(target: &ContractArtifact) -> Result<Self> {
         let mut db = InMemoryDB::default();
 
         db.insert_account_info(
