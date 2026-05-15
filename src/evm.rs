@@ -11,7 +11,7 @@ use revm::{
 };
 
 use crate::inspector::CoverageInspector;
-use crate::target_contract::TargetContract;
+use crate::target_contract::TargetContractArtifact;
 
 pub const CALLER: Address = Address::new([0xde; 20]);
 pub const GAS_LIMIT: u64 = 1_000_000;
@@ -22,7 +22,7 @@ pub struct EvmRunner {
 }
 
 impl EvmRunner {
-    pub fn from_target(target: &TargetContract) -> Result<Self> {
+    pub fn from_target(target: &TargetContractArtifact) -> Result<Self> {
         let mut db = InMemoryDB::default();
 
         db.insert_account_info(

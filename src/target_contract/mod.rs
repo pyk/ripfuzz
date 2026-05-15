@@ -1,10 +1,10 @@
 pub mod artifact;
 pub mod builder;
-pub mod config;
-pub mod contract;
-pub mod forge;
+pub mod foundry_artifact;
+pub mod foundry_forge;
+pub mod foundry_toml;
 
-pub use artifact::ArtifactJson;
+pub use artifact::{TargetContractArtifact, encode_call};
 pub use builder::TargetContractBuilder;
-pub use config::{FoundryProfile, FoundryToml};
-pub use contract::{TargetContract, encode_call};
+pub use foundry_artifact::ArtifactJson;
+pub use foundry_toml::{FoundryProfile, FoundryToml};
