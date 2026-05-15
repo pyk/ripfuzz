@@ -94,10 +94,8 @@ impl Fuzzer {
     }
 
     /// Launch a parallel fuzzing campaign across the given cores.
-    pub fn launch(
-        &self,
-        cores: &libafl_bolts::core_affinity::Cores,
-    ) -> anyhow::Result<()> {
+    pub fn launch(&self, cores: &libafl_bolts::core_affinity::Cores) -> anyhow::Result<()> {
+        use crate::inspector::{CoverageInspector, MAP_SIZE};
         use libafl::{
             corpus::{Corpus, Testcase},
             events::{EventConfig, launcher::Launcher},
@@ -112,7 +110,6 @@ impl Fuzzer {
             shmem::{ShMem, ShMemProvider, StdShMemProvider},
             tuples::tuple_list,
         };
-        use crate::inspector::{CoverageInspector, MAP_SIZE};
 
         let mut shmem_provider = StdShMemProvider::new()?;
         let mut shmem = shmem_provider.new_shmem(MAP_SIZE)?;
@@ -139,114 +136,118 @@ impl Fuzzer {
             MyShMemProvider,
         >;
 
-        let run_client = move |state: Option<MyState>, mut mgr: MyMgr, _client: libafl::events::launcher::ClientDescription| {
-            let mut local_provider = MyShMemProvider::new().map_err(|e| {
-                libafl::Error::illegal_state(format!("shmem provider failed: {e}"))
-            })?;
-            let mut local_shmem = local_provider
-                .shmem_from_description(map_desc)
-                .map_err(|e| {
-                    libafl::Error::illegal_state(format!("shmem mapping failed: {e}"))
+        let run_client =
+            move |state: Option<MyState>,
+                  mut mgr: MyMgr,
+                  _client: libafl::events::launcher::ClientDescription| {
+                let mut local_provider = MyShMemProvider::new().map_err(|e| {
+                    libafl::Error::illegal_state(format!("shmem provider failed: {e}"))
                 })?;
-            let map_slice = unsafe {
-                std::slice::from_raw_parts_mut(local_shmem.as_mut_ptr(), MAP_SIZE)
-            };
-            let map_slice_ptr = map_slice.as_mut_ptr();
+                let mut local_shmem =
+                    local_provider
+                        .shmem_from_description(map_desc)
+                        .map_err(|e| {
+                            libafl::Error::illegal_state(format!("shmem mapping failed: {e}"))
+                        })?;
+                let map_slice =
+                    unsafe { std::slice::from_raw_parts_mut(local_shmem.as_mut_ptr(), MAP_SIZE) };
+                let map_slice_ptr = map_slice.as_mut_ptr();
 
-            let runner = EvmRunner::from_target(&artifact).map_err(|e| {
-                libafl::Error::illegal_state(format!("EVM runner creation failed: {e}"))
-            })?;
+                let runner = EvmRunner::from_target(&artifact).map_err(|e| {
+                    libafl::Error::illegal_state(format!("EVM runner creation failed: {e}"))
+                })?;
 
-            let observer = StdMapObserver::from_mut_slice("edges", OwnedMutSlice::from(map_slice));
-            let mut feedback = libafl::feedbacks::MaxMapFeedback::new(&observer);
-            let mut objective = libafl::feedbacks::CrashFeedback::new();
+                let observer =
+                    StdMapObserver::from_mut_slice("edges", OwnedMutSlice::from(map_slice));
+                let mut feedback = libafl::feedbacks::MaxMapFeedback::new(&observer);
+                let mut objective = libafl::feedbacks::CrashFeedback::new();
 
-            let mut state = match state {
-                Some(s) => {
-                    unsafe { std::ptr::write_bytes(map_slice_ptr, 0, MAP_SIZE) };
-                    s
-                }
-                None => {
-                    let mut s = MyState::new(
-                        StdRand::with_seed(config.seed),
-                        MyCorpus::new(),
-                        MyCorpus::new(),
-                        &mut feedback,
-                        &mut objective,
-                    )
-                    .map_err(|e| {
-                        libafl::Error::illegal_state(format!("State creation failed: {e}"))
-                    })?;
-                    for seed in &seeds {
-                        s.corpus_mut()
-                            .add(Testcase::new(seed.clone()))
-                            .map_err(|e| {
-                                libafl::Error::illegal_state(format!(
-                                    "Seed addition failed: {e}"
-                                ))
-                            })?;
+                let mut state = match state {
+                    Some(s) => {
+                        unsafe { std::ptr::write_bytes(map_slice_ptr, 0, MAP_SIZE) };
+                        s
                     }
-                    s
-                }
-            };
-
-            let scheduler = libafl::schedulers::QueueScheduler::new();
-            let mut fuzzer = libafl::fuzzer::StdFuzzer::new(scheduler, feedback, objective);
-
-            let mut harness = |input: &CallSequenceInput| {
-                let inspector = unsafe { CoverageInspector::new(map_slice_ptr, MAP_SIZE) };
-                match runner.run_sequence(&input.calls, inspector) {
-                    Ok(res) if res.all_ok && res.property_triggered => {
-                        libafl::executors::ExitKind::Crash
+                    None => {
+                        let mut s = MyState::new(
+                            StdRand::with_seed(config.seed),
+                            MyCorpus::new(),
+                            MyCorpus::new(),
+                            &mut feedback,
+                            &mut objective,
+                        )
+                        .map_err(|e| {
+                            libafl::Error::illegal_state(format!("State creation failed: {e}"))
+                        })?;
+                        for seed in &seeds {
+                            s.corpus_mut()
+                                .add(Testcase::new(seed.clone()))
+                                .map_err(|e| {
+                                    libafl::Error::illegal_state(format!(
+                                        "Seed addition failed: {e}"
+                                    ))
+                                })?;
+                        }
+                        s
                     }
-                    Ok(_) => libafl::executors::ExitKind::Ok,
-                    Err(_) => libafl::executors::ExitKind::Ok,
+                };
+
+                let scheduler = libafl::schedulers::QueueScheduler::new();
+                let mut fuzzer = libafl::fuzzer::StdFuzzer::new(scheduler, feedback, objective);
+
+                let mut harness = |input: &CallSequenceInput| {
+                    let inspector = unsafe { CoverageInspector::new(map_slice_ptr, MAP_SIZE) };
+                    match runner.run_sequence(&input.calls, inspector) {
+                        Ok(res) if res.all_ok && res.property_triggered => {
+                            libafl::executors::ExitKind::Crash
+                        }
+                        Ok(_) => libafl::executors::ExitKind::Ok,
+                        Err(_) => libafl::executors::ExitKind::Ok,
+                    }
+                };
+
+                let mut executor = libafl::executors::InProcessExecutor::new(
+                    &mut harness,
+                    tuple_list!(observer),
+                    &mut fuzzer,
+                    &mut state,
+                    &mut mgr,
+                )
+                .map_err(|e| {
+                    libafl::Error::illegal_state(format!("Executor creation failed: {e}"))
+                })?;
+
+                let mut stages = tuple_list!(StdMutationalStage::with_max_iterations(
+                    libafl::mutators::scheduled::HavocScheduledMutator::new(tuple_list!(
+                        SequenceSwapMutator,
+                        SequenceInsertMutator::new(
+                            selectors.clone(),
+                            config.max_block_number_delay,
+                            config.max_block_timestamp_delay,
+                        ),
+                        SequenceDeleteMutator,
+                        SequenceSpliceMutator,
+                        SequenceInterleaveMutator,
+                        SequenceHeadMutator,
+                        SequenceTailMutator,
+                        SequenceArgMutator::new(artifact.abi.clone()),
+                        SequenceDelayMutator::new(
+                            config.max_block_number_delay,
+                            config.max_block_timestamp_delay,
+                        ),
+                    )),
+                    std::num::NonZeroUsize::new(1).unwrap(),
+                ));
+
+                for _ in 0..config.max_iters {
+                    fuzzer
+                        .fuzz_one(&mut stages, &mut executor, &mut state, &mut mgr)
+                        .map_err(|e| {
+                            libafl::Error::illegal_state(format!("Fuzz iteration failed: {e}"))
+                        })?;
                 }
+
+                Ok(())
             };
-
-            let mut executor = libafl::executors::InProcessExecutor::new(
-                &mut harness,
-                tuple_list!(observer),
-                &mut fuzzer,
-                &mut state,
-                &mut mgr,
-            )
-            .map_err(|e| {
-                libafl::Error::illegal_state(format!("Executor creation failed: {e}"))
-            })?;
-
-            let mut stages = tuple_list!(StdMutationalStage::with_max_iterations(
-                libafl::mutators::scheduled::HavocScheduledMutator::new(tuple_list!(
-                    SequenceSwapMutator,
-                    SequenceInsertMutator::new(
-                        selectors.clone(),
-                        config.max_block_number_delay,
-                        config.max_block_timestamp_delay,
-                    ),
-                    SequenceDeleteMutator,
-                    SequenceSpliceMutator,
-                    SequenceInterleaveMutator,
-                    SequenceHeadMutator,
-                    SequenceTailMutator,
-                    SequenceArgMutator::new(artifact.abi.clone()),
-                    SequenceDelayMutator::new(
-                        config.max_block_number_delay,
-                        config.max_block_timestamp_delay,
-                    ),
-                )),
-                std::num::NonZeroUsize::new(1).unwrap(),
-            ));
-
-            for _ in 0..config.max_iters {
-                fuzzer
-                    .fuzz_one(&mut stages, &mut executor, &mut state, &mut mgr)
-                    .map_err(|e| {
-                        libafl::Error::illegal_state(format!("Fuzz iteration failed: {e}"))
-                    })?;
-            }
-
-            Ok(())
-        };
 
         Launcher::builder()
             .shmem_provider(shmem_provider)
@@ -416,21 +417,21 @@ impl Fuzzer {
         let mut harness = |input: &CallSequenceInput| {
             let inspector = crate::inspector::CoverageInspector::global();
             match runner.run_sequence(&input.calls, inspector) {
-            Ok(res) if res.all_ok && res.property_triggered => {
-                if let (Some(name), Some(sel)) =
-                    (&res.triggered_property, &res.triggered_property_selector)
-                {
-                    failures.borrow_mut().push(PropertyFailure {
-                        property_name: name.clone(),
-                        property_selector: *sel,
-                        call_sequence: input.clone(),
-                        call_meta: res.call_meta.clone(),
-                    });
+                Ok(res) if res.all_ok && res.property_triggered => {
+                    if let (Some(name), Some(sel)) =
+                        (&res.triggered_property, &res.triggered_property_selector)
+                    {
+                        failures.borrow_mut().push(PropertyFailure {
+                            property_name: name.clone(),
+                            property_selector: *sel,
+                            call_sequence: input.clone(),
+                            call_meta: res.call_meta.clone(),
+                        });
+                    }
+                    libafl::executors::ExitKind::Crash
                 }
-                libafl::executors::ExitKind::Crash
-            }
-            Ok(_) => libafl::executors::ExitKind::Ok,
-            Err(_) => libafl::executors::ExitKind::Ok,
+                Ok(_) => libafl::executors::ExitKind::Ok,
+                Err(_) => libafl::executors::ExitKind::Ok,
             }
         };
 

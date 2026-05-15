@@ -173,7 +173,9 @@ mod tests {
         }
 
         // Run the mutated sequence and inspect block progression.
-        let res = runner.run_sequence(&input.calls, crate::inspector::CoverageInspector::global()).unwrap();
+        let res = runner
+            .run_sequence(&input.calls, crate::inspector::CoverageInspector::global())
+            .unwrap();
         assert!(res.all_ok, "sequence should succeed");
         assert!(res.property_triggered, "property should be triggered");
 
