@@ -4,11 +4,11 @@ use std::num::NonZeroUsize;
 use alloy_json_abi::JsonAbi;
 use libafl::{
     corpus::Corpus,
-    state::HasCorpus,
     mutators::{MutationResult, Mutator},
+    state::HasCorpus,
     state::HasRand,
 };
-use libafl_bolts::{rands::Rand, Named};
+use libafl_bolts::{Named, rands::Rand};
 
 use crate::fuzzer::sequence::{Call, CallSequenceInput};
 
@@ -35,8 +35,12 @@ impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceSwapMutator {
         if input.calls.len() < 2 {
             return Ok(MutationResult::Skipped);
         }
-        let idx1 = state.rand_mut().below(NonZeroUsize::new(input.calls.len()).unwrap());
-        let idx2 = state.rand_mut().below(NonZeroUsize::new(input.calls.len()).unwrap());
+        let idx1 = state
+            .rand_mut()
+            .below(NonZeroUsize::new(input.calls.len()).unwrap());
+        let idx2 = state
+            .rand_mut()
+            .below(NonZeroUsize::new(input.calls.len()).unwrap());
         if idx1 != idx2 {
             input.calls.swap(idx1, idx2);
             Ok(MutationResult::Mutated)
@@ -84,7 +88,9 @@ impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceInsertMutator {
         let idx = if input.calls.is_empty() {
             0
         } else {
-            state.rand_mut().below(NonZeroUsize::new(input.calls.len() + 1).unwrap())
+            state
+                .rand_mut()
+                .below(NonZeroUsize::new(input.calls.len() + 1).unwrap())
         };
         let sel_idx = state
             .rand_mut()
@@ -125,7 +131,9 @@ impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceDeleteMutator {
         if input.calls.is_empty() {
             return Ok(MutationResult::Skipped);
         }
-        let idx = state.rand_mut().below(NonZeroUsize::new(input.calls.len()).unwrap());
+        let idx = state
+            .rand_mut()
+            .below(NonZeroUsize::new(input.calls.len()).unwrap());
         input.calls.remove(idx);
         Ok(MutationResult::Mutated)
     }
@@ -167,12 +175,8 @@ where
             return Ok(MutationResult::Skipped);
         }
 
-        let id1 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(count).unwrap());
-        let id2 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(count).unwrap());
+        let id1 = state.rand_mut().below(NonZeroUsize::new(count).unwrap());
+        let id2 = state.rand_mut().below(NonZeroUsize::new(count).unwrap());
 
         let seq1 = state
             .corpus()
@@ -242,12 +246,8 @@ where
             return Ok(MutationResult::Skipped);
         }
 
-        let id1 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(count).unwrap());
-        let id2 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(count).unwrap());
+        let id1 = state.rand_mut().below(NonZeroUsize::new(count).unwrap());
+        let id2 = state.rand_mut().below(NonZeroUsize::new(count).unwrap());
 
         let seq1 = state
             .corpus()
@@ -322,9 +322,7 @@ where
         if count == 0 {
             return Ok(MutationResult::Skipped);
         }
-        let id = state
-            .rand_mut()
-            .below(NonZeroUsize::new(count).unwrap());
+        let id = state.rand_mut().below(NonZeroUsize::new(count).unwrap());
         let seq = state
             .corpus()
             .get(libafl::corpus::CorpusId::from(id))
@@ -376,9 +374,7 @@ where
         if count == 0 {
             return Ok(MutationResult::Skipped);
         }
-        let id = state
-            .rand_mut()
-            .below(NonZeroUsize::new(count).unwrap());
+        let id = state.rand_mut().below(NonZeroUsize::new(count).unwrap());
         let seq = state
             .corpus()
             .get(libafl::corpus::CorpusId::from(id))
@@ -465,10 +461,22 @@ impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceArgMutator {
                     // Mutate by adding/subtracting a small random delta.
                     let delta = (state.rand_mut().next() % 1_000) as i64 - 500;
                     let mut val = u128::from_be_bytes([
-                        arg_bytes[16], arg_bytes[17], arg_bytes[18], arg_bytes[19],
-                        arg_bytes[20], arg_bytes[21], arg_bytes[22], arg_bytes[23],
-                        arg_bytes[24], arg_bytes[25], arg_bytes[26], arg_bytes[27],
-                        arg_bytes[28], arg_bytes[29], arg_bytes[30], arg_bytes[31],
+                        arg_bytes[16],
+                        arg_bytes[17],
+                        arg_bytes[18],
+                        arg_bytes[19],
+                        arg_bytes[20],
+                        arg_bytes[21],
+                        arg_bytes[22],
+                        arg_bytes[23],
+                        arg_bytes[24],
+                        arg_bytes[25],
+                        arg_bytes[26],
+                        arg_bytes[27],
+                        arg_bytes[28],
+                        arg_bytes[29],
+                        arg_bytes[30],
+                        arg_bytes[31],
                     ]);
                     if delta >= 0 {
                         val = val.saturating_add(delta as u128);
@@ -489,9 +497,7 @@ impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceArgMutator {
                     mutated = true;
                 } else {
                     // Fallback: random byte flip in the word.
-                    let byte_idx = state
-                        .rand_mut()
-                        .below(NonZeroUsize::new(32).unwrap());
+                    let byte_idx = state.rand_mut().below(NonZeroUsize::new(32).unwrap());
                     arg_bytes[byte_idx] = state.rand_mut().next() as u8;
                     mutated = true;
                 }

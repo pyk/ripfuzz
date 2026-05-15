@@ -5,8 +5,7 @@ use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::JsonAbi;
 use anyhow::Result;
 use revm::{
-    InspectEvm,
-    MainBuilder, MainContext,
+    InspectEvm, MainBuilder, MainContext,
     context::{Context, TxEnv},
     database::InMemoryDB,
     database_interface::Database,
@@ -117,7 +116,10 @@ impl EvmRunner {
 
         // If the contract declares a `setUp()` function, call it after deployment.
         const SETUP_SELECTOR: [u8; 4] = [0x0a, 0x92, 0x54, 0xe4];
-        let has_setup = target.abi.functions().any(|f| f.selector() == SETUP_SELECTOR);
+        let has_setup = target
+            .abi
+            .functions()
+            .any(|f| f.selector() == SETUP_SELECTOR);
         if has_setup {
             let nonce = evm
                 .ctx

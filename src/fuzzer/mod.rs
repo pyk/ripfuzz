@@ -106,9 +106,7 @@ impl Fuzzer {
         )?;
 
         for seed in &self.seeds {
-            state
-                .corpus_mut()
-                .add(Testcase::new(seed.clone()))?;
+            state.corpus_mut().add(Testcase::new(seed.clone()))?;
         }
 
         let scheduler = QueueScheduler::new();
@@ -117,16 +115,14 @@ impl Fuzzer {
         let crashes = RefCell::new(Vec::new());
         let runner = &self.runner;
 
-        let mut harness = |input: &CallSequenceInput| {
-            match runner.run_sequence(&input.calls) {
-                Ok(res) if res.all_ok && res.property_triggered => {
-                    let bytes = input.target_bytes();
-                    crashes.borrow_mut().push(bytes.to_vec());
-                    libafl::executors::ExitKind::Crash
-                }
-                Ok(_) => libafl::executors::ExitKind::Ok,
-                Err(_) => libafl::executors::ExitKind::Ok,
+        let mut harness = |input: &CallSequenceInput| match runner.run_sequence(&input.calls) {
+            Ok(res) if res.all_ok && res.property_triggered => {
+                let bytes = input.target_bytes();
+                crashes.borrow_mut().push(bytes.to_vec());
+                libafl::executors::ExitKind::Crash
             }
+            Ok(_) => libafl::executors::ExitKind::Ok,
+            Err(_) => libafl::executors::ExitKind::Ok,
         };
 
         let mut executor = InProcessExecutor::new(
