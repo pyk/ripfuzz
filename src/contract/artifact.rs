@@ -20,12 +20,14 @@ pub struct ContractArtifact {
 }
 
 /// Scan the ABI for functions that:
-///   1. Return a single `bool`, and
-///   2. Are either `pure` or `view`.
+///   1. Start with `property_`,
+///   2. Return a single `bool`, and
+///   3. Are either `pure` or `view`.
 pub fn discover_properties(abi: &JsonAbi) -> Vec<([u8; 4], String)> {
     abi.functions()
         .filter(|f| {
-            f.outputs.len() == 1
+            f.name.starts_with("property_")
+                && f.outputs.len() == 1
                 && f.outputs[0].ty == "bool"
                 && matches!(
                     f.state_mutability,

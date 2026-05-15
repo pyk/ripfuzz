@@ -5,6 +5,7 @@ use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::JsonAbi;
 use anyhow::Result;
 use revm::{
+    InspectEvm,
     MainBuilder, MainContext,
     context::{Context, TxEnv},
     database::InMemoryDB,
@@ -15,6 +16,7 @@ use revm::{
 };
 
 use crate::contract::ContractArtifact;
+use crate::fuzzer::sequence::Call;
 use crate::inspector::CoverageInspector;
 use crate::trace::CallTraceInspector;
 
@@ -58,10 +60,19 @@ fn decode_solidity_error(output: &Bytes) -> Option<String> {
 /// Solidity `Error(string)` selector: `keccak256("Error(string)")[:4]`
 const ERROR_SELECTOR: [u8; 4] = [0x08, 0xc3, 0x79, 0xa0];
 
+/// The result of a sequence execution.
+pub struct SequenceResult {
+    /// Whether every call in the sequence succeeded (no reverts).
+    pub all_ok: bool,
+    /// Whether at least one property returned `true` after the sequence.
+    pub property_triggered: bool,
+}
+
 #[derive(Debug)]
 pub struct EvmRunner {
     pub contract_address: Address,
     pub deployed_db: InMemoryDB,
+    pub properties: Vec<([u8; 4], String)>,
 }
 
 impl EvmRunner {
@@ -137,10 +148,11 @@ impl EvmRunner {
         Ok(Self {
             contract_address,
             deployed_db,
+            properties: target.properties.clone(),
         })
     }
 
-    pub fn run_sequence(&self, input: &[u8]) -> Result<bool, anyhow::Error> {
+    pub fn run_sequence(&self, calls: &[Call]) -> Result<SequenceResult, anyhow::Error> {
         let mut db = self.deployed_db.clone();
         let start_nonce = db
             .basic(CALLER)
@@ -152,20 +164,17 @@ impl EvmRunner {
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
-        let call_size = 36usize;
-        let num_calls = std::cmp::max(1, input.len() / call_size);
-        let num_calls = std::cmp::min(num_calls, 5);
         let mut nonce = start_nonce;
 
-        for i in 0..num_calls {
-            let start = i * call_size;
-            let end = std::cmp::min(start + call_size, input.len());
-            let call_data = &input[start..end];
+        for call in calls.iter().take(5) {
+            let mut call_data = Vec::with_capacity(call.encoded_size());
+            call_data.extend_from_slice(&call.selector);
+            call_data.extend_from_slice(&call.args);
 
             let tx = TxEnv {
                 caller: CALLER,
                 kind: TxKind::Call(self.contract_address),
-                data: Bytes::copy_from_slice(call_data),
+                data: Bytes::from(call_data),
                 gas_limit: GAS_LIMIT,
                 nonce,
                 ..Default::default()
@@ -174,10 +183,40 @@ impl EvmRunner {
             let result = evm.inspect_tx_commit(tx)?;
             nonce += 1;
             if !result.is_success() {
-                return Ok(false); // reverted
+                return Ok(SequenceResult {
+                    all_ok: false,
+                    property_triggered: false,
+                });
             }
         }
 
-        Ok(true)
+        // After a successful sequence, check whether any property returns `true`.
+        let mut property_triggered = false;
+        for (selector, _name) in &self.properties {
+            let tx = TxEnv {
+                caller: CALLER,
+                kind: TxKind::Call(self.contract_address),
+                data: Bytes::copy_from_slice(selector),
+                gas_limit: GAS_LIMIT,
+                nonce,
+                ..Default::default()
+            };
+            let result = evm.inspect_one_tx(tx)?;
+            if result.is_success() {
+                let out: Option<&Bytes> = result.output();
+                if let Some(output) = out
+                    && output.len() == 32
+                    && output[31] == 1
+                {
+                    property_triggered = true;
+                    break;
+                }
+            }
+        }
+
+        Ok(SequenceResult {
+            all_ok: true,
+            property_triggered,
+        })
     }
 }

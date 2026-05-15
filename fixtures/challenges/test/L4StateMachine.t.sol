@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity 0.8.28;
+
+import {StateMachine} from "../src/L4StateMachine.sol";
+
+contract L4StateMachineTest {
+    StateMachine public machine;
+
+    function setUp() public {
+        machine = new StateMachine();
+    }
+
+    function testCatchDragon() public {
+        assert(!machine.property_caught());
+        machine.stepA();
+        machine.stepB();
+        machine.stepC();
+        machine.finish();
+        assert(machine.property_caught());
+    }
+}
