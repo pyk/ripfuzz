@@ -18,6 +18,14 @@ pub struct FuzzConfig {
     /// Random seed for reproducibility.
     #[arg(long = "fuzz-seed", default_value = "0")]
     pub seed: u64,
+
+    /// Maximum block number delay between calls.
+    #[arg(long = "max-block-delay", default_value = "5")]
+    pub max_block_number_delay: u64,
+
+    /// Maximum block timestamp delay between calls.
+    #[arg(long = "max-time-delay", default_value = "5")]
+    pub max_block_timestamp_delay: u64,
 }
 
 impl Default for FuzzConfig {
@@ -27,6 +35,8 @@ impl Default for FuzzConfig {
             timeout_secs: 60,
             sequence_length: 5,
             seed: 0,
+            max_block_number_delay: 5,
+            max_block_timestamp_delay: 5,
         }
     }
 }

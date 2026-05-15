@@ -31,14 +31,33 @@ pub fn run(args: Args) -> Result<()> {
             .collect::<Vec<_>>()
     );
 
+    let contract_name = artifact.contract_name.clone();
+    let properties = artifact.properties.clone();
     let fuzzer = Fuzzer::from_artifact(artifact)?;
     let result = fuzzer.run()?;
 
     println!("Fuzzing completed: {} iterations", result.iterations);
-    if result.crashes.is_empty() {
-        println!("No crashes found.");
+    if result.failures.is_empty() {
+        println!("All properties passed.");
     } else {
-        println!("Found {} crash(es)", result.crashes.len());
+        for failure in &result.failures {
+            println!();
+            println!(
+                "[FAILED] Property Test: {}::{}",
+                contract_name, failure.property_name
+            );
+            println!(
+                "Test for method \"{}::{}\" failed after the following call sequence:",
+                contract_name, failure.property_name
+            );
+            println!("[Call Sequence]");
+            println!("{}", fuzzer.format_failure(failure));
+        }
+        let total = properties.len();
+        let failed = result.failures.len();
+        let passed = total.saturating_sub(failed);
+        println!();
+        println!("Test summary: {} passed, {} failed", passed, failed);
     }
 
     Ok(())

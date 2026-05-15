@@ -59,12 +59,27 @@ fn decode_solidity_error(output: &Bytes) -> Option<String> {
 /// Solidity `Error(string)` selector: `keccak256("Error(string)")[:4]`
 const ERROR_SELECTOR: [u8; 4] = [0x08, 0xc3, 0x79, 0xa0];
 
+/// Metadata for a single call in an executed sequence.
+#[derive(Debug, Clone)]
+pub struct CallMeta {
+    /// Block number at execution time.
+    pub block_number: u64,
+    /// Block timestamp at execution time.
+    pub block_timestamp: u64,
+}
+
 /// The result of a sequence execution.
 pub struct SequenceResult {
     /// Whether every call in the sequence succeeded (no reverts).
     pub all_ok: bool,
     /// Whether at least one property returned `true` after the sequence.
     pub property_triggered: bool,
+    /// Name of the triggered property, if any.
+    pub triggered_property: Option<String>,
+    /// Selector of the triggered property, if any.
+    pub triggered_property_selector: Option<[u8; 4]>,
+    /// Per-call execution metadata (block number / timestamp).
+    pub call_meta: Vec<CallMeta>,
 }
 
 #[derive(Debug)]
@@ -72,6 +87,9 @@ pub struct EvmRunner {
     pub contract_address: Address,
     pub deployed_db: InMemoryDB,
     pub properties: Vec<([u8; 4], String)>,
+    pub contract_name: String,
+    pub contract_abi: JsonAbi,
+    pub initcode_map: HashMap<Bytes, (String, JsonAbi)>,
 }
 
 impl EvmRunner {
@@ -95,7 +113,7 @@ impl EvmRunner {
             .iter()
             .map(|(name, (initcode, abi))| (initcode.clone(), (name.clone(), abi.clone())))
             .collect();
-        let inspector = CallTraceInspector::new(initcode_map);
+        let inspector = CallTraceInspector::new(initcode_map.clone());
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
@@ -151,6 +169,9 @@ impl EvmRunner {
             contract_address,
             deployed_db,
             properties: target.properties.clone(),
+            contract_name: target.contract_name.clone(),
+            contract_abi: target.abi.clone(),
+            initcode_map,
         })
     }
 
@@ -167,8 +188,23 @@ impl EvmRunner {
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
         let mut nonce = start_nonce;
+        let mut call_meta = Vec::new();
 
-        for call in calls.iter().take(5) {
+        for (idx, call) in calls.iter().enumerate().take(5) {
+            // Apply per-call block delays before execution.
+            let number_delay = U256::from(call.block_number_delay);
+            let time_delay = U256::from(call.block_timestamp_delay);
+            if idx > 0 {
+                // Raptor commits every transaction immediately and cannot pack
+                // multiple calls into the same block. Ensure each subsequent call
+                // gets a distinct block context even when the delay is 0.
+                evm.ctx.block.number += number_delay.max(U256::from(1));
+                evm.ctx.block.timestamp += time_delay.max(U256::from(1));
+            } else {
+                evm.ctx.block.number += number_delay;
+                evm.ctx.block.timestamp += time_delay;
+            }
+
             let mut call_data = Vec::with_capacity(call.encoded_size());
             call_data.extend_from_slice(&call.selector);
             call_data.extend_from_slice(&call.args);
@@ -184,17 +220,27 @@ impl EvmRunner {
 
             let result = evm.inspect_tx_commit(tx)?;
             nonce += 1;
+
+            call_meta.push(CallMeta {
+                block_number: evm.ctx.block.number.try_into().unwrap_or(0),
+                block_timestamp: evm.ctx.block.timestamp.try_into().unwrap_or(0),
+            });
+
             if !result.is_success() {
                 return Ok(SequenceResult {
                     all_ok: false,
                     property_triggered: false,
+                    triggered_property: None,
+                    triggered_property_selector: None,
+                    call_meta,
                 });
             }
         }
 
         // After a successful sequence, check whether any property returns `true`.
-        let mut property_triggered = false;
-        for (selector, _name) in &self.properties {
+        let mut triggered_property = None;
+        let mut triggered_property_selector = None;
+        for (selector, name) in &self.properties {
             let tx = TxEnv {
                 caller: CALLER,
                 kind: TxKind::Call(self.contract_address),
@@ -210,7 +256,8 @@ impl EvmRunner {
                     && output.len() == 32
                     && output[31] == 1
                 {
-                    property_triggered = true;
+                    triggered_property = Some(name.clone());
+                    triggered_property_selector = Some(*selector);
                     break;
                 }
             }
@@ -218,7 +265,10 @@ impl EvmRunner {
 
         Ok(SequenceResult {
             all_ok: true,
-            property_triggered,
+            property_triggered: triggered_property.is_some(),
+            triggered_property,
+            triggered_property_selector,
+            call_meta,
         })
     }
 }

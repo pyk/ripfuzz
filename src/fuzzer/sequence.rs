@@ -11,6 +11,10 @@ pub struct Call {
     pub selector: [u8; 4],
     /// ABI-encoded arguments (0 or more 32-byte words).
     pub args: Vec<u8>,
+    /// How many blocks to advance before this call is executed.
+    pub block_number_delay: u64,
+    /// How many seconds to advance before this call is executed.
+    pub block_timestamp_delay: u64,
 }
 
 impl Call {
@@ -25,6 +29,18 @@ impl Call {
         buf.extend_from_slice(&self.selector);
         buf.extend_from_slice(&self.args);
         buf
+    }
+
+    /// Cap block number delay so it never exceeds timestamp delay.
+    /// Medusa invariant: each block must have a unique timestamp.
+    pub fn cap_delays(&mut self) {
+        if self.block_number_delay > self.block_timestamp_delay {
+            if self.block_timestamp_delay == 0 {
+                self.block_number_delay = 0;
+            } else {
+                self.block_number_delay %= self.block_timestamp_delay;
+            }
+        }
     }
 }
 
