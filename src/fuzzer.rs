@@ -22,12 +22,14 @@ use crate::contract::ContractArtifact;
 use crate::evm::EvmRunner;
 
 /// The result of a fuzzing campaign.
+#[derive(Debug)]
 pub struct FuzzResult {
     pub iterations: u64,
     pub crashes: Vec<Vec<u8>>,
 }
 
 /// A fuzzer configured to run against a deployed contract.
+#[derive(Debug)]
 pub struct Fuzzer {
     runner: EvmRunner,
     seeds: Vec<Vec<u8>>,
@@ -138,4 +140,46 @@ fn build_seeds(artifact: &ContractArtifact) -> Vec<Vec<u8>> {
     }
 
     seeds
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::contract::ContractBuilder;
+    use crate::fuzzer::Fuzzer;
+
+    #[test]
+    fn deployment_reports_constructor_revert_reason() {
+        let artifact = ContractBuilder::build(
+            Path::new("fixtures/basic-target"),
+            Path::new("test/ConstructorRevert.sol"),
+        )
+        .unwrap();
+
+        let err = Fuzzer::from_artifact(artifact).unwrap_err();
+        let msg = format!("{err}");
+        let expected = std::fs::read_to_string(
+            "fixtures/basic-target/test/ConstructorRevertOutput.txt",
+        )
+        .unwrap();
+        assert_eq!(msg, expected);
+    }
+
+    #[test]
+    fn deployment_reports_complex_constructor_trace() {
+        let artifact = ContractBuilder::build(
+            Path::new("fixtures/basic-target"),
+            Path::new("test/ComplexConstructorRevert.sol"),
+        )
+        .unwrap();
+
+        let err = Fuzzer::from_artifact(artifact).unwrap_err();
+        let msg = format!("{err}");
+        let expected = std::fs::read_to_string(
+            "fixtures/basic-target/test/ComplexConstructorRevertOutput.txt",
+        )
+        .unwrap();
+        assert_eq!(msg, expected);
+    }
 }

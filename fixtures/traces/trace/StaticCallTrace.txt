@@ -1,0 +1,8 @@
+[173031] → new StaticCallTrace@0xe3a207e4225d459095491ea75d30b31968dff887
+  ├─ [125456] → new StaticCallTarget@0x3642dabb61aba79183301c78991452600fb35c90
+  │  └─ ← [Return] 516 bytes of code
+  ├─ [431] StaticCallTarget::getStored() [staticcall]
+  │  └─ ← [Return] 42
+  ├─ [926] StaticCallTarget::getSum(3, 4) [staticcall]
+  │  └─ ← [Return] 7
+  └─ ← [Return] 62 bytes of code

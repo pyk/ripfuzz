@@ -1,0 +1,6 @@
+[181358] → new HelperRevertTrace@0xe3a207e4225d459095491ea75d30b31968dff887
+  ├─ [148194] → new Helper@0x3642dabb61aba79183301c78991452600fb35c90
+  │  └─ ← [Return] 740 bytes of code
+  ├─ [472] Helper::doRevert() [staticcall]
+  │  └─ ← [Revert] helper reverted
+  └─ ← [Revert] helper reverted

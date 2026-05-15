@@ -1,0 +1,11 @@
+  [236539] NestedRevertTest::testDeploy()
+    ├─ [203985] → new <unknown>@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+    │   ├─ [148194] → new Helper@0x104fBc016F4bb334D775a19E8A6510109AC63E00
+    │   │   └─ ← [Return] 740 bytes of code
+    │   ├─ [22559] Helper::setValue(200)
+    │   │   ├─  storage changes:
+    │   │   │   @ 0: 0 → 200
+    │   │   └─ ← [Stop]
+    │   └─ ← [Revert] 0x08c379a0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000146e65737465642072657665727420726561736f6e000000000000000000000000
+    └─ ← [Revert] nested revert reason
+

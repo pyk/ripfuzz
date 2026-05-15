@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::{JsonAbi, StateMutability};
 use revm::bytecode::Bytecode;
@@ -12,6 +14,9 @@ pub struct ContractArtifact {
     pub abi: JsonAbi,
     /// Function selectors that return `bool` and represent invariants.
     pub properties: Vec<([u8; 4], String)>,
+    /// All contracts compiled in the same project, keyed by contract name.
+    /// Each entry holds the initcode and ABI for that contract.
+    pub all_contracts: HashMap<String, (Bytes, JsonAbi)>,
 }
 
 /// Scan the ABI for functions that:

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_json_abi::JsonAbi;
 use revm::bytecode::Bytecode;
@@ -35,11 +37,31 @@ impl ArtifactJson {
             runtime: Bytecode::new_raw(runtime),
             abi: self.abi,
             properties: vec![],
+            all_contracts: HashMap::new(),
+        }
+    }
+
+    /// Build a [`ContractArtifact`] from this artifact with all project contracts.
+    pub fn into_artifact_with_all(
+        self,
+        contract_name: String,
+        all_contracts: HashMap<String, (Bytes, JsonAbi)>,
+    ) -> crate::contract::artifact::ContractArtifact {
+        let initcode = parse_hex(&self.bytecode.object).unwrap_or_default();
+        let runtime = parse_hex(&self.deployed_bytecode.object).unwrap_or_default();
+
+        crate::contract::artifact::ContractArtifact {
+            contract_name,
+            initcode,
+            runtime: Bytecode::new_raw(runtime),
+            abi: self.abi,
+            properties: vec![],
+            all_contracts,
         }
     }
 }
 
-fn parse_hex(s: &str) -> Option<Bytes> {
+pub fn parse_hex(s: &str) -> Option<Bytes> {
     let s = s.trim();
     let s = s.strip_prefix("0x").unwrap_or(s);
     hex::decode(s).ok().map(Into::into)

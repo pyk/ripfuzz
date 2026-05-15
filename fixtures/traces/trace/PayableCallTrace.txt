@@ -1,0 +1,6 @@
+[141442] → new PayableCallTrace@0xe3a207e4225d459095491ea75d30b31968dff887
+  ├─ [67315] → new PayableTarget@0x3642dabb61aba79183301c78991452600fb35c90
+  │  └─ ← [Return] 336 bytes of code
+  ├─ [22428] PayableTarget::deposit()
+  │  └─ ← [Stop]
+  └─ ← [Return] 62 bytes of code

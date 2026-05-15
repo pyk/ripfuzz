@@ -1,7 +1,10 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use alloy_json_abi::JsonAbi;
 use anyhow::Result;
+use revm::primitives::Bytes;
 
 use crate::contract::artifact::{ContractArtifact, discover_properties};
 use crate::foundry::artifact::ArtifactJson;
@@ -59,7 +62,8 @@ impl ContractBuilder {
         let artifact_json: ArtifactJson =
             serde_json::from_str(&fs::read_to_string(&artifact_path)?)?;
 
-        let mut artifact = artifact_json.into_artifact(contract_name.to_string());
+        let all_contracts = Self::load_all_contracts(&out_dir)?;
+        let mut artifact = artifact_json.into_artifact_with_all(contract_name.to_string(), all_contracts);
         artifact.properties = discover_properties(&artifact.abi);
 
         Ok(artifact)
@@ -95,6 +99,48 @@ impl ContractBuilder {
                 artifacts
             ),
         }
+    }
+
+    /// Load every compiled contract artifact found in the Foundry `out` directory.
+    fn load_all_contracts(out_dir: &Path) -> Result<HashMap<String, (Bytes, JsonAbi)>> {
+        let mut map = HashMap::new();
+
+        for entry in std::fs::read_dir(out_dir)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let dir_name = entry.file_name();
+            let dir_name = dir_name.to_string_lossy();
+            // Only directories ending in `.sol`
+            if !dir_name.ends_with(".sol") {
+                continue;
+            }
+            let contract_name = dir_name.strip_suffix(".sol").unwrap_or(&dir_name);
+
+            // Find the `.json` artifact inside the directory.
+            let mut artifact_file = None;
+            for file in std::fs::read_dir(entry.path())? {
+                let file = file?;
+                let name = file.file_name().to_string_lossy().into_owned();
+                if name.ends_with(".json") {
+                    artifact_file = Some(file.path());
+                    break;
+                }
+            }
+            let artifact_path = match artifact_file {
+                Some(p) => p,
+                None => continue,
+            };
+
+            let json_str = std::fs::read_to_string(&artifact_path)?;
+            let json: ArtifactJson = serde_json::from_str(&json_str)?;
+            let initcode = crate::foundry::artifact::parse_hex(&json.bytecode.object)
+                .unwrap_or_default();
+            map.insert(contract_name.to_string(), (initcode, json.abi));
+        }
+
+        Ok(map)
     }
 }
 

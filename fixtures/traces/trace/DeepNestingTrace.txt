@@ -1,0 +1,14 @@
+[327499] → new DeepNestingTrace@0xe3a207e4225d459095491ea75d30b31968dff887
+  ├─ [85933] → new DeepNestingA@0x3642dabb61aba79183301c78991452600fb35c90
+  │  └─ ← [Return] 429 bytes of code
+  ├─ [94339] → new DeepNestingB@0x4b3042be6a475f9a6787c1c8b0a2febf60eca8e1
+  │  └─ ← [Return] 471 bytes of code
+  ├─ [35085] → new DeepNestingC@0xe90ee255694f3b9140809eec209b5ddd22312e7c
+  │  └─ ← [Return] 175 bytes of code
+  ├─ [2417] DeepNestingA::callB(DeepNestingB: [0x4b3042be6a475f9a6787c1c8b0a2febf60eca8e1], DeepNestingC: [0xe90ee255694f3b9140809eec209b5ddd22312e7c])
+  │  ├─ [1235] DeepNestingB::callC(DeepNestingC: [0xe90ee255694f3b9140809eec209b5ddd22312e7c])
+  │  │  ├─ [310] DeepNestingC::doSomething() [staticcall]
+  │  │  │  └─ ← [Return] 123
+  │  │  └─ ← [Stop]
+  │  └─ ← [Stop]
+  └─ ← [Return] 62 bytes of code

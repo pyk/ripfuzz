@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+
+use alloy_dyn_abi::DynSolType;
+use alloy_dyn_abi::DynSolValue;
+use alloy_json_abi::JsonAbi;
 use anyhow::Result;
 use revm::{
     MainBuilder, MainContext,
     context::{Context, TxEnv},
     database::InMemoryDB,
     database_interface::Database,
-    handler::ExecuteCommitEvm,
     inspector::InspectCommitEvm,
     primitives::{Address, Bytes, KECCAK_EMPTY, TxKind, U256},
     state::AccountInfo,
@@ -12,10 +16,49 @@ use revm::{
 
 use crate::contract::ContractArtifact;
 use crate::inspector::CoverageInspector;
+use crate::trace::CallTraceInspector;
 
 pub const CALLER: Address = Address::new([0xde; 20]);
 pub const GAS_LIMIT: u64 = 1_000_000;
 
+/// Extract a human-readable error message from a failed deployment result.
+fn extract_deployment_error(result: &revm::context::result::ExecutionResult) -> String {
+    use revm::context::result::ExecutionResult;
+
+    match result {
+        ExecutionResult::Success { .. } => "contract returned no address".to_string(),
+        ExecutionResult::Revert { output, .. } => {
+            if let Some(reason) = decode_solidity_error(output) {
+                format!("reverted with '{reason}'")
+            } else {
+                format!("reverted (output: 0x{})", hex::encode(output))
+            }
+        }
+        ExecutionResult::Halt { reason, .. } => {
+            format!("halted: {reason}")
+        }
+    }
+}
+
+/// Decode a Solidity `Error(string)` revert payload.
+fn decode_solidity_error(output: &Bytes) -> Option<String> {
+    if output.len() < 4 || output[..4] != ERROR_SELECTOR {
+        return None;
+    }
+
+    let string_type = DynSolType::String;
+    let decoded = string_type.abi_decode_params(&output[4..]).ok()?;
+
+    match decoded {
+        DynSolValue::String(s) => Some(s),
+        _ => None,
+    }
+}
+
+/// Solidity `Error(string)` selector: `keccak256("Error(string)")[:4]`
+const ERROR_SELECTOR: [u8; 4] = [0x08, 0xc3, 0x79, 0xa0];
+
+#[derive(Debug)]
 pub struct EvmRunner {
     pub contract_address: Address,
     pub deployed_db: InMemoryDB,
@@ -35,9 +78,16 @@ impl EvmRunner {
                 account_id: None,
             },
         );
+        crate::trace::insert_foundry_vm(&mut db);
 
+        let initcode_map: HashMap<Bytes, (String, JsonAbi)> = target
+            .all_contracts
+            .iter()
+            .map(|(name, (initcode, abi))| (initcode.clone(), (name.clone(), abi.clone())))
+            .collect();
+        let inspector = CallTraceInspector::new(initcode_map);
         let ctx = Context::mainnet().with_db(db);
-        let mut evm = ctx.build_mainnet();
+        let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
         let tx = TxEnv {
             caller: CALLER,
@@ -47,10 +97,14 @@ impl EvmRunner {
             ..Default::default()
         };
 
-        let result = evm.transact_commit(tx)?;
+        let result = evm.inspect_tx_commit(tx)?;
         let contract_address = result
             .created_address()
-            .ok_or_else(|| anyhow::anyhow!("deployment failed"))?;
+            .ok_or_else(|| {
+                let reason = extract_deployment_error(&result);
+                let trace = evm.inspector.format();
+                anyhow::anyhow!("deployment failed: {reason}\n\nTrace:\n{trace}")
+            })?;
 
         let deployed_db = evm.ctx.journaled_state.database;
         Ok(Self {
