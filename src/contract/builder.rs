@@ -11,6 +11,58 @@ use crate::foundry::artifact::ArtifactJson;
 use crate::foundry::forge;
 use crate::foundry::toml::FoundryToml;
 
+/// Scan a Solidity source file for `contract`, `interface`, and `library`
+/// declarations and return the declared names.
+fn source_contract_names(source: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut in_block_comment = false;
+
+    for line in source.lines() {
+        let line = line.trim();
+
+        if in_block_comment {
+            if line.contains("*/") {
+                in_block_comment = false;
+            }
+            continue;
+        }
+
+        if line.starts_with("//") {
+            continue;
+        }
+
+        if line.contains("/*") && !line.contains("*/") {
+            in_block_comment = true;
+            continue;
+        }
+
+        // Strip inline comments.
+        let line = line.split("//").next().unwrap_or(line);
+        let line = line.split("/*").next().unwrap_or(line);
+
+        for keyword in ["contract ", "interface ", "library "] {
+            if let Some(pos) = line.find(keyword) {
+                let after = &line[pos + keyword.len()..];
+                let name = after
+                    .split(|c: char| c.is_whitespace() || c == '{' || c == '(')
+                    .next()
+                    .unwrap_or("")
+                    .trim();
+                if !name.is_empty()
+                    && name
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+                {
+                    names.push(name.to_string());
+                }
+                break;
+            }
+        }
+    }
+
+    names
+}
+
 /// Builder that resolves a Foundry project into a [`ContractArtifact`].
 pub struct ContractBuilder;
 
@@ -54,7 +106,18 @@ impl ContractBuilder {
 
         let out_dir = project_path.join(profile.out());
 
-        let artifact_name = Self::resolve_artifact_name(&out_dir, contract_name)?;
+        // Compute the source path relative to the project root for artifact disambiguation.
+        let source_path = contract_path
+            .strip_prefix(&project_path)
+            .unwrap_or(&contract_path)
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        let source_text = fs::read_to_string(&contract_path)?;
+        let source_contracts = source_contract_names(&source_text);
+
+        let artifact_name =
+            Self::resolve_artifact_name(&out_dir, contract_name, &source_path, &source_contracts)?;
         let artifact_path = out_dir
             .join(format!("{contract_name}.sol"))
             .join(&artifact_name);
@@ -75,7 +138,12 @@ impl ContractBuilder {
         Ok(artifact)
     }
 
-    fn resolve_artifact_name(out_dir: &Path, contract_name: &str) -> Result<String> {
+    fn resolve_artifact_name(
+        out_dir: &Path,
+        contract_name: &str,
+        source_path: &str,
+        source_contracts: &[String],
+    ) -> Result<String> {
         let artifacts = forge::list_artifacts(out_dir, contract_name)?;
 
         if artifacts.len() == 1 {
@@ -86,23 +154,48 @@ impl ContractBuilder {
             anyhow::bail!("no compiled artifacts for contract {}", contract_name);
         }
 
-        // Multiple artifacts -- try to use build-info timestamp to disambiguate.
-        match forge::latest_build_info(out_dir)? {
-            Some(ts) => {
-                let preferred = artifacts.iter().find(|a| a.contains(ts.as_str()));
-                match preferred {
-                    Some(a) => Ok(a.clone()),
-                    None => anyhow::bail!(
-                        "multiple artifacts for {} and could not disambiguate: {:?}",
-                        contract_name,
-                        artifacts
-                    ),
-                }
+        // Multiple artifacts -- read each one and match by compilation target.
+        // Only keep artifacts whose compilation-target contract name is still
+        // declared in the source file. This correctly handles:
+        //   * stale artifacts left after a contract rename (old name gone)
+        //   * multiple contracts in the same file (error if >1 match)
+        let mut candidates = Vec::new();
+        for name in &artifacts {
+            let path = out_dir.join(format!("{contract_name}.sol")).join(name);
+            let json_str = match fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let json: ArtifactJson = match serde_json::from_str(&json_str) {
+                Ok(j) => j,
+                Err(_) => continue,
+            };
+            let ct_name = if let Some(ref metadata) = json.metadata
+                && let Some(ref settings) = metadata.settings
+                && let Some(ref targets) = settings.compilation_target
+            {
+                targets.get(source_path).cloned()
+            } else {
+                None
+            };
+            let Some(ct_name) = ct_name else { continue };
+            if source_contracts.contains(&ct_name) {
+                candidates.push((name.clone(), ct_name));
             }
-            None => anyhow::bail!(
+        }
+
+        match candidates.len() {
+            0 => anyhow::bail!(
                 "multiple artifacts for {} and could not disambiguate: {:?}",
                 contract_name,
                 artifacts
+            ),
+            1 => Ok(candidates.into_iter().next().unwrap().0),
+            _ => anyhow::bail!(
+                "multiple contracts found in {}: {:?}. \
+                 Specify which contract to fuzz with --contract",
+                source_path,
+                candidates.iter().map(|(_, n)| n).collect::<Vec<_>>()
             ),
         }
     }
@@ -132,11 +225,16 @@ impl ContractBuilder {
                 }
                 let contract_name = name.strip_suffix(".json").unwrap_or(&name);
 
-                let json_str = std::fs::read_to_string(file.path())?;
-                let json: ArtifactJson = serde_json::from_str(&json_str)?;
+                let json_str = match std::fs::read_to_string(file.path()) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                let json: ArtifactJson = match serde_json::from_str(&json_str) {
+                    Ok(j) => j,
+                    Err(_) => continue,
+                };
                 let initcode =
-                    crate::foundry::artifact::parse_hex(&json.bytecode.object)
-                        .unwrap_or_default();
+                    crate::foundry::artifact::parse_hex(&json.bytecode.object).unwrap_or_default();
                 map.insert(contract_name.to_string(), (initcode, json.abi));
             }
         }
@@ -158,6 +256,59 @@ mod tests {
         .unwrap();
         assert_eq!(artifact.contract_name, "Target");
         assert_eq!(artifact.abi.functions().count(), 3);
+    }
+
+    #[test]
+    fn build_uses_contract_name_not_filename() {
+        // Regression: NamedMismatch.sol contains `contract DifferentName`,
+        // so the artifact name must be "DifferentName", not "NamedMismatch".
+        let artifact = ContractBuilder::build(
+            Path::new("fixtures/basic-target"),
+            Path::new("src/NamedMismatch.sol"),
+        )
+        .unwrap();
+        assert_eq!(artifact.contract_name, "DifferentName");
+        assert!(
+            artifact.abi.functions().any(|f| f.name == "set"),
+            "ABI should contain the set function"
+        );
+    }
+
+    #[test]
+    fn build_ignores_stale_artifact_after_rename() {
+        // Regression: after renaming a contract and recompiling, Foundry
+        // leaves the old artifact behind. We must pick the one whose
+        // compilation target name still exists in the source.
+        let project = Path::new("fixtures/basic-target");
+        let source = project.join("src/Renamed.sol");
+        let original = fs::read_to_string(&source).unwrap();
+
+        // Step 1: build with current name Original.
+        let artifact1 = ContractBuilder::build(project, Path::new("src/Renamed.sol")).unwrap();
+        assert_eq!(artifact1.contract_name, "Original");
+
+        // Step 2: rename contract in source and rebuild.
+        let renamed = original.replace("Original", "Renamed");
+        fs::write(&source, &renamed).unwrap();
+        let artifact2 = ContractBuilder::build(project, Path::new("src/Renamed.sol")).unwrap();
+        assert_eq!(artifact2.contract_name, "Renamed");
+
+        // Restore original source.
+        fs::write(&source, &original).unwrap();
+    }
+
+    #[test]
+    fn build_fails_when_multiple_contracts_in_file() {
+        let err = ContractBuilder::build(
+            Path::new("fixtures/basic-target"),
+            Path::new("test/MultiContract.sol"),
+        )
+        .unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("multiple contracts found"),
+            "expected 'multiple contracts found' error, got: {msg}"
+        );
     }
 
     #[test]

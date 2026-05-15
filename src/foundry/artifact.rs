@@ -15,6 +15,19 @@ pub struct ArtifactJson {
     pub bytecode: ArtifactBytecode,
     #[serde(rename = "deployedBytecode")]
     pub deployed_bytecode: ArtifactBytecode,
+    #[serde(default, rename = "metadata")]
+    pub metadata: Option<ArtifactMetadata>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ArtifactMetadata {
+    pub settings: Option<ArtifactSettings>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ArtifactSettings {
+    #[serde(rename = "compilationTarget")]
+    pub compilation_target: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
