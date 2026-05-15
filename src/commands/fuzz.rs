@@ -15,6 +15,10 @@ pub struct Args {
     /// Path to the Foundry project root.
     #[arg(long, short = 'p')]
     pub project: Option<PathBuf>,
+
+    /// Cores to use for parallel fuzzing (e.g. "all", "1,2,3", "0-3").
+    #[arg(long)]
+    pub cores: Option<String>,
 }
 
 pub fn run(args: Args) -> Result<()> {
@@ -34,6 +38,14 @@ pub fn run(args: Args) -> Result<()> {
     let contract_name = artifact.contract_name.clone();
     let properties = artifact.properties.clone();
     let fuzzer = Fuzzer::from_artifact(artifact)?;
+
+    if let Some(cores_str) = args.cores {
+        let cores = libafl_bolts::core_affinity::Cores::from_cmdline(&cores_str)?;
+        println!("Launching parallel fuzzer on cores: {}", cores_str);
+        fuzzer.launch(&cores)?;
+        return Ok(());
+    }
+
     let result = fuzzer.run()?;
 
     println!("Fuzzing completed: {} iterations", result.iterations);

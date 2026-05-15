@@ -175,7 +175,11 @@ impl EvmRunner {
         })
     }
 
-    pub fn run_sequence(&self, calls: &[Call]) -> Result<SequenceResult, anyhow::Error> {
+    pub fn run_sequence(
+        &self,
+        calls: &[Call],
+        inspector: CoverageInspector,
+    ) -> Result<SequenceResult, anyhow::Error> {
         let mut db = self.deployed_db.clone();
         let start_nonce = db
             .basic(CALLER)
@@ -183,7 +187,6 @@ impl EvmRunner {
             .unwrap_or_default()
             .nonce;
 
-        let inspector = CoverageInspector;
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
