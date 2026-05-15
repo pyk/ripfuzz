@@ -62,6 +62,11 @@ impl ContractBuilder {
         let artifact_json: ArtifactJson =
             serde_json::from_str(&fs::read_to_string(&artifact_path)?)?;
 
+        // Use the real contract name from the artifact filename (e.g. SimpleKnob.json -> SimpleKnob)
+        let contract_name = artifact_name
+            .strip_suffix(".json")
+            .unwrap_or(&artifact_name);
+
         let all_contracts = Self::load_all_contracts(&out_dir)?;
         let mut artifact =
             artifact_json.into_artifact_with_all(contract_name.to_string(), all_contracts);
@@ -117,28 +122,23 @@ impl ContractBuilder {
             if !dir_name.ends_with(".sol") {
                 continue;
             }
-            let contract_name = dir_name.strip_suffix(".sol").unwrap_or(&dir_name);
 
-            // Find the `.json` artifact inside the directory.
-            let mut artifact_file = None;
+            // Process every `.json` artifact inside the directory.
             for file in std::fs::read_dir(entry.path())? {
                 let file = file?;
                 let name = file.file_name().to_string_lossy().into_owned();
-                if name.ends_with(".json") {
-                    artifact_file = Some(file.path());
-                    break;
+                if !name.ends_with(".json") {
+                    continue;
                 }
-            }
-            let artifact_path = match artifact_file {
-                Some(p) => p,
-                None => continue,
-            };
+                let contract_name = name.strip_suffix(".json").unwrap_or(&name);
 
-            let json_str = std::fs::read_to_string(&artifact_path)?;
-            let json: ArtifactJson = serde_json::from_str(&json_str)?;
-            let initcode =
-                crate::foundry::artifact::parse_hex(&json.bytecode.object).unwrap_or_default();
-            map.insert(contract_name.to_string(), (initcode, json.abi));
+                let json_str = std::fs::read_to_string(file.path())?;
+                let json: ArtifactJson = serde_json::from_str(&json_str)?;
+                let initcode =
+                    crate::foundry::artifact::parse_hex(&json.bytecode.object)
+                        .unwrap_or_default();
+                map.insert(contract_name.to_string(), (initcode, json.abi));
+            }
         }
 
         Ok(map)
