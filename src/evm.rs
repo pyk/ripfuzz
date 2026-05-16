@@ -1,3 +1,5 @@
+//! EVM runner for deploying and executing Solidity contracts.
+
 use std::collections::HashMap;
 
 use alloy_dyn_abi::DynSolType;
@@ -6,7 +8,7 @@ use alloy_json_abi::JsonAbi;
 use anyhow::Result;
 use revm::{
     InspectEvm, MainBuilder, MainContext,
-    context::{Context, TxEnv},
+    context::{Context, TxEnv, result::ExecutionResult},
     database::InMemoryDB,
     database_interface::Database,
     inspector::InspectCommitEvm,
@@ -14,20 +16,18 @@ use revm::{
     state::AccountInfo,
 };
 
-use crate::contract::ContractArtifact;
-use crate::fuzzer::sequence::Call;
-use crate::inspector::CoverageInspector;
-use crate::trace::CallTraceInspector;
+use crate::contract;
+use crate::fuzzer::sequence;
+use crate::inspector;
+use crate::trace;
 
 pub const CALLER: Address = Address::new([0xde; 20]);
 pub const GAS_LIMIT: u64 = 1_000_000;
 
 /// Extract a human-readable error message from a failed deployment result.
-fn extract_deployment_error(result: &revm::context::result::ExecutionResult) -> String {
-    use revm::context::result::ExecutionResult;
-
+fn extract_deployment_error(result: &ExecutionResult) -> String {
     match result {
-        ExecutionResult::Success { .. } => "contract returned no address".to_string(),
+        ExecutionResult::Success { .. } => "contract returned no address".into(),
         ExecutionResult::Revert { output, .. } => {
             if let Some(reason) = decode_solidity_error(output) {
                 format!("reverted with '{reason}'")
@@ -48,7 +48,7 @@ fn decode_solidity_error(output: &Bytes) -> Option<String> {
     }
 
     let string_type = DynSolType::String;
-    let decoded = string_type.abi_decode_params(&output[4..]).ok()?;
+    let decoded = crate::result_to_option(string_type.abi_decode_params(&output[4..]))?;
 
     match decoded {
         DynSolValue::String(s) => Some(s),
@@ -93,7 +93,7 @@ pub struct EvmRunner {
 }
 
 impl EvmRunner {
-    pub fn from_target(target: &ContractArtifact) -> Result<Self> {
+    pub fn from_target(target: &contract::ContractArtifact) -> Result<Self> {
         let mut db = InMemoryDB::default();
 
         db.insert_account_info(
@@ -108,12 +108,7 @@ impl EvmRunner {
         );
         crate::trace::insert_foundry_vm(&mut db);
 
-        let initcode_map: HashMap<Bytes, (String, JsonAbi)> = target
-            .all_contracts
-            .iter()
-            .map(|(name, (initcode, abi))| (initcode.clone(), (name.clone(), abi.clone())))
-            .collect();
-        let inspector = CallTraceInspector::new(initcode_map.clone());
+        let inspector = trace::CallTraceInspector::new(target.initcode_map.clone());
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
@@ -139,12 +134,7 @@ impl EvmRunner {
             .functions()
             .any(|f| f.selector() == SETUP_SELECTOR);
         if has_setup {
-            let nonce = evm
-                .ctx
-                .journaled_state
-                .database
-                .basic(CALLER)
-                .ok()
+            let nonce = crate::result_to_option(evm.ctx.journaled_state.database.basic(CALLER))
                 .flatten()
                 .map(|info| info.nonce)
                 .unwrap_or(0);
@@ -171,14 +161,14 @@ impl EvmRunner {
             properties: target.properties.clone(),
             contract_name: target.contract_name.clone(),
             contract_abi: target.abi.clone(),
-            initcode_map,
+            initcode_map: target.initcode_map.clone(),
         })
     }
 
     pub fn run_sequence(
         &self,
-        calls: &[Call],
-        inspector: CoverageInspector,
+        calls: &[sequence::Call],
+        inspector: inspector::CoverageInspector,
     ) -> Result<SequenceResult, anyhow::Error> {
         let mut db = self.deployed_db.clone();
         let start_nonce = db
@@ -259,7 +249,7 @@ impl EvmRunner {
                     && output.len() == 32
                     && output[31] == 1
                 {
-                    triggered_property = Some(name.clone());
+                    triggered_property = Some(name.to_owned());
                     triggered_property_selector = Some(*selector);
                     break;
                 }

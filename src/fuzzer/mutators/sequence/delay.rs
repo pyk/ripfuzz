@@ -1,3 +1,5 @@
+//! Sequence mutator that randomizes block delays.
+
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
 
@@ -8,7 +10,7 @@ use libafl::{
 };
 use libafl_bolts::{Named, rands::Rand};
 
-use crate::fuzzer::sequence::CallSequenceInput;
+use crate::fuzzer::sequence;
 
 /// Mutate block delays on a random call in the sequence.
 #[derive(Debug, Default)]
@@ -32,18 +34,19 @@ impl Named for SequenceDelayMutator {
     }
 }
 
-impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceDelayMutator {
+impl<S: HasRand> Mutator<sequence::CallSequenceInput, S> for SequenceDelayMutator {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut CallSequenceInput,
+        input: &mut sequence::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         if input.calls.is_empty() {
             return Ok(MutationResult::Skipped);
         }
-        let idx = state
-            .rand_mut()
-            .below(NonZeroUsize::new(input.calls.len()).unwrap());
+        let idx = state.rand_mut().below(
+            NonZeroUsize::new(input.calls.len())
+                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
+        );
         let call = &mut input.calls[idx];
 
         if self.max_block_delay > 0 {

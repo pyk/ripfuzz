@@ -1,4 +1,8 @@
+//! Call trace inspection and formatting for EVM execution.
+
 use std::collections::HashMap;
+#[cfg(test)]
+use std::fs;
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_json_abi::JsonAbi;
@@ -104,13 +108,13 @@ impl CallTraceInspector {
     }
 
     /// Attach a human-readable label to an address, equivalent to Foundry's `vm.label`.
-    pub fn label(&mut self, address: Address, name: String) {
-        self.address_names.insert(address, name);
+    pub fn label(&mut self, address: Address, name: &str) {
+        self.address_names.insert(address, name.to_owned());
     }
 
     /// Attach a label **and** an ABI to an address so that later CALLs are decoded.
-    pub fn label_with_abi(&mut self, address: Address, name: String, abi: JsonAbi) {
-        self.address_names.insert(address, name);
+    pub fn label_with_abi(&mut self, address: Address, name: &str, abi: JsonAbi) {
+        self.address_names.insert(address, name.to_owned());
         self.address_abis.insert(address, abi);
     }
 
@@ -163,7 +167,7 @@ fn format_node(node: &CallNode, prefix: &str, is_last: bool, lines: &mut Vec<Str
     lines.push(format!("{}{}{}", prefix, connector, call));
 
     let child_prefix = if prefix.is_empty() {
-        "  ".to_string()
+        "  ".into()
     } else if is_last {
         format!("{}   ", prefix)
     } else {
@@ -189,7 +193,7 @@ fn format_frame(frame: &TraceFrame) -> String {
                     if frame.input.len() >= 4 {
                         format!("0x{}", hex::encode(&frame.input[..4]))
                     } else {
-                        "???".to_string()
+                        "???".into()
                     }
                 }
             };
@@ -222,9 +226,9 @@ fn format_frame(frame: &TraceFrame) -> String {
 
 fn format_scheme(frame: &TraceFrame) -> String {
     match frame.scheme {
-        Some(CallScheme::StaticCall) => " [staticcall]".to_string(),
-        Some(CallScheme::DelegateCall) => " [delegatecall]".to_string(),
-        Some(CallScheme::CallCode) => " [callcode]".to_string(),
+        Some(CallScheme::StaticCall) => " [staticcall]".into(),
+        Some(CallScheme::DelegateCall) => " [delegatecall]".into(),
+        Some(CallScheme::CallCode) => " [callcode]".into(),
         _ => String::new(),
     }
 }
@@ -237,7 +241,7 @@ fn format_return(frame: &TraceFrame) -> String {
             } else if matches!(frame.kind, TraceKind::Create) && frame.code_size > 0 {
                 format!("← [Return] {} bytes of code", frame.code_size)
             } else {
-                "← [Stop]".to_string()
+                "← [Stop]".into()
             }
         }
         TraceResult::Revert { reason } => {
@@ -264,7 +268,7 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
                     input: input.clone(),
                     gas_used: 0,
                     result: TraceResult::Success,
-                    contract_name: Some("Vm".to_string()),
+                    contract_name: Some("Vm".into()),
                     func_name: None,
                     decoded_args: None,
                     decoded_return: None,
@@ -309,7 +313,7 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
                 .get(&lookup_addr)
                 .and_then(|abi| decode_call_args(abi, &input, &self.address_names))
         } else {
-            Some("()".to_string())
+            Some("()".into())
         };
 
         self.stack.push(CallNode {
@@ -385,10 +389,7 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
         // Pre-compute and register the created address so inner calls can
         // resolve the contract name before create_end fires.
         let caller = inputs.caller();
-        let nonce = context
-            .db_mut()
-            .basic(caller)
-            .ok()
+        let nonce = crate::result_to_option(context.db_mut().basic(caller))
             .flatten()
             .map(|info| info.nonce)
             .unwrap_or(0);
@@ -422,6 +423,7 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
         None
     }
 
+    #[allow(clippy::single_match)]
     fn create_end(
         &mut self,
         _context: &mut CTX,
@@ -459,16 +461,17 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
 
         // Register the deployed address so later CALLs can resolve names.
         if let Some(addr) = outcome.address {
-            if let Some(name) = node.frame.contract_name.clone() {
-                // Register mapping for address resolution
-                self.address_names.insert(addr, name);
+            match &node.frame.contract_name {
+                Some(name) => {
+                    self.address_names.insert(addr, name.clone());
+                }
+                None => {}
             }
-            if let Some(ref abi) = self
-                .initcode_map
-                .get(&node.frame.input)
-                .map(|(_, abi)| abi.clone())
-            {
-                self.address_abis.insert(addr, abi.clone());
+            match self.initcode_map.get(&node.frame.input) {
+                Some((_, abi)) => {
+                    self.address_abis.insert(addr, abi.clone());
+                }
+                None => {}
             }
         }
 
@@ -490,10 +493,9 @@ fn format_address(addr: Address) -> String {
 }
 
 fn find_function_name(abi: &JsonAbi, selector: &[u8]) -> Option<String> {
-    let sel: [u8; 4] = selector.try_into().ok()?;
-    abi.functions()
-        .find(|f| f.selector() == sel)
-        .map(|f| f.name.clone())
+    let sel: [u8; 4] = crate::result_to_option(selector.try_into())?;
+    let f = abi.functions().find(|f| f.selector() == sel)?;
+    Some(f.name.clone())
 }
 
 fn decode_call_args(
@@ -502,24 +504,24 @@ fn decode_call_args(
     labels: &HashMap<Address, String>,
 ) -> Option<String> {
     if data.len() < 4 {
-        return Some("()".to_string());
+        return Some("()".into());
     }
-    let sel: [u8; 4] = data[..4].try_into().ok()?;
+    let sel: [u8; 4] = crate::result_to_option(data[..4].try_into())?;
     let func = abi.functions().find(|f| f.selector() == sel)?;
 
     if func.inputs.is_empty() {
-        return Some("()".to_string());
+        return Some("()".into());
     }
 
-    let types: Vec<DynSolType> = func
-        .inputs
-        .iter()
-        .map(|p| p.selector_type().parse::<DynSolType>())
-        .collect::<Result<_, _>>()
-        .ok()?;
+    let types: Vec<DynSolType> = crate::result_to_option(
+        func.inputs
+            .iter()
+            .map(|p| p.selector_type().parse::<DynSolType>())
+            .collect(),
+    )?;
 
     let tuple = DynSolType::Tuple(types);
-    let decoded = tuple.abi_decode_params(&data[4..]).ok()?;
+    let decoded = crate::result_to_option(tuple.abi_decode_params(&data[4..]))?;
     let values = match decoded {
         DynSolValue::Tuple(v) => v,
         other => vec![other],
@@ -528,7 +530,7 @@ fn decode_call_args(
     let args = values
         .iter()
         .map(|v| format_value(v, labels))
-        .collect::<Vec<_>>()
+        .collect::<Vec<String>>()
         .join(", ");
 
     Some(format!("({})", args))
@@ -540,22 +542,22 @@ fn decode_return(
     output: &Bytes,
     labels: &HashMap<Address, String>,
 ) -> Option<String> {
-    let sel: [u8; 4] = selector.try_into().ok()?;
+    let sel: [u8; 4] = crate::result_to_option(selector.try_into())?;
     let func = abi.functions().find(|f| f.selector() == sel)?;
 
     if func.outputs.is_empty() {
         return None;
     }
 
-    let types: Vec<DynSolType> = func
-        .outputs
-        .iter()
-        .map(|p| p.selector_type().parse::<DynSolType>())
-        .collect::<Result<_, _>>()
-        .ok()?;
+    let types: Vec<DynSolType> = crate::result_to_option(
+        func.outputs
+            .iter()
+            .map(|p| p.selector_type().parse::<DynSolType>())
+            .collect(),
+    )?;
 
     let tuple = DynSolType::Tuple(types);
-    let decoded = tuple.abi_decode_params(output).ok()?;
+    let decoded = crate::result_to_option(tuple.abi_decode_params(output))?;
     let values = match decoded {
         DynSolValue::Tuple(v) => v,
         other => vec![other],
@@ -564,7 +566,7 @@ fn decode_return(
     let vals = values
         .iter()
         .map(|v| format_value(v, labels))
-        .collect::<Vec<_>>()
+        .collect::<Vec<String>>()
         .join(", ");
 
     Some(vals)
@@ -572,9 +574,9 @@ fn decode_return(
 
 fn format_value(v: &DynSolValue, labels: &HashMap<Address, String>) -> String {
     match v {
-        DynSolValue::Bool(b) => b.to_string(),
-        DynSolValue::Int(i, _) => i.to_string(),
-        DynSolValue::Uint(u, _) => u.to_string(),
+        DynSolValue::Bool(b) => format!("{}", b),
+        DynSolValue::Int(i, _) => format!("{}", i),
+        DynSolValue::Uint(u, _) => format!("{}", u),
         DynSolValue::Address(a) => labels
             .get(a)
             .map(|name| format!("{}: [{:?}]", name, a))
@@ -592,7 +594,7 @@ fn decode_solidity_error(output: &Bytes) -> Option<String> {
         return None;
     }
     let string_type = DynSolType::String;
-    let decoded = string_type.abi_decode_params(&output[4..]).ok()?;
+    let decoded = crate::result_to_option(string_type.abi_decode_params(&output[4..]))?;
     match decoded {
         DynSolValue::String(s) => Some(s),
         _ => None,
@@ -607,22 +609,23 @@ fn decode_custom_error(
     if output.len() < 4 {
         return None;
     }
-    let sel: [u8; 4] = output[..4].try_into().ok()?;
+    let sel: [u8; 4] = crate::result_to_option(output[..4].try_into())?;
     let error = abi.errors().find(|e| e.selector() == sel)?;
 
     if error.inputs.is_empty() {
         return Some(format!("{}()", error.name));
     }
 
-    let types: Vec<DynSolType> = error
-        .inputs
-        .iter()
-        .map(|p| p.selector_type().parse::<DynSolType>())
-        .collect::<Result<_, _>>()
-        .ok()?;
+    let types: Vec<DynSolType> = crate::result_to_option(
+        error
+            .inputs
+            .iter()
+            .map(|p| p.selector_type().parse::<DynSolType>())
+            .collect(),
+    )?;
 
     let tuple = DynSolType::Tuple(types);
-    let decoded = tuple.abi_decode_params(&output[4..]).ok()?;
+    let decoded = crate::result_to_option(tuple.abi_decode_params(&output[4..]))?;
     let values = match decoded {
         DynSolValue::Tuple(v) => v,
         other => vec![other],
@@ -631,7 +634,7 @@ fn decode_custom_error(
     let args = values
         .iter()
         .map(|v| format_value(v, labels))
-        .collect::<Vec<_>>()
+        .collect::<Vec<String>>()
         .join(", ");
 
     Some(format!("{}({})", error.name, args))
@@ -663,8 +666,6 @@ mod tests {
     use std::collections::HashMap;
     use std::path::Path;
 
-    use super::CallTraceInspector;
-    use crate::contract::ContractBuilder;
     use revm::{
         MainBuilder, MainContext,
         context::{Context, TxEnv},
@@ -674,13 +675,17 @@ mod tests {
         state::AccountInfo,
     };
 
+    use super::CallTraceInspector;
+    use crate::contract;
+
     const CALLER: Address = Address::new([0xde; 20]);
     const GAS_LIMIT: u64 = 1_000_000;
 
     fn run_trace_case(name: &str, value: U256) -> String {
         let path = format!("src/{}.sol", name);
-        let artifact = ContractBuilder::build(Path::new("fixtures/traces"), Path::new(&path))
-            .unwrap_or_else(|e| panic!("failed to build {}: {}", name, e));
+        let artifact =
+            contract::ContractBuilder::build(Path::new("fixtures/traces"), Path::new(&path))
+                .unwrap_or_else(|e| panic!("failed to build {}: {}", name, e));
 
         let mut db = InMemoryDB::default();
         db.insert_account_info(
@@ -695,12 +700,7 @@ mod tests {
         );
         super::insert_foundry_vm(&mut db);
 
-        let initcode_map: HashMap<Bytes, (String, alloy_json_abi::JsonAbi)> = artifact
-            .all_contracts
-            .iter()
-            .map(|(n, (ic, abi))| (ic.clone(), (n.clone(), abi.clone())))
-            .collect();
-        let inspector = CallTraceInspector::new(initcode_map);
+        let inspector = CallTraceInspector::new(artifact.initcode_map.clone());
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
@@ -721,9 +721,8 @@ mod tests {
         ($name:ident, $case:expr, $value:expr) => {
             #[test]
             fn $name() {
-                let expected =
-                    std::fs::read_to_string(format!("fixtures/traces/trace/{}.txt", $case))
-                        .unwrap_or_else(|e| panic!("missing fixture for {}: {}", $case, e));
+                let expected = fs::read_to_string(format!("fixtures/traces/trace/{}.txt", $case))
+                    .unwrap_or_else(|e| panic!("missing fixture for {}: {}", $case, e));
                 let actual = run_trace_case($case, $value);
                 assert_eq!(
                     actual.trim(),
@@ -748,13 +747,13 @@ mod tests {
 
     #[test]
     fn label_call_trace() {
-        let target_artifact = ContractBuilder::build(
+        let target_artifact = contract::ContractBuilder::build(
             Path::new("fixtures/traces"),
             Path::new("src/ExternalTarget.sol"),
         )
         .unwrap();
 
-        let trace_artifact = ContractBuilder::build(
+        let trace_artifact = contract::ContractBuilder::build(
             Path::new("fixtures/traces"),
             Path::new("src/LabelCallTrace.sol"),
         )
@@ -785,17 +784,8 @@ mod tests {
             },
         );
 
-        let initcode_map: HashMap<Bytes, (String, alloy_json_abi::JsonAbi)> = trace_artifact
-            .all_contracts
-            .iter()
-            .map(|(n, (ic, abi))| (ic.clone(), (n.clone(), abi.clone())))
-            .collect();
-        let mut inspector = CallTraceInspector::new(initcode_map);
-        inspector.label_with_abi(
-            external_addr,
-            "ExternalTarget".to_string(),
-            target_artifact.abi.clone(),
-        );
+        let mut inspector = CallTraceInspector::new(trace_artifact.initcode_map.clone());
+        inspector.label_with_abi(external_addr, "ExternalTarget", target_artifact.abi.clone());
 
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
@@ -812,20 +802,20 @@ mod tests {
         evm.inspect_tx_commit(tx).unwrap();
         let actual = evm.inspector.format();
 
-        let expected = std::fs::read_to_string("fixtures/traces/trace/LabelCallTrace.txt")
+        let expected = fs::read_to_string("fixtures/traces/trace/LabelCallTrace.txt")
             .unwrap_or_else(|e| panic!("missing fixture: {}", e));
         assert_eq!(actual.trim(), expected.trim(), "trace mismatch");
     }
 
     #[test]
     fn vm_label_trace() {
-        let target_artifact = ContractBuilder::build(
+        let target_artifact = contract::ContractBuilder::build(
             Path::new("fixtures/traces"),
             Path::new("src/ExternalTarget.sol"),
         )
         .unwrap();
 
-        let trace_artifact = ContractBuilder::build(
+        let trace_artifact = contract::ContractBuilder::build(
             Path::new("fixtures/traces"),
             Path::new("src/VmLabelTrace.sol"),
         )
@@ -856,12 +846,7 @@ mod tests {
             },
         );
 
-        let initcode_map: HashMap<Bytes, (String, alloy_json_abi::JsonAbi)> = trace_artifact
-            .all_contracts
-            .iter()
-            .map(|(n, (ic, abi))| (ic.clone(), (n.clone(), abi.clone())))
-            .collect();
-        let inspector = CallTraceInspector::new(initcode_map);
+        let inspector = CallTraceInspector::new(trace_artifact.initcode_map.clone());
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
@@ -877,7 +862,7 @@ mod tests {
         evm.inspect_tx_commit(tx).unwrap();
         let actual = evm.inspector.format();
 
-        let expected = std::fs::read_to_string("fixtures/traces/trace/VmLabelTrace.txt")
+        let expected = fs::read_to_string("fixtures/traces/trace/VmLabelTrace.txt")
             .unwrap_or_else(|e| panic!("missing fixture: {}", e));
         assert_eq!(actual.trim(), expected.trim(), "trace mismatch");
     }

@@ -1,3 +1,5 @@
+//! Raptor - Parallelized, coverage-guided, mutational Solidity smart contract fuzzer.
+
 pub mod commands;
 pub mod contract;
 pub mod evm;
@@ -5,3 +7,8 @@ pub mod foundry;
 pub mod fuzzer;
 pub mod inspector;
 pub mod trace;
+
+/// Convert a [`Result`] into an [`Option`] without the `ok()` method call.
+pub(crate) fn result_to_option<T, E>(result: Result<T, E>) -> Option<T> {
+    result.map_or(None, |v| Some(v))
+}

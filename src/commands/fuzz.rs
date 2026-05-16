@@ -1,11 +1,13 @@
+//! `fuzz` CLI command implementation.
+
 use std::env;
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
 
-use crate::contract::ContractBuilder;
-use crate::fuzzer::Fuzzer;
+use crate::contract;
+use crate::fuzzer;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -22,8 +24,11 @@ pub struct Args {
 }
 
 pub fn run(args: Args) -> Result<()> {
-    let project_path = args.project.unwrap_or_else(|| env::current_dir().unwrap());
-    let artifact = ContractBuilder::build(&project_path, &args.path)?;
+    let project_path = match args.project {
+        Some(p) => p,
+        None => env::current_dir()?,
+    };
+    let artifact = contract::ContractBuilder::build(&project_path, &args.path)?;
 
     println!("Loaded contract: {}", artifact.contract_name);
     println!(
@@ -37,7 +42,7 @@ pub fn run(args: Args) -> Result<()> {
 
     let contract_name = artifact.contract_name.clone();
     let properties = artifact.properties.clone();
-    let fuzzer = Fuzzer::from_artifact(artifact)?;
+    let fuzzer = fuzzer::Fuzzer::from_artifact(artifact)?;
 
     if let Some(cores_str) = args.cores {
         let cores = libafl_bolts::core_affinity::Cores::from_cmdline(&cores_str)?;

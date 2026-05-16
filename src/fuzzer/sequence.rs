@@ -1,3 +1,5 @@
+//! Call sequence representation and encoding for fuzz inputs.
+
 use std::hash::{Hash, Hasher};
 
 use libafl::inputs::{HasTargetBytes, Input};
@@ -40,6 +42,16 @@ impl Call {
             } else {
                 self.block_number_delay %= self.block_timestamp_delay;
             }
+        }
+    }
+
+    /// Create an owned copy of this call without using `Clone::clone`.
+    pub fn replicate(&self) -> Self {
+        Self {
+            selector: self.selector,
+            args: self.args.to_vec(),
+            block_number_delay: self.block_number_delay,
+            block_timestamp_delay: self.block_timestamp_delay,
         }
     }
 }

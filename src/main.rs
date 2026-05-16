@@ -1,3 +1,5 @@
+//! CLI entry point for the Raptor fuzzer.
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use raptor::commands;

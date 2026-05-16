@@ -1,3 +1,5 @@
+//! Sequence mutator that deletes a random call.
+
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
 
@@ -8,7 +10,7 @@ use libafl::{
 };
 use libafl_bolts::{Named, rands::Rand};
 
-use crate::fuzzer::sequence::CallSequenceInput;
+use crate::fuzzer::sequence;
 
 /// Delete a random call from the sequence.
 #[derive(Debug, Default)]
@@ -20,18 +22,19 @@ impl Named for SequenceDeleteMutator {
     }
 }
 
-impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceDeleteMutator {
+impl<S: HasRand> Mutator<sequence::CallSequenceInput, S> for SequenceDeleteMutator {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut CallSequenceInput,
+        input: &mut sequence::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         if input.calls.is_empty() {
             return Ok(MutationResult::Skipped);
         }
-        let idx = state
-            .rand_mut()
-            .below(NonZeroUsize::new(input.calls.len()).unwrap());
+        let idx = state.rand_mut().below(
+            NonZeroUsize::new(input.calls.len())
+                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
+        );
         input.calls.remove(idx);
         Ok(MutationResult::Mutated)
     }

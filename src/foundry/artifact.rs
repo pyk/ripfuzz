@@ -1,3 +1,5 @@
+//! Foundry artifact JSON parsing and contract metadata extraction.
+
 use std::collections::HashMap;
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
@@ -6,7 +8,7 @@ use revm::bytecode::Bytecode;
 use revm::primitives::Bytes;
 use serde::Deserialize;
 
-use crate::contract::artifact::ContractArtifact;
+use crate::contract::artifact;
 
 /// The subset of a Foundry artifact JSON that Raptor needs.
 #[derive(Debug, Clone, Deserialize)]
@@ -39,37 +41,41 @@ pub struct ArtifactBytecode {
 }
 
 impl ArtifactJson {
-    /// Build a [`ContractArtifact`] from this artifact.
-    pub fn into_artifact(self, contract_name: String) -> ContractArtifact {
+    /// Build a [`artifact::ContractArtifact`] from this artifact.
+    pub fn into_artifact(self, contract_name: &str) -> artifact::ContractArtifact {
         let initcode = parse_hex(&self.bytecode.object).unwrap_or_default();
         let runtime = parse_hex(&self.deployed_bytecode.object).unwrap_or_default();
 
-        ContractArtifact {
-            contract_name,
+        artifact::ContractArtifact {
+            contract_name: contract_name.to_owned(),
             initcode,
             runtime: Bytecode::new_raw(runtime),
             abi: self.abi,
             properties: vec![],
-            all_contracts: HashMap::new(),
+            initcode_map: HashMap::new(),
         }
     }
 
-    /// Build a [`ContractArtifact`] from this artifact with all project contracts.
+    /// Build a [`artifact::ContractArtifact`] from this artifact with all project contracts.
     pub fn into_artifact_with_all(
         self,
-        contract_name: String,
+        contract_name: &str,
         all_contracts: HashMap<String, (Bytes, JsonAbi)>,
     ) -> crate::contract::artifact::ContractArtifact {
         let initcode = parse_hex(&self.bytecode.object).unwrap_or_default();
         let runtime = parse_hex(&self.deployed_bytecode.object).unwrap_or_default();
+        let initcode_map: HashMap<Bytes, (String, JsonAbi)> = all_contracts
+            .into_iter()
+            .map(|(name, (initcode, abi))| (initcode, (name, abi)))
+            .collect();
 
         crate::contract::artifact::ContractArtifact {
-            contract_name,
+            contract_name: contract_name.to_owned(),
             initcode,
             runtime: Bytecode::new_raw(runtime),
             abi: self.abi,
             properties: vec![],
-            all_contracts,
+            initcode_map,
         }
     }
 }
@@ -77,7 +83,7 @@ impl ArtifactJson {
 pub fn parse_hex(s: &str) -> Option<Bytes> {
     let s = s.trim();
     let s = s.strip_prefix("0x").unwrap_or(s);
-    hex::decode(s).ok().map(Into::into)
+    hex::decode(s).map_or(None, |v| Some(v.into()))
 }
 
 /// Create [`DynSolValue`] arguments from ABI-encoded hex.
@@ -101,7 +107,7 @@ pub fn decode_args(abi: &JsonAbi, name: &str, data: &str) -> Vec<DynSolValue> {
         .inputs
         .iter()
         .map(|p| p.selector_type().parse::<DynSolType>())
-        .collect::<Result<_, _>>()
+        .collect()
     {
         Ok(t) => t,
         Err(_) => return vec![],

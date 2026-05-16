@@ -1,3 +1,5 @@
+//! Corpus mutator that keeps the head of a sequence.
+
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
 
@@ -9,7 +11,7 @@ use libafl::{
 use libafl_bolts::Named;
 use libafl_bolts::rands::Rand;
 
-use crate::fuzzer::sequence::CallSequenceInput;
+use crate::fuzzer::sequence;
 
 /// Take the head of a corpus sequence and keep it, discarding the rest.
 #[derive(Debug, Default)]
@@ -21,20 +23,22 @@ impl Named for SequenceHeadMutator {
     }
 }
 
-impl<S> Mutator<CallSequenceInput, S> for SequenceHeadMutator
+impl<S> Mutator<sequence::CallSequenceInput, S> for SequenceHeadMutator
 where
-    S: HasRand + HasCorpus<CallSequenceInput>,
+    S: HasRand + HasCorpus<sequence::CallSequenceInput>,
 {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut CallSequenceInput,
+        input: &mut sequence::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         let count = state.corpus().count();
         if count == 0 {
             return Ok(MutationResult::Skipped);
         }
-        let id = state.rand_mut().below(NonZeroUsize::new(count).unwrap());
+        let id = state
+            .rand_mut()
+            .below(NonZeroUsize::new(count).ok_or_else(|| libafl::Error::unknown("non-zero"))?);
         let seq = state
             .corpus()
             .get(CorpusId::from(id))
@@ -46,10 +50,9 @@ where
         if seq.calls.is_empty() {
             return Ok(MutationResult::Skipped);
         }
-        let head_len = state
-            .rand_mut()
-            .below(NonZeroUsize::new(seq.calls.len()).unwrap())
-            + 1;
+        let head_len = state.rand_mut().below(
+            NonZeroUsize::new(seq.calls.len()).ok_or_else(|| libafl::Error::unknown("non-zero"))?,
+        ) + 1;
         input.calls = seq.calls[..head_len].to_vec();
         Ok(MutationResult::Mutated)
     }

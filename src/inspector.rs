@@ -1,3 +1,5 @@
+//! Coverage inspector that records EVM program counter hits.
+
 use revm::{
     inspector::Inspector,
     interpreter::{Interpreter, interpreter::EthInterpreter, interpreter_types::Jumps},
@@ -17,10 +19,9 @@ pub struct CoverageInspector {
 impl CoverageInspector {
     /// Create an inspector backed by an arbitrary mutable slice.
     ///
-    /// # Safety
-    ///
     /// `ptr` must be valid for reads and writes for `len` bytes and remain
     /// valid for the lifetime of the inspector.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn new(ptr: *mut u8, len: usize) -> Self {
         Self {
             map: unsafe { std::slice::from_raw_parts_mut(ptr, len) },

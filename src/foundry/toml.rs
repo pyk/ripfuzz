@@ -1,5 +1,9 @@
-use serde::Deserialize;
+//! Foundry project configuration parsed from `foundry.toml`.
+
 use std::collections::HashMap;
+
+use anyhow::{Context, Result};
+use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct FoundryToml {
@@ -15,16 +19,12 @@ pub struct FoundryProfile {
 }
 
 impl FoundryToml {
-    pub fn default_profile(&self) -> &FoundryProfile {
+    pub fn default_profile(&self) -> Result<&FoundryProfile> {
         self.profile
             .get("default")
             .or_else(|| self.profile.get("$default"))
-            .unwrap_or_else(|| {
-                self.profile
-                    .values()
-                    .next()
-                    .expect("foundry.toml has at least one profile")
-            })
+            .or_else(|| self.profile.values().next())
+            .context("foundry.toml has at least one profile")
     }
 }
 

@@ -1,9 +1,5 @@
 //! Mutators that transform call sequences during fuzzing.
 
-pub mod abi;
-pub mod corpus;
-pub mod sequence;
-
 pub use abi::SequenceArgMutator;
 pub use corpus::{
     SequenceHeadMutator, SequenceInterleaveMutator, SequenceSpliceMutator, SequenceTailMutator,
@@ -12,14 +8,22 @@ pub use sequence::{
     SequenceDelayMutator, SequenceDeleteMutator, SequenceInsertMutator, SequenceSwapMutator,
 };
 
+pub mod abi;
+pub mod corpus;
+pub mod sequence;
+
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use libafl::mutators::Mutator;
     use libafl::state::HasRand;
     use libafl_bolts::rands::StdRand;
 
-    use crate::fuzzer::mutators::{SequenceDelayMutator, SequenceInsertMutator};
-    use crate::fuzzer::sequence::{Call, CallSequenceInput};
+    use crate::contract;
+    use crate::evm;
+    use crate::fuzzer::mutators;
+    use crate::fuzzer::sequence;
 
     /// Minimal test state that only implements `HasRand` so mutators can be
     /// exercised deterministically.
@@ -48,11 +52,11 @@ mod tests {
     #[test]
     fn sequence_delay_mutator_respects_cap_invariant() {
         let mut state = MockState::with_seed(42);
-        let mut mutator = SequenceDelayMutator::new(10, 10);
+        let mut mutator = mutators::SequenceDelayMutator::new(10, 10);
 
         // Start with a single call whose delays are deliberately out of bounds.
-        let mut input = CallSequenceInput {
-            calls: vec![Call {
+        let mut input = sequence::CallSequenceInput {
+            calls: vec![sequence::Call {
                 selector: [0x12, 0x34, 0x56, 0x78],
                 args: vec![0u8; 32],
                 block_number_delay: 99,
@@ -76,11 +80,11 @@ mod tests {
     fn sequence_insert_mutator_respects_cap_invariant() {
         let mut state = MockState::with_seed(42);
         let selectors: Vec<[u8; 4]> = vec![[0x12, 0x34, 0x56, 0x78]];
-        let mut mutator = SequenceInsertMutator::new(
+        let mut mutator = mutators::SequenceInsertMutator::new(
             selectors, /* max_block_delay */ 10, /* max_time_delay */ 10,
         );
 
-        let mut input = CallSequenceInput::new();
+        let mut input = sequence::CallSequenceInput::new();
         let result = mutator.mutate(&mut state, &mut input).unwrap();
         assert_eq!(result, libafl::mutators::MutationResult::Mutated);
         assert_eq!(input.calls.len(), 1);
@@ -96,18 +100,13 @@ mod tests {
 
     #[test]
     fn mutated_sequence_advances_blocks_when_zero_delay_follows_nonzero() {
-        use std::path::Path;
-
-        use crate::contract::ContractBuilder;
-        use crate::evm::EvmRunner;
-
-        let artifact = ContractBuilder::build(
+        let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/challenges"),
             Path::new("src/L1SimpleKnob.sol"),
         )
         .unwrap();
 
-        let runner = EvmRunner::from_target(&artifact).unwrap();
+        let runner = evm::EvmRunner::from_target(&artifact).unwrap();
 
         let one = artifact
             .abi
@@ -132,21 +131,21 @@ mod tests {
             .into();
 
         // Build a 3-call seed sequence.
-        let mut input = CallSequenceInput {
+        let mut input = sequence::CallSequenceInput {
             calls: vec![
-                Call {
+                sequence::Call {
                     selector: one,
                     args: vec![],
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
                 },
-                Call {
+                sequence::Call {
                     selector: two,
                     args: vec![],
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
                 },
-                Call {
+                sequence::Call {
                     selector: three,
                     args: vec![],
                     block_number_delay: 0,
@@ -159,7 +158,7 @@ mod tests {
         // a deterministic sequence, and because max delays are large enough the
         // mutator will almost certainly produce at least one non-zero delay.
         let mut state = MockState::with_seed(12345);
-        let mut mutator = SequenceDelayMutator::new(5, 5);
+        let mut mutator = mutators::SequenceDelayMutator::new(5, 5);
         let result = mutator.mutate(&mut state, &mut input).unwrap();
         assert_eq!(result, libafl::mutators::MutationResult::Mutated);
 

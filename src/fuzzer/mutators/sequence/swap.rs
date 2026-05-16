@@ -1,3 +1,5 @@
+//! Sequence mutator that swaps two random calls.
+
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
 
@@ -8,7 +10,7 @@ use libafl::{
 };
 use libafl_bolts::{Named, rands::Rand};
 
-use crate::fuzzer::sequence::CallSequenceInput;
+use crate::fuzzer::sequence;
 
 /// Swap two random calls in the sequence.
 #[derive(Debug, Default)]
@@ -20,21 +22,23 @@ impl Named for SequenceSwapMutator {
     }
 }
 
-impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceSwapMutator {
+impl<S: HasRand> Mutator<sequence::CallSequenceInput, S> for SequenceSwapMutator {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut CallSequenceInput,
+        input: &mut sequence::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         if input.calls.len() < 2 {
             return Ok(MutationResult::Skipped);
         }
-        let idx1 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(input.calls.len()).unwrap());
-        let idx2 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(input.calls.len()).unwrap());
+        let idx1 = state.rand_mut().below(
+            NonZeroUsize::new(input.calls.len())
+                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
+        );
+        let idx2 = state.rand_mut().below(
+            NonZeroUsize::new(input.calls.len())
+                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
+        );
         if idx1 != idx2 {
             input.calls.swap(idx1, idx2);
             Ok(MutationResult::Mutated)

@@ -1,8 +1,10 @@
+//! Contract artifact structure and property discovery.
+
 use std::collections::HashMap;
 
 use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::{JsonAbi, StateMutability};
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use revm::bytecode::Bytecode;
 use revm::primitives::Bytes;
 
@@ -15,9 +17,9 @@ pub struct ContractArtifact {
     pub abi: JsonAbi,
     /// Function selectors that return `bool` and represent invariants.
     pub properties: Vec<([u8; 4], String)>,
-    /// All contracts compiled in the same project, keyed by contract name.
-    /// Each entry holds the initcode and ABI for that contract.
-    pub all_contracts: HashMap<String, (Bytes, JsonAbi)>,
+    /// All contracts compiled in the same project, keyed by initcode.
+    /// Each entry holds the contract name and ABI for that contract.
+    pub initcode_map: HashMap<Bytes, (String, JsonAbi)>,
 }
 
 /// Scan the ABI for functions that start with `property_` and validate
@@ -29,23 +31,21 @@ pub fn find_and_validate_properties(abi: &JsonAbi) -> Result<Vec<([u8; 4], Strin
         if !func.name.starts_with("property_") {
             continue;
         }
-        if func.outputs.len() != 1 || func.outputs[0].ty != "bool" {
-            anyhow::bail!(
-                "property function '{}' must return a single bool",
-                func.name
-            );
-        }
-        if !matches!(
-            func.state_mutability,
-            StateMutability::Pure | StateMutability::View
-        ) {
-            anyhow::bail!(
-                "property function '{}' must be declared pure or view",
-                func.name
-            );
-        }
+        ensure!(
+            func.outputs.len() == 1 && func.outputs[0].ty == "bool",
+            "property function '{}' must return a single bool",
+            func.name
+        );
+        ensure!(
+            matches!(
+                func.state_mutability,
+                StateMutability::Pure | StateMutability::View
+            ),
+            "property function '{}' must be declared pure or view",
+            func.name
+        );
         let sel: [u8; 4] = func.selector().into();
-        properties.push((sel, func.name.clone()));
+        properties.push((sel, func.name.to_owned()));
     }
 
     Ok(properties)

@@ -1,3 +1,5 @@
+//! Sequence mutator that inserts a new random call.
+
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
 
@@ -8,7 +10,7 @@ use libafl::{
 };
 use libafl_bolts::{Named, rands::Rand};
 
-use crate::fuzzer::sequence::{Call, CallSequenceInput};
+use crate::fuzzer::sequence;
 
 /// Insert a new random call at a random position.
 #[derive(Debug, Default)]
@@ -34,11 +36,11 @@ impl Named for SequenceInsertMutator {
     }
 }
 
-impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceInsertMutator {
+impl<S: HasRand> Mutator<sequence::CallSequenceInput, S> for SequenceInsertMutator {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut CallSequenceInput,
+        input: &mut sequence::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         if self.selectors.is_empty() {
             return Ok(MutationResult::Skipped);
@@ -46,13 +48,15 @@ impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceInsertMutator {
         let idx = if input.calls.is_empty() {
             0
         } else {
-            state
-                .rand_mut()
-                .below(NonZeroUsize::new(input.calls.len() + 1).unwrap())
+            state.rand_mut().below(
+                NonZeroUsize::new(input.calls.len() + 1)
+                    .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
+            )
         };
-        let sel_idx = state
-            .rand_mut()
-            .below(NonZeroUsize::new(self.selectors.len()).unwrap());
+        let sel_idx = state.rand_mut().below(
+            NonZeroUsize::new(self.selectors.len())
+                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
+        );
 
         let mut block_number_delay = 0u64;
         let mut block_timestamp_delay = 0u64;
@@ -63,7 +67,7 @@ impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceInsertMutator {
             block_timestamp_delay = state.rand_mut().next() % (self.max_time_delay + 1);
         }
 
-        let mut call = Call {
+        let mut call = sequence::Call {
             selector: self.selectors[sel_idx],
             args: vec![0u8; 32 * 3], // up to 3 args of padding
             block_number_delay,

@@ -1,3 +1,5 @@
+//! Fuzzer configuration options and CLI argument definitions.
+
 use clap::Args;
 
 /// Fuzzer configuration passed via CLI.

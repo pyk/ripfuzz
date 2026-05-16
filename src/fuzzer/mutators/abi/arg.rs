@@ -1,3 +1,5 @@
+//! ABI argument mutator that perturbs decoded Solidity values.
+
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
 
@@ -11,7 +13,7 @@ use libafl::{
 };
 use libafl_bolts::{Named, rands::Rand};
 
-use crate::fuzzer::sequence::{Call, CallSequenceInput};
+use crate::fuzzer::sequence;
 
 /// Mutate the arguments of a random call using ABI type information.
 ///
@@ -31,7 +33,7 @@ impl SequenceArgMutator {
     /// Mutate the arguments of a single call.
     ///
     /// Returns `true` if any argument was changed.
-    fn mutate_call_args<S: HasRand>(&self, state: &mut S, call: &mut Call) -> bool {
+    fn mutate_call_args<S: HasRand>(&self, state: &mut S, call: &mut sequence::Call) -> bool {
         // Look up the function by selector.
         let func = match self
             .abi
@@ -47,7 +49,7 @@ impl SequenceArgMutator {
             .inputs
             .iter()
             .map(|p| p.selector_type().parse::<DynSolType>())
-            .collect::<Result<Vec<_>, _>>()
+            .collect()
         {
             Ok(t) => t,
             Err(_) => return false,
@@ -124,9 +126,10 @@ impl SequenceArgMutator {
             }
             DynSolValue::Function(f) => {
                 let mut bytes = f.as_slice().to_vec();
-                let idx = state
-                    .rand_mut()
-                    .below(NonZeroUsize::new(bytes.len()).unwrap());
+                let Some(nz) = NonZeroUsize::new(bytes.len()) else {
+                    return false;
+                };
+                let idx = state.rand_mut().below(nz);
                 bytes[idx] = state.rand_mut().next() as u8;
                 *f = alloy_primitives::Function::from_slice(&bytes);
                 true
@@ -135,7 +138,10 @@ impl SequenceArgMutator {
                 if b.is_empty() {
                     return false;
                 }
-                let idx = state.rand_mut().below(NonZeroUsize::new(b.len()).unwrap());
+                let Some(nz) = NonZeroUsize::new(b.len()) else {
+                    return false;
+                };
+                let idx = state.rand_mut().below(nz);
                 b[idx] = state.rand_mut().next() as u8;
                 true
             }
@@ -144,9 +150,10 @@ impl SequenceArgMutator {
                 if bytes.is_empty() {
                     return false;
                 }
-                let idx = state
-                    .rand_mut()
-                    .below(NonZeroUsize::new(bytes.len()).unwrap());
+                let Some(nz) = NonZeroUsize::new(bytes.len()) else {
+                    return false;
+                };
+                let idx = state.rand_mut().below(nz);
                 bytes[idx] = state.rand_mut().next() as u8;
                 // Lossy conversion is safe: Solidity strings are byte
                 // sequences and do not require valid UTF-8.
@@ -155,7 +162,10 @@ impl SequenceArgMutator {
             }
             DynSolValue::FixedBytes(word, sz) => {
                 let bytes = word.as_mut_slice();
-                let idx = state.rand_mut().below(NonZeroUsize::new(*sz).unwrap());
+                let Some(nz) = NonZeroUsize::new(*sz) else {
+                    return false;
+                };
+                let idx = state.rand_mut().below(nz);
                 bytes[idx] = state.rand_mut().next() as u8;
                 true
             }
@@ -163,12 +173,11 @@ impl SequenceArgMutator {
                 let mut sub = false;
                 // Occasionally swap two elements (Medusa-style array mutation).
                 if arr.len() >= 2 && state.rand_mut().next().is_multiple_of(4) {
-                    let i = state
-                        .rand_mut()
-                        .below(NonZeroUsize::new(arr.len()).unwrap());
-                    let j = state
-                        .rand_mut()
-                        .below(NonZeroUsize::new(arr.len()).unwrap());
+                    let Some(nz) = NonZeroUsize::new(arr.len()) else {
+                        return false;
+                    };
+                    let i = state.rand_mut().below(nz);
+                    let j = state.rand_mut().below(nz);
                     arr.swap(i, j);
                     sub = true;
                 }
@@ -194,18 +203,19 @@ impl Named for SequenceArgMutator {
     }
 }
 
-impl<S: HasRand> Mutator<CallSequenceInput, S> for SequenceArgMutator {
+impl<S: HasRand> Mutator<sequence::CallSequenceInput, S> for SequenceArgMutator {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut CallSequenceInput,
+        input: &mut sequence::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         if input.calls.is_empty() {
             return Ok(MutationResult::Skipped);
         }
-        let call_idx = state
-            .rand_mut()
-            .below(NonZeroUsize::new(input.calls.len()).unwrap());
+        let call_idx = state.rand_mut().below(
+            NonZeroUsize::new(input.calls.len())
+                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
+        );
 
         if self.mutate_call_args(state, &mut input.calls[call_idx]) {
             Ok(MutationResult::Mutated)
@@ -231,8 +241,8 @@ mod tests {
     use libafl::state::HasRand;
     use libafl_bolts::rands::StdRand;
 
-    use crate::fuzzer::mutators::abi::SequenceArgMutator;
-    use crate::fuzzer::sequence::{Call, CallSequenceInput};
+    use crate::fuzzer::mutators::abi;
+    use crate::fuzzer::sequence;
 
     /// Minimal test state that only implements `HasRand`.
     struct MockState {
@@ -275,8 +285,8 @@ mod tests {
     fn empty_sequence_is_skipped() {
         let mut state = MockState::with_seed(42);
         let abi = abi_with("function set(uint256 x)");
-        let mut mutator = SequenceArgMutator::new(abi);
-        let mut input = CallSequenceInput::new();
+        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mut input = sequence::CallSequenceInput::new();
 
         let result = mutator.mutate(&mut state, &mut input).unwrap();
         assert_eq!(result, libafl::mutators::MutationResult::Skipped);
@@ -288,10 +298,10 @@ mod tests {
         let target_abi = abi_with("function set(uint256 x)");
         let other_abi = abi_with("function transfer(address to)");
         let unknown_selector = selector_of(&other_abi, "transfer");
-        let mut mutator = SequenceArgMutator::new(target_abi);
+        let mut mutator = abi::SequenceArgMutator::new(target_abi);
 
-        let mut input = CallSequenceInput {
-            calls: vec![Call {
+        let mut input = sequence::CallSequenceInput {
+            calls: vec![sequence::Call {
                 selector: unknown_selector,
                 args: vec![0u8; 32],
                 block_number_delay: 0,
@@ -313,9 +323,9 @@ mod tests {
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut state = MockState::with_seed(seed);
-            let mut mutator = SequenceArgMutator::new(abi.clone());
-            let mut input = CallSequenceInput {
-                calls: vec![Call {
+            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mut input = sequence::CallSequenceInput {
+                calls: vec![sequence::Call {
                     selector,
                     args: vec![0u8; 32],
                     block_number_delay: 0,
@@ -350,9 +360,9 @@ mod tests {
         let mut any_low_changed = false;
         for seed in [1u64, 2, 3, 42, 99, 123, 456, 789, 1000, 2000] {
             let mut state = MockState::with_seed(seed);
-            let mut mutator = SequenceArgMutator::new(abi.clone());
-            let mut input = CallSequenceInput {
-                calls: vec![Call {
+            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mut input = sequence::CallSequenceInput {
+                calls: vec![sequence::Call {
                     selector,
                     args: full_arg.clone(),
                     block_number_delay: 0,
@@ -389,9 +399,9 @@ mod tests {
         args[65] = 0xcd; // data byte 1
 
         let mut state = MockState::with_seed(42);
-        let mut mutator = SequenceArgMutator::new(abi);
-        let mut input = CallSequenceInput {
-            calls: vec![Call {
+        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mut input = sequence::CallSequenceInput {
+            calls: vec![sequence::Call {
                 selector,
                 args: args.clone(),
                 block_number_delay: 0,
@@ -424,10 +434,10 @@ mod tests {
         let mut state = MockState::with_seed(42);
         let abi = abi_with("function toggle(bool b)");
         let selector = selector_of(&abi, "toggle");
-        let mut mutator = SequenceArgMutator::new(abi);
+        let mut mutator = abi::SequenceArgMutator::new(abi);
 
-        let mut input = CallSequenceInput {
-            calls: vec![Call {
+        let mut input = sequence::CallSequenceInput {
+            calls: vec![sequence::Call {
                 selector,
                 args: {
                     let mut v = vec![0u8; 32];
@@ -449,10 +459,10 @@ mod tests {
         let mut state = MockState::with_seed(42);
         let abi = abi_with("function transfer(address to)");
         let selector = selector_of(&abi, "transfer");
-        let mut mutator = SequenceArgMutator::new(abi);
+        let mut mutator = abi::SequenceArgMutator::new(abi);
 
-        let mut input = CallSequenceInput {
-            calls: vec![Call {
+        let mut input = sequence::CallSequenceInput {
+            calls: vec![sequence::Call {
                 selector,
                 args: vec![0u8; 32],
                 block_number_delay: 0,
@@ -473,9 +483,9 @@ mod tests {
 
         for seed in [1u64, 2, 3, 42, 99, 123, 456, 789, 1000, 2000] {
             let mut state = MockState::with_seed(seed);
-            let mut mutator = SequenceArgMutator::new(abi.clone());
-            let mut input = CallSequenceInput {
-                calls: vec![Call {
+            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mut input = sequence::CallSequenceInput {
+                calls: vec![sequence::Call {
                     selector,
                     args: vec![0u8; 32],
                     block_number_delay: 0,
@@ -503,10 +513,10 @@ mod tests {
         let mut state = MockState::with_seed(123);
         let abi = abi_with("function multi(uint256 a, bool b, address c)");
         let selector = selector_of(&abi, "multi");
-        let mut mutator = SequenceArgMutator::new(abi);
+        let mut mutator = abi::SequenceArgMutator::new(abi);
 
-        let mut input = CallSequenceInput {
-            calls: vec![Call {
+        let mut input = sequence::CallSequenceInput {
+            calls: vec![sequence::Call {
                 selector,
                 args: vec![0u8; 96],
                 block_number_delay: 0,
@@ -528,9 +538,9 @@ mod tests {
         let mut values = Vec::new();
         for seed in [1u64, 2, 3, 4, 5] {
             let mut state = MockState::with_seed(seed);
-            let mut mutator = SequenceArgMutator::new(abi.clone());
-            let mut input = CallSequenceInput {
-                calls: vec![Call {
+            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mut input = sequence::CallSequenceInput {
+                calls: vec![sequence::Call {
                     selector,
                     args: vec![0u8; 32],
                     block_number_delay: 0,
@@ -560,9 +570,9 @@ mod tests {
             DynSolValue::Tuple(vec![DynSolValue::Uint(U256::from(255), 8)]).abi_encode_params();
 
         let mut state = MockState::with_seed(1);
-        let mut mutator = SequenceArgMutator::new(abi);
-        let mut input = CallSequenceInput {
-            calls: vec![Call {
+        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mut input = sequence::CallSequenceInput {
+            calls: vec![sequence::Call {
                 selector,
                 args: args.clone(),
                 block_number_delay: 0,
@@ -599,9 +609,9 @@ mod tests {
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut state = MockState::with_seed(seed);
-            let mut mutator = SequenceArgMutator::new(abi.clone());
-            let mut input = CallSequenceInput {
-                calls: vec![Call {
+            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mut input = sequence::CallSequenceInput {
+                calls: vec![sequence::Call {
                     selector,
                     args: args.clone(),
                     block_number_delay: 0,
@@ -628,9 +638,9 @@ mod tests {
         let args = DynSolValue::Tuple(vec![DynSolValue::FixedBytes(word, 4)]).abi_encode_params();
 
         let mut state = MockState::with_seed(42);
-        let mut mutator = SequenceArgMutator::new(abi);
-        let mut input = CallSequenceInput {
-            calls: vec![Call {
+        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mut input = sequence::CallSequenceInput {
+            calls: vec![sequence::Call {
                 selector,
                 args: args.clone(),
                 block_number_delay: 0,
@@ -669,9 +679,9 @@ mod tests {
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut state = MockState::with_seed(seed);
-            let mut mutator = SequenceArgMutator::new(abi.clone());
-            let mut input = CallSequenceInput {
-                calls: vec![Call {
+            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mut input = sequence::CallSequenceInput {
+                calls: vec![sequence::Call {
                     selector,
                     args: args.clone(),
                     block_number_delay: 0,
@@ -700,9 +710,9 @@ mod tests {
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut state = MockState::with_seed(seed);
-            let mut mutator = SequenceArgMutator::new(abi.clone());
-            let mut input = CallSequenceInput {
-                calls: vec![Call {
+            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mut input = sequence::CallSequenceInput {
+                calls: vec![sequence::Call {
                     selector,
                     args: args.clone(),
                     block_number_delay: 0,
@@ -724,12 +734,12 @@ mod tests {
 
         // Encode "hello".
         let args =
-            DynSolValue::Tuple(vec![DynSolValue::String("hello".to_string())]).abi_encode_params();
+            DynSolValue::Tuple(vec![DynSolValue::String("hello".into())]).abi_encode_params();
 
         let mut state = MockState::with_seed(42);
-        let mut mutator = SequenceArgMutator::new(abi);
-        let mut input = CallSequenceInput {
-            calls: vec![Call {
+        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mut input = sequence::CallSequenceInput {
+            calls: vec![sequence::Call {
                 selector,
                 args: args.clone(),
                 block_number_delay: 0,
@@ -767,9 +777,9 @@ mod tests {
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut state = MockState::with_seed(seed);
-            let mut mutator = SequenceArgMutator::new(abi.clone());
-            let mut input = CallSequenceInput {
-                calls: vec![Call {
+            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mut input = sequence::CallSequenceInput {
+                calls: vec![sequence::Call {
                     selector,
                     args: args.clone(),
                     block_number_delay: 0,

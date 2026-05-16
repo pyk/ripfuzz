@@ -1,3 +1,5 @@
+//! Corpus mutator that interleaves two sequences.
+
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
 
@@ -9,7 +11,7 @@ use libafl::{
 use libafl_bolts::Named;
 use libafl_bolts::rands::Rand;
 
-use crate::fuzzer::sequence::CallSequenceInput;
+use crate::fuzzer::sequence;
 
 /// Interleave two corpus sequences.
 #[derive(Debug, Default)]
@@ -21,22 +23,26 @@ impl Named for SequenceInterleaveMutator {
     }
 }
 
-impl<S> Mutator<CallSequenceInput, S> for SequenceInterleaveMutator
+impl<S> Mutator<sequence::CallSequenceInput, S> for SequenceInterleaveMutator
 where
-    S: HasRand + HasCorpus<CallSequenceInput>,
+    S: HasRand + HasCorpus<sequence::CallSequenceInput>,
 {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut CallSequenceInput,
+        input: &mut sequence::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         let count = state.corpus().count();
         if count < 2 {
             return Ok(MutationResult::Skipped);
         }
 
-        let id1 = state.rand_mut().below(NonZeroUsize::new(count).unwrap());
-        let id2 = state.rand_mut().below(NonZeroUsize::new(count).unwrap());
+        let id1 = state
+            .rand_mut()
+            .below(NonZeroUsize::new(count).ok_or_else(|| libafl::Error::unknown("non-zero"))?);
+        let id2 = state
+            .rand_mut()
+            .below(NonZeroUsize::new(count).ok_or_else(|| libafl::Error::unknown("non-zero"))?);
 
         let seq1 = state
             .corpus()
@@ -55,24 +61,32 @@ where
             .clone()
             .ok_or_else(|| libafl::Error::unknown("missing input in corpus"))?;
 
-        let take1 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(seq1.calls.len() + 1).unwrap());
-        let take2 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(seq2.calls.len() + 1).unwrap());
+        let take1 = state.rand_mut().below(
+            NonZeroUsize::new(seq1.calls.len() + 1)
+                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
+        );
+        let take2 = state.rand_mut().below(
+            NonZeroUsize::new(seq2.calls.len() + 1)
+                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
+        );
 
         let slice1 = &seq1.calls[..take1];
         let slice2 = &seq2.calls[..take2];
 
-        let mut new_calls = Vec::new();
-        let max_len = slice1.len().max(slice2.len());
-        for i in 0..max_len {
-            if i < slice1.len() {
-                new_calls.push(slice1[i].clone());
-            }
-            if i < slice2.len() {
-                new_calls.push(slice2[i].clone());
+        let calls1 = slice1.to_vec();
+        let calls2 = slice2.to_vec();
+        let mut iter1 = calls1.into_iter();
+        let mut iter2 = calls2.into_iter();
+        let mut new_calls = Vec::with_capacity(slice1.len() + slice2.len());
+        loop {
+            match (iter1.next(), iter2.next()) {
+                (Some(a), Some(b)) => {
+                    new_calls.push(a);
+                    new_calls.push(b);
+                }
+                (Some(a), None) => new_calls.push(a),
+                (None, Some(b)) => new_calls.push(b),
+                (None, None) => break,
             }
         }
         input.calls = new_calls;

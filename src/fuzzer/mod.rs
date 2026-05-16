@@ -2,30 +2,34 @@
 
 use std::cell::RefCell;
 
-use anyhow::Result;
+#[cfg(test)]
+use std::fs;
+
+use alloy_dyn_abi::{DynSolType, DynSolValue};
+use anyhow::{Context, Result};
 use libafl::{
     corpus::{Corpus, InMemoryCorpus, Testcase},
-    events::NopEventManager,
+    events::{EventConfig, NopEventManager, launcher::Launcher},
     executors::InProcessExecutor,
     feedbacks::{CrashFeedback, MaxMapFeedback},
     fuzzer::{Fuzzer as LibAflFuzzer, StdFuzzer},
+    monitors::SimpleMonitor,
     mutators::scheduled::HavocScheduledMutator,
     observers::StdMapObserver,
     schedulers::QueueScheduler,
     stages::StdMutationalStage,
     state::{HasCorpus, StdState},
 };
-use libafl_bolts::{ownedref::OwnedMutSlice, rands::StdRand, tuples::tuple_list};
-
-use crate::contract::ContractArtifact;
-use crate::evm::EvmRunner;
-use crate::fuzzer::config::FuzzConfig;
-use crate::fuzzer::mutators::{
-    SequenceArgMutator, SequenceDelayMutator, SequenceDeleteMutator, SequenceHeadMutator,
-    SequenceInsertMutator, SequenceInterleaveMutator, SequenceSpliceMutator, SequenceSwapMutator,
-    SequenceTailMutator,
+use libafl_bolts::{
+    ownedref::OwnedMutSlice,
+    rands::StdRand,
+    shmem::{ShMem, ShMemProvider, StdShMemProvider},
+    tuples::tuple_list,
 };
-use crate::fuzzer::sequence::{Call, CallSequenceInput};
+
+use crate::contract;
+use crate::evm;
+use crate::inspector;
 
 pub mod config;
 pub mod mutators;
@@ -36,7 +40,7 @@ pub mod sequence;
 pub struct PropertyFailure {
     pub property_name: String,
     pub property_selector: [u8; 4],
-    pub call_sequence: CallSequenceInput,
+    pub call_sequence: sequence::CallSequenceInput,
     /// Per-call block number / timestamp captured during execution.
     pub call_meta: Vec<crate::evm::CallMeta>,
 }
@@ -51,24 +55,24 @@ pub struct FuzzResult {
 /// A fuzzer configured to run against a deployed contract.
 #[derive(Debug)]
 pub struct Fuzzer {
-    artifact: ContractArtifact,
-    seeds: Vec<CallSequenceInput>,
-    config: FuzzConfig,
+    artifact: contract::ContractArtifact,
+    seeds: Vec<sequence::CallSequenceInput>,
+    config: config::FuzzConfig,
     selectors: Vec<[u8; 4]>,
 }
 
 impl Fuzzer {
     /// Deploy the artifact, generate seeds, and prepare the fuzzer with default config.
-    pub fn from_artifact(artifact: ContractArtifact) -> Result<Self> {
-        Self::from_artifact_with_config(artifact, FuzzConfig::default())
+    pub fn from_artifact(artifact: contract::ContractArtifact) -> Result<Self> {
+        Self::from_artifact_with_config(artifact, config::FuzzConfig::default())
     }
 
     /// Deploy the artifact, generate seeds, and prepare the fuzzer.
     pub fn from_artifact_with_config(
-        artifact: ContractArtifact,
-        config: FuzzConfig,
+        artifact: contract::ContractArtifact,
+        config: config::FuzzConfig,
     ) -> Result<Self> {
-        let _runner = EvmRunner::from_target(&artifact)?;
+        let _runner = evm::EvmRunner::from_target(&artifact)?;
         let seeds = build_seeds(&artifact, config.sequence_length);
         let selectors: Vec<[u8; 4]> = artifact
             .abi
@@ -97,26 +101,10 @@ impl Fuzzer {
 
     /// Launch a parallel fuzzing campaign across the given cores.
     pub fn launch(&self, cores: &libafl_bolts::core_affinity::Cores) -> anyhow::Result<()> {
-        use crate::inspector::{CoverageInspector, MAP_SIZE};
-        use libafl::{
-            corpus::{Corpus, Testcase},
-            events::{EventConfig, launcher::Launcher},
-            monitors::SimpleMonitor,
-            observers::StdMapObserver,
-            stages::StdMutationalStage,
-            state::HasCorpus,
-        };
-        use libafl_bolts::{
-            ownedref::OwnedMutSlice,
-            rands::StdRand,
-            shmem::{ShMem, ShMemProvider, StdShMemProvider},
-            tuples::tuple_list,
-        };
-
         let mut shmem_provider = StdShMemProvider::new()?;
-        let mut shmem = shmem_provider.new_shmem(MAP_SIZE)?;
+        let mut shmem = shmem_provider.new_shmem(inspector::MAP_SIZE)?;
         let map_ptr = shmem.as_mut_ptr();
-        unsafe { std::ptr::write_bytes(map_ptr, 0, MAP_SIZE) };
+        unsafe { std::ptr::write_bytes(map_ptr, 0, inspector::MAP_SIZE) };
         let map_desc = shmem.description();
 
         let artifact = self.artifact.clone();
@@ -126,13 +114,14 @@ impl Fuzzer {
 
         let monitor = SimpleMonitor::new(|s: &str| println!("{s}"));
 
-        type MyCorpus = libafl::corpus::InMemoryCorpus<CallSequenceInput>;
-        type MyState = libafl::state::StdState<MyCorpus, CallSequenceInput, StdRand, MyCorpus>;
+        type MyCorpus = libafl::corpus::InMemoryCorpus<sequence::CallSequenceInput>;
+        type MyState =
+            libafl::state::StdState<MyCorpus, sequence::CallSequenceInput, StdRand, MyCorpus>;
         type MyShMem = libafl_bolts::shmem::UnixShMem;
         type MyShMemProvider = libafl_bolts::shmem::StdShMemProvider;
         type MyMgr = libafl::events::llmp::restarting::LlmpRestartingEventManager<
             (),
-            CallSequenceInput,
+            sequence::CallSequenceInput,
             MyState,
             MyShMem,
             MyShMemProvider,
@@ -151,11 +140,12 @@ impl Fuzzer {
                         .map_err(|e| {
                             libafl::Error::illegal_state(format!("shmem mapping failed: {e}"))
                         })?;
-                let map_slice =
-                    unsafe { std::slice::from_raw_parts_mut(local_shmem.as_mut_ptr(), MAP_SIZE) };
+                let map_slice = unsafe {
+                    std::slice::from_raw_parts_mut(local_shmem.as_mut_ptr(), inspector::MAP_SIZE)
+                };
                 let map_slice_ptr = map_slice.as_mut_ptr();
 
-                let runner = EvmRunner::from_target(&artifact).map_err(|e| {
+                let runner = evm::EvmRunner::from_target(&artifact).map_err(|e| {
                     libafl::Error::illegal_state(format!("EVM runner creation failed: {e}"))
                 })?;
 
@@ -166,7 +156,7 @@ impl Fuzzer {
 
                 let mut state = match state {
                     Some(s) => {
-                        unsafe { std::ptr::write_bytes(map_slice_ptr, 0, MAP_SIZE) };
+                        unsafe { std::ptr::write_bytes(map_slice_ptr, 0, inspector::MAP_SIZE) };
                         s
                     }
                     None => {
@@ -180,14 +170,10 @@ impl Fuzzer {
                         .map_err(|e| {
                             libafl::Error::illegal_state(format!("State creation failed: {e}"))
                         })?;
-                        for seed in &seeds {
-                            s.corpus_mut()
-                                .add(Testcase::new(seed.clone()))
-                                .map_err(|e| {
-                                    libafl::Error::illegal_state(format!(
-                                        "Seed addition failed: {e}"
-                                    ))
-                                })?;
+                        for seed in seeds {
+                            s.corpus_mut().add(Testcase::new(seed)).map_err(|e| {
+                                libafl::Error::illegal_state(format!("Seed addition failed: {e}"))
+                            })?;
                         }
                         s
                     }
@@ -196,8 +182,10 @@ impl Fuzzer {
                 let scheduler = libafl::schedulers::QueueScheduler::new();
                 let mut fuzzer = libafl::fuzzer::StdFuzzer::new(scheduler, feedback, objective);
 
-                let mut harness = |input: &CallSequenceInput| {
-                    let inspector = unsafe { CoverageInspector::new(map_slice_ptr, MAP_SIZE) };
+                let mut harness = |input: &sequence::CallSequenceInput| {
+                    let inspector = unsafe {
+                        inspector::CoverageInspector::new(map_slice_ptr, inspector::MAP_SIZE)
+                    };
                     match runner.run_sequence(&input.calls, inspector) {
                         Ok(res) if res.all_ok && res.property_triggered => {
                             libafl::executors::ExitKind::Crash
@@ -220,24 +208,25 @@ impl Fuzzer {
 
                 let mut stages = tuple_list!(StdMutationalStage::with_max_iterations(
                     libafl::mutators::scheduled::HavocScheduledMutator::new(tuple_list!(
-                        SequenceSwapMutator,
-                        SequenceInsertMutator::new(
+                        mutators::SequenceSwapMutator,
+                        mutators::SequenceInsertMutator::new(
                             selectors.clone(),
                             config.max_block_number_delay,
                             config.max_block_timestamp_delay,
                         ),
-                        SequenceDeleteMutator,
-                        SequenceSpliceMutator,
-                        SequenceInterleaveMutator,
-                        SequenceHeadMutator,
-                        SequenceTailMutator,
-                        SequenceArgMutator::new(artifact.abi.clone()),
-                        SequenceDelayMutator::new(
+                        mutators::SequenceDeleteMutator,
+                        mutators::SequenceSpliceMutator,
+                        mutators::SequenceInterleaveMutator,
+                        mutators::SequenceHeadMutator,
+                        mutators::SequenceTailMutator,
+                        mutators::SequenceArgMutator::new(artifact.abi.clone()),
+                        mutators::SequenceDelayMutator::new(
                             config.max_block_number_delay,
                             config.max_block_timestamp_delay,
                         ),
                     )),
-                    std::num::NonZeroUsize::new(1).unwrap(),
+                    std::num::NonZeroUsize::new(1)
+                        .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
                 ));
 
                 for _ in 0..config.max_iters {
@@ -259,15 +248,13 @@ impl Fuzzer {
             .run_client(run_client)
             .build()
             .launch()
-            .map_err(|e| anyhow::anyhow!("Parallel fuzzing failed: {e}"))?;
+            .context("Parallel fuzzing failed")?;
 
         Ok(())
     }
 
     /// Format a property failure's call sequence as a flat, Medusa-style log.
     pub fn format_failure(&self, failure: &PropertyFailure) -> String {
-        use alloy_dyn_abi::{DynSolType, DynSolValue};
-
         let mut lines = Vec::new();
         for (i, call) in failure.call_sequence.calls.iter().enumerate() {
             let n = i + 1;
@@ -289,9 +276,11 @@ impl Fuzzer {
                 .functions()
                 .find(|f| f.selector().as_slice() == call.selector);
 
-            let func_name = func
-                .map(|f| f.name.clone())
-                .unwrap_or_else(|| format!("0x{}", hex::encode(call.selector)));
+            let func_name = if let Some(f) = func {
+                f.name.to_owned()
+            } else {
+                format!("0x{}", hex::encode(call.selector))
+            };
 
             let mut delay_suffix = String::new();
             if call.block_number_delay != 0 {
@@ -306,52 +295,46 @@ impl Fuzzer {
 
             let args = if let Some(func_abi) = func {
                 if call.args.is_empty() {
-                    "()".to_string()
+                    "()".into()
                 } else {
-                    let types: Vec<DynSolType> = match func_abi
+                    let types_result = func_abi
                         .inputs
                         .iter()
                         .map(|p| p.selector_type().parse::<DynSolType>())
-                        .collect::<Result<_, _>>()
-                    {
-                        Ok(t) => t,
-                        Err(_) => {
-                            let raw = format!("(0x{})", hex::encode(&call.args));
-                            lines.push(format!(
-                                "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
-                                n,
-                                self.artifact.contract_name,
-                                func_name,
-                                raw,
-                                block,
-                                time,
-                                crate::evm::GAS_LIMIT,
-                                crate::evm::CALLER,
-                                delay_suffix,
-                            ));
-                            continue;
-                        }
+                        .collect();
+                    let Ok(types) = types_result else {
+                        let raw = format!("(0x{})", hex::encode(&call.args));
+                        lines.push(format!(
+                            "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
+                            n,
+                            self.artifact.contract_name,
+                            func_name,
+                            raw,
+                            block,
+                            time,
+                            crate::evm::GAS_LIMIT,
+                            crate::evm::CALLER,
+                            delay_suffix,
+                        ));
+                        continue;
                     };
 
                     let tuple = DynSolType::Tuple(types);
-                    let decoded = match tuple.abi_decode_params(&call.args) {
-                        Ok(d) => d,
-                        Err(_) => {
-                            let raw = format!("(0x{})", hex::encode(&call.args));
-                            lines.push(format!(
-                                "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
-                                n,
-                                self.artifact.contract_name,
-                                func_name,
-                                raw,
-                                block,
-                                time,
-                                crate::evm::GAS_LIMIT,
-                                crate::evm::CALLER,
-                                delay_suffix,
-                            ));
-                            continue;
-                        }
+                    let Ok(decoded) = tuple.abi_decode_params(&call.args) else {
+                        let raw = format!("(0x{})", hex::encode(&call.args));
+                        lines.push(format!(
+                            "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
+                            n,
+                            self.artifact.contract_name,
+                            func_name,
+                            raw,
+                            block,
+                            time,
+                            crate::evm::GAS_LIMIT,
+                            crate::evm::CALLER,
+                            delay_suffix,
+                        ));
+                        continue;
                     };
 
                     let values = match decoded {
@@ -362,7 +345,7 @@ impl Fuzzer {
                     let args_str = values
                         .iter()
                         .map(format_dyn_value)
-                        .collect::<Vec<_>>()
+                        .collect::<Vec<String>>()
                         .join(", ");
 
                     format!("({})", args_str)
@@ -387,7 +370,7 @@ impl Fuzzer {
         lines.join("\n")
     }
 
-    fn run_with_config(&self, config: &FuzzConfig) -> Result<FuzzResult> {
+    fn run_with_config(&self, config: &config::FuzzConfig) -> Result<FuzzResult> {
         let map = unsafe {
             std::slice::from_raw_parts_mut(
                 std::ptr::addr_of_mut!(crate::inspector::COVERAGE_MAP).cast::<u8>(),
@@ -400,23 +383,24 @@ impl Fuzzer {
 
         let mut state = StdState::new(
             StdRand::with_seed(config.seed),
-            InMemoryCorpus::<CallSequenceInput>::new(),
+            InMemoryCorpus::<sequence::CallSequenceInput>::new(),
             InMemoryCorpus::new(),
             &mut feedback,
             &mut objective,
         )?;
 
-        for seed in &self.seeds {
-            state.corpus_mut().add(Testcase::new(seed.clone()))?;
+        let seeds = self.seeds.clone();
+        for seed in seeds {
+            state.corpus_mut().add(Testcase::new(seed))?;
         }
 
         let scheduler = QueueScheduler::new();
         let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
 
-        let runner = EvmRunner::from_target(&self.artifact)?;
+        let runner = evm::EvmRunner::from_target(&self.artifact)?;
         let failures = RefCell::new(Vec::new());
 
-        let mut harness = |input: &CallSequenceInput| {
+        let mut harness = |input: &sequence::CallSequenceInput| {
             let inspector = crate::inspector::CoverageInspector::global();
             match runner.run_sequence(&input.calls, inspector) {
                 Ok(res) if res.all_ok && res.property_triggered => {
@@ -447,24 +431,24 @@ impl Fuzzer {
 
         let mut stages = tuple_list!(StdMutationalStage::with_max_iterations(
             HavocScheduledMutator::new(tuple_list!(
-                SequenceSwapMutator,
-                SequenceInsertMutator::new(
+                mutators::SequenceSwapMutator,
+                mutators::SequenceInsertMutator::new(
                     self.selectors.clone(),
                     config.max_block_number_delay,
                     config.max_block_timestamp_delay,
                 ),
-                SequenceDeleteMutator,
-                SequenceSpliceMutator,
-                SequenceInterleaveMutator,
-                SequenceHeadMutator,
-                SequenceTailMutator,
-                SequenceArgMutator::new(self.artifact.abi.clone()),
-                SequenceDelayMutator::new(
+                mutators::SequenceDeleteMutator,
+                mutators::SequenceSpliceMutator,
+                mutators::SequenceInterleaveMutator,
+                mutators::SequenceHeadMutator,
+                mutators::SequenceTailMutator,
+                mutators::SequenceArgMutator::new(self.artifact.abi.clone()),
+                mutators::SequenceDelayMutator::new(
                     config.max_block_number_delay,
                     config.max_block_timestamp_delay,
                 ),
             )),
-            std::num::NonZeroUsize::new(1).unwrap(),
+            std::num::NonZeroUsize::new(1).ok_or_else(|| libafl::Error::unknown("non-zero"))?,
         ));
 
         let mut manager = NopEventManager::new();
@@ -486,11 +470,10 @@ impl Fuzzer {
 
 /// Format a single decoded Solidity value for display.
 fn format_dyn_value(v: &alloy_dyn_abi::DynSolValue) -> String {
-    use alloy_dyn_abi::DynSolValue;
     match v {
-        DynSolValue::Bool(b) => b.to_string(),
-        DynSolValue::Int(i, _) => i.to_string(),
-        DynSolValue::Uint(u, _) => u.to_string(),
+        DynSolValue::Bool(b) => format!("{}", b),
+        DynSolValue::Int(i, _) => format!("{}", i),
+        DynSolValue::Uint(u, _) => format!("{}", u),
         DynSolValue::Address(a) => format!("{:?}", a),
         DynSolValue::String(s) => format!("\"{}\"", s),
         DynSolValue::Bytes(b) => format!("0x{}", hex::encode(b)),
@@ -500,23 +483,26 @@ fn format_dyn_value(v: &alloy_dyn_abi::DynSolValue) -> String {
 }
 
 /// Build seed inputs from the contract ABI.
-fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<CallSequenceInput> {
+fn build_seeds(
+    artifact: &contract::ContractArtifact,
+    max_len: usize,
+) -> Vec<sequence::CallSequenceInput> {
     let mut seeds = Vec::new();
 
     // Single-call seeds for every ABI function.
     for func in artifact.abi.functions() {
         let selector: [u8; 4] = func.selector().into();
-        let call = Call {
+        let call = sequence::Call {
             selector,
             args: vec![0u8; func.inputs.len() * 32],
             block_number_delay: 0,
             block_timestamp_delay: 0,
         };
-        seeds.push(CallSequenceInput::single(call));
+        seeds.push(sequence::CallSequenceInput::single(call));
     }
 
     // Combined seed with all non-view/pure action functions in ABI order.
-    let action_calls: Vec<Call> = artifact
+    let action_calls: Vec<sequence::Call> = artifact
         .abi
         .functions()
         .filter(|f| {
@@ -525,7 +511,7 @@ fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<CallSequenceI
                 alloy_json_abi::StateMutability::Pure | alloy_json_abi::StateMutability::View
             )
         })
-        .map(|f| Call {
+        .map(|f| sequence::Call {
             selector: f.selector().into(),
             args: vec![0u8; f.inputs.len() * 32],
             block_number_delay: 0,
@@ -534,18 +520,15 @@ fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<CallSequenceI
         .collect();
 
     if !action_calls.is_empty() {
-        let mut combined = CallSequenceInput::new();
-        for call in &action_calls {
-            combined.calls.push(call.clone());
-        }
+        let mut combined = sequence::CallSequenceInput::new();
+        combined.calls = action_calls.clone();
         seeds.push(combined);
     }
 
     // Permutation seeds for action functions (up to max_len).
     let n = action_calls.len();
     if n > 0 && n <= max_len {
-        use std::collections::VecDeque;
-        let mut queue = VecDeque::new();
+        let mut queue = std::collections::VecDeque::new();
         queue.push_back(Vec::new());
         let mut permutations = Vec::new();
         while let Some(prefix) = queue.pop_front() {
@@ -553,17 +536,20 @@ fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<CallSequenceI
                 permutations.push(prefix);
                 continue;
             }
-            for call in &action_calls {
-                if !prefix.contains(call) {
-                    let mut next = prefix.clone();
-                    next.push(call.clone());
+            for (idx, _call) in action_calls.iter().enumerate() {
+                let already_in_prefix = prefix.contains(&idx);
+                if !already_in_prefix {
+                    let mut next = prefix.to_vec();
+                    next.push(idx);
                     queue.push_back(next);
                 }
             }
         }
         for perm in permutations {
-            let mut seq = CallSequenceInput::new();
-            seq.calls = perm;
+            let mut seq = sequence::CallSequenceInput::new();
+            for &i in &perm {
+                seq.calls.push(action_calls[i].replicate());
+            }
             seeds.push(seq);
         }
     }
@@ -574,13 +560,18 @@ fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<CallSequenceI
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
 
-    use crate::contract::ContractBuilder;
-    use crate::fuzzer::Fuzzer;
+    use crate::contract;
+    use crate::evm;
+    use crate::fuzzer;
+    use crate::fuzzer::sequence;
 
     #[test]
     fn deployment_reports_constructor_revert_reason() {
-        let artifact = ContractBuilder::build(
+        let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/basic-target"),
             Path::new("test/ConstructorRevert.sol"),
         )
@@ -589,14 +580,13 @@ mod tests {
         let err = Fuzzer::from_artifact(artifact).unwrap_err();
         let msg = format!("{err}");
         let expected =
-            std::fs::read_to_string("fixtures/basic-target/test/ConstructorRevertOutput.txt")
-                .unwrap();
+            fs::read_to_string("fixtures/basic-target/test/ConstructorRevertOutput.txt").unwrap();
         assert_eq!(msg, expected);
     }
 
     #[test]
     fn deployment_reports_complex_constructor_trace() {
-        let artifact = ContractBuilder::build(
+        let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/basic-target"),
             Path::new("test/ComplexConstructorRevert.sol"),
         )
@@ -604,15 +594,14 @@ mod tests {
 
         let err = Fuzzer::from_artifact(artifact).unwrap_err();
         let msg = format!("{err}");
-        let expected = std::fs::read_to_string(
-            "fixtures/basic-target/test/ComplexConstructorRevertOutput.txt",
-        )
-        .unwrap();
+        let expected =
+            fs::read_to_string("fixtures/basic-target/test/ComplexConstructorRevertOutput.txt")
+                .unwrap();
         assert_eq!(msg, expected);
     }
     #[test]
     fn deployment_reports_set_up_revert_trace() {
-        let artifact = ContractBuilder::build(
+        let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/basic-target"),
             Path::new("test/SetupRevert.sol"),
         )
@@ -621,17 +610,13 @@ mod tests {
         let err = Fuzzer::from_artifact(artifact).unwrap_err();
         let msg = format!("{err}");
         let expected =
-            std::fs::read_to_string("fixtures/basic-target/test/SetupRevertOutput.txt").unwrap();
+            fs::read_to_string("fixtures/basic-target/test/SetupRevertOutput.txt").unwrap();
         assert_eq!(msg, expected);
     }
 
     #[test]
     fn catches_l1_simple_knob_dragon() {
-        use std::sync::mpsc;
-        use std::thread;
-        use std::time::Duration;
-
-        let artifact = ContractBuilder::build(
+        let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/challenges"),
             Path::new("src/L1SimpleKnob.sol"),
         )
@@ -661,13 +646,7 @@ mod tests {
 
     #[test]
     fn format_failure_uses_block_number_and_timestamp_labels() {
-        use crate::contract::ContractBuilder;
-        use crate::evm::CallMeta;
-        use crate::fuzzer::PropertyFailure;
-        use crate::fuzzer::sequence::{Call, CallSequenceInput};
-        use std::path::Path;
-
-        let artifact = ContractBuilder::build(
+        let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/challenges"),
             Path::new("src/L1SimpleKnob.sol"),
         )
@@ -676,19 +655,19 @@ mod tests {
         let fuzzer = Fuzzer::from_artifact(artifact).unwrap();
 
         let calls = vec![
-            Call {
+            sequence::Call {
                 selector: [0x0a, 0x92, 0x54, 0xe4],
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
             },
-            Call {
+            sequence::Call {
                 selector: [0x0a, 0x92, 0x54, 0xe4],
                 args: vec![],
                 block_number_delay: 3,
                 block_timestamp_delay: 4,
             },
-            Call {
+            sequence::Call {
                 selector: [0x0a, 0x92, 0x54, 0xe4],
                 args: vec![],
                 block_number_delay: 0,
@@ -697,19 +676,19 @@ mod tests {
         ];
 
         let failure = PropertyFailure {
-            property_name: "property_caught".to_string(),
+            property_name: "property_caught".into(),
             property_selector: [0; 4],
-            call_sequence: CallSequenceInput { calls },
+            call_sequence: sequence::CallSequenceInput { calls },
             call_meta: vec![
-                CallMeta {
+                evm::CallMeta {
                     block_number: 0,
                     block_timestamp: 0,
                 },
-                CallMeta {
+                evm::CallMeta {
                     block_number: 3,
                     block_timestamp: 4,
                 },
-                CallMeta {
+                evm::CallMeta {
                     block_number: 4,
                     block_timestamp: 5,
                 },
