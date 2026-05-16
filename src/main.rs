@@ -2,12 +2,15 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use clap_verbosity_flag::{InfoLevel, Verbosity};
 use raptor::commands;
-use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
 #[command(name = "raptor", version, about)]
 struct Cli {
+    #[command(flatten)]
+    verbosity: Verbosity<InfoLevel>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -19,13 +22,11 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
-        )
-        .init();
-
     let cli = Cli::parse();
+
+    tracing_subscriber::fmt()
+        .with_max_level(cli.verbosity)
+        .init();
 
     match cli.command {
         Commands::Fuzz(args) => commands::fuzz::run(args),
