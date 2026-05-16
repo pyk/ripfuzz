@@ -114,7 +114,6 @@ A function is treated as an action if **all** of these are true:
 - It is `external` or `public`
 - It is **not** a setup function (`setUp`)
 - It does **not** match a property prefix (see below)
-- It does **not** match an assertion prefix (reserved for assertion tests)
 
 ### Input generation
 
@@ -225,8 +224,4 @@ Property prefixes and other behavior can be configured in `raptor.toml`:
 [fuzzing.testing.property]
 enabled = true
 prefixes = ["property_"]
-
-[fuzzing.testing.assertion]
-enabled = true
-prefixes = ["assert_"]
 ```

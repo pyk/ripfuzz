@@ -39,6 +39,12 @@ A function that establishes the initial state cloned for every fuzz input. The
 contract **constructor** always runs once at deployment. If a function named
 `setUp()` exists, raptor calls it once after deployment.
 
+### Crash
+
+A failure recorded when a property function returns `false` or reverts during
+its check. The fuzzer treats a crash as a bug and adds it to the set of
+objectives. Synonyms: **objective**, **bug**.
+
 ## Correspondence with Other Fuzzers
 
 | Raptor      | Foundry (invariant) | Medusa        | Echidna       |
