@@ -3,7 +3,7 @@ check: ## Run code quality tools.
 	@echo "Run formatter"
 	@cargo fmt
 	@echo "Run clippy"
-	@cargo clippy
+	@cargo clippy -- -D warnings
 
 .PHONY: bin
 bin: ## Install local binary
