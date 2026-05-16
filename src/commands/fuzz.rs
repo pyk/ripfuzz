@@ -2,11 +2,29 @@
 
 use std::env;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use anyhow::Result;
 use clap::Parser;
 
 use crate::campaign::{Campaign, CampaignConfig};
+
+static DEFAULT_WORKERS: LazyLock<String> = LazyLock::new(|| {
+    let cores = libafl_bolts::core_affinity::get_core_ids()
+        .map(|v| v.len())
+        .unwrap_or(1);
+    format!("{}", cores)
+});
+
+fn parse_workers(s: &str) -> Result<usize, String> {
+    let n = s
+        .parse::<usize>()
+        .map_err(|e| format!("invalid worker count: {e}"))?;
+    if n == 0 {
+        return Err("workers must be at least 1".into());
+    }
+    Ok(n)
+}
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -18,8 +36,8 @@ pub struct Args {
     #[arg(long = "project", short = 'p')]
     pub project_path: Option<PathBuf>,
 
-    /// Number of parallel workers to spawn (0 = use all available cores).
-    #[arg(long, default_value = "0")]
+    /// Number of parallel workers to spawn.
+    #[arg(short = 'w', long, default_value = DEFAULT_WORKERS.as_str(), value_parser = parse_workers)]
     pub workers: usize,
 
     /// Maximum number of fuzzing iterations.

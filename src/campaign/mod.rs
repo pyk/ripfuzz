@@ -24,7 +24,9 @@ pub struct CampaignConfig {
 impl Default for CampaignConfig {
     fn default() -> Self {
         Self {
-            workers: 0,
+            workers: std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1),
             max_iters: 10000,
             timeout_secs: 60,
             sequence_length: 5,
@@ -36,15 +38,9 @@ impl Default for CampaignConfig {
 }
 
 impl CampaignConfig {
-    /// Resolved worker count. Zero means "all available cores".
+    /// Resolved worker count.
     pub fn worker_count(&self) -> usize {
-        if self.workers == 0 {
-            std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(1)
-        } else {
-            self.workers
-        }
+        self.workers
     }
 }
 

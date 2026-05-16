@@ -389,11 +389,6 @@ impl Worker {
 
     /// Convert a worker count into a LibAFL `Cores` mask.
     fn workers_to_cores(workers: usize) -> Result<libafl_bolts::core_affinity::Cores> {
-        if workers == 0 {
-            return libafl_bolts::core_affinity::Cores::from_cmdline("all")
-                .context("failed to parse 'all' cores");
-        }
-
         let ids = libafl_bolts::core_affinity::get_core_ids()
             .map(|v| v.len())
             .unwrap_or(1);
