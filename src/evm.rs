@@ -175,10 +175,10 @@ impl EvmRunner {
     }
 
     #[instrument(skip(self, inspector), fields(calls = calls.len()), err)]
-    pub fn run_sequence(
+    pub fn run_sequence<'a>(
         &self,
         calls: &[input::Call],
-        inspector: inspector::CoverageInspector,
+        inspector: inspector::CoverageInspector<'a>,
     ) -> Result<SequenceResult, anyhow::Error> {
         let mut db = self.deployed_db.clone();
         let start_nonce = db

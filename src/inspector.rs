@@ -7,34 +7,20 @@ use revm::{
 
 pub const MAP_SIZE: usize = 65_536;
 
-/// Global coverage map for single-threaded / test usage.
-pub static mut COVERAGE_MAP: [u8; MAP_SIZE] = [0u8; MAP_SIZE];
-
 /// Inspector that writes PC-hit counts into a coverage map.
 #[derive(Debug)]
-pub struct CoverageInspector {
-    map: &'static mut [u8],
+pub struct CoverageInspector<'a> {
+    map: &'a mut [u8],
 }
 
-impl CoverageInspector {
-    /// Create an inspector backed by an arbitrary mutable slice.
-    ///
-    /// `ptr` must be valid for reads and writes for `len` bytes and remain
-    /// valid for the lifetime of the inspector.
-    #[allow(clippy::missing_safety_doc)]
-    pub unsafe fn new(ptr: *mut u8, len: usize) -> Self {
-        Self {
-            map: unsafe { std::slice::from_raw_parts_mut(ptr, len) },
-        }
-    }
-
-    /// Create an inspector backed by the global `COVERAGE_MAP`.
-    pub fn global() -> Self {
-        unsafe { Self::new(std::ptr::addr_of_mut!(COVERAGE_MAP).cast::<u8>(), MAP_SIZE) }
+impl<'a> CoverageInspector<'a> {
+    /// Create an inspector backed by a mutable byte slice.
+    pub fn from_slice(map: &'a mut [u8]) -> Self {
+        Self { map }
     }
 }
 
-impl<CTX> Inspector<CTX, EthInterpreter> for CoverageInspector {
+impl<'a, CTX> Inspector<CTX, EthInterpreter> for CoverageInspector<'a> {
     fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
         let pc = interp.bytecode.pc();
         if pc < self.map.len() {
