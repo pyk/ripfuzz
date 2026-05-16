@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, Result};
 use libafl::events::launcher::{ClientDescription, Launcher};
@@ -11,19 +12,16 @@ use libafl_bolts::shmem::{ShMem, ShMemProvider, StdShMemProvider};
 use tracing::{debug, error, info, trace, warn};
 
 pub use config::CampaignConfig;
+pub use result::CampaignResult;
+pub use seeds::build_seeds;
 
 use crate::contract::{ContractArtifact, ContractBuilder};
-use crate::worker::{PropertyFailure, Worker, WorkerResult};
+use crate::worker::{Worker, WorkerResult};
 
 pub mod config;
 pub mod input;
-
-/// The aggregated output of a fuzzing campaign.
-#[derive(Debug)]
-pub struct CampaignResult {
-    pub runs: u64,
-    pub failures: Vec<PropertyFailure>,
-}
+pub mod result;
+pub mod seeds;
 
 /// Builder for constructing a [`Campaign`].
 #[derive(Debug)]
@@ -124,13 +122,15 @@ impl Campaign {
         debug!(base_runs, remainder, "run distribution calculated");
 
         // Unique identifier so we only collect temp files from this run.
+        static CAMPAIGN_COUNTER: AtomicU64 = AtomicU64::new(0);
         let campaign_id = format!(
-            "{}_{}",
+            "{}_{}_{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_secs()
+                .as_secs(),
+            CAMPAIGN_COUNTER.fetch_add(1, Ordering::SeqCst)
         );
         let campaign_id_for_closure = campaign_id.clone();
         info!(%campaign_id, "campaign id generated");
@@ -285,85 +285,32 @@ impl Campaign {
     }
 }
 
-/// Build seed inputs from the contract ABI.
-pub fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<input::CallSequenceInput> {
-    let mut seeds = Vec::new();
-
-    // Single-call seeds for every ABI function.
-    for func in artifact.abi.functions() {
-        let selector: [u8; 4] = func.selector().into();
-        let call = input::Call {
-            selector,
-            args: vec![0u8; func.inputs.len() * 32],
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
-        };
-        seeds.push(input::CallSequenceInput::single(call));
-    }
-
-    // Combined seed with all non-view/pure action functions in ABI order.
-    let action_calls: Vec<input::Call> = artifact
-        .abi
-        .functions()
-        .filter(|f| {
-            !matches!(
-                f.state_mutability,
-                alloy_json_abi::StateMutability::Pure | alloy_json_abi::StateMutability::View
-            )
-        })
-        .map(|f| input::Call {
-            selector: f.selector().into(),
-            args: vec![0u8; f.inputs.len() * 32],
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
-        })
-        .collect();
-
-    if !action_calls.is_empty() {
-        let mut combined = input::CallSequenceInput::new();
-        combined.calls = action_calls.clone();
-        seeds.push(combined);
-    }
-
-    // Permutation seeds for action functions (up to max_len).
-    let n = action_calls.len();
-    if n > 0 && n <= max_len {
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(Vec::new());
-        let mut permutations = Vec::new();
-        while let Some(prefix) = queue.pop_front() {
-            if prefix.len() == n {
-                permutations.push(prefix);
-                continue;
-            }
-            for (idx, _call) in action_calls.iter().enumerate() {
-                let already_in_prefix = prefix.contains(&idx);
-                if !already_in_prefix {
-                    let mut next = prefix.to_vec();
-                    next.push(idx);
-                    queue.push_back(next);
-                }
-            }
-        }
-        for perm in permutations {
-            let mut seq = input::CallSequenceInput::new();
-            for &i in &perm {
-                seq.calls.push(action_calls[i].replicate());
-            }
-            seeds.push(seq);
-        }
-    }
-
-    seeds
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::path::Path;
 
-    use crate::campaign::{Campaign, CampaignConfig};
+    use std::sync::atomic::{AtomicU16, Ordering};
+
+    use crate::campaign::{Campaign, CampaignConfig, CampaignResult};
     use crate::contract;
+
+    static NEXT_PORT: AtomicU16 = AtomicU16::new(15000);
+
+    fn run_campaign(workers: usize, max_runs: u64) -> CampaignResult {
+        let broker_port = NEXT_PORT.fetch_add(1, Ordering::SeqCst);
+        let mut config = CampaignConfig::default();
+        config.workers = workers;
+        config.max_runs = max_runs;
+        config.broker_port = broker_port;
+
+        let campaign = Campaign::for_target(Path::new("test/ImpossibleBug.sol"))
+            .with_project(Path::new("fixtures/basic-target"))
+            .with_config(config)
+            .build()
+            .unwrap();
+        campaign.run().unwrap()
+    }
 
     #[test]
     fn deployment_reports_constructor_revert_reason() {
@@ -455,6 +402,30 @@ mod tests {
         assert!(
             !result.failures.is_empty(),
             "raptor should find at least one property failure (dragon caught)"
+        );
+    }
+
+    #[test]
+    fn max_runs_with_one_worker() {
+        let result = run_campaign(1, 1000);
+        assert_eq!(result.runs, 1000, "single worker should run all 1000 runs");
+    }
+
+    #[test]
+    fn max_runs_with_three_workers() {
+        let result = run_campaign(3, 1000);
+        assert_eq!(
+            result.runs, 1000,
+            "total runs across 3 workers should be 1000"
+        );
+    }
+
+    #[test]
+    fn max_runs_with_four_workers() {
+        let result = run_campaign(4, 1000);
+        assert_eq!(
+            result.runs, 1000,
+            "total runs across 4 workers should be 1000"
         );
     }
 }
