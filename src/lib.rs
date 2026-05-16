@@ -1,5 +1,6 @@
 //! Raptor - Parallelized, coverage-guided, mutational Solidity smart contract fuzzer.
 
+pub mod campaign;
 pub mod commands;
 pub mod contract;
 pub mod evm;

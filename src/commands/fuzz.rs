@@ -6,29 +6,65 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 
-use crate::contract;
-use crate::fuzzer;
+use crate::campaign::{Campaign, CampaignConfig};
 
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path to the target contract (e.g. ./test/Contract.sol).
-    pub path: PathBuf,
+    #[arg(value_name = "PATH")]
+    pub target_path: PathBuf,
 
     /// Path to the Foundry project root.
-    #[arg(long, short = 'p')]
-    pub project: Option<PathBuf>,
+    #[arg(long = "project", short = 'p')]
+    pub project_path: Option<PathBuf>,
 
-    /// Cores to use for parallel fuzzing (e.g. "all", "1,2,3", "0-3").
-    #[arg(long)]
-    pub cores: Option<String>,
+    /// Number of parallel workers to spawn (0 = use all available cores).
+    #[arg(long, default_value = "0")]
+    pub workers: usize,
+
+    /// Maximum number of fuzzing iterations.
+    #[arg(long = "fuzz-iters", default_value = "10000")]
+    pub max_iters: u64,
+
+    /// Timeout in seconds for the entire fuzzing campaign.
+    #[arg(long = "fuzz-timeout", default_value = "60")]
+    pub timeout_secs: u64,
+
+    /// Maximum number of calls in a generated sequence.
+    #[arg(long = "fuzz-seq-len", default_value = "5")]
+    pub sequence_length: usize,
+
+    /// Random seed for reproducibility.
+    #[arg(long = "fuzz-seed", default_value = "0")]
+    pub seed: u64,
+
+    /// Maximum block number delay between calls.
+    #[arg(long = "max-block-delay", default_value = "5")]
+    pub max_block_number_delay: u64,
+
+    /// Maximum block timestamp delay between calls.
+    #[arg(long = "max-time-delay", default_value = "5")]
+    pub max_block_timestamp_delay: u64,
 }
 
 pub fn run(args: Args) -> Result<()> {
-    let project_path = match args.project {
+    let project = match args.project_path {
         Some(p) => p,
         None => env::current_dir()?,
     };
-    let artifact = contract::ContractBuilder::build(&project_path, &args.path)?;
+    let config = CampaignConfig {
+        workers: args.workers,
+        max_iters: args.max_iters,
+        timeout_secs: args.timeout_secs,
+        sequence_length: args.sequence_length,
+        seed: args.seed,
+        max_block_number_delay: args.max_block_number_delay,
+        max_block_timestamp_delay: args.max_block_timestamp_delay,
+    };
+    let campaign = Campaign::for_target(&args.target_path, &project)
+        .with_config(config)
+        .build()?;
+    let artifact = campaign.artifact();
 
     println!("Loaded contract: {}", artifact.contract_name);
     println!(
@@ -40,18 +76,7 @@ pub fn run(args: Args) -> Result<()> {
             .collect::<Vec<_>>()
     );
 
-    let contract_name = artifact.contract_name.clone();
-    let properties = artifact.properties.clone();
-    let fuzzer = fuzzer::Fuzzer::from_artifact(artifact)?;
-
-    if let Some(cores_str) = args.cores {
-        let cores = libafl_bolts::core_affinity::Cores::from_cmdline(&cores_str)?;
-        println!("Launching parallel fuzzer on cores: {}", cores_str);
-        fuzzer.launch(&cores)?;
-        return Ok(());
-    }
-
-    let result = fuzzer.run()?;
+    let result = campaign.run()?;
 
     println!("Fuzzing completed: {} iterations", result.iterations);
     if result.failures.is_empty() {
@@ -61,16 +86,16 @@ pub fn run(args: Args) -> Result<()> {
             println!();
             println!(
                 "[FAILED] Property Test: {}::{}",
-                contract_name, failure.property_name
+                artifact.contract_name, failure.property_name
             );
             println!(
                 "Test for method \"{}::{}\" failed after the following call sequence:",
-                contract_name, failure.property_name
+                artifact.contract_name, failure.property_name
             );
             println!("[Call Sequence]");
-            println!("{}", fuzzer.format_failure(failure));
+            println!("{}", crate::fuzzer::format_failure(artifact, failure));
         }
-        let total = properties.len();
+        let total = artifact.properties.len();
         let failed = result.failures.len();
         let passed = total.saturating_sub(failed);
         println!();

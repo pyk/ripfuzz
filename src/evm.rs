@@ -60,7 +60,7 @@ fn decode_solidity_error(output: &Bytes) -> Option<String> {
 const ERROR_SELECTOR: [u8; 4] = [0x08, 0xc3, 0x79, 0xa0];
 
 /// Metadata for a single call in an executed sequence.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CallMeta {
     /// Block number at execution time.
     pub block_number: u64,
