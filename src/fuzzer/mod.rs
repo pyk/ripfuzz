@@ -2,9 +2,6 @@
 
 use std::cell::RefCell;
 
-#[cfg(test)]
-use std::fs;
-
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use anyhow::{Context, Result};
 use libafl::{
@@ -559,6 +556,7 @@ fn build_seeds(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::Path;
     use std::sync::mpsc;
     use std::thread;
@@ -566,7 +564,8 @@ mod tests {
 
     use crate::contract;
     use crate::evm;
-    use crate::fuzzer;
+    use crate::fuzzer::Fuzzer;
+    use crate::fuzzer::PropertyFailure;
     use crate::fuzzer::sequence;
 
     #[test]

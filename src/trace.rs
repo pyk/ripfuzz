@@ -1,8 +1,6 @@
 //! Call trace inspection and formatting for EVM execution.
 
 use std::collections::HashMap;
-#[cfg(test)]
-use std::fs;
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_json_abi::JsonAbi;
@@ -663,7 +661,7 @@ fn classify_result(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::fs;
     use std::path::Path;
 
     use revm::{
@@ -671,7 +669,7 @@ mod tests {
         context::{Context, TxEnv},
         database::InMemoryDB,
         inspector::InspectCommitEvm,
-        primitives::{Address, Bytes, KECCAK_EMPTY, TxKind, U256},
+        primitives::{Address, KECCAK_EMPTY, TxKind, U256},
         state::AccountInfo,
     };
 
