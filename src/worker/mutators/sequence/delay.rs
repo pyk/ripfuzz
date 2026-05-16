@@ -10,7 +10,7 @@ use libafl::{
 };
 use libafl_bolts::{Named, rands::Rand};
 
-use crate::fuzzer::sequence;
+use crate::campaign::input;
 
 /// Mutate block delays on a random call in the sequence.
 #[derive(Debug, Default)]
@@ -34,11 +34,11 @@ impl Named for SequenceDelayMutator {
     }
 }
 
-impl<S: HasRand> Mutator<sequence::CallSequenceInput, S> for SequenceDelayMutator {
+impl<S: HasRand> Mutator<input::CallSequenceInput, S> for SequenceDelayMutator {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut sequence::CallSequenceInput,
+        input: &mut input::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         if input.calls.is_empty() {
             return Ok(MutationResult::Skipped);

@@ -11,7 +11,7 @@ use libafl::{
 use libafl_bolts::Named;
 use libafl_bolts::rands::Rand;
 
-use crate::fuzzer::sequence;
+use crate::campaign::input;
 
 /// Take the head of a corpus sequence and keep it, discarding the rest.
 #[derive(Debug, Default)]
@@ -23,14 +23,14 @@ impl Named for SequenceHeadMutator {
     }
 }
 
-impl<S> Mutator<sequence::CallSequenceInput, S> for SequenceHeadMutator
+impl<S> Mutator<input::CallSequenceInput, S> for SequenceHeadMutator
 where
-    S: HasRand + HasCorpus<sequence::CallSequenceInput>,
+    S: HasRand + HasCorpus<input::CallSequenceInput>,
 {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut sequence::CallSequenceInput,
+        input: &mut input::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         let count = state.corpus().count();
         if count == 0 {

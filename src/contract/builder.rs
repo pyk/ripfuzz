@@ -302,20 +302,21 @@ mod tests {
         // compilation target name still exists in the source.
         let project = Path::new("fixtures/basic-target");
         let source = project.join("src/Renamed.sol");
-        let original = fs::read_to_string(&source).unwrap();
+        let saved = fs::read_to_string(&source).unwrap();
 
-        // Step 1: build with current name Original.
+        // Step 1: build with name Original (stale artifact exists).
+        let original_source = saved.replace("Renamed", "Original");
+        fs::write(&source, &original_source).unwrap();
         let artifact1 = ContractBuilder::build(project, Path::new("src/Renamed.sol")).unwrap();
         assert_eq!(artifact1.contract_name, "Original");
 
         // Step 2: rename contract in source and rebuild.
-        let renamed = original.replace("Original", "Renamed");
-        fs::write(&source, &renamed).unwrap();
+        fs::write(&source, &saved).unwrap();
         let artifact2 = ContractBuilder::build(project, Path::new("src/Renamed.sol")).unwrap();
         assert_eq!(artifact2.contract_name, "Renamed");
 
-        // Restore original source.
-        fs::write(&source, &original).unwrap();
+        // Restore source.
+        fs::write(&source, &saved).unwrap();
     }
 
     #[test]

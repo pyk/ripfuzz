@@ -16,8 +16,10 @@ use revm::{
     state::AccountInfo,
 };
 
+use tracing::{error, info, instrument, trace};
+
+use crate::campaign::input;
 use crate::contract;
-use crate::fuzzer::sequence;
 use crate::inspector;
 use crate::trace;
 
@@ -93,6 +95,7 @@ pub struct EvmRunner {
 }
 
 impl EvmRunner {
+    #[instrument(skip(target), fields(contract = %target.contract_name), err)]
     pub fn from_target(target: &contract::ContractArtifact) -> Result<Self> {
         let mut db = InMemoryDB::default();
 
@@ -124,8 +127,10 @@ impl EvmRunner {
         let contract_address = result.created_address().ok_or_else(|| {
             let reason = extract_deployment_error(&result);
             let trace = evm.inspector.format();
+            error!(%reason, "deployment failed");
             anyhow::anyhow!("deployment failed: {reason}\n\nTrace:\n{trace}")
         })?;
+        info!(%contract_address, "contract deployed");
 
         // If the contract declares a `setUp()` function, call it after deployment.
         const SETUP_SELECTOR: [u8; 4] = [0x0a, 0x92, 0x54, 0xe4];
@@ -150,8 +155,12 @@ impl EvmRunner {
             if !setup_result.is_success() {
                 let reason = extract_deployment_error(&setup_result);
                 let trace = evm.inspector.format();
+                error!(%reason, "setUp failed");
                 return Err(anyhow::anyhow!("setUp failed: {reason}\n\nTrace:\n{trace}"));
             }
+            info!("setUp succeeded");
+        } else {
+            trace!("no setUp function found");
         }
 
         let deployed_db = evm.ctx.journaled_state.database;
@@ -165,9 +174,10 @@ impl EvmRunner {
         })
     }
 
+    #[instrument(skip(self, inspector), fields(calls = calls.len()), err)]
     pub fn run_sequence(
         &self,
-        calls: &[sequence::Call],
+        calls: &[input::Call],
         inspector: inspector::CoverageInspector,
     ) -> Result<SequenceResult, anyhow::Error> {
         let mut db = self.deployed_db.clone();
@@ -176,6 +186,7 @@ impl EvmRunner {
             .map_err(|_| anyhow::anyhow!("db error"))?
             .unwrap_or_default()
             .nonce;
+        trace!(start_nonce, "starting sequence execution");
 
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
@@ -220,6 +231,7 @@ impl EvmRunner {
             });
 
             if !result.is_success() {
+                trace!(idx, "call reverted, aborting sequence");
                 return Ok(SequenceResult {
                     all_ok: false,
                     property_triggered: false,
@@ -228,6 +240,7 @@ impl EvmRunner {
                     call_meta,
                 });
             }
+            trace!(idx, "call succeeded");
         }
 
         // After a successful sequence, check whether any property returns `true`.
@@ -251,6 +264,7 @@ impl EvmRunner {
                 {
                     triggered_property = Some(name.to_owned());
                     triggered_property_selector = Some(*selector);
+                    trace!(property = %name, "property returned true");
                     break;
                 }
             }

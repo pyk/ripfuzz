@@ -20,10 +20,10 @@ mod tests {
     use libafl::state::HasRand;
     use libafl_bolts::rands::StdRand;
 
+    use crate::campaign::input;
     use crate::contract;
     use crate::evm;
-    use crate::fuzzer::mutators;
-    use crate::fuzzer::sequence;
+    use crate::worker::mutators;
 
     /// Minimal test state that only implements `HasRand` so mutators can be
     /// exercised deterministically.
@@ -55,8 +55,8 @@ mod tests {
         let mut mutator = mutators::SequenceDelayMutator::new(10, 10);
 
         // Start with a single call whose delays are deliberately out of bounds.
-        let mut input = sequence::CallSequenceInput {
-            calls: vec![sequence::Call {
+        let mut input = input::CallSequenceInput {
+            calls: vec![input::Call {
                 selector: [0x12, 0x34, 0x56, 0x78],
                 args: vec![0u8; 32],
                 block_number_delay: 99,
@@ -84,7 +84,7 @@ mod tests {
             selectors, /* max_block_delay */ 10, /* max_time_delay */ 10,
         );
 
-        let mut input = sequence::CallSequenceInput::new();
+        let mut input = input::CallSequenceInput::new();
         let result = mutator.mutate(&mut state, &mut input).unwrap();
         assert_eq!(result, libafl::mutators::MutationResult::Mutated);
         assert_eq!(input.calls.len(), 1);
@@ -131,21 +131,21 @@ mod tests {
             .into();
 
         // Build a 3-call seed sequence.
-        let mut input = sequence::CallSequenceInput {
+        let mut input = input::CallSequenceInput {
             calls: vec![
-                sequence::Call {
+                input::Call {
                     selector: one,
                     args: vec![],
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
                 },
-                sequence::Call {
+                input::Call {
                     selector: two,
                     args: vec![],
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
                 },
-                sequence::Call {
+                input::Call {
                     selector: three,
                     args: vec![],
                     block_number_delay: 0,

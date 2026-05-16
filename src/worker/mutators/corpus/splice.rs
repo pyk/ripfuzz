@@ -1,4 +1,4 @@
-//! Corpus mutator that interleaves two sequences.
+//! Corpus mutator that splices two sequences together.
 
 use std::borrow::Cow;
 use std::num::NonZeroUsize;
@@ -11,26 +11,26 @@ use libafl::{
 use libafl_bolts::Named;
 use libafl_bolts::rands::Rand;
 
-use crate::fuzzer::sequence;
+use crate::campaign::input;
 
-/// Interleave two corpus sequences.
+/// Splice two corpus sequences: take the head from one and tail from another.
 #[derive(Debug, Default)]
-pub struct SequenceInterleaveMutator;
+pub struct SequenceSpliceMutator;
 
-impl Named for SequenceInterleaveMutator {
+impl Named for SequenceSpliceMutator {
     fn name(&self) -> &Cow<'static, str> {
-        &Cow::Borrowed("SequenceInterleaveMutator")
+        &Cow::Borrowed("SequenceSpliceMutator")
     }
 }
 
-impl<S> Mutator<sequence::CallSequenceInput, S> for SequenceInterleaveMutator
+impl<S> Mutator<input::CallSequenceInput, S> for SequenceSpliceMutator
 where
-    S: HasRand + HasCorpus<sequence::CallSequenceInput>,
+    S: HasRand + HasCorpus<input::CallSequenceInput>,
 {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut sequence::CallSequenceInput,
+        input: &mut input::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         let count = state.corpus().count();
         if count < 2 {
@@ -61,34 +61,21 @@ where
             .clone()
             .ok_or_else(|| libafl::Error::unknown("missing input in corpus"))?;
 
-        let take1 = state.rand_mut().below(
-            NonZeroUsize::new(seq1.calls.len() + 1)
+        if seq1.calls.is_empty() || seq2.calls.is_empty() {
+            return Ok(MutationResult::Skipped);
+        }
+
+        let head_len = state.rand_mut().below(
+            NonZeroUsize::new(seq1.calls.len())
                 .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        );
-        let take2 = state.rand_mut().below(
+        ) + 1;
+        let tail_len = state.rand_mut().below(
             NonZeroUsize::new(seq2.calls.len() + 1)
                 .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
         );
 
-        let slice1 = &seq1.calls[..take1];
-        let slice2 = &seq2.calls[..take2];
-
-        let calls1 = slice1.to_vec();
-        let calls2 = slice2.to_vec();
-        let mut iter1 = calls1.into_iter();
-        let mut iter2 = calls2.into_iter();
-        let mut new_calls = Vec::with_capacity(slice1.len() + slice2.len());
-        loop {
-            match (iter1.next(), iter2.next()) {
-                (Some(a), Some(b)) => {
-                    new_calls.push(a);
-                    new_calls.push(b);
-                }
-                (Some(a), None) => new_calls.push(a),
-                (None, Some(b)) => new_calls.push(b),
-                (None, None) => break,
-            }
-        }
+        let mut new_calls = seq1.calls[..head_len].to_vec();
+        new_calls.extend_from_slice(&seq2.calls[seq2.calls.len() - tail_len..]);
         input.calls = new_calls;
         Ok(MutationResult::Mutated)
     }

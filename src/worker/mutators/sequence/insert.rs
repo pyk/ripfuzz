@@ -10,7 +10,7 @@ use libafl::{
 };
 use libafl_bolts::{Named, rands::Rand};
 
-use crate::fuzzer::sequence;
+use crate::campaign::input;
 
 /// Insert a new random call at a random position.
 #[derive(Debug, Default)]
@@ -36,11 +36,11 @@ impl Named for SequenceInsertMutator {
     }
 }
 
-impl<S: HasRand> Mutator<sequence::CallSequenceInput, S> for SequenceInsertMutator {
+impl<S: HasRand> Mutator<input::CallSequenceInput, S> for SequenceInsertMutator {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut sequence::CallSequenceInput,
+        input: &mut input::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         if self.selectors.is_empty() {
             return Ok(MutationResult::Skipped);
@@ -67,7 +67,7 @@ impl<S: HasRand> Mutator<sequence::CallSequenceInput, S> for SequenceInsertMutat
             block_timestamp_delay = state.rand_mut().next() % (self.max_time_delay + 1);
         }
 
-        let mut call = sequence::Call {
+        let mut call = input::Call {
             selector: self.selectors[sel_idx],
             args: vec![0u8; 32 * 3], // up to 3 args of padding
             block_number_delay,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.28;
 
-contract Original {
+contract Renamed {
     uint256 public value;
 
     function set(uint256 x) external {

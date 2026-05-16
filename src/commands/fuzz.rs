@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 
 use anyhow::Result;
 use clap::Parser;
+use tracing::{debug, info, instrument};
 
 use crate::campaign::{Campaign, CampaignConfig};
 
@@ -40,9 +41,9 @@ pub struct Args {
     #[arg(short = 'w', long, default_value = DEFAULT_WORKERS.as_str(), value_parser = parse_workers)]
     pub workers: usize,
 
-    /// Maximum number of fuzzing iterations.
-    #[arg(long = "fuzz-iters", default_value = "10000")]
-    pub max_iters: u64,
+    /// Maximum number of campaign runs across all workers.
+    #[arg(short = 'r', long = "max-runs", default_value = "10000")]
+    pub max_runs: u64,
 
     /// Timeout in seconds for the entire fuzzing campaign.
     #[arg(long = "fuzz-timeout", default_value = "60")]
@@ -63,22 +64,37 @@ pub struct Args {
     /// Maximum block timestamp delay between calls.
     #[arg(long = "max-time-delay", default_value = "5")]
     pub max_block_timestamp_delay: u64,
+
+    /// TCP port for the LibAFL LLMP broker.
+    #[arg(long = "broker-port", default_value = "1337")]
+    pub broker_port: u16,
 }
 
+#[instrument(skip(args), fields(target = ?args.target_path, workers = args.workers, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
     let project = match args.project_path {
-        Some(p) => p,
-        None => env::current_dir()?,
+        Some(p) => {
+            debug!(?p, "using explicit project path");
+            p
+        }
+        None => {
+            let cwd = env::current_dir()?;
+            debug!(?cwd, "using current directory as project path");
+            cwd
+        }
     };
     let config = CampaignConfig {
         workers: args.workers,
-        max_iters: args.max_iters,
+        max_runs: args.max_runs,
         timeout_secs: args.timeout_secs,
         sequence_length: args.sequence_length,
         seed: args.seed,
         max_block_number_delay: args.max_block_number_delay,
         max_block_timestamp_delay: args.max_block_timestamp_delay,
+        broker_port: args.broker_port,
     };
+    info!(?config, "starting fuzzing campaign");
+
     let campaign = Campaign::for_target(&args.target_path, &project)
         .with_config(config)
         .build()?;
@@ -93,10 +109,16 @@ pub fn run(args: Args) -> Result<()> {
             .map(|(_, n)| n)
             .collect::<Vec<_>>()
     );
+    info!(contract = %artifact.contract_name, properties = artifact.properties.len(), "artifact loaded");
 
     let result = campaign.run()?;
 
-    println!("Fuzzing completed: {} iterations", result.iterations);
+    println!("Fuzzing completed: {} runs", result.runs);
+    info!(
+        runs = result.runs,
+        failures = result.failures.len(),
+        "campaign finished"
+    );
     if result.failures.is_empty() {
         println!("All properties passed.");
     } else {
@@ -111,7 +133,7 @@ pub fn run(args: Args) -> Result<()> {
                 artifact.contract_name, failure.property_name
             );
             println!("[Call Sequence]");
-            println!("{}", crate::fuzzer::format_failure(artifact, failure));
+            println!("{}", crate::worker::format_failure(artifact, failure));
         }
         let total = artifact.properties.len();
         let failed = result.failures.len();
