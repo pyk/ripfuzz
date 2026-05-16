@@ -1,0 +1,62 @@
+//! A single call in a fuzzing sequence.
+
+use serde::{Deserialize, Serialize};
+
+/// A single call in a sequence.
+#[derive(Clone, Debug, Default, Hash, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Call {
+    /// 4-byte function selector.
+    pub selector: [u8; 4],
+    /// ABI-encoded arguments (0 or more 32-byte words).
+    pub args: Vec<u8>,
+    /// How many blocks to advance before this call is executed.
+    pub block_number_delay: u64,
+    /// How many seconds to advance before this call is executed.
+    pub block_timestamp_delay: u64,
+    /// Human-readable function name (empty when the selector is unknown).
+    pub method_name: String,
+    /// Full function signature, e.g. `transfer(address,uint256)`.
+    pub method_signature: String,
+    /// JSON-friendly representation of each ABI argument.
+    pub input_values: Vec<serde_json::Value>,
+}
+
+impl Call {
+    /// Total encoded size of this call (selector + args).
+    pub fn encoded_size(&self) -> usize {
+        4 + self.args.len()
+    }
+
+    /// Encode this call as a flat byte vector.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(self.encoded_size());
+        buf.extend_from_slice(&self.selector);
+        buf.extend_from_slice(&self.args);
+        buf
+    }
+
+    /// Cap block number delay so it never exceeds timestamp delay.
+    /// Medusa invariant: each block must have a unique timestamp.
+    pub fn cap_delays(&mut self) {
+        if self.block_number_delay > self.block_timestamp_delay {
+            if self.block_timestamp_delay == 0 {
+                self.block_number_delay = 0;
+            } else {
+                self.block_number_delay %= self.block_timestamp_delay;
+            }
+        }
+    }
+
+    /// Create an owned copy of this call without using `Clone::clone`.
+    pub fn replicate(&self) -> Self {
+        Self {
+            selector: self.selector,
+            args: self.args.to_vec(),
+            block_number_delay: self.block_number_delay,
+            block_timestamp_delay: self.block_timestamp_delay,
+            method_name: self.method_name.clone(),
+            method_signature: self.method_signature.clone(),
+            input_values: self.input_values.clone(),
+        }
+    }
+}

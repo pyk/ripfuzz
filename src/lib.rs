@@ -3,6 +3,7 @@
 pub mod campaign;
 pub mod commands;
 pub mod contract;
+pub mod corpus;
 pub mod evm;
 pub mod foundry;
 pub mod inspector;

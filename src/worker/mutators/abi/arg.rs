@@ -13,7 +13,7 @@ use libafl::{
 };
 use libafl_bolts::{Named, rands::Rand};
 
-use crate::campaign::input;
+use crate::corpus;
 
 /// Mutate the arguments of a random call using ABI type information.
 ///
@@ -33,7 +33,7 @@ impl SequenceArgMutator {
     /// Mutate the arguments of a single call.
     ///
     /// Returns `true` if any argument was changed.
-    fn mutate_call_args<S: HasRand>(&self, state: &mut S, call: &mut input::Call) -> bool {
+    fn mutate_call_args<S: HasRand>(&self, state: &mut S, call: &mut corpus::Call) -> bool {
         // Look up the function by selector.
         let func = match self
             .abi
@@ -203,11 +203,11 @@ impl Named for SequenceArgMutator {
     }
 }
 
-impl<S: HasRand> Mutator<input::CallSequenceInput, S> for SequenceArgMutator {
+impl<S: HasRand> Mutator<corpus::CallSequenceInput, S> for SequenceArgMutator {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut input::CallSequenceInput,
+        input: &mut corpus::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         if input.calls.is_empty() {
             return Ok(MutationResult::Skipped);
@@ -241,7 +241,7 @@ mod tests {
     use libafl::state::HasRand;
     use libafl_bolts::rands::StdRand;
 
-    use crate::campaign::input;
+    use crate::corpus;
     use crate::worker::mutators::abi;
 
     /// Minimal test state that only implements `HasRand`.
@@ -286,7 +286,7 @@ mod tests {
         let mut state = MockState::with_seed(42);
         let abi = abi_with("function set(uint256 x)");
         let mut mutator = abi::SequenceArgMutator::new(abi);
-        let mut input = input::CallSequenceInput::new();
+        let mut input = corpus::CallSequenceInput::new();
 
         let result = mutator.mutate(&mut state, &mut input).unwrap();
         assert_eq!(result, libafl::mutators::MutationResult::Skipped);
@@ -300,12 +300,13 @@ mod tests {
         let unknown_selector = selector_of(&other_abi, "transfer");
         let mut mutator = abi::SequenceArgMutator::new(target_abi);
 
-        let mut input = input::CallSequenceInput {
-            calls: vec![input::Call {
+        let mut input = corpus::CallSequenceInput {
+            calls: vec![corpus::Call {
                 selector: unknown_selector,
                 args: vec![0u8; 32],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
+                ..Default::default()
             }],
         };
         let original_args = input.calls[0].args.clone();
@@ -324,12 +325,13 @@ mod tests {
         for seed in [1u64, 2, 3, 42, 99] {
             let mut state = MockState::with_seed(seed);
             let mut mutator = abi::SequenceArgMutator::new(abi.clone());
-            let mut input = input::CallSequenceInput {
-                calls: vec![input::Call {
+            let mut input = corpus::CallSequenceInput {
+                calls: vec![corpus::Call {
                     selector,
                     args: vec![0u8; 32],
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
+                    ..Default::default()
                 }],
             };
             let original_args = input.calls[0].args.clone();
@@ -361,12 +363,13 @@ mod tests {
         for seed in [1u64, 2, 3, 42, 99, 123, 456, 789, 1000, 2000] {
             let mut state = MockState::with_seed(seed);
             let mut mutator = abi::SequenceArgMutator::new(abi.clone());
-            let mut input = input::CallSequenceInput {
-                calls: vec![input::Call {
+            let mut input = corpus::CallSequenceInput {
+                calls: vec![corpus::Call {
                     selector,
                     args: full_arg.clone(),
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
+                    ..Default::default()
                 }],
             };
 
@@ -400,12 +403,13 @@ mod tests {
 
         let mut state = MockState::with_seed(42);
         let mut mutator = abi::SequenceArgMutator::new(abi);
-        let mut input = input::CallSequenceInput {
-            calls: vec![input::Call {
+        let mut input = corpus::CallSequenceInput {
+            calls: vec![corpus::Call {
                 selector,
                 args: args.clone(),
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
+                ..Default::default()
             }],
         };
 
@@ -436,8 +440,8 @@ mod tests {
         let selector = selector_of(&abi, "toggle");
         let mut mutator = abi::SequenceArgMutator::new(abi);
 
-        let mut input = input::CallSequenceInput {
-            calls: vec![input::Call {
+        let mut input = corpus::CallSequenceInput {
+            calls: vec![corpus::Call {
                 selector,
                 args: {
                     let mut v = vec![0u8; 32];
@@ -446,6 +450,7 @@ mod tests {
                 },
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
+                ..Default::default()
             }],
         };
 
@@ -461,12 +466,13 @@ mod tests {
         let selector = selector_of(&abi, "transfer");
         let mut mutator = abi::SequenceArgMutator::new(abi);
 
-        let mut input = input::CallSequenceInput {
-            calls: vec![input::Call {
+        let mut input = corpus::CallSequenceInput {
+            calls: vec![corpus::Call {
                 selector,
                 args: vec![0u8; 32],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
+                ..Default::default()
             }],
         };
         let original_args = input.calls[0].args.clone();
@@ -484,12 +490,13 @@ mod tests {
         for seed in [1u64, 2, 3, 42, 99, 123, 456, 789, 1000, 2000] {
             let mut state = MockState::with_seed(seed);
             let mut mutator = abi::SequenceArgMutator::new(abi.clone());
-            let mut input = input::CallSequenceInput {
-                calls: vec![input::Call {
+            let mut input = corpus::CallSequenceInput {
+                calls: vec![corpus::Call {
                     selector,
                     args: vec![0u8; 32],
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
+                    ..Default::default()
                 }],
             };
 
@@ -515,12 +522,13 @@ mod tests {
         let selector = selector_of(&abi, "multi");
         let mut mutator = abi::SequenceArgMutator::new(abi);
 
-        let mut input = input::CallSequenceInput {
-            calls: vec![input::Call {
+        let mut input = corpus::CallSequenceInput {
+            calls: vec![corpus::Call {
                 selector,
                 args: vec![0u8; 96],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
+                ..Default::default()
             }],
         };
         let original_args = input.calls[0].args.clone();
@@ -539,12 +547,13 @@ mod tests {
         for seed in [1u64, 2, 3, 4, 5] {
             let mut state = MockState::with_seed(seed);
             let mut mutator = abi::SequenceArgMutator::new(abi.clone());
-            let mut input = input::CallSequenceInput {
-                calls: vec![input::Call {
+            let mut input = corpus::CallSequenceInput {
+                calls: vec![corpus::Call {
                     selector,
                     args: vec![0u8; 32],
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
+                    ..Default::default()
                 }],
             };
             mutator.mutate(&mut state, &mut input).unwrap();
@@ -571,12 +580,13 @@ mod tests {
 
         let mut state = MockState::with_seed(1);
         let mut mutator = abi::SequenceArgMutator::new(abi);
-        let mut input = input::CallSequenceInput {
-            calls: vec![input::Call {
+        let mut input = corpus::CallSequenceInput {
+            calls: vec![corpus::Call {
                 selector,
                 args: args.clone(),
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
+                ..Default::default()
             }],
         };
 
@@ -610,12 +620,13 @@ mod tests {
         for seed in [1u64, 2, 3, 42, 99] {
             let mut state = MockState::with_seed(seed);
             let mut mutator = abi::SequenceArgMutator::new(abi.clone());
-            let mut input = input::CallSequenceInput {
-                calls: vec![input::Call {
+            let mut input = corpus::CallSequenceInput {
+                calls: vec![corpus::Call {
                     selector,
                     args: args.clone(),
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
+                    ..Default::default()
                 }],
             };
             mutator.mutate(&mut state, &mut input).unwrap();
@@ -639,12 +650,13 @@ mod tests {
 
         let mut state = MockState::with_seed(42);
         let mut mutator = abi::SequenceArgMutator::new(abi);
-        let mut input = input::CallSequenceInput {
-            calls: vec![input::Call {
+        let mut input = corpus::CallSequenceInput {
+            calls: vec![corpus::Call {
                 selector,
                 args: args.clone(),
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
+                ..Default::default()
             }],
         };
 
@@ -680,12 +692,13 @@ mod tests {
         for seed in [1u64, 2, 3, 42, 99] {
             let mut state = MockState::with_seed(seed);
             let mut mutator = abi::SequenceArgMutator::new(abi.clone());
-            let mut input = input::CallSequenceInput {
-                calls: vec![input::Call {
+            let mut input = corpus::CallSequenceInput {
+                calls: vec![corpus::Call {
                     selector,
                     args: args.clone(),
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
+                    ..Default::default()
                 }],
             };
             mutator.mutate(&mut state, &mut input).unwrap();
@@ -711,12 +724,13 @@ mod tests {
         for seed in [1u64, 2, 3, 42, 99] {
             let mut state = MockState::with_seed(seed);
             let mut mutator = abi::SequenceArgMutator::new(abi.clone());
-            let mut input = input::CallSequenceInput {
-                calls: vec![input::Call {
+            let mut input = corpus::CallSequenceInput {
+                calls: vec![corpus::Call {
                     selector,
                     args: args.clone(),
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
+                    ..Default::default()
                 }],
             };
             mutator.mutate(&mut state, &mut input).unwrap();
@@ -738,12 +752,13 @@ mod tests {
 
         let mut state = MockState::with_seed(42);
         let mut mutator = abi::SequenceArgMutator::new(abi);
-        let mut input = input::CallSequenceInput {
-            calls: vec![input::Call {
+        let mut input = corpus::CallSequenceInput {
+            calls: vec![corpus::Call {
                 selector,
                 args: args.clone(),
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
+                ..Default::default()
             }],
         };
 
@@ -778,12 +793,13 @@ mod tests {
         for seed in [1u64, 2, 3, 42, 99] {
             let mut state = MockState::with_seed(seed);
             let mut mutator = abi::SequenceArgMutator::new(abi.clone());
-            let mut input = input::CallSequenceInput {
-                calls: vec![input::Call {
+            let mut input = corpus::CallSequenceInput {
+                calls: vec![corpus::Call {
                     selector,
                     args: args.clone(),
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
+                    ..Default::default()
                 }],
             };
             mutator.mutate(&mut state, &mut input).unwrap();

@@ -88,6 +88,7 @@ pub fn run(args: Args) -> Result<()> {
         max_block_number_delay: args.max_block_number_delay,
         max_block_timestamp_delay: args.max_block_timestamp_delay,
         broker_port: 0,
+        corpus_dir: None,
     };
     info!(?config, "starting fuzzing campaign");
 

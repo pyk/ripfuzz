@@ -11,7 +11,7 @@ use libafl::{
 use libafl_bolts::Named;
 use libafl_bolts::rands::Rand;
 
-use crate::campaign::input;
+use crate::corpus;
 
 /// Take the head of a corpus sequence and keep it, discarding the rest.
 #[derive(Debug, Default)]
@@ -23,14 +23,14 @@ impl Named for SequenceHeadMutator {
     }
 }
 
-impl<S> Mutator<input::CallSequenceInput, S> for SequenceHeadMutator
+impl<S> Mutator<corpus::CallSequenceInput, S> for SequenceHeadMutator
 where
-    S: HasRand + HasCorpus<input::CallSequenceInput>,
+    S: HasRand + HasCorpus<corpus::CallSequenceInput>,
 {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut input::CallSequenceInput,
+        input: &mut corpus::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         let count = state.corpus().count();
         if count == 0 {
@@ -41,12 +41,8 @@ where
             .below(NonZeroUsize::new(count).ok_or_else(|| libafl::Error::unknown("non-zero"))?);
         let seq = state
             .corpus()
-            .get(CorpusId::from(id))
-            .map_err(|e| libafl::Error::unknown(format!("corpus get: {e}")))?
-            .borrow()
-            .input()
-            .clone()
-            .ok_or_else(|| libafl::Error::unknown("missing input in corpus"))?;
+            .cloned_input_for_id(CorpusId::from(id))
+            .map_err(|e| libafl::Error::unknown(format!("corpus get: {e}")))?;
         if seq.calls.is_empty() {
             return Ok(MutationResult::Skipped);
         }

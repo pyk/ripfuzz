@@ -1,5 +1,7 @@
 //! Campaign configuration.
 
+use std::path::PathBuf;
+
 /// Configuration for a fuzzing campaign.
 #[derive(Debug, Clone)]
 pub struct CampaignConfig {
@@ -11,6 +13,9 @@ pub struct CampaignConfig {
     pub max_block_number_delay: u64,
     pub max_block_timestamp_delay: u64,
     pub broker_port: u16,
+    /// Path to the corpus root directory. If set, coverage-guided
+    /// persistence is enabled.
+    pub corpus_dir: Option<PathBuf>,
 }
 
 impl Default for CampaignConfig {
@@ -26,6 +31,7 @@ impl Default for CampaignConfig {
             max_block_number_delay: 5,
             max_block_timestamp_delay: 5,
             broker_port: 0,
+            corpus_dir: None,
         }
     }
 }

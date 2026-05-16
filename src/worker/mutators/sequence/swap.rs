@@ -10,7 +10,7 @@ use libafl::{
 };
 use libafl_bolts::{Named, rands::Rand};
 
-use crate::campaign::input;
+use crate::corpus;
 
 /// Swap two random calls in the sequence.
 #[derive(Debug, Default)]
@@ -22,11 +22,11 @@ impl Named for SequenceSwapMutator {
     }
 }
 
-impl<S: HasRand> Mutator<input::CallSequenceInput, S> for SequenceSwapMutator {
+impl<S: HasRand> Mutator<corpus::CallSequenceInput, S> for SequenceSwapMutator {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut input::CallSequenceInput,
+        input: &mut corpus::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         if input.calls.len() < 2 {
             return Ok(MutationResult::Skipped);

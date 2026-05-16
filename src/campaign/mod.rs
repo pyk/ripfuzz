@@ -19,7 +19,6 @@ use crate::contract::{ContractArtifact, ContractBuilder};
 use crate::worker::{Worker, WorkerResult};
 
 pub mod config;
-pub mod input;
 pub mod result;
 pub mod seeds;
 
@@ -79,7 +78,7 @@ impl CampaignBuilder {
 #[derive(Debug)]
 pub struct Campaign {
     artifact: ContractArtifact,
-    seeds: Vec<input::CallSequenceInput>,
+    seeds: Vec<crate::corpus::CallSequenceInput>,
     config: CampaignConfig,
     selectors: Vec<[u8; 4]>,
 }
@@ -169,7 +168,7 @@ impl Campaign {
                 selectors.clone(),
             );
             let result = worker
-                .run(state, &mut mgr, &mut local_shmem, local_max_runs)
+                .run(state, &mut mgr, &mut local_shmem, local_max_runs, client_id)
                 .map_err(|e| libafl::Error::illegal_state(format!("worker run failed: {e}")))?;
 
             // Persist local results so the campaign can aggregate them.

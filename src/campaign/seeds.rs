@@ -2,45 +2,40 @@
 
 use std::collections::VecDeque;
 
-use crate::campaign::input;
 use crate::contract::ContractArtifact;
+use crate::corpus;
 
 /// Build seed inputs from the contract ABI.
-pub fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<input::CallSequenceInput> {
+pub fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<corpus::CallSequenceInput> {
     let mut seeds = Vec::new();
+    let mut action_calls = Vec::new();
 
-    // Single-call seeds for every ABI function.
-    for func in artifact.abi.functions() {
-        let selector: [u8; 4] = func.selector().into();
-        let call = input::Call {
-            selector,
+    let funcs: Vec<alloy_json_abi::Function> = artifact.abi.functions().cloned().collect();
+    for func in funcs {
+        let is_action = !matches!(
+            func.state_mutability,
+            alloy_json_abi::StateMutability::Pure | alloy_json_abi::StateMutability::View
+        );
+
+        let signature = func.signature();
+        let call = corpus::Call {
+            selector: func.selector().into(),
             args: vec![0u8; func.inputs.len() * 32],
             block_number_delay: 0,
             block_timestamp_delay: 0,
+            method_name: func.name,
+            method_signature: signature,
+            ..Default::default()
         };
-        seeds.push(input::CallSequenceInput::single(call));
+
+        if is_action {
+            action_calls.push(call.replicate());
+        }
+        seeds.push(corpus::CallSequenceInput::single(call));
     }
 
-    // Combined seed with all non-view/pure action functions in ABI order.
-    let action_calls: Vec<input::Call> = artifact
-        .abi
-        .functions()
-        .filter(|f| {
-            !matches!(
-                f.state_mutability,
-                alloy_json_abi::StateMutability::Pure | alloy_json_abi::StateMutability::View
-            )
-        })
-        .map(|f| input::Call {
-            selector: f.selector().into(),
-            args: vec![0u8; f.inputs.len() * 32],
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
-        })
-        .collect();
-
     if !action_calls.is_empty() {
-        let mut combined = input::CallSequenceInput::new();
+        let mut combined = corpus::CallSequenceInput::new();
         combined.calls = action_calls.clone();
         seeds.push(combined);
     }
@@ -66,7 +61,7 @@ pub fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<input::Ca
             }
         }
         for perm in permutations {
-            let mut seq = input::CallSequenceInput::new();
+            let mut seq = corpus::CallSequenceInput::new();
             for &i in &perm {
                 seq.calls.push(action_calls[i].replicate());
             }

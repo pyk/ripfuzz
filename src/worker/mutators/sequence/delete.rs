@@ -10,7 +10,7 @@ use libafl::{
 };
 use libafl_bolts::{Named, rands::Rand};
 
-use crate::campaign::input;
+use crate::corpus;
 
 /// Delete a random call from the sequence.
 #[derive(Debug, Default)]
@@ -22,11 +22,11 @@ impl Named for SequenceDeleteMutator {
     }
 }
 
-impl<S: HasRand> Mutator<input::CallSequenceInput, S> for SequenceDeleteMutator {
+impl<S: HasRand> Mutator<corpus::CallSequenceInput, S> for SequenceDeleteMutator {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut input::CallSequenceInput,
+        input: &mut corpus::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         if input.calls.is_empty() {
             return Ok(MutationResult::Skipped);

@@ -11,7 +11,7 @@ use libafl::{
 use libafl_bolts::Named;
 use libafl_bolts::rands::Rand;
 
-use crate::campaign::input;
+use crate::corpus;
 
 /// Splice two corpus sequences: take the head from one and tail from another.
 #[derive(Debug, Default)]
@@ -23,14 +23,14 @@ impl Named for SequenceSpliceMutator {
     }
 }
 
-impl<S> Mutator<input::CallSequenceInput, S> for SequenceSpliceMutator
+impl<S> Mutator<corpus::CallSequenceInput, S> for SequenceSpliceMutator
 where
-    S: HasRand + HasCorpus<input::CallSequenceInput>,
+    S: HasRand + HasCorpus<corpus::CallSequenceInput>,
 {
     fn mutate(
         &mut self,
         state: &mut S,
-        input: &mut input::CallSequenceInput,
+        input: &mut corpus::CallSequenceInput,
     ) -> Result<MutationResult, libafl::Error> {
         let count = state.corpus().count();
         if count < 2 {
@@ -46,20 +46,12 @@ where
 
         let seq1 = state
             .corpus()
-            .get(CorpusId::from(id1))
-            .map_err(|e| libafl::Error::unknown(format!("corpus get: {e}")))?
-            .borrow()
-            .input()
-            .clone()
-            .ok_or_else(|| libafl::Error::unknown("missing input in corpus"))?;
+            .cloned_input_for_id(CorpusId::from(id1))
+            .map_err(|e| libafl::Error::unknown(format!("corpus get: {e}")))?;
         let seq2 = state
             .corpus()
-            .get(CorpusId::from(id2))
-            .map_err(|e| libafl::Error::unknown(format!("corpus get: {e}")))?
-            .borrow()
-            .input()
-            .clone()
-            .ok_or_else(|| libafl::Error::unknown("missing input in corpus"))?;
+            .cloned_input_for_id(CorpusId::from(id2))
+            .map_err(|e| libafl::Error::unknown(format!("corpus get: {e}")))?;
 
         if seq1.calls.is_empty() || seq2.calls.is_empty() {
             return Ok(MutationResult::Skipped);

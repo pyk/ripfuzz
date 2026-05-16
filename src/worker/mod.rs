@@ -3,7 +3,8 @@
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use anyhow::{Context, Result};
 use libafl::{
-    corpus::{Corpus, InMemoryCorpus, Testcase},
+    corpus::ondisk::OnDiskMetadataFormat,
+    corpus::{Corpus, InMemoryOnDiskCorpus, OnDiskCorpus, Testcase},
     executors::InProcessExecutor,
     feedbacks::{CrashFeedback, MaxMapFeedback},
     fuzzer::{Fuzzer as LibAflFuzzer, StdFuzzer},
@@ -15,20 +16,22 @@ use libafl::{
 use libafl_bolts::{rands::StdRand, tuples::tuple_list};
 use tracing::{debug, info, instrument, trace, warn};
 
-use crate::campaign::{CampaignConfig, input};
+use crate::campaign::CampaignConfig;
 use crate::contract;
+use crate::corpus;
 use crate::evm;
 use crate::inspector;
 
 pub mod mutators;
 
-pub(crate) type MyCorpus = InMemoryCorpus<input::CallSequenceInput>;
-pub(crate) type MyState = StdState<MyCorpus, input::CallSequenceInput, StdRand, MyCorpus>;
+pub(crate) type MyCorpus = InMemoryOnDiskCorpus<corpus::CallSequenceInput>;
+pub(crate) type MyObjectiveCorpus = OnDiskCorpus<corpus::CallSequenceInput>;
+pub(crate) type MyState = StdState<MyCorpus, corpus::CallSequenceInput, StdRand, MyObjectiveCorpus>;
 pub(crate) type MyShMem = libafl_bolts::shmem::UnixShMem;
 pub(crate) type MyShMemProvider = libafl_bolts::shmem::StdShMemProvider;
 pub(crate) type MyMgr = libafl::events::llmp::restarting::LlmpRestartingEventManager<
     (),
-    input::CallSequenceInput,
+    corpus::CallSequenceInput,
     MyState,
     MyShMem,
     MyShMemProvider,
@@ -46,7 +49,7 @@ pub struct WorkerResult {
 pub struct PropertyFailure {
     pub property_name: String,
     pub property_selector: [u8; 4],
-    pub call_sequence: input::CallSequenceInput,
+    pub call_sequence: corpus::CallSequenceInput,
     /// Per-call block number / timestamp captured during execution.
     pub call_meta: Vec<crate::evm::CallMeta>,
 }
@@ -183,7 +186,7 @@ fn format_dyn_value(v: &alloy_dyn_abi::DynSolValue) -> String {
 
 pub struct Worker {
     artifact: contract::ContractArtifact,
-    seeds: Vec<input::CallSequenceInput>,
+    seeds: Vec<corpus::CallSequenceInput>,
     config: CampaignConfig,
     selectors: Vec<[u8; 4]>,
 }
@@ -191,7 +194,7 @@ pub struct Worker {
 impl Worker {
     pub fn new(
         artifact: contract::ContractArtifact,
-        seeds: Vec<input::CallSequenceInput>,
+        seeds: Vec<corpus::CallSequenceInput>,
         config: CampaignConfig,
         selectors: Vec<[u8; 4]>,
     ) -> Self {
@@ -211,6 +214,7 @@ impl Worker {
         mgr: &mut MyMgr,
         coverage_map: &mut [u8],
         max_runs: u64,
+        client_id: usize,
     ) -> Result<WorkerResult> {
         info!(max_runs, "worker run starting");
         let map_ptr = coverage_map.as_mut_ptr();
@@ -230,10 +234,38 @@ impl Worker {
             }
             None => {
                 trace!("creating new state");
+                let coverage_dir = self
+                    .config
+                    .corpus_dir
+                    .as_ref()
+                    .map(|d| d.join(format!("coverage/worker{client_id}")))
+                    .unwrap_or_else(|| {
+                        std::env::temp_dir().join(format!("raptor_coverage_{}", std::process::id()))
+                    });
+                let crash_dir = self
+                    .config
+                    .corpus_dir
+                    .as_ref()
+                    .map(|d| d.join(format!("crashes/worker{client_id}")))
+                    .unwrap_or_else(|| {
+                        std::env::temp_dir().join(format!("raptor_crashes_{}", std::process::id()))
+                    });
+
+                let corpus = MyCorpus::with_meta_format(
+                    &coverage_dir,
+                    Some(OnDiskMetadataFormat::JsonPretty),
+                )
+                .context("coverage corpus failed")?;
+                let objectives = MyObjectiveCorpus::with_meta_format(
+                    &crash_dir,
+                    OnDiskMetadataFormat::JsonPretty,
+                )
+                .context("crash corpus failed")?;
+
                 let mut s = StdState::new(
                     StdRand::with_seed(self.config.seed),
-                    InMemoryCorpus::<input::CallSequenceInput>::new(),
-                    InMemoryCorpus::new(),
+                    corpus,
+                    objectives,
                     &mut feedback,
                     &mut objective,
                 )?;
@@ -251,7 +283,7 @@ impl Worker {
         let runner = evm::EvmRunner::from_target(&self.artifact)?;
         let mut failures = Vec::new();
 
-        let mut harness = |input: &input::CallSequenceInput| {
+        let mut harness = |input: &corpus::CallSequenceInput| {
             let inspector = inspector::CoverageInspector::from_slice(coverage_map);
             match runner.run_sequence(&input.calls, inspector) {
                 Ok(res) if res.all_ok && res.property_triggered => {
@@ -322,8 +354,8 @@ impl Worker {
 mod tests {
     use std::path::Path;
 
-    use crate::campaign::input;
     use crate::contract;
+    use crate::corpus;
     use crate::evm;
     use crate::worker::PropertyFailure;
     use crate::worker::format_failure;
@@ -337,30 +369,33 @@ mod tests {
         .unwrap();
 
         let calls = vec![
-            input::Call {
+            corpus::Call {
                 selector: [0x0a, 0x92, 0x54, 0xe4],
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
+                ..Default::default()
             },
-            input::Call {
+            corpus::Call {
                 selector: [0x0a, 0x92, 0x54, 0xe4],
                 args: vec![],
                 block_number_delay: 3,
                 block_timestamp_delay: 4,
+                ..Default::default()
             },
-            input::Call {
+            corpus::Call {
                 selector: [0x0a, 0x92, 0x54, 0xe4],
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
+                ..Default::default()
             },
         ];
 
         let failure = PropertyFailure {
             property_name: "property_caught".into(),
             property_selector: [0; 4],
-            call_sequence: input::CallSequenceInput { calls },
+            call_sequence: corpus::CallSequenceInput { calls },
             call_meta: vec![
                 evm::CallMeta {
                     block_number: 0,

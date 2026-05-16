@@ -18,8 +18,8 @@ use revm::{
 
 use tracing::{error, info, instrument, trace};
 
-use crate::campaign::input;
 use crate::contract;
+use crate::corpus;
 use crate::inspector;
 use crate::trace;
 
@@ -177,7 +177,7 @@ impl EvmRunner {
     #[instrument(skip(self, inspector), fields(calls = calls.len()), err)]
     pub fn run_sequence<'a>(
         &self,
-        calls: &[input::Call],
+        calls: &[corpus::Call],
         inspector: inspector::CoverageInspector<'a>,
     ) -> Result<SequenceResult, anyhow::Error> {
         let mut db = self.deployed_db.clone();
