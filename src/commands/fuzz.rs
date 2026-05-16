@@ -11,7 +11,7 @@ use crate::fuzzer;
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Path to the target Solidity file (e.g. ./test/Contract.sol).
+    /// Path to the target contract (e.g. ./test/Contract.sol).
     pub path: PathBuf,
 
     /// Path to the Foundry project root.

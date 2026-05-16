@@ -13,7 +13,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Fuzz a Solidity smart contract.
+    /// Start a property-based fuzzing campaign.
     Fuzz(commands::fuzz::Args),
 }
 
