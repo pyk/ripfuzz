@@ -4,6 +4,8 @@ check: ## Run code quality tools.
 	@cargo fmt
 	@echo "Run clippy"
 	@cargo clippy -- -D warnings
+	@echo "Run checkrs"
+	@checkrs run src/
 
 .PHONY: bin
 bin: ## Install local binary
