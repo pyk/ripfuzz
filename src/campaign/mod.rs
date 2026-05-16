@@ -139,7 +139,9 @@ impl Campaign {
         let campaign_id_for_closure = campaign_id.clone();
         info!(%campaign_id, "campaign id generated");
 
-        let monitor = SimpleMonitor::new(|s: &str| println!("{s}"));
+        let monitor = SimpleMonitor::new(|s: &str| {
+            info!(target: "raptor::user", "{}", s);
+        });
 
         let run_client = move |state: Option<crate::worker::MyState>,
                                mut mgr: crate::worker::MyMgr,

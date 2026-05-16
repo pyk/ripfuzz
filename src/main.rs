@@ -3,7 +3,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use raptor::commands;
+
+use raptor::{commands, logger};
 
 #[derive(Debug, Parser)]
 #[command(name = "raptor", version, about)]
@@ -23,10 +24,7 @@ enum Commands {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-
-    tracing_subscriber::fmt()
-        .with_max_level(cli.verbosity)
-        .init();
+    logger::init(cli.verbosity.tracing_level());
 
     match cli.command {
         Commands::Fuzz(args) => commands::fuzz::run(args),

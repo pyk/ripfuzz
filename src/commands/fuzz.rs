@@ -97,46 +97,38 @@ pub fn run(args: Args) -> Result<()> {
         .build()?;
     let artifact = campaign.artifact();
 
-    println!("Loaded contract: {}", artifact.contract_name);
-    println!(
-        "Properties:      {:?}",
-        artifact
-            .properties
-            .iter()
-            .map(|(_, n)| n.as_str())
-            .collect::<Vec<&str>>()
-    );
+    info!(target: "raptor::user", "Loaded contract: {}", artifact.contract_name);
+    let property_names: Vec<&str> = artifact
+        .properties
+        .iter()
+        .map(|(_, n)| n.as_str())
+        .collect();
+    info!(target: "raptor::user", "Properties:      {:?}", property_names);
     info!(contract = %artifact.contract_name, properties = artifact.properties.len(), "artifact loaded");
 
     let result = campaign.run()?;
 
-    println!("Fuzzing completed: {} runs", result.runs);
+    info!(target: "raptor::user", "Fuzzing completed: {} runs", result.runs);
     info!(
         runs = result.runs,
         failures = result.failures.len(),
         "campaign finished"
     );
     if result.failures.is_empty() {
-        println!("All properties passed.");
+        info!(target: "raptor::user", "All properties passed.");
     } else {
         for failure in &result.failures {
-            println!();
-            println!(
-                "[FAILED] Property Test: {}::{}",
-                artifact.contract_name, failure.property_name
-            );
-            println!(
-                "Test for method \"{}::{}\" failed after the following call sequence:",
-                artifact.contract_name, failure.property_name
-            );
-            println!("[Call Sequence]");
-            println!("{}", crate::worker::format_failure(artifact, failure));
+            info!(target: "raptor::user", "");
+            info!(target: "raptor::user", "[FAILED] Property Test: {}::{}", artifact.contract_name, failure.property_name);
+            info!(target: "raptor::user", "Test for method \"{}::{}\" failed after the following call sequence:", artifact.contract_name, failure.property_name);
+            info!(target: "raptor::user", "[Call Sequence]");
+            info!(target: "raptor::user", "{}", crate::worker::format_failure(artifact, failure));
         }
         let total = artifact.properties.len();
         let failed = result.failures.len();
         let passed = total.saturating_sub(failed);
-        println!();
-        println!("Test summary: {} passed, {} failed", passed, failed);
+        info!(target: "raptor::user", "");
+        info!(target: "raptor::user", "Test summary: {} passed, {} failed", passed, failed);
     }
 
     Ok(())

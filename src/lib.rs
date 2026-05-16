@@ -6,6 +6,7 @@ pub mod contract;
 pub mod evm;
 pub mod foundry;
 pub mod inspector;
+pub mod logger;
 pub mod trace;
 pub mod worker;
 
