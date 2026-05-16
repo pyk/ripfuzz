@@ -107,8 +107,8 @@ pub fn run(args: Args) -> Result<()> {
         artifact
             .properties
             .iter()
-            .map(|(_, n)| n)
-            .collect::<Vec<_>>()
+            .map(|(_, n)| n.as_str())
+            .collect::<Vec<&str>>()
     );
     info!(contract = %artifact.contract_name, properties = artifact.properties.len(), "artifact loaded");
 

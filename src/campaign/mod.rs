@@ -7,7 +7,7 @@ use tracing::{debug, info, instrument};
 
 pub use config::CampaignConfig;
 
-use crate::contract;
+use crate::contract::{ContractArtifact, ContractBuilder};
 use crate::worker::{PropertyFailure, Worker};
 
 pub mod config;
@@ -42,15 +42,15 @@ impl CampaignBuilder {
     }
 
     /// Build the contract artifact, validate deployment, and generate seeds.
-    #[instrument(skip(self))]
     pub fn build(self) -> Result<Campaign> {
-        let artifact = contract::ContractBuilder::build(&self.project_path, &self.contract_path)?;
+        let artifact = ContractBuilder::build(&self.project_path, &self.contract_path)?;
         info!(contract = %artifact.contract_name, "artifact built");
 
         // Validate deployment by creating a runner and immediately dropping it.
         let _runner = crate::evm::EvmRunner::from_target(&artifact)?;
         debug!("deployment validated");
 
+        // TODO: review this call squence seed generation
         let seeds = build_seeds(&artifact, self.config.sequence_length);
         let selectors: Vec<[u8; 4]> = artifact
             .abi
@@ -75,7 +75,7 @@ impl CampaignBuilder {
 /// A fuzzing campaign that validates a target contract and orchestrates one or more workers.
 #[derive(Debug)]
 pub struct Campaign {
-    artifact: contract::ContractArtifact,
+    artifact: ContractArtifact,
     seeds: Vec<input::CallSequenceInput>,
     config: CampaignConfig,
     selectors: Vec<[u8; 4]>,
@@ -92,7 +92,7 @@ impl Campaign {
     }
 
     /// Access the loaded contract artifact.
-    pub fn artifact(&self) -> &contract::ContractArtifact {
+    pub fn artifact(&self) -> &ContractArtifact {
         &self.artifact
     }
 
@@ -126,10 +126,7 @@ impl Campaign {
 }
 
 /// Build seed inputs from the contract ABI.
-pub fn build_seeds(
-    artifact: &contract::ContractArtifact,
-    max_len: usize,
-) -> Vec<input::CallSequenceInput> {
+pub fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<input::CallSequenceInput> {
     let mut seeds = Vec::new();
 
     // Single-call seeds for every ABI function.

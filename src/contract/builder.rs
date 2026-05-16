@@ -217,7 +217,10 @@ impl ContractBuilder {
                 "multiple contracts found in {}: {:?}. \
                  Specify which contract to fuzz with --contract",
                 source_path.as_ref().display(),
-                candidates.iter().map(|(_, n)| n).collect::<Vec<_>>()
+                candidates
+                    .iter()
+                    .map(|(_, n)| n.as_str())
+                    .collect::<Vec<&str>>()
             ),
         }
     }
@@ -366,7 +369,7 @@ mod tests {
                 .properties
                 .iter()
                 .map(|(_, n)| n.as_str())
-                .collect::<Vec<_>>(),
+                .collect::<Vec<&str>>(),
             vec!["property_is_set"]
         );
     }
