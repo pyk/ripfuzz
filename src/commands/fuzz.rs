@@ -11,7 +11,7 @@ use crate::campaign::{Campaign, CampaignConfig};
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path to the target contract (e.g. ./test/Contract.sol).
-    #[arg(value_name = "PATH")]
+    #[arg(value_name = "TARGET_PATH")]
     pub target_path: PathBuf,
 
     /// Path to the Foundry project root.
