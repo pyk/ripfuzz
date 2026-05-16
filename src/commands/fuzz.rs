@@ -64,10 +64,6 @@ pub struct Args {
     /// Maximum block timestamp delay between calls.
     #[arg(long = "max-time-delay", default_value = "5")]
     pub max_block_timestamp_delay: u64,
-
-    /// TCP port for the LibAFL LLMP broker.
-    #[arg(long = "broker-port", default_value = "1337")]
-    pub broker_port: u16,
 }
 
 #[instrument(skip(args), fields(target = ?args.target_path, workers = args.workers, max_runs = args.max_runs))]
@@ -91,7 +87,7 @@ pub fn run(args: Args) -> Result<()> {
         seed: args.seed,
         max_block_number_delay: args.max_block_number_delay,
         max_block_timestamp_delay: args.max_block_timestamp_delay,
-        broker_port: args.broker_port,
+        broker_port: 0,
     };
     info!(?config, "starting fuzzing campaign");
 

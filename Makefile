@@ -13,9 +13,14 @@ bin: ## Install local binary
 	@cargo install --path .
 
 .PHONY: test
-test: ## Run tests
+test: ## Run tests (120s suite timeout, single-threaded to avoid parallel LibAFL interference)
 	@echo "Running tests"
-	@cargo test
+	@timeout 120 cargo test -- --test-threads=1
+
+.PHONY: test-nextest
+test-nextest: ## Run tests with nextest (30s per-test timeout)
+	@echo "Running tests with nextest"
+	@cargo nextest run
 
 # Catch-all target to handle extra arguments passed to make
 %:

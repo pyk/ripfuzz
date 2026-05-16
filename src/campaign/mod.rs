@@ -102,7 +102,11 @@ impl Campaign {
     /// Run the campaign and return an aggregated result.
     pub fn run(&self) -> Result<CampaignResult> {
         let workers = self.config.worker_count();
-        let broker_port = self.config.broker_port;
+        let broker_port = if self.config.broker_port == 0 {
+            crate::find_available_port().context("failed to find available broker port")?
+        } else {
+            self.config.broker_port
+        };
 
         info!(workers, "starting parallel fuzzing campaign");
         let mut shmem_provider = StdShMemProvider::new()?;
@@ -183,9 +187,13 @@ impl Campaign {
                 .map_err(|e| libafl::Error::illegal_state(format!("send_exiting failed: {e}")))?;
             info!(client_id, "send_exiting succeeded, worker done");
 
-            // Exit the child process immediately so it does not return
-            // through Campaign and print duplicate campaign summaries.
-            std::process::exit(0);
+            // Sleep briefly so the broker has time to process our
+            // LLMP_TAG_CLIENT_EXIT message and map our shared memory
+            // before we drop it.  Without this, rapid exits can race
+            // the broker loop and leave it waiting forever.
+            std::thread::sleep(std::time::Duration::from_millis(500));
+
+            Ok(())
         };
 
         let cores = Self::workers_to_cores(workers)?;
@@ -199,6 +207,10 @@ impl Campaign {
             .run_client(run_client)
             .stdout_file(Some("/dev/null"))
             .broker_port(broker_port)
+            // Increase delay between child launches so the broker has
+            // time to map each client's shared memory before the next
+            // one connects.  Default 10ms is too tight with many workers.
+            .launch_delay(50)
             .build()
             .launch()
         {
@@ -290,19 +302,16 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use std::sync::atomic::{AtomicU16, Ordering};
-
     use crate::campaign::{Campaign, CampaignConfig, CampaignResult};
     use crate::contract;
 
-    static NEXT_PORT: AtomicU16 = AtomicU16::new(15000);
-
     fn run_campaign(workers: usize, max_runs: u64) -> CampaignResult {
-        let broker_port = NEXT_PORT.fetch_add(1, Ordering::SeqCst);
         let mut config = CampaignConfig::default();
         config.workers = workers;
         config.max_runs = max_runs;
-        config.broker_port = broker_port;
+        // Use a short per-campaign timeout so a hanging LibAFL broker
+        // is caught before the Makefile suite timeout fires.
+        config.timeout_secs = 30;
 
         let campaign = Campaign::for_target(Path::new("test/ImpossibleBug.sol"))
             .with_project(Path::new("fixtures/basic-target"))
@@ -390,8 +399,10 @@ mod tests {
         );
 
         let mut config = CampaignConfig::default();
-        config.workers = 1;
         config.max_runs = 10_000;
+        // Short timeout so a hanging LibAFL broker is caught before the
+        // Makefile suite timeout kills the entire test run.
+        config.timeout_secs = 10;
         let campaign = Campaign::for_target(Path::new("src/L1SimpleKnob.sol"))
             .with_project(Path::new("fixtures/challenges"))
             .with_config(config)

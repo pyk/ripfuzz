@@ -25,7 +25,7 @@ impl Default for CampaignConfig {
             seed: 0,
             max_block_number_delay: 5,
             max_block_timestamp_delay: 5,
-            broker_port: 1337,
+            broker_port: 0,
         }
     }
 }
