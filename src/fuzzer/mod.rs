@@ -1,3 +1,5 @@
+//! Coverage-guided fuzzing engine for Solidity smart contracts.
+
 use std::cell::RefCell;
 
 use anyhow::Result;

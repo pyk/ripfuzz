@@ -1,3 +1,5 @@
+//! Mutators that modify call sequences by inserting, deleting, swapping, or delaying calls.
+
 mod delay;
 mod delete;
 mod insert;

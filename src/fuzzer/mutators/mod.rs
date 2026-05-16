@@ -1,3 +1,5 @@
+//! Mutators that transform call sequences during fuzzing.
+
 pub mod abi;
 pub mod corpus;
 pub mod sequence;

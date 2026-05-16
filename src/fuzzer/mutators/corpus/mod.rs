@@ -1,3 +1,5 @@
+//! Mutators that splice, interleave, or trim corpus entries.
+
 mod head;
 mod interleave;
 mod splice;
