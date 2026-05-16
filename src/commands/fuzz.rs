@@ -72,7 +72,7 @@ pub struct Args {
 
 #[instrument(skip(args), fields(target = ?args.target_path, workers = args.workers, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
-    let project = match args.project_path {
+    let project_path = match args.project_path {
         Some(p) => {
             debug!(?p, "using explicit project path");
             p
@@ -95,7 +95,8 @@ pub fn run(args: Args) -> Result<()> {
     };
     info!(?config, "starting fuzzing campaign");
 
-    let campaign = Campaign::for_target(&args.target_path, &project)
+    let campaign = Campaign::for_target(&args.target_path)
+        .with_project(&project_path)
         .with_config(config)
         .build()?;
     let artifact = campaign.artifact();

@@ -82,11 +82,11 @@ pub struct Campaign {
 }
 
 impl Campaign {
-    /// Start building a campaign for the given target contract and project.
-    pub fn for_target(contract: impl AsRef<Path>, project: impl AsRef<Path>) -> CampaignBuilder {
+    /// Start building a campaign for the given target contract.
+    pub fn for_target(contract: impl AsRef<Path>) -> CampaignBuilder {
         CampaignBuilder {
             contract_path: contract.as_ref().to_path_buf(),
-            project_path: project.as_ref().to_path_buf(),
+            project_path: PathBuf::new(),
             config: CampaignConfig::default(),
         }
     }
@@ -218,13 +218,11 @@ mod tests {
 
         let mut config = CampaignConfig::default();
         config.workers = 1;
-        let err = Campaign::for_target(
-            Path::new("test/ConstructorRevert.sol"),
-            Path::new("fixtures/basic-target"),
-        )
-        .with_config(config)
-        .build()
-        .unwrap_err();
+        let err = Campaign::for_target(Path::new("test/ConstructorRevert.sol"))
+            .with_project(Path::new("fixtures/basic-target"))
+            .with_config(config)
+            .build()
+            .unwrap_err();
         let msg = format!("{err}");
         let expected =
             fs::read_to_string("fixtures/basic-target/test/ConstructorRevertOutput.txt").unwrap();
@@ -241,13 +239,11 @@ mod tests {
 
         let mut config = CampaignConfig::default();
         config.workers = 1;
-        let err = Campaign::for_target(
-            Path::new("test/ComplexConstructorRevert.sol"),
-            Path::new("fixtures/basic-target"),
-        )
-        .with_config(config)
-        .build()
-        .unwrap_err();
+        let err = Campaign::for_target(Path::new("test/ComplexConstructorRevert.sol"))
+            .with_project(Path::new("fixtures/basic-target"))
+            .with_config(config)
+            .build()
+            .unwrap_err();
         let msg = format!("{err}");
         let expected =
             fs::read_to_string("fixtures/basic-target/test/ComplexConstructorRevertOutput.txt")
@@ -265,13 +261,11 @@ mod tests {
 
         let mut config = CampaignConfig::default();
         config.workers = 1;
-        let err = Campaign::for_target(
-            Path::new("test/SetupRevert.sol"),
-            Path::new("fixtures/basic-target"),
-        )
-        .with_config(config)
-        .build()
-        .unwrap_err();
+        let err = Campaign::for_target(Path::new("test/SetupRevert.sol"))
+            .with_project(Path::new("fixtures/basic-target"))
+            .with_config(config)
+            .build()
+            .unwrap_err();
         let msg = format!("{err}");
         let expected =
             fs::read_to_string("fixtures/basic-target/test/SetupRevertOutput.txt").unwrap();
@@ -294,13 +288,11 @@ mod tests {
         let mut config = CampaignConfig::default();
         config.workers = 1;
         config.max_runs = 10_000;
-        let campaign = Campaign::for_target(
-            Path::new("src/L1SimpleKnob.sol"),
-            Path::new("fixtures/challenges"),
-        )
-        .with_config(config)
-        .build()
-        .unwrap();
+        let campaign = Campaign::for_target(Path::new("src/L1SimpleKnob.sol"))
+            .with_project(Path::new("fixtures/challenges"))
+            .with_config(config)
+            .build()
+            .unwrap();
         let result = campaign.run().unwrap();
 
         assert!(
