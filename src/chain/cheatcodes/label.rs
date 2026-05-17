@@ -1,84 +1,69 @@
 //! Label cheatcode.
 
-#[cfg(test)]
-use std::collections::HashMap;
-
 use alloy_dyn_abi::{DynSolType, DynSolValue};
-use revm::interpreter::CallOutcome;
+use revm::primitives::{Address, Bytes};
 
-use crate::chain::cheatcodes::{CheatcodeInspector, dummy_success};
+use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect};
 
-/// `label(address, string)`.
-pub const LABEL_SELECTOR: [u8; 4] = [0xc6, 0x57, 0xc7, 0x18];
-
-pub fn handle_label<CTX: revm::context_interface::ContextTr>(
-    inspector: &mut CheatcodeInspector,
-    _ctx: &mut CTX,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    if input.len() < 4 {
-        return Some(dummy_success());
+pub struct Label;
+impl Cheatcode for Label {
+    type Args = (Address, String);
+    const SELECTOR: [u8; 4] = [0xc6, 0x57, 0xc7, 0x18];
+    fn decode(input: &Bytes) -> Option<Self::Args> {
+        if input.len() < 4 {
+            return None;
+        }
+        let types = vec![DynSolType::Address, DynSolType::String];
+        let tuple = DynSolType::Tuple(types);
+        let decoded = tuple.abi_decode_params(&input[4..]).ok()?;
+        let values = match decoded {
+            DynSolValue::Tuple(v) => v,
+            _ => return None,
+        };
+        if values.len() != 2 {
+            return None;
+        }
+        let addr = match &values[0] {
+            DynSolValue::Address(a) => *a,
+            _ => return None,
+        };
+        let name = match &values[1] {
+            DynSolValue::String(s) => s.clone(),
+            _ => return None,
+        };
+        Some((addr, name))
     }
-    let types = vec![DynSolType::Address, DynSolType::String];
-    let tuple = DynSolType::Tuple(types);
-    let decoded = match tuple.abi_decode_params(&input[4..]) {
-        Ok(v) => v,
-        Err(_) => return Some(dummy_success()),
-    };
-    let values = match decoded {
-        DynSolValue::Tuple(v) => v,
-        _ => return Some(dummy_success()),
-    };
-    if values.len() != 2 {
-        return Some(dummy_success());
+    fn effects((addr, name): Self::Args) -> Vec<CheatcodeEffect> {
+        vec![CheatcodeEffect::AddLabel(addr, name)]
     }
-    let addr = match &values[0] {
-        DynSolValue::Address(a) => *a,
-        _ => return Some(dummy_success()),
-    };
-    let name = match &values[1] {
-        DynSolValue::String(s) => s.clone(),
-        _ => return Some(dummy_success()),
-    };
-    inspector.state.labels.insert(addr, name.clone());
-    if let Some(ref labels) = inspector.shared_labels
-        && let Ok(mut guard) = labels.write()
-    {
-        guard.insert(addr, name);
-    }
-    Some(dummy_success())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::sync::{Arc, RwLock};
 
-    use alloy_dyn_abi::DynSolValue;
     use revm::{MainContext, primitives::Address};
 
     use super::*;
-    use crate::chain::cheatcodes::CheatcodeInspector;
+    use crate::chain::cheatcodes::effect::apply_effect;
+    use crate::chain::inspectors::cheatcode::CheatcodeInspector;
 
-    /// Build `label(address, string)` calldata manually to match Solidity ABI.
-    fn label_calldata(addr: Address, name: &str) -> revm::primitives::Bytes {
-        let mut data = LABEL_SELECTOR.to_vec();
-        // address parameter
+    fn label_calldata(addr: Address, name: &str) -> Bytes {
+        let mut data = Label::SELECTOR.to_vec();
         let mut param1 = vec![0u8; 32];
         param1[12..32].copy_from_slice(addr.as_slice());
         data.extend_from_slice(&param1);
-        // string offset (64 = 2 * 32 bytes from start of params)
         let mut param2 = vec![0u8; 32];
         param2[31] = 64;
         data.extend_from_slice(&param2);
-        // string length
         let mut len = vec![0u8; 32];
         len[31] = name.len() as u8;
         data.extend_from_slice(&len);
-        // string data padded to 32 bytes
         let mut str_data = vec![0u8; 32];
         str_data[..name.len()].copy_from_slice(name.as_bytes());
         data.extend_from_slice(&str_data);
-        revm::primitives::Bytes::from(data)
+        Bytes::from(data)
     }
 
     #[test]
@@ -87,22 +72,13 @@ mod tests {
         let addr = Address::new([0xab; 20]);
         let name = "MyContract";
         let input = label_calldata(addr, name);
-        // Verify the handler's decoder can parse it.
-        let types = vec![DynSolType::Address, DynSolType::String];
-        let tuple = DynSolType::Tuple(types);
-        let decoded = tuple.abi_decode_params(&input[4..]).unwrap();
-        assert_eq!(
-            decoded,
-            DynSolValue::Tuple(vec![
-                DynSolValue::Address(addr),
-                DynSolValue::String(name.into()),
-            ])
-        );
-
+        let args = Label::decode(&input).unwrap();
+        let effects = Label::effects(args);
         let mut ctx =
             revm::context::Context::mainnet().with_db(revm::database::InMemoryDB::default());
-        let result = handle_label(&mut inspector, &mut ctx, &input);
-        assert!(result.is_some());
+        for e in &effects {
+            apply_effect(e, &mut ctx, &mut inspector.state).unwrap();
+        }
         assert_eq!(inspector.state.labels.get(&addr), Some(&name.to_string()));
     }
 
@@ -113,10 +89,21 @@ mod tests {
         let addr = Address::new([0xcd; 20]);
         let name = "SharedLabel";
         let input = label_calldata(addr, name);
+        let args = Label::decode(&input).unwrap();
+        let effects = Label::effects(args);
         let mut ctx =
             revm::context::Context::mainnet().with_db(revm::database::InMemoryDB::default());
-        let result = handle_label(&mut inspector, &mut ctx, &input);
-        assert!(result.is_some());
+        for e in &effects {
+            apply_effect(e, &mut ctx, &mut inspector.state).unwrap();
+        }
+        // call() in the inspector syncs labels; simulate it here.
+        if let Some(ref s) = inspector.shared_labels {
+            if let Ok(mut guard) = s.write() {
+                for (a, n) in &inspector.state.labels {
+                    guard.insert(*a, n.clone());
+                }
+            }
+        }
         let guard = shared.read().unwrap();
         assert_eq!(guard.get(&addr), Some(&name.to_string()));
     }

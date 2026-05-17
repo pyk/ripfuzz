@@ -1,33 +1,31 @@
 //! Cheatcode extension point for Foundry-compatible precompiles.
 //!
-//! Scoped to Medusa's standard cheatcode set. Each cheatcode category lives in
-//! its own file and registers itself into a dispatch table.
+//! Each cheatcode category lives in its own file and exports a struct
+//! implementing the [`Cheatcode`] trait.  The dispatch table in this module
+//! is the single place where new cheatcodes are registered.
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::process::Command;
 
-use alloy_dyn_abi::DynSolValue;
 use revm::{
-    context::{BlockEnv, ContextSetters, TxEnv},
-    context_interface::ContextTr,
+    context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
     database::InMemoryDB,
-    inspector::Inspector,
-    interpreter::{
-        CallInputs, CallOutcome, CreateInputs, CreateOutcome, Gas, InstructionResult, Interpreter,
-        InterpreterResult, interpreter::EthInterpreter,
-    },
+    interpreter::{CallOutcome, Gas, InstructionResult, InterpreterResult},
     primitives::{Address, Bytes, U256},
 };
 
+use crate::chain::cheatcodes::effect::CheatcodeEffect;
+
 pub mod account;
 pub mod assert;
+pub mod effect;
 pub mod ffi;
 pub mod label;
 pub mod prank;
-pub mod snapshot;
 pub mod state;
 pub mod string;
 pub mod wallet;
+pub mod warp;
 
 /// Foundry cheatcode VM contract address.
 pub const VM_ADDRESS: Address = Address::new([
@@ -35,26 +33,180 @@ pub const VM_ADDRESS: Address = Address::new([
     0x5b, 0x1d, 0xd1, 0x2d,
 ]);
 
+// ---------------------------------------------------------------------------
+//  Trait every cheatcode struct must implement.
+// ---------------------------------------------------------------------------
+
+pub trait Cheatcode {
+    const SELECTOR: [u8; 4];
+    type Args;
+
+    fn decode(input: &Bytes) -> Option<Self::Args>;
+    fn effects(args: Self::Args) -> Vec<CheatcodeEffect>;
+}
+
+fn dispatch<C: Cheatcode>(input: &Bytes) -> Option<Vec<CheatcodeEffect>> {
+    let args = C::decode(input)?;
+    Some(C::effects(args))
+}
+
+pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<CheatcodeEffect>> {
+    match sel {
+        // Block / state manipulation
+        warp::Warp::SELECTOR => dispatch::<warp::Warp>(input),
+        state::Roll::SELECTOR => dispatch::<state::Roll>(input),
+        state::Fee::SELECTOR => dispatch::<state::Fee>(input),
+        state::Coinbase::SELECTOR => dispatch::<state::Coinbase>(input),
+        state::Prevrandao::SELECTOR => dispatch::<state::Prevrandao>(input),
+        state::ChainId::SELECTOR => dispatch::<state::ChainId>(input),
+        state::DIFFICULTY_SELECTOR => Some(vec![]),
+
+        // Account manipulation
+        account::Deal::SELECTOR => dispatch::<account::Deal>(input),
+        account::Etch::SELECTOR => dispatch::<account::Etch>(input),
+        account::SetNonce::SELECTOR => dispatch::<account::SetNonce>(input),
+        account::GetNonce::SELECTOR => dispatch::<account::GetNonce>(input),
+        account::Load::SELECTOR => dispatch::<account::Load>(input),
+        account::Store::SELECTOR => dispatch::<account::Store>(input),
+
+        // Prank
+        prank::Prank::SELECTOR => dispatch::<prank::Prank>(input),
+        prank::PrankHere::SELECTOR => dispatch::<prank::PrankHere>(input),
+        prank::StartPrank::SELECTOR => dispatch::<prank::StartPrank>(input),
+        prank::StopPrank::SELECTOR => dispatch::<prank::StopPrank>(input),
+
+        // Label
+        label::Label::SELECTOR => dispatch::<label::Label>(input),
+
+        // Assertions
+        assert::AssertTrue::SELECTOR => dispatch::<assert::AssertTrue>(input),
+        assert::AssertFalse::SELECTOR => dispatch::<assert::AssertFalse>(input),
+        assert::AssertEqBool::SELECTOR => dispatch::<assert::AssertEqBool>(input),
+        assert::AssertEqUint::SELECTOR => dispatch::<assert::AssertEqUint>(input),
+        assert::AssertEqInt::SELECTOR => dispatch::<assert::AssertEqInt>(input),
+        assert::AssertEqAddress::SELECTOR => dispatch::<assert::AssertEqAddress>(input),
+        assert::AssertEqBytes32::SELECTOR => dispatch::<assert::AssertEqBytes32>(input),
+        assert::AssertEqString::SELECTOR => dispatch::<assert::AssertEqString>(input),
+        assert::AssertEqBytes::SELECTOR => dispatch::<assert::AssertEqBytes>(input),
+        assert::AssertNotEqBool::SELECTOR => dispatch::<assert::AssertNotEqBool>(input),
+        assert::AssertNotEqUint::SELECTOR => dispatch::<assert::AssertNotEqUint>(input),
+        assert::AssertNotEqInt::SELECTOR => dispatch::<assert::AssertNotEqInt>(input),
+        assert::AssertNotEqAddress::SELECTOR => dispatch::<assert::AssertNotEqAddress>(input),
+        assert::AssertNotEqBytes32::SELECTOR => dispatch::<assert::AssertNotEqBytes32>(input),
+        assert::AssertNotEqString::SELECTOR => dispatch::<assert::AssertNotEqString>(input),
+        assert::AssertNotEqBytes::SELECTOR => dispatch::<assert::AssertNotEqBytes>(input),
+        assert::AssertLtUint::SELECTOR => dispatch::<assert::AssertLtUint>(input),
+        assert::AssertLtInt::SELECTOR => dispatch::<assert::AssertLtInt>(input),
+        assert::AssertLeUint::SELECTOR => dispatch::<assert::AssertLeUint>(input),
+        assert::AssertLeInt::SELECTOR => dispatch::<assert::AssertLeInt>(input),
+        assert::AssertGtUint::SELECTOR => dispatch::<assert::AssertGtUint>(input),
+        assert::AssertGtInt::SELECTOR => dispatch::<assert::AssertGtInt>(input),
+        assert::AssertGeUint::SELECTOR => dispatch::<assert::AssertGeUint>(input),
+        assert::AssertGeInt::SELECTOR => dispatch::<assert::AssertGeInt>(input),
+
+        // String / type conversion
+        string::ToStringAddress::SELECTOR => dispatch::<string::ToStringAddress>(input),
+        string::ToStringBool::SELECTOR => dispatch::<string::ToStringBool>(input),
+        string::ToStringUint::SELECTOR => dispatch::<string::ToStringUint>(input),
+        string::ToStringInt::SELECTOR => dispatch::<string::ToStringInt>(input),
+        string::ToStringBytes32::SELECTOR => dispatch::<string::ToStringBytes32>(input),
+        string::ToStringBytes::SELECTOR => dispatch::<string::ToStringBytes>(input),
+        string::ParseUint::SELECTOR => dispatch::<string::ParseUint>(input),
+        string::ParseInt::SELECTOR => dispatch::<string::ParseInt>(input),
+        string::ParseBool::SELECTOR => dispatch::<string::ParseBool>(input),
+        string::ParseAddress::SELECTOR => dispatch::<string::ParseAddress>(input),
+        string::ParseBytes::SELECTOR => dispatch::<string::ParseBytes>(input),
+        string::ParseBytes32::SELECTOR => dispatch::<string::ParseBytes32>(input),
+        string::GetCode::SELECTOR => dispatch::<string::GetCode>(input),
+
+        // Wallet / crypto
+        wallet::Addr::SELECTOR => dispatch::<wallet::Addr>(input),
+        wallet::Sign::SELECTOR => dispatch::<wallet::Sign>(input),
+
+        // FFI
+        ffi::Ffi::SELECTOR => dispatch::<ffi::Ffi>(input),
+
+        // Unknown VM call: silently drop.
+        _ => Some(vec![]),
+    }
+}
+
+// ---------------------------------------------------------------------------
+//  State
+// ---------------------------------------------------------------------------
+
+/// Persistent block-context overrides set by cheatcodes.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BlockCheatState {
+    pub timestamp: Option<U256>,
+    pub number: Option<U256>,
+    pub basefee: Option<U256>,
+    pub beneficiary: Option<Address>,
+    pub prevrandao: Option<[u8; 32]>,
+    pub chain_id: Option<U256>,
+}
+
+/// Persistent prank state set by cheatcodes.
+#[derive(Clone, Debug, Default)]
+pub struct PrankCheatState {
+    pub active: Option<PrankState>,
+    pub start: Option<StartPrankState>,
+}
+
+impl PrankCheatState {
+    /// Return the caller that should be used for the top-level transaction.
+    pub fn caller_for_top_level(&self) -> Option<Address> {
+        self.start
+            .as_ref()
+            .map(|s| s.caller)
+            .or_else(|| self.active.as_ref().map(|p| p.caller))
+    }
+}
+
 /// State accumulated by cheatcodes during execution.
 #[derive(Clone, Debug, Default)]
 pub struct CheatcodeState {
+    pub block: BlockCheatState,
+    pub prank: PrankCheatState,
     pub labels: HashMap<Address, String>,
-    pub prank: Option<PrankState>,
-    pub start_prank: Option<StartPrankState>,
-    pub snapshots: Vec<revm::database::InMemoryDB>,
     pub ffi_enabled: bool,
-    pub warp_timestamp: Option<U256>,
-    pub roll_number: Option<U256>,
-    pub fee: Option<U256>,
-    pub coinbase: Option<Address>,
-    pub prevrandao: Option<[u8; 32]>,
-    pub chain_id: Option<U256>,
     /// Contract name -> initcode bytes, populated from the artifact so
     /// `vm.getCode` can resolve contracts by name.
-    pub compiled_contracts: HashMap<String, revm::primitives::Bytes>,
+    pub compiled_contracts: HashMap<String, Bytes>,
 }
 
-#[derive(Debug, Clone)]
+impl CheatcodeState {
+    /// Return all block-context overrides that should be applied before a call.
+    pub fn block_overrides(&self) -> BlockOverrides {
+        BlockOverrides {
+            timestamp: self.block.timestamp,
+            number: self.block.number,
+            basefee: self.block.basefee.map(|f| u64::try_from(f).unwrap_or(0)),
+            beneficiary: self.block.beneficiary,
+            prevrandao: self
+                .block
+                .prevrandao
+                .map(revm::primitives::FixedBytes::from),
+            chain_id: self
+                .block
+                .chain_id
+                .map(|id| u64::try_from(id).unwrap_or(u64::MAX)),
+        }
+    }
+}
+
+/// Block-context overrides produced from `CheatcodeState`.
+#[derive(Clone, Debug, Default)]
+pub struct BlockOverrides {
+    pub timestamp: Option<U256>,
+    pub number: Option<U256>,
+    pub basefee: Option<u64>,
+    pub beneficiary: Option<Address>,
+    pub prevrandao: Option<revm::primitives::FixedBytes<32>>,
+    pub chain_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct PrankState {
     pub caller: Address,
     pub origin: Address,
@@ -66,7 +218,7 @@ pub struct PrankState {
     pub here: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StartPrankState {
     pub caller: Address,
     pub origin: Address,
@@ -75,254 +227,112 @@ pub struct StartPrankState {
     pub set_depth: u64,
 }
 
-/// Inspector that intercepts Foundry-compatible cheatcodes.
-#[derive(Debug)]
-pub struct CheatcodeInspector {
-    pub state: CheatcodeState,
-    pub shared_labels: Option<Arc<RwLock<HashMap<Address, String>>>>,
-    /// Current EVM call depth (increments in `call`/`create`, decrements in
-    /// `call_end`/`create_end`).
-    pub depth: u64,
-    /// `(original tx.origin, depth_at_which_patched)` — used to restore
-    /// `tx.origin` when a single-call prank frame exits.
-    pub original_origin: Option<(Address, u64)>,
+// ---------------------------------------------------------------------------
+//  Outcome helpers
+// ---------------------------------------------------------------------------
+
+pub(crate) fn build_outcome<CTX: ContextTr<Db = InMemoryDB>>(
+    effects: &[CheatcodeEffect],
+    gas_limit: u64,
+    ctx: &mut CTX,
+    state: &CheatcodeState,
+) -> CallOutcome {
+    if let Some(outcome) = effects.iter().find_map(|effect| match effect {
+        CheatcodeEffect::Revert(reason) => Some(revert_outcome(reason)),
+        CheatcodeEffect::Panic => Some(panic_outcome()),
+        CheatcodeEffect::ReturnU256(v) => Some(success_u256_outcome(*v, gas_limit)),
+        CheatcodeEffect::ReturnBool(v) => Some(success_bool_outcome(*v, gas_limit)),
+        CheatcodeEffect::ReturnBytes(bytes) => {
+            Some(success_bytes_outcome(bytes.clone(), gas_limit))
+        }
+        CheatcodeEffect::ReadNonce(addr) => {
+            let nonce = ctx
+                .journal_mut()
+                .load_account(*addr)
+                .ok()
+                .map(|s| s.data.info.nonce)
+                .unwrap_or(0);
+            Some(success_u256_outcome(U256::from(nonce), gas_limit))
+        }
+        CheatcodeEffect::ReadBalance(addr) => {
+            let balance = ctx
+                .journal_mut()
+                .load_account(*addr)
+                .ok()
+                .map(|s| s.data.info.balance)
+                .unwrap_or(U256::ZERO);
+            Some(success_u256_outcome(balance, gas_limit))
+        }
+        CheatcodeEffect::ReadStorage(addr, slot) => {
+            let value = match ctx.journal_mut().load_account_mut(*addr) {
+                Ok(mut s) => s
+                    .data
+                    .sload(*slot, false)
+                    .ok()
+                    .map(|r| r.data.present_value)
+                    .unwrap_or(U256::ZERO),
+                Err(_) => U256::ZERO,
+            };
+            Some(success_bytes_outcome(value.to_be_bytes_vec(), gas_limit))
+        }
+        CheatcodeEffect::GetCode(name) => {
+            let initcode = state
+                .compiled_contracts
+                .get(name)
+                .cloned()
+                .unwrap_or_default();
+            Some(success_bytes_outcome(
+                alloy_dyn_abi::DynSolValue::Bytes(initcode.to_vec()).abi_encode(),
+                gas_limit,
+            ))
+        }
+        CheatcodeEffect::FfiExec(args) => {
+            if !state.ffi_enabled {
+                return Some(revert_outcome("ffi disabled: enable via config"));
+            }
+            if args.is_empty() {
+                return Some(revert_outcome("ffi: no command provided"));
+            }
+            let mut it = args.iter();
+            let Some(cmd) = it.next() else {
+                return Some(revert_outcome("ffi: no command provided"));
+            };
+            let mut command = Command::new(cmd);
+            for arg in it {
+                command.arg(arg);
+            }
+            let output = match command.output() {
+                Ok(v) => v,
+                Err(_) => return Some(revert_outcome("ffi command failed")),
+            };
+            if !output.status.success() {
+                return Some(revert_outcome("ffi command failed"));
+            }
+            let stdout_bytes = output.stdout;
+            let stdout = String::from_utf8_lossy(&stdout_bytes);
+            let trimmed = stdout.trim();
+            let bytes = match trimmed
+                .strip_prefix("0x")
+                .or_else(|| trimmed.strip_prefix("0X"))
+            {
+                Some(hex_str) => hex::decode(hex_str).unwrap_or(stdout_bytes),
+                None => stdout_bytes,
+            };
+            Some(success_bytes_outcome(
+                alloy_dyn_abi::DynSolValue::Bytes(bytes).abi_encode(),
+                gas_limit,
+            ))
+        }
+        _ => None,
+    }) {
+        return outcome;
+    }
+    // Default: silent success.
+    let mut outcome = dummy_success();
+    outcome.result.gas = Gas::new(gas_limit);
+    outcome
 }
 
-impl CheatcodeInspector {
-    pub fn new() -> Self {
-        Self {
-            state: CheatcodeState::default(),
-            shared_labels: None,
-            depth: 0,
-            original_origin: None,
-        }
-    }
-
-    pub fn from_state(state: CheatcodeState) -> Self {
-        Self {
-            state,
-            shared_labels: None,
-            depth: 0,
-            original_origin: None,
-        }
-    }
-
-    pub fn with_shared_labels(mut self, labels: Arc<RwLock<HashMap<Address, String>>>) -> Self {
-        self.shared_labels = Some(labels);
-        self
-    }
-
-    /// Patch `tx.origin` and remember the original so it can be restored.
-    fn patch_origin(&mut self, ctx: &mut impl ContextSetters<Tx = TxEnv>, new_origin: Address) {
-        if self.original_origin.is_none() {
-            self.original_origin = Some((ctx.tx().caller, self.depth));
-        }
-        let mut tx = ctx.tx().clone();
-        tx.caller = new_origin;
-        ctx.set_tx(tx);
-    }
-
-    /// Restore `tx.origin` if we have returned to a depth shallower than
-    /// where we patched it and `startPrank` is no longer active.
-    fn restore_origin(&mut self, ctx: &mut impl ContextSetters<Tx = TxEnv>) {
-        if self.state.start_prank.is_some() {
-            return;
-        }
-        if let Some((original, patched_at)) = self.original_origin
-            && self.depth <= patched_at
-        {
-            let mut tx = ctx.tx().clone();
-            tx.caller = original;
-            ctx.set_tx(tx);
-            self.original_origin = None;
-        }
-    }
-
-    /// Apply an active prank to `inputs.caller` and `tx.origin`.
-    fn apply_prank(&mut self, ctx: &mut impl ContextSetters<Tx = TxEnv>, inputs: &mut CallInputs) {
-        // startPrank: applies to every call deeper than the frame that
-        // configured it (Medusa semantics).
-        if let Some(ref start_prank) = self.state.start_prank
-            && self.depth > start_prank.set_depth + 1
-        {
-            let origin = start_prank.origin;
-            let caller = start_prank.caller;
-            self.patch_origin(ctx, origin);
-            inputs.caller = caller;
-            return;
-        }
-        // Single-call prank / prankHere.
-        if let Some(ref prank) = self.state.prank
-            && (if prank.here {
-                // prankHere: only the very next direct child call from the
-                // frame where it was set.
-                self.depth == prank.set_depth + 1
-            } else {
-                true
-            })
-        {
-            let origin = prank.origin;
-            let caller = prank.caller;
-            let single_call = prank.single_call;
-            self.patch_origin(ctx, origin);
-            inputs.caller = caller;
-            if single_call {
-                self.state.prank = None;
-            }
-        }
-    }
-}
-
-impl Default for CheatcodeInspector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<CTX: ContextTr<Db = InMemoryDB, Block = BlockEnv, Tx = TxEnv> + ContextSetters>
-    Inspector<CTX, EthInterpreter> for CheatcodeInspector
-{
-    fn initialize_interp(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
-    }
-
-    fn step(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {}
-
-    fn step_end(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {}
-
-    fn call(&mut self, ctx: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        self.depth += 1;
-        self.apply_prank(ctx, inputs);
-
-        let input = inputs.input.bytes_local(ctx.local());
-        if inputs.target_address != VM_ADDRESS || input.len() < 4 {
-            return None;
-        }
-
-        let sel: [u8; 4] = crate::result_to_option(input[..4].try_into())?;
-
-        let mut outcome = match sel {
-            // Block / state manipulation
-            state::WARP_SELECTOR => state::handle_warp(self, ctx, &input),
-            state::ROLL_SELECTOR => state::handle_roll(self, ctx, &input),
-            state::FEE_SELECTOR => state::handle_fee(self, ctx, &input),
-            state::COINBASE_SELECTOR => state::handle_coinbase(self, ctx, &input),
-            state::DIFFICULTY_SELECTOR => Some(dummy_success()),
-            state::PREVRANDAO_SELECTOR => state::handle_prevrandao(self, ctx, &input),
-            state::CHAIN_ID_SELECTOR => state::handle_chain_id(self, ctx, &input),
-
-            // Account manipulation
-            account::DEAL_SELECTOR => account::handle_deal(self, ctx, &input),
-            account::ETCH_SELECTOR => account::handle_etch(self, ctx, &input),
-            account::SET_NONCE_SELECTOR => account::handle_set_nonce(self, ctx, &input),
-            account::GET_NONCE_SELECTOR => account::handle_get_nonce(self, ctx, &input),
-            account::LOAD_SELECTOR => account::handle_load(self, ctx, &input),
-            account::STORE_SELECTOR => account::handle_store(self, ctx, &input),
-
-            // Prank
-            prank::PRANK_SELECTOR => prank::handle_prank(self, &input),
-            prank::PRANK_HERE_SELECTOR => prank::handle_prank_here(self, &input),
-            prank::START_PRANK_SELECTOR => prank::handle_start_prank(self, &input),
-            prank::STOP_PRANK_SELECTOR => prank::handle_stop_prank(self),
-
-            // Snapshot
-            snapshot::SNAPSHOT_SELECTOR => snapshot::handle_snapshot(self, ctx),
-            snapshot::REVERT_TO_SELECTOR => snapshot::handle_revert_to(self, ctx, &input),
-
-            // Label
-            label::LABEL_SELECTOR => label::handle_label(self, ctx, &input),
-
-            // Assertions
-            assert::ASSERT_TRUE_SELECTOR => assert::handle_assert_true(self, &input),
-            assert::ASSERT_FALSE_SELECTOR => assert::handle_assert_false(self, &input),
-            assert::ASSERT_EQ_BOOL_SELECTOR => assert::handle_assert_eq_bool(self, &input),
-            assert::ASSERT_EQ_UINT_SELECTOR => assert::handle_assert_eq_uint(self, &input),
-            assert::ASSERT_EQ_INT_SELECTOR => assert::handle_assert_eq_int(self, &input),
-            assert::ASSERT_EQ_ADDRESS_SELECTOR => assert::handle_assert_eq_address(self, &input),
-            assert::ASSERT_EQ_BYTES32_SELECTOR => assert::handle_assert_eq_bytes32(self, &input),
-            assert::ASSERT_EQ_STRING_SELECTOR => assert::handle_assert_eq_string(self, &input),
-            assert::ASSERT_EQ_BYTES_SELECTOR => assert::handle_assert_eq_bytes(self, &input),
-            assert::ASSERT_NOT_EQ_BOOL_SELECTOR => assert::handle_assert_not_eq_bool(self, &input),
-            assert::ASSERT_NOT_EQ_UINT_SELECTOR => assert::handle_assert_not_eq_uint(self, &input),
-            assert::ASSERT_NOT_EQ_INT_SELECTOR => assert::handle_assert_not_eq_int(self, &input),
-            assert::ASSERT_NOT_EQ_ADDRESS_SELECTOR => {
-                assert::handle_assert_not_eq_address(self, &input)
-            }
-            assert::ASSERT_NOT_EQ_BYTES32_SELECTOR => {
-                assert::handle_assert_not_eq_bytes32(self, &input)
-            }
-            assert::ASSERT_NOT_EQ_STRING_SELECTOR => {
-                assert::handle_assert_not_eq_string(self, &input)
-            }
-            assert::ASSERT_NOT_EQ_BYTES_SELECTOR => {
-                assert::handle_assert_not_eq_bytes(self, &input)
-            }
-            assert::ASSERT_LT_UINT_SELECTOR => assert::handle_assert_lt_uint(self, &input),
-            assert::ASSERT_LT_INT_SELECTOR => assert::handle_assert_lt_int(self, &input),
-            assert::ASSERT_LE_UINT_SELECTOR => assert::handle_assert_le_uint(self, &input),
-            assert::ASSERT_LE_INT_SELECTOR => assert::handle_assert_le_int(self, &input),
-            assert::ASSERT_GT_UINT_SELECTOR => assert::handle_assert_gt_uint(self, &input),
-            assert::ASSERT_GT_INT_SELECTOR => assert::handle_assert_gt_int(self, &input),
-            assert::ASSERT_GE_UINT_SELECTOR => assert::handle_assert_ge_uint(self, &input),
-            assert::ASSERT_GE_INT_SELECTOR => assert::handle_assert_ge_int(self, &input),
-
-            // String / type conversion
-            string::TO_STRING_ADDRESS_SELECTOR => string::handle_to_string_address(self, &input),
-            string::TO_STRING_BOOL_SELECTOR => string::handle_to_string_bool(self, &input),
-            string::TO_STRING_UINT_SELECTOR => string::handle_to_string_uint(self, &input),
-            string::TO_STRING_INT_SELECTOR => string::handle_to_string_int(self, &input),
-            string::TO_STRING_BYTES32_SELECTOR => string::handle_to_string_bytes32(self, &input),
-            string::TO_STRING_BYTES_SELECTOR => string::handle_to_string_bytes(self, &input),
-            string::PARSE_UINT_SELECTOR => string::handle_parse_uint(self, &input),
-            string::PARSE_INT_SELECTOR => string::handle_parse_int(self, &input),
-            string::PARSE_BOOL_SELECTOR => string::handle_parse_bool(self, &input),
-            string::PARSE_ADDRESS_SELECTOR => string::handle_parse_address(self, &input),
-            string::PARSE_BYTES_SELECTOR => string::handle_parse_bytes(self, &input),
-            string::PARSE_BYTES32_SELECTOR => string::handle_parse_bytes32(self, &input),
-            string::GET_CODE_SELECTOR => string::handle_get_code(self, &input),
-
-            // Wallet / crypto
-            wallet::ADDR_SELECTOR => wallet::handle_addr(self, &input),
-            wallet::SIGN_SELECTOR => wallet::handle_sign(self, &input),
-
-            // FFI
-            ffi::FFI_SELECTOR => ffi::handle_ffi(self, &input),
-
-            // Unknown VM call: silently drop.
-            _ => Some(dummy_success()),
-        }?;
-        // Cheatcode calls short-circuit the EVM.  Preserve the caller's gas
-        // so the parent frame does not lose gas on every cheatcode invocation.
-        outcome.result.gas = Gas::new(inputs.gas_limit);
-        // Ensure return data is copied to the caller's memory at the expected
-        // offset; Solidity relies on this for external call ABI decoding.
-        outcome.memory_offset = inputs.return_memory_offset.clone();
-        Some(outcome)
-    }
-
-    fn call_end(&mut self, ctx: &mut CTX, _inputs: &CallInputs, _outcome: &mut CallOutcome) {
-        self.restore_origin(ctx);
-        // If we are returning to the frame that configured startPrank,
-        // clear it so it does not leak into subsequent top-level sequences.
-        if let Some(ref start_prank) = self.state.start_prank
-            && self.depth.saturating_sub(1) <= start_prank.set_depth
-        {
-            self.state.start_prank = None;
-        }
-        self.depth = self.depth.saturating_sub(1);
-    }
-
-    fn create(&mut self, _context: &mut CTX, _inputs: &mut CreateInputs) -> Option<CreateOutcome> {
-        self.depth += 1;
-        None
-    }
-
-    fn create_end(&mut self, ctx: &mut CTX, _inputs: &CreateInputs, _outcome: &mut CreateOutcome) {
-        self.restore_origin(ctx);
-        self.depth = self.depth.saturating_sub(1);
-    }
-}
-
-/// Build a silent success outcome for a short-circuited cheatcode call.
 pub(crate) fn dummy_success() -> CallOutcome {
     CallOutcome {
         result: InterpreterResult {
@@ -336,8 +346,6 @@ pub(crate) fn dummy_success() -> CallOutcome {
     }
 }
 
-/// Build a revert outcome that mimics Solidity `Panic(uint256(0x01))`,
-/// matching Medusa and Foundry assertion-failure encoding.
 pub(crate) fn panic_outcome() -> CallOutcome {
     let mut encoded = vec![0x4e, 0x48, 0x7b, 0x71];
     encoded.extend_from_slice(&[0u8; 31]);
@@ -354,10 +362,9 @@ pub(crate) fn panic_outcome() -> CallOutcome {
     }
 }
 
-/// Build a revert outcome with a string reason.
 pub(crate) fn revert_outcome(reason: &str) -> CallOutcome {
     let mut encoded = vec![0x08, 0xc3, 0x79, 0xa0];
-    encoded.extend_from_slice(&DynSolValue::String(reason.into()).abi_encode());
+    encoded.extend_from_slice(&alloy_dyn_abi::DynSolValue::String(reason.into()).abi_encode());
     CallOutcome {
         result: InterpreterResult {
             result: InstructionResult::Revert,
@@ -370,13 +377,12 @@ pub(crate) fn revert_outcome(reason: &str) -> CallOutcome {
     }
 }
 
-/// Build a success outcome returning a single uint256 value.
-pub(crate) fn success_u256_outcome(value: U256) -> CallOutcome {
+pub(crate) fn success_u256_outcome(value: U256, gas_limit: u64) -> CallOutcome {
     CallOutcome {
         result: InterpreterResult {
             result: InstructionResult::Return,
             output: Bytes::from(value.to_be_bytes_vec()),
-            gas: Gas::new(0),
+            gas: Gas::new(gas_limit),
         },
         memory_offset: 0..0,
         was_precompile_called: false,
@@ -384,8 +390,7 @@ pub(crate) fn success_u256_outcome(value: U256) -> CallOutcome {
     }
 }
 
-/// Build a success outcome returning a single bool value.
-pub(crate) fn success_bool_outcome(value: bool) -> CallOutcome {
+pub(crate) fn success_bool_outcome(value: bool, gas_limit: u64) -> CallOutcome {
     let mut output = vec![0u8; 32];
     if value {
         output[31] = 1;
@@ -394,7 +399,7 @@ pub(crate) fn success_bool_outcome(value: bool) -> CallOutcome {
         result: InterpreterResult {
             result: InstructionResult::Return,
             output: Bytes::from(output),
-            gas: Gas::new(0),
+            gas: Gas::new(gas_limit),
         },
         memory_offset: 0..0,
         was_precompile_called: false,
@@ -402,13 +407,12 @@ pub(crate) fn success_bool_outcome(value: bool) -> CallOutcome {
     }
 }
 
-/// Build a success outcome returning raw bytes.
-pub(crate) fn success_bytes_outcome(bytes: Vec<u8>) -> CallOutcome {
+pub(crate) fn success_bytes_outcome(bytes: Vec<u8>, gas_limit: u64) -> CallOutcome {
     CallOutcome {
         result: InterpreterResult {
             result: InstructionResult::Return,
             output: Bytes::from(bytes),
-            gas: Gas::new(0),
+            gas: Gas::new(gas_limit),
         },
         memory_offset: 0..0,
         was_precompile_called: false,
@@ -416,7 +420,10 @@ pub(crate) fn success_bytes_outcome(bytes: Vec<u8>) -> CallOutcome {
     }
 }
 
-/// Decode a single `uint256` argument from calldata after the selector.
+// ---------------------------------------------------------------------------
+//  Calldata decoders
+// ---------------------------------------------------------------------------
+
 pub(crate) fn decode_u256_arg(input: &Bytes) -> Option<U256> {
     if input.len() < 4 + 32 {
         return None;
@@ -424,7 +431,6 @@ pub(crate) fn decode_u256_arg(input: &Bytes) -> Option<U256> {
     Some(U256::from_be_slice(&input[4..36]))
 }
 
-/// Decode a single `address` argument from calldata after the selector.
 pub(crate) fn decode_address_arg(input: &Bytes) -> Option<Address> {
     if input.len() < 4 + 32 {
         return None;
@@ -432,7 +438,6 @@ pub(crate) fn decode_address_arg(input: &Bytes) -> Option<Address> {
     Some(Address::from_slice(&input[4 + 12..4 + 32]))
 }
 
-/// Decode an `(address, uint256)` pair from calldata after the selector.
 pub(crate) fn decode_address_u256_args(input: &Bytes) -> Option<(Address, U256)> {
     if input.len() < 4 + 64 {
         return None;
@@ -442,7 +447,6 @@ pub(crate) fn decode_address_u256_args(input: &Bytes) -> Option<(Address, U256)>
     Some((addr, value))
 }
 
-/// Decode an `(address, bytes32, bytes32)` triple from calldata.
 pub(crate) fn decode_address_bytes32_bytes32_args(
     input: &Bytes,
 ) -> Option<(Address, [u8; 32], [u8; 32])> {
@@ -457,7 +461,6 @@ pub(crate) fn decode_address_bytes32_bytes32_args(
     Some((addr, slot, value))
 }
 
-/// Decode an `(address, bytes32)` pair from calldata.
 pub(crate) fn decode_address_bytes32_args(input: &Bytes) -> Option<(Address, [u8; 32])> {
     if input.len() < 4 + 64 {
         return None;

@@ -1,6 +1,7 @@
 //! Sequence execution: runs a call sequence against a cloned chain state.
 
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use alloy_json_abi::JsonAbi;
 use revm::{
@@ -15,7 +16,7 @@ use tracing::trace;
 use crate::chain::{
     ChainConfig,
     error::ChainExecutionError,
-    inspectors::{CompositeInspector, coverage::CoverageInspector, trace::TraceInspector},
+    inspectors::{InspectorTuple, MaybeTrace, coverage::CoverageInspector, trace::TraceInspector},
     output::{CallMeta, ExecutionOutput, PropertyResult},
     state::ChainState,
 };
@@ -45,12 +46,25 @@ pub fn execute(
 
     // 2. Build inspectors (owned, no external mutable references).
     let coverage_inspector = CoverageInspector::new();
-    let trace_inspector = opts
+    let mut trace_inspector = opts
         .trace
         .then(|| TraceInspector::new(initcode_map.clone()));
+    let shared_labels = Arc::new(RwLock::new(local_state.cheatcodes.labels.clone()));
+    if let Some(ref mut t) = trace_inspector {
+        t.set_shared_labels(Arc::clone(&shared_labels));
+    }
 
-    let mut inspector = CompositeInspector::new(coverage_inspector, trace_inspector)
-        .with_cheatcodes(local_state.cheatcodes.clone());
+    let shared_labels = Arc::new(RwLock::new(local_state.cheatcodes.labels.clone()));
+    let cheatcode_inspector = crate::chain::inspectors::cheatcode::CheatcodeInspector::from_state(
+        local_state.cheatcodes.clone(),
+    )
+    .with_shared_labels(shared_labels);
+
+    let mut inspector = InspectorTuple::new(
+        coverage_inspector,
+        MaybeTrace(trace_inspector),
+        cheatcode_inspector,
+    );
 
     // 3. Run each call in the sequence.
     let mut call_meta = Vec::with_capacity(calls.len());
@@ -60,43 +74,40 @@ pub fn execute(
         local_state.advance_block(call.block_number_delay, call.block_timestamp_delay, idx);
 
         // Apply persistent prank to the top-level transaction caller.
-        // Internal CALLs are handled by CheatcodeInspector::call; here we
-        // handle the outer transaction frame that revm does not route through
-        // the call hook.
-        let mut caller = config.caller;
         let mut clear_single_call_prank = false;
-        if let Some(ref cheatcodes) = inspector.cheatcodes {
-            match (
-                cheatcodes.state.start_prank.as_ref(),
-                cheatcodes.state.prank.as_ref(),
-            ) {
-                (Some(start_prank), _) => caller = start_prank.caller,
-                (None, Some(prank)) => {
-                    caller = prank.caller;
-                    clear_single_call_prank = prank.single_call;
-                }
-                (None, None) => {}
-            }
+        if let Some(ref p) = inspector.2.state.prank.active {
+            clear_single_call_prank = p.single_call;
         }
-        if clear_single_call_prank && let Some(ref mut cheatcodes) = inspector.cheatcodes {
-            cheatcodes.state.prank = None;
+        let caller = inspector
+            .2
+            .state
+            .prank
+            .caller_for_top_level()
+            .unwrap_or(config.caller);
+        if clear_single_call_prank {
+            inspector.2.state.prank.active = None;
         }
 
         let nonce = local_state.next_nonce();
         let mut ctx = Context::mainnet().with_db(local_state.db);
         ctx.block.number = U256::from(local_state.block_number);
         ctx.block.timestamp = U256::from(local_state.block_timestamp);
-        if let Some(fee) = local_state.cheatcodes.fee {
-            ctx.block.basefee = u64::try_from(fee).unwrap_or(0);
+
+        // Apply non-timestamp/number block overrides from cheatcodes.
+        // Timestamp and number are managed via local_state.block_timestamp /
+        // block_number so advance_block delays compose correctly.
+        let overrides = inspector.2.state.block_overrides();
+        if let Some(fee) = overrides.basefee {
+            ctx.block.basefee = fee;
         }
-        if let Some(coinbase) = local_state.cheatcodes.coinbase {
-            ctx.block.beneficiary = coinbase;
+        if let Some(beneficiary) = overrides.beneficiary {
+            ctx.block.beneficiary = beneficiary;
         }
-        if let Some(prevrandao) = local_state.cheatcodes.prevrandao {
-            ctx.block.prevrandao = Some(revm::primitives::FixedBytes::from(prevrandao));
+        if let Some(prevrandao) = overrides.prevrandao {
+            ctx.block.prevrandao = Some(prevrandao);
         }
-        if let Some(chain_id) = local_state.cheatcodes.chain_id {
-            ctx.cfg.chain_id = chain_id.as_limbs()[0];
+        if let Some(chain_id) = overrides.chain_id {
+            ctx.cfg.chain_id = chain_id;
         }
 
         let mut tx = TxEnv {
@@ -109,6 +120,11 @@ pub fn execute(
         };
         tx.chain_id = Some(ctx.cfg.chain_id);
         tx.gas_price = ctx.block.basefee as u128;
+
+        // Remember the pre-call block cheat state so we can restore on revert
+        // and detect whether the block context was modified during this call.
+        let prev_block = inspector.2.state.block;
+
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
         let result = evm
             .inspect_tx_commit(tx)
@@ -123,12 +139,29 @@ pub fn execute(
             block_timestamp: local_state.block_timestamp,
         });
 
-        if !result.is_success() {
+        if result.is_success() {
+            // Sync block context into ChainState so the next call sees it,
+            // but only if it was modified during this call (not carried over
+            // from a previous call).
+            if inspector.2.state.block.timestamp != prev_block.timestamp
+                && let Some(ts) = inspector.2.state.block.timestamp
+            {
+                local_state.block_timestamp = u64::try_from(ts).unwrap_or(u64::MAX);
+            }
+            if inspector.2.state.block.number != prev_block.number
+                && let Some(num) = inspector.2.state.block.number
+            {
+                local_state.block_number = u64::try_from(num).unwrap_or(u64::MAX);
+            }
+            trace!(idx, "call succeeded");
+        } else {
+            // Undo the block context so it does not leak into properties or
+            // future calls (if we ever stop aborting on revert).
+            inspector.2.state.block = prev_block;
             all_ok = false;
             trace!(idx, "call reverted, aborting sequence");
             break;
         }
-        trace!(idx, "call succeeded");
     }
 
     // 4. Check properties (read-only calls against the final state).
@@ -141,8 +174,8 @@ pub fn execute(
     )?;
 
     // 5. Assemble output from owned inspectors.
-    let coverage = inspector.coverage.into_coverage();
-    let trace = inspector.trace.map(|t| t.into_trace_tree());
+    let coverage = inspector.0.into_coverage();
+    let trace = inspector.1.0.map(|t| t.into_trace_tree());
 
     Ok(ExecutionOutput {
         coverage,
@@ -163,28 +196,26 @@ fn check_properties(
     let mut results = Vec::with_capacity(properties.len());
 
     for (selector, name) in properties {
-        // Property functions are view/pure — revm reverts on any SSTORE,
-        // so the DB is functionally unchanged.  We must move the DB into
-        // revm's Context (it does not support borrowing) and move it back
-        // out afterward.  `std::mem::take` is a zero-cost placeholder
-        // because InMemoryDB::default() is cheap; the real DB is restored
-        // before the `?` so error paths never lose it.
         let db = std::mem::take(&mut state.db);
         let mut ctx = Context::mainnet().with_db(db);
         ctx.block.number = U256::from(state.block_number);
         ctx.block.timestamp = U256::from(state.block_timestamp);
-        if let Some(fee) = state.cheatcodes.fee {
-            ctx.block.basefee = u64::try_from(fee).unwrap_or(0);
+
+        // Apply non-timestamp/number block overrides from cheatcodes.
+        let overrides = state.cheatcodes.block_overrides();
+        if let Some(fee) = overrides.basefee {
+            ctx.block.basefee = fee;
         }
-        if let Some(coinbase) = state.cheatcodes.coinbase {
-            ctx.block.beneficiary = coinbase;
+        if let Some(beneficiary) = overrides.beneficiary {
+            ctx.block.beneficiary = beneficiary;
         }
-        if let Some(prevrandao) = state.cheatcodes.prevrandao {
-            ctx.block.prevrandao = Some(revm::primitives::FixedBytes::from(prevrandao));
+        if let Some(prevrandao) = overrides.prevrandao {
+            ctx.block.prevrandao = Some(prevrandao);
         }
-        if let Some(chain_id) = state.cheatcodes.chain_id {
-            ctx.cfg.chain_id = chain_id.as_limbs()[0];
+        if let Some(chain_id) = overrides.chain_id {
+            ctx.cfg.chain_id = chain_id;
         }
+
         let mut tx = TxEnv {
             caller: config.caller,
             kind: TxKind::Call(contract_address),

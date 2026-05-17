@@ -1,69 +1,17 @@
 //! Assertion cheatcodes.
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
-use revm::interpreter::CallOutcome;
+use revm::primitives::Bytes;
 
-use crate::chain::cheatcodes::{CheatcodeInspector, dummy_success, panic_outcome};
-
-/// `assertTrue(bool)` — revert if false.
-pub const ASSERT_TRUE_SELECTOR: [u8; 4] = [0x0c, 0x9f, 0xd5, 0x81];
-/// `assertFalse(bool)` — revert if true.
-pub const ASSERT_FALSE_SELECTOR: [u8; 4] = [0xa5, 0x98, 0x28, 0x85];
-/// `assertEq(bool, bool)`.
-pub const ASSERT_EQ_BOOL_SELECTOR: [u8; 4] = [0xf7, 0xfe, 0x34, 0x77];
-/// `assertEq(uint256, uint256)`.
-pub const ASSERT_EQ_UINT_SELECTOR: [u8; 4] = [0x98, 0x29, 0x6c, 0x54];
-/// `assertEq(int256, int256)`.
-pub const ASSERT_EQ_INT_SELECTOR: [u8; 4] = [0xfe, 0x74, 0xf0, 0x5b];
-/// `assertEq(address, address)`.
-pub const ASSERT_EQ_ADDRESS_SELECTOR: [u8; 4] = [0x51, 0x53, 0x61, 0xf6];
-/// `assertEq(bytes32, bytes32)`.
-pub const ASSERT_EQ_BYTES32_SELECTOR: [u8; 4] = [0x7c, 0x84, 0xc6, 0x9b];
-/// `assertEq(string, string)`.
-pub const ASSERT_EQ_STRING_SELECTOR: [u8; 4] = [0xf3, 0x20, 0xd9, 0x63];
-/// `assertEq(bytes, bytes)`.
-pub const ASSERT_EQ_BYTES_SELECTOR: [u8; 4] = [0x97, 0x62, 0x46, 0x31];
-/// `assertNotEq(bool, bool)`.
-pub const ASSERT_NOT_EQ_BOOL_SELECTOR: [u8; 4] = [0x23, 0x6e, 0x4d, 0x66];
-/// `assertNotEq(uint256, uint256)`.
-pub const ASSERT_NOT_EQ_UINT_SELECTOR: [u8; 4] = [0xb7, 0x90, 0x93, 0x20];
-/// `assertNotEq(int256, int256)`.
-pub const ASSERT_NOT_EQ_INT_SELECTOR: [u8; 4] = [0xf4, 0xc0, 0x04, 0xe3];
-/// `assertNotEq(address, address)`.
-pub const ASSERT_NOT_EQ_ADDRESS_SELECTOR: [u8; 4] = [0xb1, 0x2e, 0x16, 0x94];
-/// `assertNotEq(bytes32, bytes32)`.
-pub const ASSERT_NOT_EQ_BYTES32_SELECTOR: [u8; 4] = [0x89, 0x8e, 0x83, 0xfc];
-/// `assertNotEq(string, string)`.
-pub const ASSERT_NOT_EQ_STRING_SELECTOR: [u8; 4] = [0x6a, 0x82, 0x37, 0xb3];
-/// `assertNotEq(bytes, bytes)`.
-pub const ASSERT_NOT_EQ_BYTES_SELECTOR: [u8; 4] = [0x3c, 0xf7, 0x8e, 0x28];
-/// `assertLt(uint256, uint256)`.
-pub const ASSERT_LT_UINT_SELECTOR: [u8; 4] = [0xb1, 0x2f, 0xc0, 0x05];
-/// `assertLt(int256, int256)`.
-pub const ASSERT_LT_INT_SELECTOR: [u8; 4] = [0x3e, 0x91, 0x40, 0x80];
-/// `assertLe(uint256, uint256)`.
-pub const ASSERT_LE_UINT_SELECTOR: [u8; 4] = [0x84, 0x66, 0xf4, 0x15];
-/// `assertLe(int256, int256)`.
-pub const ASSERT_LE_INT_SELECTOR: [u8; 4] = [0x95, 0xfd, 0x15, 0x4e];
-/// `assertGt(uint256, uint256)`.
-pub const ASSERT_GT_UINT_SELECTOR: [u8; 4] = [0xdb, 0x07, 0xfc, 0xd2];
-/// `assertGt(int256, int256)`.
-pub const ASSERT_GT_INT_SELECTOR: [u8; 4] = [0x5a, 0x36, 0x2d, 0x45];
-/// `assertGe(uint256, uint256)`.
-pub const ASSERT_GE_UINT_SELECTOR: [u8; 4] = [0xa8, 0xd4, 0xd1, 0xd9];
-/// `assertGe(int256, int256)`.
-pub const ASSERT_GE_INT_SELECTOR: [u8; 4] = [0x0a, 0x30, 0xb7, 0x71];
+use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect};
 
 fn decode_pair(
-    input: &revm::primitives::Bytes,
+    input: &Bytes,
     t1: DynSolType,
     t2: DynSolType,
 ) -> Option<(DynSolValue, DynSolValue)> {
     let tuple = DynSolType::Tuple(vec![t1, t2]);
-    let decoded = match tuple.abi_decode_params(&input[4..]) {
-        Ok(v) => v,
-        Err(_) => return None,
-    };
+    let decoded = tuple.abi_decode_params(&input[4..]).ok()?;
     match decoded {
         DynSolValue::Tuple(v) if v.len() == 2 => {
             let mut it = v.into_iter();
@@ -73,12 +21,9 @@ fn decode_pair(
     }
 }
 
-fn decode_single_bool(input: &revm::primitives::Bytes) -> Option<bool> {
+fn decode_single_bool(input: &Bytes) -> Option<bool> {
     let tuple = DynSolType::Tuple(vec![DynSolType::Bool]);
-    let decoded = match tuple.abi_decode_params(&input[4..]) {
-        Ok(v) => v,
-        Err(_) => return None,
-    };
+    let decoded = tuple.abi_decode_params(&input[4..]).ok()?;
     match decoded {
         DynSolValue::Tuple(v) => match v.into_iter().next()? {
             DynSolValue::Bool(b) => Some(b),
@@ -88,209 +33,217 @@ fn decode_single_bool(input: &revm::primitives::Bytes) -> Option<bool> {
     }
 }
 
-fn eq_outcome(equal_expected: bool, actual_equal: bool) -> Option<CallOutcome> {
+fn eq_outcome(equal_expected: bool, actual_equal: bool) -> Vec<CheatcodeEffect> {
     if actual_equal == equal_expected {
-        Some(dummy_success())
+        vec![]
     } else {
-        Some(panic_outcome())
+        vec![CheatcodeEffect::Panic]
     }
 }
 
-pub fn handle_assert_true(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let b = decode_single_bool(input)?;
-    if b {
-        Some(dummy_success())
-    } else {
-        Some(panic_outcome())
+macro_rules! assert_eq_cheatcode {
+    ($name:ident, $selector:expr, $t1:expr, $t2:expr, $pat1:pat, $pat2:pat, $cmp:expr) => {
+        pub struct $name;
+        impl Cheatcode for $name {
+            type Args = (DynSolValue, DynSolValue);
+            const SELECTOR: [u8; 4] = $selector;
+            fn decode(input: &Bytes) -> Option<Self::Args> {
+                decode_pair(input, $t1, $t2)
+            }
+            fn effects((a, b): Self::Args) -> Vec<CheatcodeEffect> {
+                let $pat1 = &a else { return vec![] };
+                let $pat2 = &b else { return vec![] };
+                eq_outcome(true, $cmp)
+            }
+        }
+    };
+}
+
+macro_rules! assert_not_eq_cheatcode {
+    ($name:ident, $selector:expr, $t1:expr, $t2:expr, $pat1:pat, $pat2:pat, $cmp:expr) => {
+        pub struct $name;
+        impl Cheatcode for $name {
+            type Args = (DynSolValue, DynSolValue);
+            const SELECTOR: [u8; 4] = $selector;
+            fn decode(input: &Bytes) -> Option<Self::Args> {
+                decode_pair(input, $t1, $t2)
+            }
+            fn effects((a, b): Self::Args) -> Vec<CheatcodeEffect> {
+                let $pat1 = &a else { return vec![] };
+                let $pat2 = &b else { return vec![] };
+                eq_outcome(false, $cmp)
+            }
+        }
+    };
+}
+
+assert_eq_cheatcode!(
+    AssertEqBool,
+    [0xf7, 0xfe, 0x34, 0x77],
+    DynSolType::Bool,
+    DynSolType::Bool,
+    DynSolValue::Bool(a),
+    DynSolValue::Bool(b),
+    a == b
+);
+assert_eq_cheatcode!(
+    AssertEqUint,
+    [0x98, 0x29, 0x6c, 0x54],
+    DynSolType::Uint(256),
+    DynSolType::Uint(256),
+    DynSolValue::Uint(a, _),
+    DynSolValue::Uint(b, _),
+    a == b
+);
+assert_eq_cheatcode!(
+    AssertEqInt,
+    [0xfe, 0x74, 0xf0, 0x5b],
+    DynSolType::Int(256),
+    DynSolType::Int(256),
+    DynSolValue::Int(a, _),
+    DynSolValue::Int(b, _),
+    a == b
+);
+assert_eq_cheatcode!(
+    AssertEqAddress,
+    [0x51, 0x53, 0x61, 0xf6],
+    DynSolType::Address,
+    DynSolType::Address,
+    DynSolValue::Address(a),
+    DynSolValue::Address(b),
+    a == b
+);
+assert_eq_cheatcode!(
+    AssertEqBytes32,
+    [0x7c, 0x84, 0xc6, 0x9b],
+    DynSolType::FixedBytes(32),
+    DynSolType::FixedBytes(32),
+    DynSolValue::FixedBytes(a, _),
+    DynSolValue::FixedBytes(b, _),
+    a == b
+);
+assert_eq_cheatcode!(
+    AssertEqString,
+    [0xf3, 0x20, 0xd9, 0x63],
+    DynSolType::String,
+    DynSolType::String,
+    DynSolValue::String(a),
+    DynSolValue::String(b),
+    a == b
+);
+assert_eq_cheatcode!(
+    AssertEqBytes,
+    [0x97, 0x62, 0x46, 0x31],
+    DynSolType::Bytes,
+    DynSolType::Bytes,
+    DynSolValue::Bytes(a),
+    DynSolValue::Bytes(b),
+    a == b
+);
+
+assert_not_eq_cheatcode!(
+    AssertNotEqBool,
+    [0x23, 0x6e, 0x4d, 0x66],
+    DynSolType::Bool,
+    DynSolType::Bool,
+    DynSolValue::Bool(a),
+    DynSolValue::Bool(b),
+    a == b
+);
+assert_not_eq_cheatcode!(
+    AssertNotEqUint,
+    [0xb7, 0x90, 0x93, 0x20],
+    DynSolType::Uint(256),
+    DynSolType::Uint(256),
+    DynSolValue::Uint(a, _),
+    DynSolValue::Uint(b, _),
+    a == b
+);
+assert_not_eq_cheatcode!(
+    AssertNotEqInt,
+    [0xf4, 0xc0, 0x04, 0xe3],
+    DynSolType::Int(256),
+    DynSolType::Int(256),
+    DynSolValue::Int(a, _),
+    DynSolValue::Int(b, _),
+    a == b
+);
+assert_not_eq_cheatcode!(
+    AssertNotEqAddress,
+    [0xb1, 0x2e, 0x16, 0x94],
+    DynSolType::Address,
+    DynSolType::Address,
+    DynSolValue::Address(a),
+    DynSolValue::Address(b),
+    a == b
+);
+assert_not_eq_cheatcode!(
+    AssertNotEqBytes32,
+    [0x89, 0x8e, 0x83, 0xfc],
+    DynSolType::FixedBytes(32),
+    DynSolType::FixedBytes(32),
+    DynSolValue::FixedBytes(a, _),
+    DynSolValue::FixedBytes(b, _),
+    a == b
+);
+assert_not_eq_cheatcode!(
+    AssertNotEqString,
+    [0x6a, 0x82, 0x37, 0xb3],
+    DynSolType::String,
+    DynSolType::String,
+    DynSolValue::String(a),
+    DynSolValue::String(b),
+    a == b
+);
+assert_not_eq_cheatcode!(
+    AssertNotEqBytes,
+    [0x3c, 0xf7, 0x8e, 0x28],
+    DynSolType::Bytes,
+    DynSolType::Bytes,
+    DynSolValue::Bytes(a),
+    DynSolValue::Bytes(b),
+    a == b
+);
+
+pub struct AssertTrue;
+impl Cheatcode for AssertTrue {
+    type Args = bool;
+    const SELECTOR: [u8; 4] = [0x0c, 0x9f, 0xd5, 0x81];
+    fn decode(input: &Bytes) -> Option<Self::Args> {
+        decode_single_bool(input)
+    }
+    fn effects(b: Self::Args) -> Vec<CheatcodeEffect> {
+        if b {
+            vec![]
+        } else {
+            vec![CheatcodeEffect::Panic]
+        }
     }
 }
 
-pub fn handle_assert_false(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let b = decode_single_bool(input)?;
-    if !b {
-        Some(dummy_success())
-    } else {
-        Some(panic_outcome())
+pub struct AssertFalse;
+impl Cheatcode for AssertFalse {
+    type Args = bool;
+    const SELECTOR: [u8; 4] = [0xa5, 0x98, 0x28, 0x85];
+    fn decode(input: &Bytes) -> Option<Self::Args> {
+        decode_single_bool(input)
+    }
+    fn effects(b: Self::Args) -> Vec<CheatcodeEffect> {
+        if !b {
+            vec![]
+        } else {
+            vec![CheatcodeEffect::Panic]
+        }
     }
 }
 
-pub fn handle_assert_eq_bool(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Bool, DynSolType::Bool)?;
-    match (&a, &b) {
-        (DynSolValue::Bool(a), DynSolValue::Bool(b)) => eq_outcome(true, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_eq_uint(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Uint(256), DynSolType::Uint(256))?;
-    match (&a, &b) {
-        (DynSolValue::Uint(a, _), DynSolValue::Uint(b, _)) => eq_outcome(true, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_eq_int(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Int(256), DynSolType::Int(256))?;
-    match (&a, &b) {
-        (DynSolValue::Int(a, _), DynSolValue::Int(b, _)) => eq_outcome(true, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_eq_address(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Address, DynSolType::Address)?;
-    match (&a, &b) {
-        (DynSolValue::Address(a), DynSolValue::Address(b)) => eq_outcome(true, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_eq_bytes32(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(
-        input,
-        DynSolType::FixedBytes(32),
-        DynSolType::FixedBytes(32),
-    )?;
-    match (&a, &b) {
-        (DynSolValue::FixedBytes(a, _), DynSolValue::FixedBytes(b, _)) => eq_outcome(true, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_eq_string(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::String, DynSolType::String)?;
-    match (&a, &b) {
-        (DynSolValue::String(a), DynSolValue::String(b)) => eq_outcome(true, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_eq_bytes(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Bytes, DynSolType::Bytes)?;
-    match (&a, &b) {
-        (DynSolValue::Bytes(a), DynSolValue::Bytes(b)) => eq_outcome(true, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_not_eq_bool(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Bool, DynSolType::Bool)?;
-    match (&a, &b) {
-        (DynSolValue::Bool(a), DynSolValue::Bool(b)) => eq_outcome(false, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_not_eq_uint(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Uint(256), DynSolType::Uint(256))?;
-    match (&a, &b) {
-        (DynSolValue::Uint(a, _), DynSolValue::Uint(b, _)) => eq_outcome(false, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_not_eq_int(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Int(256), DynSolType::Int(256))?;
-    match (&a, &b) {
-        (DynSolValue::Int(a, _), DynSolValue::Int(b, _)) => eq_outcome(false, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_not_eq_address(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Address, DynSolType::Address)?;
-    match (&a, &b) {
-        (DynSolValue::Address(a), DynSolValue::Address(b)) => eq_outcome(false, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_not_eq_bytes32(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(
-        input,
-        DynSolType::FixedBytes(32),
-        DynSolType::FixedBytes(32),
-    )?;
-    match (&a, &b) {
-        (DynSolValue::FixedBytes(a, _), DynSolValue::FixedBytes(b, _)) => eq_outcome(false, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_not_eq_string(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::String, DynSolType::String)?;
-    match (&a, &b) {
-        (DynSolValue::String(a), DynSolValue::String(b)) => eq_outcome(false, a == b),
-        _ => None,
-    }
-}
-
-pub fn handle_assert_not_eq_bytes(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Bytes, DynSolType::Bytes)?;
-    match (&a, &b) {
-        (DynSolValue::Bytes(a), DynSolValue::Bytes(b)) => eq_outcome(false, a == b),
-        _ => None,
-    }
-}
-
-fn cmp_uint_outcome(
-    input: &revm::primitives::Bytes,
-    expect_less: bool,
-    expect_equal: bool,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Uint(256), DynSolType::Uint(256))?;
+fn cmp_uint_outcome(input: &Bytes, expect_less: bool, expect_equal: bool) -> Vec<CheatcodeEffect> {
+    let Some((a, b)) = decode_pair(input, DynSolType::Uint(256), DynSolType::Uint(256)) else {
+        return vec![];
+    };
     let (a, b) = match (&a, &b) {
         (DynSolValue::Uint(a, _), DynSolValue::Uint(b, _)) => (*a, *b),
-        _ => return None,
+        _ => return vec![],
     };
     let ok = if expect_less && expect_equal {
         a <= b
@@ -302,21 +255,19 @@ fn cmp_uint_outcome(
         a > b
     };
     if ok {
-        Some(dummy_success())
+        vec![]
     } else {
-        Some(panic_outcome())
+        vec![CheatcodeEffect::Panic]
     }
 }
 
-fn cmp_int_outcome(
-    input: &revm::primitives::Bytes,
-    expect_less: bool,
-    expect_equal: bool,
-) -> Option<CallOutcome> {
-    let (a, b) = decode_pair(input, DynSolType::Int(256), DynSolType::Int(256))?;
+fn cmp_int_outcome(input: &Bytes, expect_less: bool, expect_equal: bool) -> Vec<CheatcodeEffect> {
+    let Some((a, b)) = decode_pair(input, DynSolType::Int(256), DynSolType::Int(256)) else {
+        return vec![];
+    };
     let (a, b) = match (&a, &b) {
         (DynSolValue::Int(a, _), DynSolValue::Int(b, _)) => (*a, *b),
-        _ => return None,
+        _ => return vec![],
     };
     let ok = if expect_less && expect_equal {
         a <= b
@@ -328,67 +279,84 @@ fn cmp_int_outcome(
         a > b
     };
     if ok {
-        Some(dummy_success())
+        vec![]
     } else {
-        Some(panic_outcome())
+        vec![CheatcodeEffect::Panic]
     }
 }
 
-pub fn handle_assert_lt_uint(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    cmp_uint_outcome(input, true, false)
+macro_rules! cmp_cheatcode {
+    ($name:ident, $selector:expr, $fn:ident, $less:expr, $equal:expr) => {
+        pub struct $name;
+        impl Cheatcode for $name {
+            type Args = Bytes;
+            const SELECTOR: [u8; 4] = $selector;
+            fn decode(input: &Bytes) -> Option<Self::Args> {
+                Some(input.clone())
+            }
+            fn effects(input: Self::Args) -> Vec<CheatcodeEffect> {
+                $fn(&input, $less, $equal)
+            }
+        }
+    };
 }
 
-pub fn handle_assert_lt_int(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    cmp_int_outcome(input, true, false)
-}
-
-pub fn handle_assert_le_uint(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    cmp_uint_outcome(input, true, true)
-}
-
-pub fn handle_assert_le_int(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    cmp_int_outcome(input, true, true)
-}
-
-pub fn handle_assert_gt_uint(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    cmp_uint_outcome(input, false, false)
-}
-
-pub fn handle_assert_gt_int(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    cmp_int_outcome(input, false, false)
-}
-
-pub fn handle_assert_ge_uint(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    cmp_uint_outcome(input, false, true)
-}
-
-pub fn handle_assert_ge_int(
-    _inspector: &mut CheatcodeInspector,
-    input: &revm::primitives::Bytes,
-) -> Option<CallOutcome> {
-    cmp_int_outcome(input, false, true)
-}
+cmp_cheatcode!(
+    AssertLtUint,
+    [0xb1, 0x2f, 0xc0, 0x05],
+    cmp_uint_outcome,
+    true,
+    false
+);
+cmp_cheatcode!(
+    AssertLtInt,
+    [0x3e, 0x91, 0x40, 0x80],
+    cmp_int_outcome,
+    true,
+    false
+);
+cmp_cheatcode!(
+    AssertLeUint,
+    [0x84, 0x66, 0xf4, 0x15],
+    cmp_uint_outcome,
+    true,
+    true
+);
+cmp_cheatcode!(
+    AssertLeInt,
+    [0x95, 0xfd, 0x15, 0x4e],
+    cmp_int_outcome,
+    true,
+    true
+);
+cmp_cheatcode!(
+    AssertGtUint,
+    [0xdb, 0x07, 0xfc, 0xd2],
+    cmp_uint_outcome,
+    false,
+    false
+);
+cmp_cheatcode!(
+    AssertGtInt,
+    [0x5a, 0x36, 0x2d, 0x45],
+    cmp_int_outcome,
+    false,
+    false
+);
+cmp_cheatcode!(
+    AssertGeUint,
+    [0xa8, 0xd4, 0xd1, 0xd9],
+    cmp_uint_outcome,
+    false,
+    true
+);
+cmp_cheatcode!(
+    AssertGeInt,
+    [0x0a, 0x30, 0xb7, 0x71],
+    cmp_int_outcome,
+    false,
+    true
+);
 
 #[cfg(test)]
 mod tests {
@@ -398,103 +366,74 @@ mod tests {
 
     use super::*;
     use crate::chain::Chain;
-    use crate::chain::cheatcodes::CheatcodeInspector;
     use crate::contract;
     use crate::corpus::Call;
 
-    fn call_data(selector: [u8; 4], encoded: Vec<u8>) -> revm::primitives::Bytes {
+    fn call_data(selector: [u8; 4], encoded: Vec<u8>) -> Bytes {
         let mut data = selector.to_vec();
         data.extend(encoded);
-        revm::primitives::Bytes::from(data)
+        Bytes::from(data)
     }
 
     #[test]
     fn assert_true_passes() {
-        let mut inspector = CheatcodeInspector::new();
         let encoded = DynSolValue::Bool(true).abi_encode();
-        let result = handle_assert_true(&mut inspector, &call_data(ASSERT_TRUE_SELECTOR, encoded));
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().result.result,
-            revm::interpreter::InstructionResult::Stop
-        );
+        let args = AssertTrue::decode(&call_data(AssertTrue::SELECTOR, encoded)).unwrap();
+        let effects = AssertTrue::effects(args);
+        assert!(effects.is_empty());
     }
 
     #[test]
     fn assert_true_fails() {
-        let mut inspector = CheatcodeInspector::new();
         let encoded = DynSolValue::Bool(false).abi_encode();
-        let result = handle_assert_true(&mut inspector, &call_data(ASSERT_TRUE_SELECTOR, encoded));
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().result.result,
-            revm::interpreter::InstructionResult::Revert
-        );
+        let args = AssertTrue::decode(&call_data(AssertTrue::SELECTOR, encoded)).unwrap();
+        let effects = AssertTrue::effects(args);
+        assert_eq!(effects, vec![CheatcodeEffect::Panic]);
     }
 
     #[test]
     fn assert_eq_uint_passes() {
-        let mut inspector = CheatcodeInspector::new();
         let encoded = DynSolValue::Tuple(vec![
             DynSolValue::Uint(U256::from(42u64), 256),
             DynSolValue::Uint(U256::from(42u64), 256),
         ])
         .abi_encode();
-        let result =
-            handle_assert_eq_uint(&mut inspector, &call_data(ASSERT_EQ_UINT_SELECTOR, encoded));
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().result.result,
-            revm::interpreter::InstructionResult::Stop
-        );
+        let args = AssertEqUint::decode(&call_data(AssertEqUint::SELECTOR, encoded)).unwrap();
+        let effects = AssertEqUint::effects(args);
+        assert!(effects.is_empty());
     }
 
     #[test]
     fn assert_lt_uint_fails_when_greater() {
-        let mut inspector = CheatcodeInspector::new();
         let encoded = DynSolValue::Tuple(vec![
             DynSolValue::Uint(U256::from(100u64), 256),
             DynSolValue::Uint(U256::from(42u64), 256),
         ])
         .abi_encode();
-        let result =
-            handle_assert_lt_uint(&mut inspector, &call_data(ASSERT_LT_UINT_SELECTOR, encoded));
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().result.result,
-            revm::interpreter::InstructionResult::Revert
-        );
+        let args = AssertLtUint::decode(&call_data(AssertLtUint::SELECTOR, encoded)).unwrap();
+        let effects = AssertLtUint::effects(args);
+        assert_eq!(effects, vec![CheatcodeEffect::Panic]);
     }
 
     #[test]
     fn assert_false_passes() {
-        let mut inspector = CheatcodeInspector::new();
         let encoded = DynSolValue::Bool(false).abi_encode();
-        let result =
-            handle_assert_false(&mut inspector, &call_data(ASSERT_FALSE_SELECTOR, encoded));
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().result.result,
-            revm::interpreter::InstructionResult::Stop
-        );
+        let args = AssertFalse::decode(&call_data(AssertFalse::SELECTOR, encoded)).unwrap();
+        let effects = AssertFalse::effects(args);
+        assert!(effects.is_empty());
     }
 
     #[test]
     fn assert_false_fails() {
-        let mut inspector = CheatcodeInspector::new();
         let encoded = DynSolValue::Bool(true).abi_encode();
-        let result =
-            handle_assert_false(&mut inspector, &call_data(ASSERT_FALSE_SELECTOR, encoded));
-        assert!(result.is_some());
-        assert_eq!(
-            result.unwrap().result.result,
-            revm::interpreter::InstructionResult::Revert
-        );
+        let args = AssertFalse::decode(&call_data(AssertFalse::SELECTOR, encoded)).unwrap();
+        let effects = AssertFalse::effects(args);
+        assert_eq!(effects, vec![CheatcodeEffect::Panic]);
     }
 
     #[test]
     fn assert_panic_encoding_matches_solidity() {
-        let result = panic_outcome();
+        let result = crate::chain::cheatcodes::panic_outcome();
         let out = result.result.output;
         assert_eq!(&out[..4], &[0x4e, 0x48, 0x7b, 0x71]); // Panic(uint256)
         assert_eq!(&out[4..35], &[0u8; 31]); // padded uint256(1)

@@ -1,0 +1,163 @@
+//! Centralized effect system for cheatcodes.
+//!
+//! Every cheatcode produces a list of `CheatcodeEffect` variants.  A single
+//! `apply_effect` function is the only place that mutates `ctx.block`,
+//! `ctx.journal_mut()`, and `inspector.state`.
+
+use revm::{
+    context::{BlockEnv, ContextSetters},
+    context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
+    database::InMemoryDB,
+    primitives::{Address, Bytes, U256},
+};
+
+use crate::chain::cheatcodes::{CheatcodeState, PrankState, StartPrankState};
+
+/// What a cheatcode wants to change in the EVM or inspector state.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CheatcodeEffect {
+    // --- EVM context mutations ---
+    // apply_effect auto-persists these into state.block for cross-call
+    // persistence.
+    SetBlockTimestamp(U256),
+    SetBlockNumber(U256),
+    SetBaseFee(u64),
+    SetBeneficiary(Address),
+    SetPrevrandao([u8; 32]),
+
+    // --- DB mutations ---
+    SetAccountBalance(Address, U256),
+    SetAccountCode(Address, Bytes),
+    SetAccountNonce(Address, u64),
+    SetStorage(Address, U256, U256),
+
+    // --- Inspector state mutations ---
+    // These mutate state without touching ctx (either no ctx accessor
+    // exists, or the mutation must survive across call boundaries).
+    SetChainId(U256),
+    SetPrank(PrankState),
+    SetStartPrank(StartPrankState),
+    ClearPrank,
+    AddLabel(Address, String),
+    SetFfiEnabled(bool),
+
+    // --- Read effects (resolved by build_outcome) ---
+    ReadNonce(Address),
+    ReadBalance(Address),
+    ReadStorage(Address, U256),
+
+    // --- Outcome effects ---
+    Revert(String),
+    Panic,
+    ReturnU256(U256),
+    ReturnBool(bool),
+    ReturnBytes(Vec<u8>),
+
+    // --- Special effects that need inspector state to resolve ---
+    GetCode(String),
+    FfiExec(Vec<String>),
+}
+
+/// Apply a single effect, mutating `ctx` and/or `state`.
+///
+/// Returns `Err(reason)` if the effect cannot be applied (e.g. FFI disabled).
+pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = BlockEnv>>(
+    effect: &CheatcodeEffect,
+    ctx: &mut CTX,
+    state: &mut CheatcodeState,
+) -> Result<(), String> {
+    match effect {
+        // --- EVM context mutations ---
+        CheatcodeEffect::SetBlockTimestamp(v) => {
+            let mut block = ctx.block().clone();
+            block.timestamp = *v;
+            ctx.set_block(block);
+            state.block.timestamp = Some(*v);
+        }
+        CheatcodeEffect::SetBlockNumber(v) => {
+            let mut block = ctx.block().clone();
+            block.number = *v;
+            ctx.set_block(block);
+            state.block.number = Some(*v);
+        }
+        CheatcodeEffect::SetBaseFee(v) => {
+            let mut block = ctx.block().clone();
+            block.basefee = *v;
+            ctx.set_block(block);
+            state.block.basefee = Some(U256::from(*v));
+        }
+        CheatcodeEffect::SetBeneficiary(addr) => {
+            let mut block = ctx.block().clone();
+            block.beneficiary = *addr;
+            ctx.set_block(block);
+            state.block.beneficiary = Some(*addr);
+        }
+        CheatcodeEffect::SetPrevrandao(bytes) => {
+            let mut block = ctx.block().clone();
+            block.prevrandao = Some(revm::primitives::FixedBytes::from(*bytes));
+            ctx.set_block(block);
+            state.block.prevrandao = Some(*bytes);
+        }
+
+        // --- DB mutations ---
+        CheatcodeEffect::SetAccountBalance(addr, v) => {
+            let mut acc = ctx
+                .journal_mut()
+                .load_account_mut(*addr)
+                .map_err(|_| "account load failed")?
+                .data;
+            acc.set_balance(*v);
+        }
+        CheatcodeEffect::SetAccountCode(addr, code) => {
+            let bytecode = revm::bytecode::Bytecode::new_raw(code.clone());
+            let mut acc = ctx
+                .journal_mut()
+                .load_account_mut(*addr)
+                .map_err(|_| "account load failed")?
+                .data;
+            acc.set_code_and_hash_slow(bytecode);
+        }
+        CheatcodeEffect::SetAccountNonce(addr, nonce) => {
+            let mut acc = ctx
+                .journal_mut()
+                .load_account_mut(*addr)
+                .map_err(|_| "account load failed")?
+                .data;
+            acc.set_nonce(*nonce);
+        }
+        CheatcodeEffect::SetStorage(addr, slot, value) => {
+            let mut acc = ctx
+                .journal_mut()
+                .load_account_mut(*addr)
+                .map_err(|_| "account load failed")?
+                .data;
+            let _ = acc.sstore(*slot, *value, false);
+        }
+
+        // --- Inspector state mutations ---
+        CheatcodeEffect::SetChainId(v) => state.block.chain_id = Some(*v),
+        CheatcodeEffect::SetPrank(p) => state.prank.active = Some(p.clone()),
+        CheatcodeEffect::SetStartPrank(p) => state.prank.start = Some(p.clone()),
+        CheatcodeEffect::ClearPrank => {
+            state.prank.active = None;
+            state.prank.start = None;
+        }
+        CheatcodeEffect::AddLabel(addr, name) => {
+            state.labels.insert(*addr, name.clone());
+        }
+        CheatcodeEffect::SetFfiEnabled(v) => state.ffi_enabled = *v,
+
+        // --- Read / outcome / special effects do not mutate state ---
+        CheatcodeEffect::ReadNonce(_)
+        | CheatcodeEffect::ReadBalance(_)
+        | CheatcodeEffect::ReadStorage(_, _)
+        | CheatcodeEffect::Revert(_)
+        | CheatcodeEffect::Panic
+        | CheatcodeEffect::ReturnU256(_)
+        | CheatcodeEffect::ReturnBool(_)
+        | CheatcodeEffect::ReturnBytes(_)
+        | CheatcodeEffect::GetCode(_)
+        | CheatcodeEffect::FfiExec(_) => {}
+    }
+    Ok(())
+}

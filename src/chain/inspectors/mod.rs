@@ -1,132 +1,205 @@
 //! Inspector composition for raptor's chain abstraction.
 
-use std::sync::{Arc, RwLock};
-
 use revm::{
-    context::{BlockEnv, ContextSetters, TxEnv},
-    context_interface::ContextTr,
-    database::InMemoryDB,
     inspector::Inspector,
     interpreter::{
-        CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter,
-        interpreter::EthInterpreter,
+        CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter, InterpreterTypes,
     },
+    primitives::{Address, Log, U256},
 };
 
-use coverage::CoverageInspector;
-use trace::TraceInspector;
-
-use crate::chain::cheatcodes::CheatcodeInspector;
-
+pub mod cheatcode;
 pub mod coverage;
 pub mod trace;
 
-/// Composite inspector that runs coverage, optional trace collection, and cheatcodes.
+/// Local wrapper around an optional [`TraceInspector`] so we can implement
+/// the foreign `Inspector` trait.
 #[derive(Debug)]
-pub struct CompositeInspector {
-    pub coverage: CoverageInspector,
-    pub trace: Option<TraceInspector>,
-    pub cheatcodes: Option<CheatcodeInspector>,
-}
+pub struct MaybeTrace(pub Option<trace::TraceInspector>);
 
-impl CompositeInspector {
-    /// Build a composite inspector with coverage and optional trace.
-    pub fn new(coverage: CoverageInspector, trace: Option<TraceInspector>) -> Self {
-        Self {
-            coverage,
-            trace,
-            cheatcodes: None,
-        }
-    }
-
-    /// Enable cheatcodes, optionally seeding from a persisted `CheatcodeState`,
-    /// and wire shared label storage into the trace inspector.
-    pub fn with_cheatcodes(mut self, state: crate::chain::cheatcodes::CheatcodeState) -> Self {
-        let shared_labels = Arc::new(RwLock::new(state.labels.clone()));
-        if let Some(ref mut t) = self.trace {
-            t.set_shared_labels(Arc::clone(&shared_labels));
-        }
-        self.cheatcodes = Some(
-            crate::chain::cheatcodes::CheatcodeInspector::from_state(state)
-                .with_shared_labels(shared_labels),
-        );
-        self
-    }
-}
-
-impl<CTX: ContextTr<Db = InMemoryDB, Block = BlockEnv, Tx = TxEnv> + ContextSetters>
-    Inspector<CTX, EthInterpreter> for CompositeInspector
+impl<CTX, INTR, FI, FR> Inspector<CTX, INTR, FI, FR> for MaybeTrace
+where
+    INTR: InterpreterTypes,
+    trace::TraceInspector: Inspector<CTX, INTR, FI, FR>,
 {
-    fn initialize_interp(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
-        self.coverage.initialize_interp(interp, context);
-        if let Some(ref mut t) = self.trace {
+    #[inline]
+    fn initialize_interp(&mut self, interp: &mut Interpreter<INTR>, context: &mut CTX) {
+        if let Some(ref mut t) = self.0 {
             t.initialize_interp(interp, context);
         }
-        if let Some(ref mut c) = self.cheatcodes {
-            c.initialize_interp(interp, context);
-        }
     }
 
-    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
-        self.coverage.step(interp, context);
-        if let Some(ref mut t) = self.trace {
+    #[inline]
+    fn step(&mut self, interp: &mut Interpreter<INTR>, context: &mut CTX) {
+        if let Some(ref mut t) = self.0 {
             t.step(interp, context);
         }
-        if let Some(ref mut c) = self.cheatcodes {
-            c.step(interp, context);
-        }
     }
 
-    fn step_end(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
-        self.coverage.step_end(interp, context);
-        if let Some(ref mut t) = self.trace {
+    #[inline]
+    fn step_end(&mut self, interp: &mut Interpreter<INTR>, context: &mut CTX) {
+        if let Some(ref mut t) = self.0 {
             t.step_end(interp, context);
         }
-        if let Some(ref mut c) = self.cheatcodes {
-            c.step_end(interp, context);
+    }
+
+    #[inline]
+    fn log(&mut self, context: &mut CTX, log: Log) {
+        if let Some(ref mut t) = self.0 {
+            t.log(context, log);
         }
     }
 
+    #[inline]
+    fn log_full(&mut self, interp: &mut Interpreter<INTR>, context: &mut CTX, log: Log) {
+        if let Some(ref mut t) = self.0 {
+            t.log_full(interp, context, log);
+        }
+    }
+
+    #[inline]
+    fn frame_start(&mut self, context: &mut CTX, frame_input: &mut FI) -> Option<FR> {
+        self.0
+            .as_mut()
+            .and_then(|t| t.frame_start(context, frame_input))
+    }
+
+    #[inline]
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        // Always call coverage and trace first to maintain their internal
-        // stack state.  Cheatcodes may override the outcome afterwards.
-        let cov = self.coverage.call(context, inputs);
-        let tr = self.trace.as_mut().and_then(|t| t.call(context, inputs));
-
-        if let Some(ref mut c) = self.cheatcodes
-            && let Some(outcome) = c.call(context, inputs)
-        {
-            return Some(outcome);
-        }
-
-        tr.or(cov)
+        self.0.as_mut().and_then(|t| t.call(context, inputs))
     }
 
+    #[inline]
     fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
-        self.coverage.call_end(context, inputs, outcome);
-        if let Some(ref mut t) = self.trace {
+        if let Some(ref mut t) = self.0 {
             t.call_end(context, inputs, outcome);
         }
-        if let Some(ref mut c) = self.cheatcodes {
-            c.call_end(context, inputs, outcome);
-        }
     }
 
+    #[inline]
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
-        let cov = self.coverage.create(context, inputs);
-        let tr = self.trace.as_mut().and_then(|t| t.create(context, inputs));
-        tr.or(cov)
+        self.0.as_mut().and_then(|t| t.create(context, inputs))
     }
 
+    #[inline]
     fn create_end(
         &mut self,
         context: &mut CTX,
         inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
-        self.coverage.create_end(context, inputs, outcome);
-        if let Some(ref mut t) = self.trace {
+        if let Some(ref mut t) = self.0 {
             t.create_end(context, inputs, outcome);
         }
+    }
+
+    #[inline]
+    fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
+        if let Some(ref mut t) = self.0 {
+            t.selfdestruct(contract, target, value);
+        }
+    }
+}
+
+/// Local 3-tuple wrapper so we can implement the foreign `Inspector` trait.
+#[derive(Debug)]
+pub struct InspectorTuple<A, B, C>(pub A, pub B, pub C);
+
+impl<A, B, C> InspectorTuple<A, B, C> {
+    pub fn new(a: A, b: B, c: C) -> Self {
+        Self(a, b, c)
+    }
+}
+
+impl<CTX, INTR, FI, FR, A, B, C> Inspector<CTX, INTR, FI, FR> for InspectorTuple<A, B, C>
+where
+    INTR: InterpreterTypes,
+    A: Inspector<CTX, INTR, FI, FR>,
+    B: Inspector<CTX, INTR, FI, FR>,
+    C: Inspector<CTX, INTR, FI, FR>,
+{
+    #[inline]
+    fn initialize_interp(&mut self, interp: &mut Interpreter<INTR>, context: &mut CTX) {
+        self.0.initialize_interp(interp, context);
+        self.1.initialize_interp(interp, context);
+        self.2.initialize_interp(interp, context);
+    }
+
+    #[inline]
+    fn step(&mut self, interp: &mut Interpreter<INTR>, context: &mut CTX) {
+        self.0.step(interp, context);
+        self.1.step(interp, context);
+        self.2.step(interp, context);
+    }
+
+    #[inline]
+    fn step_end(&mut self, interp: &mut Interpreter<INTR>, context: &mut CTX) {
+        self.0.step_end(interp, context);
+        self.1.step_end(interp, context);
+        self.2.step_end(interp, context);
+    }
+
+    #[inline]
+    fn log(&mut self, context: &mut CTX, log: Log) {
+        self.0.log(context, log.clone());
+        self.1.log(context, log.clone());
+        self.2.log(context, log);
+    }
+
+    #[inline]
+    fn log_full(&mut self, interp: &mut Interpreter<INTR>, context: &mut CTX, log: Log) {
+        self.0.log_full(interp, context, log.clone());
+        self.1.log_full(interp, context, log.clone());
+        self.2.log_full(interp, context, log);
+    }
+
+    #[inline]
+    fn frame_start(&mut self, context: &mut CTX, frame_input: &mut FI) -> Option<FR> {
+        let a = self.0.frame_start(context, frame_input);
+        let b = self.1.frame_start(context, frame_input);
+        let c = self.2.frame_start(context, frame_input);
+        c.or(b).or(a)
+    }
+
+    #[inline]
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        let a = self.0.call(context, inputs);
+        let b = self.1.call(context, inputs);
+        let c = self.2.call(context, inputs);
+        c.or(b).or(a)
+    }
+
+    #[inline]
+    fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
+        self.0.call_end(context, inputs, outcome);
+        self.1.call_end(context, inputs, outcome);
+        self.2.call_end(context, inputs, outcome);
+    }
+
+    #[inline]
+    fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        let a = self.0.create(context, inputs);
+        let b = self.1.create(context, inputs);
+        let c = self.2.create(context, inputs);
+        c.or(b).or(a)
+    }
+
+    #[inline]
+    fn create_end(
+        &mut self,
+        context: &mut CTX,
+        inputs: &CreateInputs,
+        outcome: &mut CreateOutcome,
+    ) {
+        self.0.create_end(context, inputs, outcome);
+        self.1.create_end(context, inputs, outcome);
+        self.2.create_end(context, inputs, outcome);
+    }
+
+    #[inline]
+    fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
+        self.0.selfdestruct(contract, target, value);
+        self.1.selfdestruct(contract, target, value);
+        self.2.selfdestruct(contract, target, value);
     }
 }

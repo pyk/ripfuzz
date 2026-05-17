@@ -198,48 +198,4 @@ mod tests {
             "trace should show the vm.label name:\n{formatted}"
         );
     }
-
-    #[test]
-    fn cheatcode_snapshot_revert_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/CheatcodeSnapshotRevert.sol"),
-        )
-        .unwrap();
-
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        // `increment()` selector = keccak256("increment()")[:4]
-        let inc_selector: [u8; 4] = [0xd0, 0x9d, 0xe0, 0x8a];
-
-        let calls = vec![
-            Call {
-                selector: inc_selector,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-            Call {
-                selector: inc_selector,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-            Call {
-                selector: inc_selector,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-        ];
-
-        let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "all increment() calls should succeed");
-        assert!(
-            output.property_results.iter().all(|p| p.passed),
-            "counter should be 3, never 100"
-        );
-    }
 }

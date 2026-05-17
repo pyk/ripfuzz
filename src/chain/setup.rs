@@ -1,6 +1,7 @@
 //! Chain setup: optional `setUp()` call after deployment.
 
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use anyhow::Context as AnyhowContext;
 use revm::{
@@ -15,7 +16,7 @@ use tracing::{error, info, instrument, trace};
 use crate::chain::error::ChainSetupError;
 use crate::chain::init::{CALLER, GAS_LIMIT};
 use crate::chain::inspectors::{
-    CompositeInspector, coverage::CoverageInspector, trace::TraceInspector,
+    InspectorTuple, MaybeTrace, coverage::CoverageInspector, trace::TraceInspector,
 };
 use crate::chain::state::ChainState;
 
@@ -48,8 +49,18 @@ pub fn setup(
     if let Some((name, contract_abi)) = state.known_contracts.get(&contract_address) {
         trace_inspector.register_contract(contract_address, name, contract_abi.clone());
     }
-    let inspector = CompositeInspector::new(CoverageInspector::new(), Some(trace_inspector))
-        .with_cheatcodes(crate::chain::cheatcodes::CheatcodeState::default());
+
+    let shared_labels = Arc::new(RwLock::new(state.cheatcodes.labels.clone()));
+    trace_inspector.set_shared_labels(Arc::clone(&shared_labels));
+    let cheatcode_inspector =
+        crate::chain::inspectors::cheatcode::CheatcodeInspector::from_state(state.cheatcodes)
+            .with_shared_labels(shared_labels);
+
+    let inspector = InspectorTuple::new(
+        CoverageInspector::new(),
+        MaybeTrace(Some(trace_inspector)),
+        cheatcode_inspector,
+    );
     let ctx = Context::mainnet().with_db(db);
     let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
@@ -68,7 +79,8 @@ pub fn setup(
         let reason = crate::chain::init::extract_deployment_error(&setup_result);
         let trace = evm
             .inspector
-            .trace
+            .1
+            .0
             .context("trace inspector missing")?
             .into_trace_tree()
             .format();
@@ -85,18 +97,17 @@ pub fn setup(
         .unwrap_or_default()
         .nonce;
     // Persist cheatcode state from setUp so it carries into each sequence.
-    let cheat_inspector = evm
-        .inspector
-        .cheatcodes
-        .context("cheatcode inspector missing")?;
+    let cheat_inspector = evm.inspector.2;
     new_state.cheatcodes = cheat_inspector.state;
     // Restore compiled-contract map so vm.getCode keeps working.
     new_state.cheatcodes.compiled_contracts = compiled_contracts;
-    if let Some(ts) = new_state.cheatcodes.warp_timestamp {
-        new_state.block_timestamp = ts.as_limbs()[0];
+    // Persist block context set during setUp so sequences start at the
+    // warped / rolled values.
+    if let Some(ts) = new_state.cheatcodes.block.timestamp {
+        new_state.block_timestamp = u64::try_from(ts).unwrap_or(u64::MAX);
     }
-    if let Some(num) = new_state.cheatcodes.roll_number {
-        new_state.block_number = num.as_limbs()[0];
+    if let Some(num) = new_state.cheatcodes.block.number {
+        new_state.block_number = u64::try_from(num).unwrap_or(u64::MAX);
     }
     Ok(new_state)
 }
