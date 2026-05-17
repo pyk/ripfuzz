@@ -25,6 +25,7 @@ pub mod coinbase;
 pub mod deal;
 pub mod difficulty;
 pub mod effect;
+pub mod etch;
 pub mod fee;
 pub mod ffi;
 pub mod label;
@@ -71,7 +72,7 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
 
         // Account manipulation
         deal::Deal::SELECTOR => dispatch::<deal::Deal>(input),
-        account::Etch::SELECTOR => dispatch::<account::Etch>(input),
+        etch::Etch::SELECTOR => dispatch::<etch::Etch>(input),
         account::SetNonce::SELECTOR => dispatch::<account::SetNonce>(input),
         account::GetNonce::SELECTOR => dispatch::<account::GetNonce>(input),
         account::Load::SELECTOR => dispatch::<account::Load>(input),

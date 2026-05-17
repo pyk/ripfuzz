@@ -140,13 +140,15 @@ pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = Blo
             });
         }
         CheatcodeEffect::SetAccountCode(addr, code) => {
-            let bytecode = revm::bytecode::Bytecode::new_raw(code.clone());
-            let mut acc = ctx
-                .journal_mut()
-                .load_account_mut(*addr)
-                .map_err(|_| "account load failed")?
-                .data;
-            acc.set_code_and_hash_slow(bytecode);
+            if ctx.journal().precompile_addresses().contains(addr) {
+                return Err("cannot etch precompile address".into());
+            }
+            ctx.journal_mut()
+                .load_account(*addr)
+                .map_err(|_| "account load failed")?;
+            let bytecode = revm::bytecode::Bytecode::new_raw_checked(code.clone())
+                .map_err(|e| format!("failed to create bytecode: {e}"))?;
+            ctx.journal_mut().set_code(*addr, bytecode);
         }
         CheatcodeEffect::SetAccountNonce(addr, nonce) => {
             let mut acc = ctx
