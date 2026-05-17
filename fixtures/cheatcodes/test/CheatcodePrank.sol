@@ -87,13 +87,36 @@ contract CheatcodePrank {
         require(victim.lastSender() == address(this), "stopPrank failed");
     }
 
-    // 6. setUp + startPrank persistence into sequence
-    function call_setup_start_prank() external {
-        // This function expects setUp to have called vm.startPrank(address(0x888))
+    // 6. Overwrite validation: startPrank can overwrite a used startPrank
+    function call_start_overwrite_used() external {
+        vm.startPrank(address(0x111));
+        victim.record();
+        vm.startPrank(address(0x222));
         victim.record();
     }
 
-    // 7. Nested calls: only the immediate next call is pranked, not deeper calls from the victim
+    // 7. Overwrite validation: unused startPrank cannot be overwritten
+    function call_start_overwrite_unused_reverts() external {
+        vm.startPrank(address(0x111));
+        vm.startPrank(address(0x222));
+        victim.record();
+    }
+
+    // 8. Overwrite validation: prank cannot overwrite startPrank
+    function call_prank_over_start_reverts() external {
+        vm.startPrank(address(0x111));
+        vm.prank(address(0x222));
+        victim.record();
+    }
+
+    // 9. Overwrite validation: double prank reverts
+    function call_double_prank_reverts() external {
+        vm.prank(address(0x111));
+        vm.prank(address(0x222));
+        victim.record();
+    }
+
+    // 10. Nested calls: only the immediate next call is pranked, not deeper calls from the victim
     function call_prank_nested() external {
         address oldOrigin = tx.origin;
         vm.prank(address(0x999));
@@ -152,8 +175,8 @@ contract CheatcodePrank {
         return victim.lastSender() == address(0x777);
     }
 
-    function property_setup_start_persisted() external view returns (bool) {
-        return victim.lastSender() == address(0x888);
+    function property_start_overwrite_ok() external view returns (bool) {
+        return victim.lastSender() == address(0x222);
     }
 
     function property_nested_ok() external view returns (bool) {

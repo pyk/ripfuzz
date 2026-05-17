@@ -618,4 +618,144 @@ mod tests {
             .unwrap();
         assert!(output.all_ok);
     }
+
+    #[test]
+    #[serial]
+    fn revert_discards_start_prank() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodePrankSetup.sol"),
+        )
+        .unwrap();
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let call_revert: [u8; 4] = [0x90, 0x37, 0x8f, 0xba]; // call_override_and_revert()
+        let output = chain
+            .execute(&[Call {
+                selector: call_revert,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            }])
+            .unwrap();
+        assert!(!output.all_ok);
+
+        // A fresh sequence must still see the setUp startPrank (0x888), not
+        // the discarded 0x999.
+        let call_expect: [u8; 4] = [0x3e, 0xa0, 0x27, 0xaf]; // call_expect_persisted()
+        let output2 = chain
+            .execute(&[Call {
+                selector: call_expect,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            }])
+            .unwrap();
+        assert!(output2.all_ok);
+        assert!(
+            output2
+                .property_results
+                .iter()
+                .find(|p| p.name == "property_setup_start_persisted")
+                .expect("property exists")
+                .passed
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn start_prank_overwrite_used() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodePrank.sol"),
+        )
+        .unwrap();
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let call: [u8; 4] = [0xe7, 0xb4, 0x28, 0x84]; // call_start_overwrite_used()
+        let output = chain
+            .execute(&[Call {
+                selector: call,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            }])
+            .unwrap();
+        assert!(output.all_ok);
+        assert!(
+            output
+                .property_results
+                .iter()
+                .find(|p| p.name == "property_start_overwrite_ok")
+                .expect("property exists")
+                .passed
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn start_prank_overwrite_unused_reverts() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodePrank.sol"),
+        )
+        .unwrap();
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let call: [u8; 4] = [0x6a, 0x0f, 0xa3, 0x90]; // call_start_overwrite_unused_reverts()
+        let output = chain
+            .execute(&[Call {
+                selector: call,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            }])
+            .unwrap();
+        assert!(!output.all_ok);
+    }
+
+    #[test]
+    #[serial]
+    fn prank_over_start_reverts() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodePrank.sol"),
+        )
+        .unwrap();
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let call: [u8; 4] = [0x6e, 0x68, 0xaf, 0x8e]; // call_prank_over_start_reverts()
+        let output = chain
+            .execute(&[Call {
+                selector: call,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            }])
+            .unwrap();
+        assert!(!output.all_ok);
+    }
+
+    #[test]
+    #[serial]
+    fn double_prank_reverts() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodePrank.sol"),
+        )
+        .unwrap();
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let call: [u8; 4] = [0x4c, 0x7b, 0x41, 0x90]; // call_double_prank_reverts()
+        let output = chain
+            .execute(&[Call {
+                selector: call,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            }])
+            .unwrap();
+        assert!(!output.all_ok);
+    }
 }

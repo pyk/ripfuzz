@@ -13,6 +13,12 @@ contract CheatcodePrankSetup {
         vm.startPrank(address(0x888));
     }
 
+    function call_override_and_revert() external {
+        vm.startPrank(address(0x999));
+        victim.record();
+        revert("intentional");
+    }
+
     function call_expect_persisted() external {
         victim.record();
     }

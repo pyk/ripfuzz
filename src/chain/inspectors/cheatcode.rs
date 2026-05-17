@@ -17,7 +17,8 @@ use revm::{
 };
 
 use crate::chain::cheatcodes::{
-    CheatcodeState, VM_ADDRESS, build_outcome, dispatch_effects, effect::apply_effect,
+    CheatcodeState, VM_ADDRESS, build_outcome, dispatch_effects,
+    effect::{CheatcodeEffect, apply_effect},
     revert_outcome,
 };
 
@@ -87,8 +88,8 @@ impl CheatcodeInspector {
             .prank
             .start
             .as_ref()
-            .filter(|s| curr_depth > s.set_depth)
-            .map(|s| (s.caller, s.origin, !s.used));
+            .filter(|s| curr_depth > s.set_depth && inputs.target_address != VM_ADDRESS)
+            .map(|s| (s.caller, s.origin));
 
         let prank_info = self
             .state
@@ -99,35 +100,35 @@ impl CheatcodeInspector {
                 original_caller == p.prank_caller
                     && curr_depth > p.set_depth
                     && inputs.target_address != VM_ADDRESS
+                    && !p.used
             })
-            .map(|p| (p.caller, p.origin, p.single_call, !p.used));
+            .map(|p| (p.caller, p.origin));
 
         // Apply startPrank.
-        if let Some((caller, _, _)) = start_info {
+        if let Some((caller, _)) = start_info {
             inputs.caller = caller;
         }
-        if let Some((_, Some(o), _)) = start_info {
+        if let Some((_, Some(o))) = start_info {
             self.patch_origin(ctx, o);
         }
 
         // Apply single-call prank.
-        if let Some((caller, _, _, _)) = prank_info {
+        if let Some((caller, _)) = prank_info {
             inputs.caller = caller;
         }
-        if let Some((_, Some(o), _, _)) = prank_info {
+        if let Some((_, Some(o))) = prank_info {
             self.patch_origin(ctx, o);
-        }
-        if let Some((_, _, true, _)) = prank_info {
-            self.state.prank.active = None;
         }
 
         // Mark used after all borrows are dropped.
-        if start_info.map(|(_, _, needs)| needs).unwrap_or(false)
+        // The prank is *not* cleared here; it stays in `active` so we know
+        // when to restore tx.origin (when the initiator frame exits).
+        if start_info.is_some()
             && let Some(ref mut start) = self.state.prank.start
         {
             start.used = true;
         }
-        if prank_info.map(|(_, _, _, needs)| needs).unwrap_or(false)
+        if prank_info.is_some()
             && let Some(ref mut prank) = self.state.prank.active
         {
             prank.used = true;
@@ -135,43 +136,54 @@ impl CheatcodeInspector {
     }
 
     /// Apply an active prank to a contract deployment (CREATE) frame.
-    fn apply_create_prank(&mut self, inputs: &mut CreateInputs) {
+    fn apply_create_prank(
+        &mut self,
+        ctx: &mut impl ContextSetters<Tx = TxEnv>,
+        inputs: &mut CreateInputs,
+    ) {
         let curr_depth = self.depth;
         let original_caller = inputs.caller();
 
+        // Collect all info first to avoid borrow issues.
         let start_info = self
             .state
             .prank
             .start
             .as_ref()
             .filter(|s| curr_depth > s.set_depth)
-            .map(|s| (s.caller, !s.used));
+            .map(|s| (s.caller, s.origin));
 
         let prank_info = self
             .state
             .prank
             .active
             .as_ref()
-            .filter(|p| original_caller == p.prank_caller && curr_depth > p.set_depth)
-            .map(|p| (p.caller, p.single_call, !p.used));
+            .filter(|p| original_caller == p.prank_caller && curr_depth > p.set_depth && !p.used)
+            .map(|p| (p.caller, p.origin));
 
+        // Apply startPrank.
         if let Some((caller, _)) = start_info {
             inputs.set_call(caller);
         }
+        if let Some((_, Some(o))) = start_info {
+            self.patch_origin(ctx, o);
+        }
 
-        if let Some((caller, _, _)) = prank_info {
+        // Apply single-call prank.
+        if let Some((caller, _)) = prank_info {
             inputs.set_call(caller);
         }
-        if let Some((_, true, _)) = prank_info {
-            self.state.prank.active = None;
+        if let Some((_, Some(o))) = prank_info {
+            self.patch_origin(ctx, o);
         }
 
-        if start_info.map(|(_, needs)| needs).unwrap_or(false)
+        // Mark used after all borrows are dropped.
+        if start_info.is_some()
             && let Some(ref mut start) = self.state.prank.start
         {
             start.used = true;
         }
-        if prank_info.map(|(_, _, needs)| needs).unwrap_or(false)
+        if prank_info.is_some()
             && let Some(ref mut prank) = self.state.prank.active
         {
             prank.used = true;
@@ -202,7 +214,7 @@ impl<
         self.depth += 1;
         match frame_input {
             FrameInput::Call(inputs) => self.apply_prank(ctx, inputs),
-            FrameInput::Create(inputs) => self.apply_create_prank(inputs),
+            FrameInput::Create(inputs) => self.apply_create_prank(ctx, inputs),
             FrameInput::Empty => {}
         }
         None
@@ -256,6 +268,14 @@ impl<
             _ => {}
         }
 
+        // If stopPrank was called, restore tx.origin immediately.
+        if effects
+            .iter()
+            .any(|e| matches!(e, CheatcodeEffect::ClearPrank))
+        {
+            self.maybe_restore_origin(ctx);
+        }
+
         // Sync any newly added labels to the shared map used by the trace
         // inspector.
         if let Some(ref shared) = self.shared_labels
@@ -270,17 +290,20 @@ impl<
     }
 
     fn call_end(&mut self, ctx: &mut CTX, _inputs: &CallInputs, _outcome: &mut CallOutcome) {
-        // Discard an unused single-call prank when the frame that created it ends.
-        if let Some(ref p) = self.state.prank.active
-            && p.single_call
-            && self.depth == p.set_depth
-        {
+        // When the frame that initiated a single-call prank exits, clear the
+        // prank and restore origin if no other prank is active.
+        let initiator_exited = self
+            .state
+            .prank
+            .active
+            .as_ref()
+            .map(|p| p.single_call && self.depth == p.set_depth)
+            .unwrap_or(false);
+        if initiator_exited {
             self.state.prank.active = None;
         }
         self.depth = self.depth.saturating_sub(1);
-        // Restore tx.origin only when the prank initiator frame exits and no
-        // other prank is active.
-        if self.depth == 0 || self.state.prank.active.is_none() {
+        if initiator_exited {
             self.maybe_restore_origin(ctx);
         }
     }
@@ -290,7 +313,19 @@ impl<
     }
 
     fn create_end(&mut self, ctx: &mut CTX, _inputs: &CreateInputs, _outcome: &mut CreateOutcome) {
+        let initiator_exited = self
+            .state
+            .prank
+            .active
+            .as_ref()
+            .map(|p| p.single_call && self.depth == p.set_depth)
+            .unwrap_or(false);
+        if initiator_exited {
+            self.state.prank.active = None;
+        }
         self.depth = self.depth.saturating_sub(1);
-        self.maybe_restore_origin(ctx);
+        if initiator_exited {
+            self.maybe_restore_origin(ctx);
+        }
     }
 }
