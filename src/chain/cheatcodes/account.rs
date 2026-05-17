@@ -2,22 +2,7 @@
 
 use revm::primitives::{Address, Bytes, U256};
 
-use crate::chain::cheatcodes::{
-    Cheatcode, CheatcodeEffect, decode_address_bytes32_args, decode_address_bytes32_bytes32_args,
-};
-
-pub struct Load;
-impl Cheatcode for Load {
-    type Args = (Address, [u8; 32]);
-    const SELECTOR: [u8; 4] = [0x66, 0x7f, 0x9d, 0x70];
-    fn decode(input: &Bytes) -> Option<Self::Args> {
-        decode_address_bytes32_args(input)
-    }
-    fn effects((addr, slot): Self::Args) -> Vec<CheatcodeEffect> {
-        let slot_u256 = U256::from_be_bytes(slot);
-        vec![CheatcodeEffect::ReadStorage(addr, slot_u256)]
-    }
-}
+use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_address_bytes32_bytes32_args};
 
 pub struct Store;
 impl Cheatcode for Store {
@@ -40,6 +25,7 @@ mod tests {
     use revm::{
         MainContext,
         context::Context,
+        context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
         database::InMemoryDB,
         primitives::{Address, U256},
     };
@@ -53,7 +39,7 @@ mod tests {
     use crate::corpus::Call;
 
     #[test]
-    fn store_and_load_roundtrip() {
+    fn store_effect_applies() {
         let mut inspector = CheatcodeInspector::new();
         let mut ctx = Context::mainnet().with_db(InMemoryDB::default());
         let addr = Address::new([0x11; 20]);
@@ -63,15 +49,9 @@ mod tests {
         for e in &store_effects {
             apply_effect(e, &mut ctx, &mut inspector.state).unwrap();
         }
-
-        let load_effects = Load::effects((addr, slot));
-        assert_eq!(
-            load_effects,
-            vec![CheatcodeEffect::ReadStorage(
-                addr,
-                U256::from_be_bytes(slot)
-            )]
-        );
+        let mut acc = ctx.journal_mut().load_account_mut(addr).unwrap();
+        let loaded = acc.data.sload(U256::from_be_bytes(slot), false).unwrap();
+        assert_eq!(loaded.data.present_value, U256::from_be_bytes(value));
     }
 
     #[test]

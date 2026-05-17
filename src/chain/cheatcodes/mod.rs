@@ -30,6 +30,7 @@ pub mod etch;
 pub mod fee;
 pub mod ffi;
 pub mod label;
+pub mod load;
 pub mod nonce;
 pub mod prank;
 pub mod prevrandao;
@@ -77,7 +78,7 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         etch::Etch::SELECTOR => dispatch::<etch::Etch>(input),
         nonce::SetNonce::SELECTOR => dispatch::<nonce::SetNonce>(input),
         nonce::GetNonce::SELECTOR => dispatch::<nonce::GetNonce>(input),
-        account::Load::SELECTOR => dispatch::<account::Load>(input),
+        load::Load::SELECTOR => dispatch::<load::Load>(input),
         account::Store::SELECTOR => dispatch::<account::Store>(input),
 
         // Prank
@@ -279,6 +280,13 @@ pub(crate) fn build_outcome<CTX: ContextTr<Db = InMemoryDB>>(
             Some(success_u256_outcome(balance, gas_limit))
         }
         CheatcodeEffect::ReadStorage(addr, slot) => {
+            // Reject precompiles (Foundry-compatible).
+            if ctx.journal().precompile_addresses().contains(addr) {
+                return Some(revert_outcome("load: cannot read from precompile"));
+            }
+            // Intent is read-only, but revm's `sload` lives on `JournaledAccountTr`
+            // which requires `&mut self` to update cold/warm tracking.  We keep
+            // `load_account_mut` for API compatibility but do not mutate storage.
             let value = match ctx.journal_mut().load_account_mut(*addr) {
                 Ok(mut s) => s
                     .data
