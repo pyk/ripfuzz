@@ -31,7 +31,7 @@ toml = "1.1.2"
 fastrand = "2"
 
 # EVM
-revm = "38.0.0"
+revm = { version = "38.0.0", features = ["optional_balance_check"] }
 
 # Hex decoding for foundry artifacts
 hex = "0.4.3"

@@ -90,6 +90,7 @@ pub fn execute(
 
         let nonce = local_state.next_nonce();
         let mut ctx = Context::mainnet().with_db(local_state.db);
+        ctx.cfg.disable_balance_check = true;
         ctx.block.number = U256::from(local_state.block_number);
         ctx.block.timestamp = U256::from(local_state.block_timestamp);
 
@@ -153,6 +154,9 @@ pub fn execute(
             {
                 local_state.block_number = u64::try_from(num).unwrap_or(u64::MAX);
             }
+            // Sync remaining block overrides back to ChainState so that
+            // property checks see fee, coinbase, prevrandao, and chain_id mutations.
+            local_state.cheatcodes.block = inspector.2.state.block;
             trace!(idx, "call succeeded");
         } else {
             // Undo the block context so it does not leak into properties or
@@ -198,6 +202,7 @@ fn check_properties(
     for (selector, name) in properties {
         let db = std::mem::take(&mut state.db);
         let mut ctx = Context::mainnet().with_db(db);
+        ctx.cfg.disable_balance_check = true;
         ctx.block.number = U256::from(state.block_number);
         ctx.block.timestamp = U256::from(state.block_timestamp);
 

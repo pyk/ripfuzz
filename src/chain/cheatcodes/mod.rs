@@ -19,6 +19,7 @@ use crate::chain::cheatcodes::effect::CheatcodeEffect;
 pub mod account;
 pub mod assert;
 pub mod effect;
+pub mod fee;
 pub mod ffi;
 pub mod label;
 pub mod prank;
@@ -56,7 +57,7 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         // Block / state manipulation
         warp::Warp::SELECTOR => dispatch::<warp::Warp>(input),
         roll::Roll::SELECTOR => dispatch::<roll::Roll>(input),
-        state::Fee::SELECTOR => dispatch::<state::Fee>(input),
+        fee::Fee::SELECTOR => dispatch::<fee::Fee>(input),
         state::Coinbase::SELECTOR => dispatch::<state::Coinbase>(input),
         state::Prevrandao::SELECTOR => dispatch::<state::Prevrandao>(input),
         state::ChainId::SELECTOR => dispatch::<state::ChainId>(input),

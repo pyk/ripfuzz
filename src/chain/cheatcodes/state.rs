@@ -6,20 +6,6 @@ use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_address_arg, d
 
 pub const DIFFICULTY_SELECTOR: [u8; 4] = [0x46, 0xcc, 0x92, 0xd9];
 
-pub struct Fee;
-impl Cheatcode for Fee {
-    type Args = U256;
-    const SELECTOR: [u8; 4] = [0x39, 0xb3, 0x7a, 0xb0];
-    fn decode(input: &Bytes) -> Option<Self::Args> {
-        decode_u256_arg(input)
-    }
-    fn effects(value: Self::Args) -> Vec<CheatcodeEffect> {
-        vec![CheatcodeEffect::SetBaseFee(
-            u64::try_from(value).unwrap_or(0),
-        )]
-    }
-}
-
 pub struct Coinbase;
 impl Cheatcode for Coinbase {
     type Args = Address;
@@ -71,14 +57,6 @@ mod tests {
     use crate::chain::Chain;
     use crate::contract;
     use crate::corpus::Call;
-
-    #[test]
-    fn fee_decode_and_effects() {
-        let mut data = Fee::SELECTOR.to_vec();
-        data.extend_from_slice(&U256::from(10u64).to_be_bytes_vec());
-        let args = Fee::decode(&Bytes::from(data)).unwrap();
-        assert_eq!(Fee::effects(args), vec![CheatcodeEffect::SetBaseFee(10)]);
-    }
 
     #[test]
     fn coinbase_decode_and_effects() {
