@@ -19,7 +19,6 @@ pub use nonce::NonceRecord;
 
 use crate::chain::cheatcodes::effect::CheatcodeEffect;
 
-pub mod account;
 pub mod assert;
 pub mod chain_id;
 pub mod coinbase;
@@ -30,11 +29,11 @@ pub mod etch;
 pub mod fee;
 pub mod ffi;
 pub mod label;
-pub mod load;
 pub mod nonce;
 pub mod prank;
 pub mod prevrandao;
 pub mod roll;
+pub mod storage;
 pub mod string;
 pub mod wallet;
 pub mod warp;
@@ -78,8 +77,8 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         etch::Etch::SELECTOR => dispatch::<etch::Etch>(input),
         nonce::SetNonce::SELECTOR => dispatch::<nonce::SetNonce>(input),
         nonce::GetNonce::SELECTOR => dispatch::<nonce::GetNonce>(input),
-        load::Load::SELECTOR => dispatch::<load::Load>(input),
-        account::Store::SELECTOR => dispatch::<account::Store>(input),
+        storage::Load::SELECTOR => dispatch::<storage::Load>(input),
+        storage::Store::SELECTOR => dispatch::<storage::Store>(input),
 
         // Prank
         prank::Prank::SELECTOR => dispatch::<prank::Prank>(input),

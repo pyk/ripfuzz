@@ -178,12 +178,16 @@ pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = Blo
                 });
         }
         CheatcodeEffect::SetStorage(addr, slot, value) => {
-            let mut acc = ctx
-                .journal_mut()
-                .load_account_mut(*addr)
-                .map_err(|_| "account load failed")?
-                .data;
-            let _ = acc.sstore(*slot, *value, false);
+            if ctx.journal().precompile_addresses().contains(addr) {
+                return Err("store: cannot write to precompile".into());
+            }
+            // Ensure account is loaded into the journal before sstore.
+            ctx.journal_mut()
+                .load_account(*addr)
+                .map_err(|_| "account load failed")?;
+            ctx.journal_mut()
+                .sstore(*addr, *slot, *value)
+                .map_err(|e| format!("failed to store storage slot: {e:?}"))?;
         }
 
         // --- Inspector state mutations ---

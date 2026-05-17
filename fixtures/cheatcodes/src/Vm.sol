@@ -28,10 +28,6 @@ interface Vm {
     function startPrank(address) external;
     function stopPrank() external;
 
-    // Snapshot
-    function snapshot() external returns (uint256);
-    function revertTo(uint256) external returns (bool);
-
     // Assertions
     function assertTrue(bool) external;
     function assertFalse(bool) external;
