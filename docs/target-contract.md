@@ -9,7 +9,7 @@ A raptor target contract is a normal Solidity contract with **three kinds of
 functions**:
 
 1. **Setup Functions**: initialize state before fuzzing begins
-2. **Fuzzed Functions**: actions the fuzzer can call to mutate state
+2. **Fuzzed Functions**: function calls the fuzzer can make to mutate state
 3. **Property Functions**: invariants the fuzzer checks after every call
    sequence
 
@@ -34,10 +34,10 @@ contract CounterTarget {
     }
 
     // -------------------------------------------------
-    // 2. FUZZED FUNCTIONS (actions)
+    // 2. FUZZED FUNCTIONS (FUNCTION CALLS)
     // -------------------------------------------------
     // Any external/public function that does NOT match
-    // a property prefix is an action. Raptor will call
+    // a property prefix is a function call. Raptor will call
     // these with type-appropriate random inputs.
 
     function increment() external {
@@ -58,7 +58,7 @@ contract CounterTarget {
     // -------------------------------------------------
     // Functions with the `property_` prefix, no arguments,
     // and a `bool` return value. Raptor calls these
-    // after every action sequence. If any returns `false`,
+    // after every function call sequence. If any returns `false`,
     // raptor reports a bug.
 
     function property_count_never_overflows() external view returns (bool) {
@@ -85,7 +85,7 @@ Setup establishes the **base state** that every fuzz input starts from.
 
 - Setup runs **exactly once** per fuzz campaign
 - The resulting state is **cloned** for every fuzz input
-- Setup functions should not be called by the fuzzer as regular actions
+- Setup functions should not be called by the fuzzer as regular function calls
 
 ### Example with setUp()
 
@@ -102,14 +102,13 @@ contract LendingTarget {
 }
 ```
 
-## 2. Fuzzed Functions (Actions)
+## 2. Fuzzed Functions (Function Calls)
 
-Actions are the functions raptor calls with random inputs to explore state
-space.
+These are the functions raptor calls with random inputs to explore state space.
 
 ### Discovery rules
 
-A function is treated as an action if **all** of these are true:
+A function is treated as a function call if **all** of these are true:
 
 - It is `external` or `public`
 - It is **not** a setup function (`setUp`)
@@ -117,7 +116,7 @@ A function is treated as an action if **all** of these are true:
 
 ### Input generation
 
-Raptor generates ABI-encoded calldata for each action:
+Raptor generates ABI-encoded calldata for each function call:
 
 - The 4-byte selector is fixed (from the ABI)
 - Arguments are generated according to their Solidity type:
@@ -127,10 +126,10 @@ Raptor generates ABI-encoded calldata for each action:
     - `bytes` → random length-prefixed blob
     - Structs/tuples → recursively generated
 
-### Multiple actions per input
+### Multiple function calls per input
 
-A single fuzz input is a **sequence of actions** (default: up to 32 calls). This
-lets raptor explore stateful interactions.
+A single fuzz input is a **sequence of function calls** (default: up to 32
+calls). This lets raptor explore stateful interactions.
 
 ```solidity
 // A single fuzz input might do:
@@ -171,11 +170,11 @@ Requirements:
 
 ### Semantics
 
-- Raptor calls **all** property functions after every action sequence
+- Raptor calls **all** property functions after every function call sequence
 - If **any** property returns `false`, the fuzzer records a **crash**
   (objective)
 - If a property itself reverts, that is also treated as a failure
-- Properties are **not** called as actions (they are checked, not fuzzed)
+- Properties are **not** called as function calls (they are checked, not fuzzed)
 
 ### Example properties
 
@@ -195,12 +194,12 @@ For each fuzz input, raptor performs this exact sequence:
 
 ```
 1. CLONE the post-setup state
-2. EXECUTE the action sequence (e.g. 1-32 calls)
+2. EXECUTE the function call sequence (e.g. 1-32 calls)
 3. CHECK all property functions
 4. RECORD result:
    - New coverage → add to corpus
    - Property returned false → add to objectives (BUG!)
-   - Revert during action → normal execution (not a bug)
+   - Revert during function call → normal execution (not a bug)
 5. RESET state (discard clone, go back to base)
 ```
 
@@ -209,7 +208,7 @@ For each fuzz input, raptor performs this exact sequence:
 | Feature          | Raptor                  | Foundry (invariant) | Medusa                 | Echidna                 |
 | ---------------- | ----------------------- | ------------------- | ---------------------- | ----------------------- |
 | Setup            | `constructor`/`setUp()` | `setUp()`           | Deployment + `setUp()` | `constructor`/`setUp()` |
-| Actions          | All external/public     | Handlers            | All external/public    | All external/public     |
+| Function Calls   | All external/public     | Handlers            | All external/public    | All external/public     |
 | Property prefix  | `property_`             | `invariant_`        | `property_`            | `echidna_`              |
 | Property args    | None                    | None                | None                   | None                    |
 | Property returns | `bool`                  | `bool`              | `bool`                 | `bool`                  |

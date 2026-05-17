@@ -8,9 +8,9 @@ Consistent vocabulary for raptor users and contributors.
 
 A single invocation of `raptor fuzz`. A campaign initializes the **target
 contract**, builds seed inputs, and orchestrates one or more **workers** that
-generate sequences of **actions**, execute them against a cloned contract
-state, and check that all **properties** still hold. Also called a "fuzz run"
-or "test run".
+generate sequences of **function calls**, execute them against a cloned contract
+state, and check that all **properties** still hold. Also called a "fuzz run" or
+"test run".
 
 ### Target Contract
 
@@ -26,14 +26,14 @@ A Solidity function that encodes an invariant. By default it must:
 - take no arguments
 - return `bool`
 
-Raptor calls every property after each action sequence. If any returns `false`,
-the fuzzer records a bug. Synonyms: **invariant**, **property test**.
+Raptor calls every property after each function call sequence. If any returns
+`false`, the fuzzer records a bug. Synonyms: **invariant**, **property test**.
 
-### Action (Fuzzed Function)
+### Function Call (Fuzzed Function)
 
 Any external or public function in the target contract that is _not_ a setup or
 property function. Raptor calls these with randomly-generated arguments to
-mutate contract state. A single fuzz input is a **sequence of actions**.
+mutate contract state. A single fuzz input is a **sequence of function calls**.
 
 ### Setup Function
 
@@ -43,8 +43,8 @@ contract **constructor** always runs once at deployment. If a function named
 
 ### Worker
 
-A single parallel fuzzing process that executes action sequences against a
-cloned contract state and reports new coverage or crashes to the campaign
+A single parallel fuzzing process that executes function call sequences against
+a cloned contract state and reports new coverage or crashes to the campaign
 manager. By default raptor spawns one worker per available CPU core.
 
 ### Campaign Result
@@ -61,9 +61,9 @@ objectives. Synonyms: **objective**, **bug**.
 
 ## Correspondence with Other Fuzzers
 
-| Raptor      | Foundry (invariant) | Medusa        | Echidna       |
-| ----------- | ------------------- | ------------- | ------------- |
-| Target      | Handler             | Target        | Target        |
-| `property_` | `invariant_`        | `property_`   | `echidna_`    |
-| Action      | Handler function    | Function call | Function call |
-| Campaign    | Test run            | Fuzzing run   | Test run      |
+| Raptor        | Foundry (invariant) | Medusa        | Echidna       |
+| ------------- | ------------------- | ------------- | ------------- |
+| Target        | Handler             | Target        | Target        |
+| `property_`   | `invariant_`        | `property_`   | `echidna_`    |
+| Function Call | Handler function    | Function call | Function call |
+| Campaign      | Test run            | Fuzzing run   | Test run      |
