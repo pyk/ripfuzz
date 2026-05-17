@@ -105,6 +105,7 @@ mod tests {
     use std::path::Path;
 
     use revm::primitives::Address;
+    use serial_test::serial;
 
     use super::*;
     use crate::chain::Chain;
@@ -159,6 +160,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_prank_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),

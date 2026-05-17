@@ -1,27 +1,21 @@
-//! `fee` cheatcode — set and persist `block.basefee`.
+//! `coinbase` cheatcode — set and persist `block.coinbase`.
 
-use revm::primitives::{Bytes, U256};
+use revm::primitives::{Address, Bytes};
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_u256_arg};
+use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_address_arg};
 
-pub struct Fee;
+pub struct Coinbase;
 
-impl Cheatcode for Fee {
-    type Args = U256;
-    const SELECTOR: [u8; 4] = [0x39, 0xb3, 0x7a, 0xb0];
+impl Cheatcode for Coinbase {
+    type Args = Address;
+    const SELECTOR: [u8; 4] = [0xff, 0x48, 0x3c, 0x54];
 
     fn decode(input: &Bytes) -> Option<Self::Args> {
-        decode_u256_arg(input)
+        decode_address_arg(input)
     }
 
     fn effects(value: Self::Args) -> Vec<CheatcodeEffect> {
-        // Match Foundry: reject values that do not fit in u64.
-        match u64::try_from(value) {
-            Ok(basefee) => vec![CheatcodeEffect::SetBaseFee(basefee)],
-            Err(_) => vec![CheatcodeEffect::Revert(
-                "fee: base fee exceeds u64::MAX".into(),
-            )],
-        }
+        vec![CheatcodeEffect::SetBeneficiary(value)]
     }
 }
 
@@ -29,7 +23,7 @@ impl Cheatcode for Fee {
 mod tests {
     use std::path::Path;
 
-    use revm::primitives::U256;
+    use revm::primitives::{Address, Bytes};
     use serial_test::serial;
 
     use super::*;
@@ -38,57 +32,44 @@ mod tests {
     use crate::corpus::Call;
 
     #[test]
-    fn fee_decode_and_effects() {
-        let mut data = Fee::SELECTOR.to_vec();
-        data.extend_from_slice(&U256::from(42u64).to_be_bytes_vec());
-        let args = Fee::decode(&Bytes::from(data)).unwrap();
-        let effects = Fee::effects(args);
-        assert_eq!(effects, vec![CheatcodeEffect::SetBaseFee(42)]);
-    }
-
-    #[test]
-    fn fee_decode_zero() {
-        let mut data = Fee::SELECTOR.to_vec();
-        data.extend_from_slice(&U256::ZERO.to_be_bytes_vec());
-        let args = Fee::decode(&Bytes::from(data)).unwrap();
-        let effects = Fee::effects(args);
-        assert_eq!(effects, vec![CheatcodeEffect::SetBaseFee(0)]);
-    }
-
-    #[test]
-    fn fee_decode_max_uint64() {
-        let mut data = Fee::SELECTOR.to_vec();
-        data.extend_from_slice(&U256::from(u64::MAX).to_be_bytes_vec());
-        let args = Fee::decode(&Bytes::from(data)).unwrap();
-        let effects = Fee::effects(args);
-        assert_eq!(effects, vec![CheatcodeEffect::SetBaseFee(u64::MAX)]);
-    }
-
-    #[test]
-    fn fee_decode_overflow_reverts() {
-        let mut data = Fee::SELECTOR.to_vec();
-        data.extend_from_slice(&(U256::from(u64::MAX) + U256::from(1)).to_be_bytes_vec());
-        let args = Fee::decode(&Bytes::from(data)).unwrap();
-        let effects = Fee::effects(args);
+    fn coinbase_decode_and_effects() {
+        let addr = Address::new([0xca; 20]);
+        let mut data = Coinbase::SELECTOR.to_vec();
+        let mut padded = vec![0u8; 32];
+        padded[12..32].copy_from_slice(addr.as_slice());
+        data.extend_from_slice(&padded);
+        let args = Coinbase::decode(&Bytes::from(data)).unwrap();
         assert_eq!(
-            effects,
-            vec![CheatcodeEffect::Revert(
-                "fee: base fee exceeds u64::MAX".into(),
-            )]
+            Coinbase::effects(args),
+            vec![CheatcodeEffect::SetBeneficiary(addr)]
+        );
+    }
+
+    #[test]
+    fn coinbase_decode_zero_address() {
+        let addr = Address::ZERO;
+        let mut data = Coinbase::SELECTOR.to_vec();
+        let mut padded = vec![0u8; 32];
+        padded[12..32].copy_from_slice(addr.as_slice());
+        data.extend_from_slice(&padded);
+        let args = Coinbase::decode(&Bytes::from(data)).unwrap();
+        assert_eq!(
+            Coinbase::effects(args),
+            vec![CheatcodeEffect::SetBeneficiary(Address::ZERO)]
         );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_fee_setup_integration() {
+    fn cheatcode_coinbase_setup_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodeCoinbase.sol"),
         )
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_record: [u8; 4] = [0xd3, 0x12, 0xbe, 0x09]; // action_record_basefee()
+        let action_record: [u8; 4] = [0x5a, 0xfe, 0xc4, 0x44]; // action_record_coinbase()
         let calls = vec![Call {
             selector: action_record,
             args: vec![],
@@ -102,28 +83,28 @@ mod tests {
         let prop = output
             .property_results
             .iter()
-            .find(|p| p.name == "property_setup_fee_persists")
+            .find(|p| p.name == "property_setup_coinbase_persists")
             .expect("property should exist");
-        assert!(prop.passed, "setUp fee should persist into first call");
+        assert!(prop.passed, "setUp coinbase should persist into first call");
     }
 
     #[test]
     #[serial]
-    fn cheatcode_fee_sequence_integration() {
+    fn cheatcode_coinbase_sequence_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodeCoinbase.sol"),
         )
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee: [u8; 4] = [0xd7, 0x32, 0x98, 0xc4]; // action_fee(uint256)
-        let action_record: [u8; 4] = [0xd3, 0x12, 0xbe, 0x09]; // action_record_basefee()
+        let action_coinbase: [u8; 4] = [0x6c, 0x22, 0x93, 0x18]; // action_coinbase(address)
+        let action_record: [u8; 4] = [0x5a, 0xfe, 0xc4, 0x44]; // action_record_coinbase()
         let mut args = vec![0u8; 32];
-        args[31] = 100; // U256(100)
+        args[31] = 0xAB;
         let calls = vec![
             Call {
-                selector: action_fee,
+                selector: action_coinbase,
                 args: args.clone(),
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -143,29 +124,29 @@ mod tests {
         let prop = output
             .property_results
             .iter()
-            .find(|p| p.name == "property_fee_persists_across_calls")
+            .find(|p| p.name == "property_coinbase_persists_across_calls")
             .expect("property should exist");
         assert!(
             prop.passed,
-            "fee should persist across calls with no auto-advance"
+            "coinbase should persist across calls with no auto-advance"
         );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_fee_revert_integration() {
+    fn cheatcode_coinbase_revert_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodeCoinbase.sol"),
         )
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_revert: [u8; 4] = [0x4d, 0x01, 0x2a, 0x77]; // action_fee_and_revert(uint256)
+        let action_revert: [u8; 4] = [0x95, 0xd0, 0xd1, 0xe5]; // action_coinbase_and_revert(address)
         let mut args = vec![0u8; 32];
-        args[28..32].copy_from_slice(&9999u32.to_be_bytes());
+        args[28..32].copy_from_slice(&0xDEADu32.to_be_bytes());
         let calls = vec![Call {
-            selector: action_fee_revert,
+            selector: action_revert,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -173,149 +154,126 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(!output.all_ok, "fee_and_revert should revert");
+        assert!(!output.all_ok, "coinbase_and_revert should revert");
         let prop = output
             .property_results
             .iter()
-            .find(|p| p.name == "property_revert_undoes_fee")
-            .expect("property should exist");
-        assert!(prop.passed, "reverted fee should not leak into properties");
-    }
-
-    #[test]
-    #[serial]
-    fn cheatcode_fee_overwrite_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
-        )
-        .unwrap();
-
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_100: [u8; 4] = [0xcf, 0xb8, 0x64, 0x4c]; // action_fee_100()
-        let action_fee_200: [u8; 4] = [0x80, 0x4f, 0x8d, 0x17]; // action_fee_200()
-        let action_record: [u8; 4] = [0xd3, 0x12, 0xbe, 0x09]; // action_record_basefee()
-        let calls = vec![
-            Call {
-                selector: action_fee_100,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-            Call {
-                selector: action_fee_200,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-            Call {
-                selector: action_record,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-        ];
-
-        let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "actions should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_fee_overwrite")
-            .expect("property should exist");
-        assert!(prop.passed, "fee overwrite should produce correct basefee");
-    }
-
-    #[test]
-    #[serial]
-    fn cheatcode_fee_zero_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
-        )
-        .unwrap();
-
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_zero: [u8; 4] = [0x5c, 0xb6, 0x38, 0x2e]; // action_fee_zero()
-        let action_record: [u8; 4] = [0xd3, 0x12, 0xbe, 0x09]; // action_record_basefee()
-        let calls = vec![
-            Call {
-                selector: action_fee_zero,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-            Call {
-                selector: action_record,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-        ];
-
-        let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "actions should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_fee_zero")
-            .expect("property should exist");
-        assert!(prop.passed, "fee to zero should produce correct basefee");
-    }
-
-    #[test]
-    #[serial]
-    fn cheatcode_fee_max_uint64_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
-        )
-        .unwrap();
-
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_max: [u8; 4] = [0x7e, 0xcd, 0x2d, 0xa6]; // action_fee_max_uint64()
-        let calls = vec![Call {
-            selector: action_fee_max,
-            args: vec![],
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
-            ..Default::default()
-        }];
-
-        let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "action should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_fee_max_uint64")
+            .find(|p| p.name == "property_revert_undoes_coinbase")
             .expect("property should exist");
         assert!(
             prop.passed,
-            "fee to max uint64 should produce correct basefee"
+            "reverted coinbase should not leak into properties"
         );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_fee_corpus_isolation_integration() {
+    fn cheatcode_coinbase_overwrite_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodeCoinbase.sol"),
         )
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee: [u8; 4] = [0xd7, 0x32, 0x98, 0xc4]; // action_fee(uint256)
-        let action_record: [u8; 4] = [0xd3, 0x12, 0xbe, 0x09]; // action_record_basefee()
+        let action_a: [u8; 4] = [0xc1, 0x4a, 0xd2, 0xe7]; // action_coinbase_A()
+        let action_b: [u8; 4] = [0x53, 0xe3, 0xc8, 0x59]; // action_coinbase_B()
+        let action_record: [u8; 4] = [0x5a, 0xfe, 0xc4, 0x44]; // action_record_coinbase()
+        let calls = vec![
+            Call {
+                selector: action_a,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            Call {
+                selector: action_b,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            Call {
+                selector: action_record,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+        ];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "actions should succeed");
+        let prop = output
+            .property_results
+            .iter()
+            .find(|p| p.name == "property_coinbase_overwrite")
+            .expect("property should exist");
+        assert!(
+            prop.passed,
+            "coinbase overwrite should produce correct beneficiary"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn cheatcode_coinbase_zero_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeCoinbase.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let action_zero: [u8; 4] = [0x2e, 0x24, 0x88, 0x00]; // action_coinbase_zero()
+        let action_record: [u8; 4] = [0x5a, 0xfe, 0xc4, 0x44]; // action_record_coinbase()
+        let calls = vec![
+            Call {
+                selector: action_zero,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            Call {
+                selector: action_record,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+        ];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "actions should succeed");
+        let prop = output
+            .property_results
+            .iter()
+            .find(|p| p.name == "property_coinbase_zero")
+            .expect("property should exist");
+        assert!(
+            prop.passed,
+            "coinbase to zero should produce correct beneficiary"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn cheatcode_coinbase_corpus_isolation_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeCoinbase.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let action_coinbase: [u8; 4] = [0x6c, 0x22, 0x93, 0x18]; // action_coinbase(address)
+        let action_record: [u8; 4] = [0x5a, 0xfe, 0xc4, 0x44]; // action_record_coinbase()
         let mut args = vec![0u8; 32];
-        args[28..32].copy_from_slice(&9999u32.to_be_bytes());
+        args[28..32].copy_from_slice(&0xDEADu32.to_be_bytes());
         let calls_a = vec![Call {
-            selector: action_fee,
+            selector: action_coinbase,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -342,23 +300,23 @@ mod tests {
             .expect("property should exist");
         assert!(
             prop.passed,
-            "fee from sequence A should not leak into sequence B"
+            "coinbase from sequence A should not leak into sequence B"
         );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_fee_property_final_integration() {
+    fn cheatcode_coinbase_property_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodeCoinbase.sol"),
         )
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_100: [u8; 4] = [0xcf, 0xb8, 0x64, 0x4c]; // action_fee_100()
+        let action_a: [u8; 4] = [0xc1, 0x4a, 0xd2, 0xe7]; // action_coinbase_A()
         let calls = vec![Call {
-            selector: action_fee_100,
+            selector: action_a,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -370,24 +328,24 @@ mod tests {
         let prop = output
             .property_results
             .iter()
-            .find(|p| p.name == "property_final_basefee")
+            .find(|p| p.name == "property_final_coinbase")
             .expect("property should exist");
-        assert!(prop.passed, "property should see the final fee basefee");
+        assert!(prop.passed, "property should see the final coinbase value");
     }
 
     #[test]
     #[serial]
-    fn cheatcode_fee_roll_warp_interaction_integration() {
+    fn cheatcode_coinbase_roll_warp_fee_interaction_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodeCoinbase.sol"),
         )
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_and_roll_warp: [u8; 4] = [0xd2, 0x54, 0x3c, 0xd0]; // action_fee_and_roll_warp()
+        let action_interaction: [u8; 4] = [0xf3, 0x59, 0x4d, 0xda]; // action_coinbase_and_roll_warp_fee()
         let calls = vec![Call {
-            selector: action_fee_and_roll_warp,
+            selector: action_interaction,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -399,11 +357,11 @@ mod tests {
         let prop = output
             .property_results
             .iter()
-            .find(|p| p.name == "property_fee_and_roll_warp")
+            .find(|p| p.name == "property_coinbase_and_roll_warp_fee")
             .expect("property should exist");
         assert!(
             prop.passed,
-            "fee, roll, and warp should coexist without interference"
+            "coinbase, roll, warp, and fee should coexist without interference"
         );
     }
 }

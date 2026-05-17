@@ -24,6 +24,7 @@ mod tests {
     use std::path::Path;
 
     use revm::primitives::U256;
+    use serial_test::serial;
 
     use super::*;
     use crate::chain::Chain;
@@ -45,6 +46,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_warp_setup_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
@@ -73,6 +75,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_warp_sequence_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
@@ -116,6 +119,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_warp_revert_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
@@ -146,6 +150,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_warp_delay_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
@@ -187,6 +192,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_warp_overwrite_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
@@ -260,6 +266,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_warp_zero_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
@@ -298,6 +305,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_warp_max_uint64_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
@@ -329,6 +337,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_warp_corpus_isolation_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
@@ -374,6 +383,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_warp_property_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
@@ -405,6 +415,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_warp_roll_interaction_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),

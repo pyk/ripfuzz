@@ -117,6 +117,7 @@ mod tests {
         primitives::{Address, U256},
         state::AccountInfo,
     };
+    use serial_test::serial;
 
     use super::*;
     use crate::chain::Chain;
@@ -225,6 +226,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_account_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),

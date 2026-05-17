@@ -363,6 +363,7 @@ mod tests {
     use std::path::Path;
 
     use alloy_primitives::U256;
+    use serial_test::serial;
 
     use super::*;
     use crate::chain::Chain;
@@ -441,6 +442,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_assert_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),

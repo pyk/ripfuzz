@@ -70,6 +70,8 @@ impl Cheatcode for Sign {
 mod tests {
     use std::path::Path;
 
+    use serial_test::serial;
+
     use super::*;
     use crate::chain::Chain;
     use crate::contract;
@@ -92,6 +94,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_wallet_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),

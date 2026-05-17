@@ -244,6 +244,8 @@ impl Cheatcode for GetCode {
 mod tests {
     use std::path::Path;
 
+    use serial_test::serial;
+
     use super::*;
     use crate::chain::Chain;
     use crate::chain::inspectors::cheatcode::CheatcodeInspector;
@@ -315,6 +317,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_string_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),

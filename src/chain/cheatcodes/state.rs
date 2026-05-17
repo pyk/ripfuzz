@@ -1,22 +1,10 @@
 //! Block / state manipulation cheatcodes.
 
-use revm::primitives::{Address, Bytes, U256};
+use revm::primitives::{Bytes, U256};
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_address_arg, decode_u256_arg};
+use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_u256_arg};
 
 pub const DIFFICULTY_SELECTOR: [u8; 4] = [0x46, 0xcc, 0x92, 0xd9];
-
-pub struct Coinbase;
-impl Cheatcode for Coinbase {
-    type Args = Address;
-    const SELECTOR: [u8; 4] = [0xff, 0x48, 0x3c, 0x54];
-    fn decode(input: &Bytes) -> Option<Self::Args> {
-        decode_address_arg(input)
-    }
-    fn effects(value: Self::Args) -> Vec<CheatcodeEffect> {
-        vec![CheatcodeEffect::SetBeneficiary(value)]
-    }
-}
 
 pub struct Prevrandao;
 impl Cheatcode for Prevrandao {
@@ -51,26 +39,13 @@ impl Cheatcode for ChainId {
 mod tests {
     use std::path::Path;
 
-    use revm::primitives::{Address, U256};
+    use revm::primitives::U256;
+    use serial_test::serial;
 
     use super::*;
     use crate::chain::Chain;
     use crate::contract;
     use crate::corpus::Call;
-
-    #[test]
-    fn coinbase_decode_and_effects() {
-        let addr = Address::new([0xca; 20]);
-        let mut data = Coinbase::SELECTOR.to_vec();
-        let mut padded = vec![0u8; 32];
-        padded[12..32].copy_from_slice(addr.as_slice());
-        data.extend_from_slice(&padded);
-        let args = Coinbase::decode(&Bytes::from(data)).unwrap();
-        assert_eq!(
-            Coinbase::effects(args),
-            vec![CheatcodeEffect::SetBeneficiary(addr)]
-        );
-    }
 
     #[test]
     fn chain_id_decode_and_effects() {
@@ -84,6 +59,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn cheatcode_state_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
