@@ -2,20 +2,19 @@
 
 use std::env;
 use std::path::PathBuf;
-use std::sync::LazyLock;
 
 use anyhow::Result;
 use clap::Parser;
 use tracing::{debug, info, instrument};
 
 use crate::campaign::{Campaign, CampaignConfig};
+use crate::contract::resolve_coverage_to_source;
 
-static DEFAULT_WORKERS: LazyLock<String> = LazyLock::new(|| {
-    let cores = libafl_bolts::core_affinity::get_core_ids()
-        .map(|v| v.len())
-        .unwrap_or(1);
-    format!("{}", cores)
-});
+fn default_workers() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+}
 
 fn parse_workers(s: &str) -> Result<usize, String> {
     let n = s
@@ -38,7 +37,7 @@ pub struct Args {
     pub project_path: Option<PathBuf>,
 
     /// Number of parallel workers to spawn.
-    #[arg(short = 'w', long, default_value = DEFAULT_WORKERS.as_str(), value_parser = parse_workers)]
+    #[arg(short = 'w', long, default_value_t = default_workers(), value_parser = parse_workers)]
     pub workers: usize,
 
     /// Maximum number of campaign runs across all workers.
@@ -64,6 +63,10 @@ pub struct Args {
     /// Maximum block timestamp delay between calls.
     #[arg(long = "max-time-delay", default_value = "5")]
     pub max_block_timestamp_delay: u64,
+
+    /// Directory to load and persist coverage-guided corpus files.
+    #[arg(long = "corpus-dir")]
+    pub corpus_dir: Option<PathBuf>,
 }
 
 #[instrument(skip(args), fields(target = ?args.target_path, workers = args.workers, max_runs = args.max_runs))]
@@ -87,8 +90,7 @@ pub fn run(args: Args) -> Result<()> {
         seed: args.seed,
         max_block_number_delay: args.max_block_number_delay,
         max_block_timestamp_delay: args.max_block_timestamp_delay,
-        broker_port: 0,
-        corpus_dir: None,
+        corpus_dir: args.corpus_dir,
     };
     info!(?config, "starting fuzzing campaign");
 
@@ -130,6 +132,14 @@ pub fn run(args: Args) -> Result<()> {
         let passed = total.saturating_sub(failed);
         info!(target: "raptor::user", "");
         info!(target: "raptor::user", "Test summary: {} passed, {} failed", passed, failed);
+    }
+
+    // Source-level coverage summary
+    let report = resolve_coverage_to_source(&result.coverage, artifact);
+    if report.hit_count() > 0 {
+        info!(target: "raptor::user", "Coverage: {} unique source locations hit", report.hit_count());
+    } else {
+        info!(target: "raptor::user", "Coverage: no source locations hit (source map may be missing)");
     }
 
     Ok(())

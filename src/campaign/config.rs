@@ -12,7 +12,6 @@ pub struct CampaignConfig {
     pub seed: u64,
     pub max_block_number_delay: u64,
     pub max_block_timestamp_delay: u64,
-    pub broker_port: u16,
     /// Path to the corpus root directory. If set, coverage-guided
     /// persistence is enabled.
     pub corpus_dir: Option<PathBuf>,
@@ -30,7 +29,6 @@ impl Default for CampaignConfig {
             seed: 0,
             max_block_number_delay: 5,
             max_block_timestamp_delay: 5,
-            broker_port: 0,
             corpus_dir: None,
         }
     }

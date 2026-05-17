@@ -1,82 +1,49 @@
 //! Corpus mutator that splices two sequences together.
 
-use std::borrow::Cow;
-use std::num::NonZeroUsize;
+use std::sync::{Arc, RwLock};
 
-use libafl::{
-    corpus::{Corpus, CorpusId},
-    mutators::{MutationResult, Mutator},
-    state::{HasCorpus, HasRand},
-};
-use libafl_bolts::Named;
-use libafl_bolts::rands::Rand;
-
-use crate::corpus;
+use crate::corpus::{Call, Corpus};
+use crate::worker::mutators::{MutationResult, Mutator};
 
 /// Splice two corpus sequences: take the head from one and tail from another.
-#[derive(Debug, Default)]
-pub struct SequenceSpliceMutator;
+#[derive(Debug)]
+pub struct SequenceSpliceMutator {
+    corpus: Arc<RwLock<Corpus>>,
+}
 
-impl Named for SequenceSpliceMutator {
-    fn name(&self) -> &Cow<'static, str> {
-        &Cow::Borrowed("SequenceSpliceMutator")
+impl SequenceSpliceMutator {
+    pub fn new(corpus: Arc<RwLock<Corpus>>) -> Self {
+        Self { corpus }
     }
 }
 
-impl<S> Mutator<corpus::CallSequenceInput, S> for SequenceSpliceMutator
-where
-    S: HasRand + HasCorpus<corpus::CallSequenceInput>,
-{
-    fn mutate(
-        &mut self,
-        state: &mut S,
-        input: &mut corpus::CallSequenceInput,
-    ) -> Result<MutationResult, libafl::Error> {
-        let count = state.corpus().count();
+impl Mutator for SequenceSpliceMutator {
+    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+        let Ok(corpus) = self.corpus.read() else {
+            return MutationResult::Skipped;
+        };
+        let count = corpus.items.len();
         if count < 2 {
-            return Ok(MutationResult::Skipped);
+            return MutationResult::Skipped;
         }
 
-        let id1 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(count).ok_or_else(|| libafl::Error::unknown("non-zero"))?);
-        let id2 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(count).ok_or_else(|| libafl::Error::unknown("non-zero"))?);
+        let id1 = rng.usize(0..count);
+        let id2 = rng.usize(0..count);
 
-        let seq1 = state
-            .corpus()
-            .cloned_input_for_id(CorpusId::from(id1))
-            .map_err(|e| libafl::Error::unknown(format!("corpus get: {e}")))?;
-        let seq2 = state
-            .corpus()
-            .cloned_input_for_id(CorpusId::from(id2))
-            .map_err(|e| libafl::Error::unknown(format!("corpus get: {e}")))?;
+        let seq1 = corpus.items[id1].calls.clone();
+        let seq2 = corpus.items[id2].calls.clone();
+        drop(corpus);
 
-        if seq1.calls.is_empty() || seq2.calls.is_empty() {
-            return Ok(MutationResult::Skipped);
+        if seq1.is_empty() || seq2.is_empty() {
+            return MutationResult::Skipped;
         }
 
-        let head_len = state.rand_mut().below(
-            NonZeroUsize::new(seq1.calls.len())
-                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        ) + 1;
-        let tail_len = state.rand_mut().below(
-            NonZeroUsize::new(seq2.calls.len() + 1)
-                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        );
+        let head_len = rng.usize(1..=seq1.len());
+        let tail_len = rng.usize(0..=seq2.len());
 
-        let mut new_calls = seq1.calls[..head_len].to_vec();
-        new_calls.extend_from_slice(&seq2.calls[seq2.calls.len() - tail_len..]);
-        input.calls = new_calls;
-        Ok(MutationResult::Mutated)
-    }
-
-    fn post_exec(
-        &mut self,
-        _state: &mut S,
-        _new_corpus_id: Option<CorpusId>,
-    ) -> Result<(), libafl::Error> {
-        Ok(())
+        let mut new_calls = seq1[..head_len].to_vec();
+        new_calls.extend_from_slice(&seq2[seq2.len() - tail_len..]);
+        *calls = new_calls;
+        MutationResult::Mutated
     }
 }

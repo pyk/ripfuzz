@@ -139,7 +139,8 @@ impl ContractBuilder {
             .unwrap_or(&artifact_name);
 
         let all_contracts = Self::load_all_contracts(&out_dir)?;
-        let mut artifact = artifact_json.into_artifact_with_all(contract_name, all_contracts);
+        let mut artifact =
+            artifact_json.into_artifact_with_all(contract_name, &contract_path, all_contracts);
         artifact.properties = artifact::find_and_validate_properties(&artifact.abi)?;
 
         Ok(artifact)

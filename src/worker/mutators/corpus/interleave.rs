@@ -1,74 +1,47 @@
 //! Corpus mutator that interleaves two sequences.
 
-use std::borrow::Cow;
-use std::num::NonZeroUsize;
+use std::sync::{Arc, RwLock};
 
-use libafl::{
-    corpus::{Corpus, CorpusId},
-    mutators::{MutationResult, Mutator},
-    state::{HasCorpus, HasRand},
-};
-use libafl_bolts::Named;
-use libafl_bolts::rands::Rand;
-
-use crate::corpus;
+use crate::corpus::{Call, Corpus};
+use crate::worker::mutators::{MutationResult, Mutator};
 
 /// Interleave two corpus sequences.
-#[derive(Debug, Default)]
-pub struct SequenceInterleaveMutator;
+#[derive(Debug)]
+pub struct SequenceInterleaveMutator {
+    corpus: Arc<RwLock<Corpus>>,
+}
 
-impl Named for SequenceInterleaveMutator {
-    fn name(&self) -> &Cow<'static, str> {
-        &Cow::Borrowed("SequenceInterleaveMutator")
+impl SequenceInterleaveMutator {
+    pub fn new(corpus: Arc<RwLock<Corpus>>) -> Self {
+        Self { corpus }
     }
 }
 
-impl<S> Mutator<corpus::CallSequenceInput, S> for SequenceInterleaveMutator
-where
-    S: HasRand + HasCorpus<corpus::CallSequenceInput>,
-{
-    fn mutate(
-        &mut self,
-        state: &mut S,
-        input: &mut corpus::CallSequenceInput,
-    ) -> Result<MutationResult, libafl::Error> {
-        let count = state.corpus().count();
+impl Mutator for SequenceInterleaveMutator {
+    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+        let Ok(corpus) = self.corpus.read() else {
+            return MutationResult::Skipped;
+        };
+        let count = corpus.items.len();
         if count < 2 {
-            return Ok(MutationResult::Skipped);
+            return MutationResult::Skipped;
         }
 
-        let id1 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(count).ok_or_else(|| libafl::Error::unknown("non-zero"))?);
-        let id2 = state
-            .rand_mut()
-            .below(NonZeroUsize::new(count).ok_or_else(|| libafl::Error::unknown("non-zero"))?);
+        let id1 = rng.usize(0..count);
+        let id2 = rng.usize(0..count);
 
-        let seq1 = state
-            .corpus()
-            .cloned_input_for_id(CorpusId::from(id1))
-            .map_err(|e| libafl::Error::unknown(format!("corpus get: {e}")))?;
-        let seq2 = state
-            .corpus()
-            .cloned_input_for_id(CorpusId::from(id2))
-            .map_err(|e| libafl::Error::unknown(format!("corpus get: {e}")))?;
+        let seq1 = corpus.items[id1].calls.clone();
+        let seq2 = corpus.items[id2].calls.clone();
+        drop(corpus);
 
-        let take1 = state.rand_mut().below(
-            NonZeroUsize::new(seq1.calls.len() + 1)
-                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        );
-        let take2 = state.rand_mut().below(
-            NonZeroUsize::new(seq2.calls.len() + 1)
-                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        );
+        let take1 = rng.usize(0..=seq1.len());
+        let take2 = rng.usize(0..=seq2.len());
 
-        let slice1 = &seq1.calls[..take1];
-        let slice2 = &seq2.calls[..take2];
+        let slice1 = &seq1[..take1];
+        let slice2 = &seq2[..take2];
 
-        let calls1 = slice1.to_vec();
-        let calls2 = slice2.to_vec();
-        let mut iter1 = calls1.into_iter();
-        let mut iter2 = calls2.into_iter();
+        let mut iter1 = slice1.iter().cloned();
+        let mut iter2 = slice2.iter().cloned();
         let mut new_calls = Vec::with_capacity(slice1.len() + slice2.len());
         loop {
             match (iter1.next(), iter2.next()) {
@@ -81,15 +54,7 @@ where
                 (None, None) => break,
             }
         }
-        input.calls = new_calls;
-        Ok(MutationResult::Mutated)
-    }
-
-    fn post_exec(
-        &mut self,
-        _state: &mut S,
-        _new_corpus_id: Option<CorpusId>,
-    ) -> Result<(), libafl::Error> {
-        Ok(())
+        *calls = new_calls;
+        MutationResult::Mutated
     }
 }

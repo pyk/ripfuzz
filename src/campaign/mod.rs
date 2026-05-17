@@ -1,22 +1,18 @@
 //! Campaign orchestration: configuration, setup, and result aggregation.
 
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 
-use anyhow::{Context, Result};
-use libafl::events::launcher::{ClientDescription, Launcher};
-use libafl::events::{EventConfig, SendExiting};
-use libafl::monitors::SimpleMonitor;
-use libafl_bolts::shmem::{ShMem, ShMemProvider, StdShMemProvider};
-use tracing::{debug, error, info, trace, warn};
+use anyhow::Result;
+use tracing::{debug, error, info, trace};
 
 pub use config::CampaignConfig;
 pub use result::CampaignResult;
 pub use seeds::build_seeds;
 
 use crate::contract::{ContractArtifact, ContractBuilder};
-use crate::worker::{Worker, WorkerResult};
+use crate::corpus::{Corpus, CoverageMap};
+use crate::worker::Worker;
 
 pub mod config;
 pub mod result;
@@ -52,7 +48,6 @@ impl CampaignBuilder {
         let _runner = crate::evm::EvmRunner::from_target(&artifact)?;
         debug!("deployment validated");
 
-        // TODO: review this call squence seed generation
         let seeds = build_seeds(&artifact, self.config.sequence_length);
         let selectors: Vec<[u8; 4]> = artifact
             .abi
@@ -65,9 +60,22 @@ impl CampaignBuilder {
             "seeds and selectors generated"
         );
 
+        let corpus = if let Some(ref dir) = self.config.corpus_dir {
+            match Corpus::load(dir) {
+                Ok(c) => Arc::new(RwLock::new(c)),
+                Err(_) => {
+                    let mut c = Corpus::with_seeds(seeds);
+                    c.set_storage_dir(dir);
+                    Arc::new(RwLock::new(c))
+                }
+            }
+        } else {
+            Arc::new(RwLock::new(Corpus::with_seeds(seeds)))
+        };
+
         Ok(Campaign {
             artifact,
-            seeds,
+            corpus,
             config: self.config,
             selectors,
         })
@@ -78,7 +86,7 @@ impl CampaignBuilder {
 #[derive(Debug)]
 pub struct Campaign {
     artifact: ContractArtifact,
-    seeds: Vec<crate::corpus::CallSequenceInput>,
+    corpus: Arc<RwLock<Corpus>>,
     config: CampaignConfig,
     selectors: Vec<[u8; 4]>,
 }
@@ -101,200 +109,87 @@ impl Campaign {
     /// Run the campaign and return an aggregated result.
     pub fn run(&self) -> Result<CampaignResult> {
         let workers = self.config.worker_count();
-        let broker_port = if self.config.broker_port == 0 {
-            crate::find_available_port().context("failed to find available broker port")?
-        } else {
-            self.config.broker_port
-        };
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(self.config.timeout_secs);
 
         info!(workers, "starting parallel fuzzing campaign");
-        let mut shmem_provider = StdShMemProvider::new()?;
-        let mut shmem = shmem_provider.new_shmem(crate::inspector::MAP_SIZE)?;
-        shmem.fill(0);
-        let map_desc = shmem.description();
-        debug!("shared memory allocated for coverage map");
 
         let artifact = self.artifact.clone();
-        let seeds = self.seeds.clone();
         let config = self.config.clone();
         let selectors = self.selectors.clone();
+        let corpus = self.corpus.clone();
 
         let workers_u64 = workers as u64;
         let base_runs = config.max_runs / workers_u64;
         let remainder = (config.max_runs % workers_u64) as usize;
         debug!(base_runs, remainder, "run distribution calculated");
 
-        // Unique identifier so we only collect temp files from this run.
-        static CAMPAIGN_COUNTER: AtomicU64 = AtomicU64::new(0);
-        let campaign_id = format!(
-            "{}_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-            CAMPAIGN_COUNTER.fetch_add(1, Ordering::SeqCst)
-        );
-        let campaign_id_for_closure = campaign_id.clone();
-        info!(%campaign_id, "campaign id generated");
+        let artifact = Arc::new(artifact);
+        let config = Arc::new(config);
+        let selectors = Arc::new(selectors);
 
-        let monitor = SimpleMonitor::new(|s: &str| {
-            info!(target: "raptor::user", "{}", s);
-        });
-
-        let run_client = move |state: Option<crate::worker::MyState>,
-                               mut mgr: crate::worker::MyMgr,
-                               _client: ClientDescription| {
-            let client_id = _client.id();
-            let core_id = _client.core_id().0;
-            let pid = std::process::id();
-            let local_max_runs = if core_id < remainder {
+        let mut handles = Vec::with_capacity(workers);
+        for worker_id in 0..workers {
+            let local_max_runs = if worker_id < remainder {
                 base_runs + 1
             } else {
                 base_runs
             };
-            info!(client_id, core_id, pid, local_max_runs, "worker started");
+            let artifact = Arc::clone(&artifact);
+            let config = Arc::clone(&config);
+            let selectors = Arc::clone(&selectors);
+            let corpus = Arc::clone(&corpus);
 
-            let mut local_provider = StdShMemProvider::new()
-                .map_err(|e| libafl::Error::illegal_state(format!("shmem provider failed: {e}")))?;
-            let mut local_shmem = local_provider
-                .shmem_from_description(map_desc)
-                .map_err(|e| libafl::Error::illegal_state(format!("shmem mapping failed: {e}")))?;
-
-            let worker = Worker::new(
-                artifact.clone(),
-                seeds.clone(),
-                config.clone(),
-                selectors.clone(),
-            );
-            let result = worker
-                .run(state, &mut mgr, &mut local_shmem, local_max_runs, client_id)
-                .map_err(|e| libafl::Error::illegal_state(format!("worker run failed: {e}")))?;
-
-            // Persist local results so the campaign can aggregate them.
-            let tmp =
-                std::env::temp_dir().join(format!("raptor_{campaign_id_for_closure}_{pid}.json"));
-            if let Ok(bytes) = serde_json::to_vec(&result) {
-                match fs::write(&tmp, &bytes) {
-                    Err(e) => warn!(client_id, ?tmp, %e, "failed to write temp file"),
-                    Ok(()) => debug!(client_id, ?tmp, "temp file written"),
-                }
-            }
-
-            // Tell LibAFL that this worker is done so the respawner
-            // exits cleanly instead of panicking on a zero exit code.
-            debug!(client_id, "calling send_exiting");
-            mgr.send_exiting()
-                .map_err(|e| libafl::Error::illegal_state(format!("send_exiting failed: {e}")))?;
-            info!(client_id, "send_exiting succeeded, worker done");
-
-            // Sleep briefly so the broker has time to process our
-            // LLMP_TAG_CLIENT_EXIT message and map our shared memory
-            // before we drop it.  Without this, rapid exits can race
-            // the broker loop and leave it waiting forever.
-            std::thread::sleep(std::time::Duration::from_millis(500));
-
-            Ok(())
-        };
-
-        let cores = Self::workers_to_cores(workers)?;
-
-        info!(workers, "spawning parallel fuzzers via Launcher");
-        match Launcher::builder()
-            .shmem_provider(shmem_provider)
-            .monitor(monitor)
-            .configuration(EventConfig::from_name("default"))
-            .cores(&cores)
-            .run_client(run_client)
-            .stdout_file(Some("/dev/null"))
-            .broker_port(broker_port)
-            // Increase delay between child launches so the broker has
-            // time to map each client's shared memory before the next
-            // one connects.  Default 10ms is too tight with many workers.
-            .launch_delay(50)
-            .build()
-            .launch()
-        {
-            Ok(_) => {
-                info!("Launcher exited normally");
-            }
-            Err(libafl::Error::ShuttingDown) => {
-                info!("Launcher returned ShuttingDown (expected after send_exiting)");
-            }
-            Err(e) => {
-                error!(%e, "Launcher failed unexpectedly");
-                return Err(e).context("Parallel fuzzing failed");
-            }
+            let handle = std::thread::spawn(move || {
+                let worker = Worker::new(artifact, config, selectors);
+                worker.run(corpus, local_max_runs, worker_id, start, timeout)
+            });
+            handles.push((worker_id, handle));
         }
 
-        // Aggregate worker results from temp files.
+        // Join all worker threads and aggregate results.
         let mut total_runs = 0u64;
         let mut all_failures = Vec::new();
-        let tmp_dir = std::env::temp_dir();
-        let prefix = format!("raptor_{campaign_id}_");
-        info!(%campaign_id, "aggregating temp files");
-
-        let entries = match fs::read_dir(&tmp_dir) {
-            Ok(e) => e,
-            Err(e) => {
-                warn!(%e, ?tmp_dir, "failed to read temp dir");
-                return Ok(CampaignResult {
-                    runs: total_runs,
-                    failures: all_failures,
-                });
+        for (worker_id, handle) in handles {
+            match handle.join() {
+                Ok(Ok(result)) => {
+                    total_runs += result.runs;
+                    all_failures.extend(result.failures);
+                    trace!(worker_id, runs = result.runs, "worker joined");
+                }
+                Ok(Err(e)) => {
+                    error!(worker_id, %e, "worker failed");
+                }
+                Err(e) => {
+                    error!(worker_id, ?e, "worker panicked");
+                }
             }
-        };
-        let mut collected = 0usize;
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if !name.starts_with(&prefix) || !name.ends_with(".json") {
-                continue;
-            }
-            trace!(file = %name, "found matching temp file");
-            let Ok(data) = fs::read(entry.path()) else {
-                warn!(file = %name, "failed to read temp file");
-                continue;
-            };
-            let Ok(result) = serde_json::from_slice::<WorkerResult>(&data) else {
-                warn!(file = %name, "failed to parse temp file");
-                continue;
-            };
-            total_runs += result.runs;
-            all_failures.extend(result.failures);
-            collected += 1;
         }
+
+        // Persist corpus to disk if a directory was configured.
+        if let Ok(c) = self.corpus.read()
+            && let Err(e) = c.flush_to_disk()
+        {
+            error!(%e, "failed to flush corpus to disk");
+        }
+
+        let coverage = if let Ok(c) = self.corpus.read() {
+            c.coverage().clone()
+        } else {
+            CoverageMap::default()
+        };
+
         info!(
-            collected,
             total_runs,
             failures = all_failures.len(),
-            "aggregation complete"
+            "campaign complete"
         );
 
         Ok(CampaignResult {
             runs: total_runs,
             failures: all_failures,
+            coverage,
         })
-    }
-
-    /// Convert a worker count into a LibAFL `Cores` mask.
-    fn workers_to_cores(workers: usize) -> Result<libafl_bolts::core_affinity::Cores> {
-        let ids = libafl_bolts::core_affinity::get_core_ids()
-            .map(|v| v.len())
-            .unwrap_or(1);
-        let count = workers.min(ids);
-
-        let mask = if count >= ids {
-            "all".into()
-        } else {
-            (0..count)
-                .map(|i| format!("{i}"))
-                .collect::<Vec<String>>()
-                .join(",")
-        };
-
-        libafl_bolts::core_affinity::Cores::from_cmdline(&mask)
-            .with_context(|| format!("failed to parse core mask '{mask}'"))
     }
 }
 
@@ -310,8 +205,6 @@ mod tests {
         let mut config = CampaignConfig::default();
         config.workers = workers;
         config.max_runs = max_runs;
-        // Use a short per-campaign timeout so a hanging LibAFL broker
-        // is caught before the Makefile suite timeout fires.
         config.timeout_secs = 30;
 
         let campaign = Campaign::for_target(Path::new("test/ImpossibleBug.sol"))
@@ -401,8 +294,6 @@ mod tests {
 
         let mut config = CampaignConfig::default();
         config.max_runs = 10_000;
-        // Short timeout so a hanging LibAFL broker is caught before the
-        // Makefile suite timeout kills the entire test run.
         config.timeout_secs = 10;
         let campaign = Campaign::for_target(Path::new("src/L1SimpleKnob.sol"))
             .with_project(Path::new("fixtures/challenges"))

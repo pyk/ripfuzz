@@ -8,67 +8,54 @@ pub use sequence::{
     SequenceDelayMutator, SequenceDeleteMutator, SequenceInsertMutator, SequenceSwapMutator,
 };
 
+use crate::corpus::Call;
+
 pub mod abi;
 pub mod corpus;
 pub mod sequence;
+
+/// Result of applying a mutator.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MutationResult {
+    /// The input was changed.
+    Mutated,
+    /// The input was left unchanged.
+    Skipped,
+}
+
+/// Trait for mutators that operate on a call sequence.
+pub trait Mutator {
+    /// Mutate `calls` in place.
+    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult;
+}
 
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use libafl::mutators::Mutator;
-    use libafl::state::HasRand;
-    use libafl_bolts::rands::StdRand;
-
     use crate::contract;
     use crate::corpus;
     use crate::evm;
     use crate::worker::mutators;
-
-    /// Minimal test state that only implements `HasRand` so mutators can be
-    /// exercised deterministically.
-    struct MockState {
-        rand: StdRand,
-    }
-
-    impl MockState {
-        fn with_seed(seed: u64) -> Self {
-            Self {
-                rand: StdRand::with_seed(seed),
-            }
-        }
-    }
-
-    impl HasRand for MockState {
-        type Rand = StdRand;
-        fn rand(&self) -> &Self::Rand {
-            &self.rand
-        }
-        fn rand_mut(&mut self) -> &mut Self::Rand {
-            &mut self.rand
-        }
-    }
+    use crate::worker::mutators::Mutator;
 
     #[test]
     fn sequence_delay_mutator_respects_cap_invariant() {
-        let mut state = MockState::with_seed(42);
+        let mut rng = fastrand::Rng::with_seed(42);
         let mut mutator = mutators::SequenceDelayMutator::new(10, 10);
 
-        // Start with a single call whose delays are deliberately out of bounds.
-        let mut input = corpus::CallSequenceInput {
-            calls: vec![corpus::Call {
-                selector: [0x12, 0x34, 0x56, 0x78],
-                args: vec![0u8; 32],
-                block_number_delay: 99,
-                block_timestamp_delay: 1,
-                ..Default::default()
-            }],
-        };
+        let mut calls = vec![corpus::Call {
+            selector: [0x12, 0x34, 0x56, 0x78],
+            args: vec![0u8; 32],
+            block_number_delay: 99,
+            block_timestamp_delay: 1,
+            ..Default::default()
+        }];
 
-        let result = mutator.mutate(&mut state, &mut input).unwrap();
-        assert_eq!(result, libafl::mutators::MutationResult::Mutated);
+        let result = mutator.mutate(&mut rng, &mut calls);
+        assert_eq!(result, mutators::MutationResult::Mutated);
 
-        let call = &input.calls[0];
+        let call = &calls[0];
         assert!(
             call.block_number_delay <= call.block_timestamp_delay,
             "block_number_delay ({}) should be <= block_timestamp_delay ({}) after cap_delays",
@@ -79,18 +66,16 @@ mod tests {
 
     #[test]
     fn sequence_insert_mutator_respects_cap_invariant() {
-        let mut state = MockState::with_seed(42);
+        let mut rng = fastrand::Rng::with_seed(42);
         let selectors: Vec<[u8; 4]> = vec![[0x12, 0x34, 0x56, 0x78]];
-        let mut mutator = mutators::SequenceInsertMutator::new(
-            selectors, /* max_block_delay */ 10, /* max_time_delay */ 10,
-        );
+        let mut mutator = mutators::SequenceInsertMutator::new(selectors, 10, 10);
 
-        let mut input = corpus::CallSequenceInput::new();
-        let result = mutator.mutate(&mut state, &mut input).unwrap();
-        assert_eq!(result, libafl::mutators::MutationResult::Mutated);
-        assert_eq!(input.calls.len(), 1);
+        let mut calls = Vec::new();
+        let result = mutator.mutate(&mut rng, &mut calls);
+        assert_eq!(result, mutators::MutationResult::Mutated);
+        assert_eq!(calls.len(), 1);
 
-        let call = &input.calls[0];
+        let call = &calls[0];
         assert!(
             call.block_number_delay <= call.block_timestamp_delay,
             "inserted call should have capped delays: {} <= {}",
@@ -131,43 +116,36 @@ mod tests {
             .selector()
             .into();
 
-        // Build a 3-call seed sequence.
-        let mut input = corpus::CallSequenceInput {
-            calls: vec![
-                corpus::Call {
-                    selector: one,
-                    args: vec![],
-                    block_number_delay: 0,
-                    block_timestamp_delay: 0,
-                    ..Default::default()
-                },
-                corpus::Call {
-                    selector: two,
-                    args: vec![],
-                    block_number_delay: 0,
-                    block_timestamp_delay: 0,
-                    ..Default::default()
-                },
-                corpus::Call {
-                    selector: three,
-                    args: vec![],
-                    block_number_delay: 0,
-                    block_timestamp_delay: 0,
-                    ..Default::default()
-                },
-            ],
-        };
+        let mut calls = vec![
+            corpus::Call {
+                selector: one,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            corpus::Call {
+                selector: two,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            corpus::Call {
+                selector: three,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+        ];
 
-        // Use the delay mutator to perturb delays.  With a fixed seed we get
-        // a deterministic sequence, and because max delays are large enough the
-        // mutator will almost certainly produce at least one non-zero delay.
-        let mut state = MockState::with_seed(12345);
+        let mut rng = fastrand::Rng::with_seed(12345);
         let mut mutator = mutators::SequenceDelayMutator::new(5, 5);
-        let result = mutator.mutate(&mut state, &mut input).unwrap();
-        assert_eq!(result, libafl::mutators::MutationResult::Mutated);
+        let result = mutator.mutate(&mut rng, &mut calls);
+        assert_eq!(result, mutators::MutationResult::Mutated);
 
-        // Verify every call obeys the cap invariant.
-        for (i, call) in input.calls.iter().enumerate() {
+        for (i, call) in calls.iter().enumerate() {
             assert!(
                 call.block_number_delay <= call.block_timestamp_delay,
                 "call {}: {} <= {}",
@@ -177,12 +155,11 @@ mod tests {
             );
         }
 
-        // Run the mutated sequence and inspect block progression.
-        let mut coverage_map = vec![0u8; crate::inspector::MAP_SIZE];
+        let mut local_coverage = crate::corpus::LocalCoverage::new();
         let res = runner
             .run_sequence(
-                &input.calls,
-                crate::inspector::CoverageInspector::from_slice(&mut coverage_map),
+                &calls,
+                crate::inspector::CoverageInspector::new(&mut local_coverage),
             )
             .unwrap();
         assert!(res.all_ok, "sequence should succeed");

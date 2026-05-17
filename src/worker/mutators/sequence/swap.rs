@@ -1,57 +1,24 @@
 //! Sequence mutator that swaps two random calls.
 
-use std::borrow::Cow;
-use std::num::NonZeroUsize;
-
-use libafl::{
-    corpus::CorpusId,
-    mutators::{MutationResult, Mutator},
-    state::HasRand,
-};
-use libafl_bolts::{Named, rands::Rand};
-
-use crate::corpus;
+use crate::corpus::Call;
+use crate::worker::mutators::{MutationResult, Mutator};
 
 /// Swap two random calls in the sequence.
 #[derive(Debug, Default)]
 pub struct SequenceSwapMutator;
 
-impl Named for SequenceSwapMutator {
-    fn name(&self) -> &Cow<'static, str> {
-        &Cow::Borrowed("SequenceSwapMutator")
-    }
-}
-
-impl<S: HasRand> Mutator<corpus::CallSequenceInput, S> for SequenceSwapMutator {
-    fn mutate(
-        &mut self,
-        state: &mut S,
-        input: &mut corpus::CallSequenceInput,
-    ) -> Result<MutationResult, libafl::Error> {
-        if input.calls.len() < 2 {
-            return Ok(MutationResult::Skipped);
+impl Mutator for SequenceSwapMutator {
+    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+        if calls.len() < 2 {
+            return MutationResult::Skipped;
         }
-        let idx1 = state.rand_mut().below(
-            NonZeroUsize::new(input.calls.len())
-                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        );
-        let idx2 = state.rand_mut().below(
-            NonZeroUsize::new(input.calls.len())
-                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        );
+        let idx1 = rng.usize(0..calls.len());
+        let idx2 = rng.usize(0..calls.len());
         if idx1 != idx2 {
-            input.calls.swap(idx1, idx2);
-            Ok(MutationResult::Mutated)
+            calls.swap(idx1, idx2);
+            MutationResult::Mutated
         } else {
-            Ok(MutationResult::Skipped)
+            MutationResult::Skipped
         }
-    }
-
-    fn post_exec(
-        &mut self,
-        _state: &mut S,
-        _new_corpus_id: Option<CorpusId>,
-    ) -> Result<(), libafl::Error> {
-        Ok(())
     }
 }

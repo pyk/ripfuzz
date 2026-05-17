@@ -1,6 +1,6 @@
 [package]
 name = "raptor"
-description = "Parallelized, coverage-guided, mutational Solidity smart contract fuzzing, powered by LibAFL and revm."
+description = "Parallelized, coverage-guided, mutational Solidity smart contract fuzzing, powered by revm."
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
@@ -27,9 +27,8 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.148"
 toml = "1.1.2"
 
-# Fuzzer
-libafl = "0.15.3"
-libafl_bolts = "0.15.3"
+# RNG
+fastrand = "2"
 
 # EVM
 revm = "38.0.0"

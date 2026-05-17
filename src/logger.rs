@@ -57,16 +57,9 @@ fn diagnostic_filter(level: Option<Level>) -> EnvFilter {
     let directives = match level {
         None => "off",
         Some(Level::ERROR) => "error,raptor::user=off",
-        Some(Level::WARN) => "warn,libafl=error,libafl_bolts=error,revm=error,raptor::user=off",
-        // Default (no flags): keep diagnostics minimal; only raptor warnings and dependency errors.
-        Some(Level::INFO) => {
-            "raptor=warn,libafl=error,libafl_bolts=error,revm=error,raptor::user=off"
-        }
-        // -v: show raptor lifecycle info and dependency warnings.
-        Some(Level::DEBUG) => {
-            "raptor=info,libafl=warn,libafl_bolts=warn,revm=warn,raptor::user=off"
-        }
-        // -vv: full trace of everything.
+        Some(Level::WARN) => "warn,revm=error,raptor::user=off",
+        Some(Level::INFO) => "raptor=warn,revm=error,raptor::user=off",
+        Some(Level::DEBUG) => "raptor=info,revm=warn,raptor::user=off",
         Some(Level::TRACE) => "trace,raptor::user=off",
     };
     EnvFilter::new(directives)

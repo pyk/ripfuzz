@@ -1,63 +1,39 @@
 //! Corpus mutator that keeps the tail of a sequence.
 
-use std::borrow::Cow;
-use std::num::NonZeroUsize;
+use std::sync::{Arc, RwLock};
 
-use libafl::{
-    corpus::{Corpus, CorpusId},
-    mutators::{MutationResult, Mutator},
-    state::{HasCorpus, HasRand},
-};
-use libafl_bolts::Named;
-use libafl_bolts::rands::Rand;
-
-use crate::corpus;
+use crate::corpus::{Call, Corpus};
+use crate::worker::mutators::{MutationResult, Mutator};
 
 /// Take the tail of a corpus sequence and keep it, discarding the rest.
-#[derive(Debug, Default)]
-pub struct SequenceTailMutator;
+#[derive(Debug)]
+pub struct SequenceTailMutator {
+    corpus: Arc<RwLock<Corpus>>,
+}
 
-impl Named for SequenceTailMutator {
-    fn name(&self) -> &Cow<'static, str> {
-        &Cow::Borrowed("SequenceTailMutator")
+impl SequenceTailMutator {
+    pub fn new(corpus: Arc<RwLock<Corpus>>) -> Self {
+        Self { corpus }
     }
 }
 
-impl<S> Mutator<corpus::CallSequenceInput, S> for SequenceTailMutator
-where
-    S: HasRand + HasCorpus<corpus::CallSequenceInput>,
-{
-    fn mutate(
-        &mut self,
-        state: &mut S,
-        input: &mut corpus::CallSequenceInput,
-    ) -> Result<MutationResult, libafl::Error> {
-        let count = state.corpus().count();
+impl Mutator for SequenceTailMutator {
+    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+        let Ok(corpus) = self.corpus.read() else {
+            return MutationResult::Skipped;
+        };
+        let count = corpus.items.len();
         if count == 0 {
-            return Ok(MutationResult::Skipped);
+            return MutationResult::Skipped;
         }
-        let id = state
-            .rand_mut()
-            .below(NonZeroUsize::new(count).ok_or_else(|| libafl::Error::unknown("non-zero"))?);
-        let seq = state
-            .corpus()
-            .cloned_input_for_id(CorpusId::from(id))
-            .map_err(|e| libafl::Error::unknown(format!("corpus get: {e}")))?;
-        if seq.calls.is_empty() {
-            return Ok(MutationResult::Skipped);
+        let id = rng.usize(0..count);
+        let seq = corpus.items[id].calls.clone();
+        drop(corpus);
+        if seq.is_empty() {
+            return MutationResult::Skipped;
         }
-        let tail_len = state.rand_mut().below(
-            NonZeroUsize::new(seq.calls.len()).ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        ) + 1;
-        input.calls = seq.calls[seq.calls.len() - tail_len..].to_vec();
-        Ok(MutationResult::Mutated)
-    }
-
-    fn post_exec(
-        &mut self,
-        _state: &mut S,
-        _new_corpus_id: Option<CorpusId>,
-    ) -> Result<(), libafl::Error> {
-        Ok(())
+        let tail_len = rng.usize(1..=seq.len());
+        *calls = seq[seq.len() - tail_len..].to_vec();
+        MutationResult::Mutated
     }
 }

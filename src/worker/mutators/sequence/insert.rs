@@ -1,16 +1,7 @@
 //! Sequence mutator that inserts a new random call.
 
-use std::borrow::Cow;
-use std::num::NonZeroUsize;
-
-use libafl::{
-    corpus::CorpusId,
-    mutators::{MutationResult, Mutator},
-    state::HasRand,
-};
-use libafl_bolts::{Named, rands::Rand};
-
-use crate::corpus;
+use crate::corpus::Call;
+use crate::worker::mutators::{MutationResult, Mutator};
 
 /// Insert a new random call at a random position.
 #[derive(Debug, Default)]
@@ -30,44 +21,28 @@ impl SequenceInsertMutator {
     }
 }
 
-impl Named for SequenceInsertMutator {
-    fn name(&self) -> &Cow<'static, str> {
-        &Cow::Borrowed("SequenceInsertMutator")
-    }
-}
-
-impl<S: HasRand> Mutator<corpus::CallSequenceInput, S> for SequenceInsertMutator {
-    fn mutate(
-        &mut self,
-        state: &mut S,
-        input: &mut corpus::CallSequenceInput,
-    ) -> Result<MutationResult, libafl::Error> {
+impl Mutator for SequenceInsertMutator {
+    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
         if self.selectors.is_empty() {
-            return Ok(MutationResult::Skipped);
+            return MutationResult::Skipped;
         }
-        let idx = if input.calls.is_empty() {
+        let idx = if calls.is_empty() {
             0
         } else {
-            state.rand_mut().below(
-                NonZeroUsize::new(input.calls.len() + 1)
-                    .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-            )
+            rng.usize(0..calls.len() + 1)
         };
-        let sel_idx = state.rand_mut().below(
-            NonZeroUsize::new(self.selectors.len())
-                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        );
+        let sel_idx = rng.usize(0..self.selectors.len());
 
         let mut block_number_delay = 0u64;
         let mut block_timestamp_delay = 0u64;
         if self.max_block_delay > 0 {
-            block_number_delay = state.rand_mut().next() % (self.max_block_delay + 1);
+            block_number_delay = rng.u64(0..self.max_block_delay + 1);
         }
         if self.max_time_delay > 0 {
-            block_timestamp_delay = state.rand_mut().next() % (self.max_time_delay + 1);
+            block_timestamp_delay = rng.u64(0..self.max_time_delay + 1);
         }
 
-        let mut call = corpus::Call {
+        let mut call = Call {
             selector: self.selectors[sel_idx],
             args: vec![0u8; 32 * 3], // up to 3 args of padding
             block_number_delay,
@@ -75,15 +50,7 @@ impl<S: HasRand> Mutator<corpus::CallSequenceInput, S> for SequenceInsertMutator
             ..Default::default()
         };
         call.cap_delays();
-        input.calls.insert(idx, call);
-        Ok(MutationResult::Mutated)
-    }
-
-    fn post_exec(
-        &mut self,
-        _state: &mut S,
-        _new_corpus_id: Option<CorpusId>,
-    ) -> Result<(), libafl::Error> {
-        Ok(())
+        calls.insert(idx, call);
+        MutationResult::Mutated
     }
 }

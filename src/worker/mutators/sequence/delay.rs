@@ -1,16 +1,7 @@
 //! Sequence mutator that randomizes block delays.
 
-use std::borrow::Cow;
-use std::num::NonZeroUsize;
-
-use libafl::{
-    corpus::CorpusId,
-    mutators::{MutationResult, Mutator},
-    state::HasRand,
-};
-use libafl_bolts::{Named, rands::Rand};
-
-use crate::corpus;
+use crate::corpus::Call;
+use crate::worker::mutators::{MutationResult, Mutator};
 
 /// Mutate block delays on a random call in the sequence.
 #[derive(Debug, Default)]
@@ -28,42 +19,21 @@ impl SequenceDelayMutator {
     }
 }
 
-impl Named for SequenceDelayMutator {
-    fn name(&self) -> &Cow<'static, str> {
-        &Cow::Borrowed("SequenceDelayMutator")
-    }
-}
-
-impl<S: HasRand> Mutator<corpus::CallSequenceInput, S> for SequenceDelayMutator {
-    fn mutate(
-        &mut self,
-        state: &mut S,
-        input: &mut corpus::CallSequenceInput,
-    ) -> Result<MutationResult, libafl::Error> {
-        if input.calls.is_empty() {
-            return Ok(MutationResult::Skipped);
+impl Mutator for SequenceDelayMutator {
+    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+        if calls.is_empty() {
+            return MutationResult::Skipped;
         }
-        let idx = state.rand_mut().below(
-            NonZeroUsize::new(input.calls.len())
-                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        );
-        let call = &mut input.calls[idx];
+        let idx = rng.usize(0..calls.len());
+        let call = &mut calls[idx];
 
         if self.max_block_delay > 0 {
-            call.block_number_delay = state.rand_mut().next() % (self.max_block_delay + 1);
+            call.block_number_delay = rng.u64(0..self.max_block_delay + 1);
         }
         if self.max_time_delay > 0 {
-            call.block_timestamp_delay = state.rand_mut().next() % (self.max_time_delay + 1);
+            call.block_timestamp_delay = rng.u64(0..self.max_time_delay + 1);
         }
         call.cap_delays();
-        Ok(MutationResult::Mutated)
-    }
-
-    fn post_exec(
-        &mut self,
-        _state: &mut S,
-        _new_corpus_id: Option<CorpusId>,
-    ) -> Result<(), libafl::Error> {
-        Ok(())
+        MutationResult::Mutated
     }
 }

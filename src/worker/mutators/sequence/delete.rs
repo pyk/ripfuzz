@@ -1,49 +1,19 @@
 //! Sequence mutator that deletes a random call.
 
-use std::borrow::Cow;
-use std::num::NonZeroUsize;
-
-use libafl::{
-    corpus::CorpusId,
-    mutators::{MutationResult, Mutator},
-    state::HasRand,
-};
-use libafl_bolts::{Named, rands::Rand};
-
-use crate::corpus;
+use crate::corpus::Call;
+use crate::worker::mutators::{MutationResult, Mutator};
 
 /// Delete a random call from the sequence.
 #[derive(Debug, Default)]
 pub struct SequenceDeleteMutator;
 
-impl Named for SequenceDeleteMutator {
-    fn name(&self) -> &Cow<'static, str> {
-        &Cow::Borrowed("SequenceDeleteMutator")
-    }
-}
-
-impl<S: HasRand> Mutator<corpus::CallSequenceInput, S> for SequenceDeleteMutator {
-    fn mutate(
-        &mut self,
-        state: &mut S,
-        input: &mut corpus::CallSequenceInput,
-    ) -> Result<MutationResult, libafl::Error> {
-        if input.calls.is_empty() {
-            return Ok(MutationResult::Skipped);
+impl Mutator for SequenceDeleteMutator {
+    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+        if calls.is_empty() {
+            return MutationResult::Skipped;
         }
-        let idx = state.rand_mut().below(
-            NonZeroUsize::new(input.calls.len())
-                .ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        );
-        input.calls.remove(idx);
-        Ok(MutationResult::Mutated)
-    }
-
-    fn post_exec(
-        &mut self,
-        _state: &mut S,
-        _new_corpus_id: Option<CorpusId>,
-    ) -> Result<(), libafl::Error> {
-        Ok(())
+        let idx = rng.usize(0..calls.len());
+        calls.remove(idx);
+        MutationResult::Mutated
     }
 }

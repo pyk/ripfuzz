@@ -1,41 +1,18 @@
-//! Per-process fuzzing worker that executes the LibAFL loop.
+//! Per-worker fuzzing thread that executes call sequences and reports results.
+
+use std::sync::{Arc, RwLock};
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
-use anyhow::{Context, Result};
-use libafl::{
-    corpus::ondisk::OnDiskMetadataFormat,
-    corpus::{Corpus, InMemoryOnDiskCorpus, OnDiskCorpus, Testcase},
-    executors::InProcessExecutor,
-    feedbacks::{CrashFeedback, MaxMapFeedback},
-    fuzzer::{Fuzzer as LibAflFuzzer, StdFuzzer},
-    observers::StdMapObserver,
-    schedulers::QueueScheduler,
-    stages::StdMutationalStage,
-    state::{HasCorpus, StdState},
-};
-use libafl_bolts::{rands::StdRand, tuples::tuple_list};
-use tracing::{debug, info, instrument, trace, warn};
+use anyhow::Result;
+use tracing::{info, instrument};
 
 use crate::campaign::CampaignConfig;
 use crate::contract;
-use crate::corpus;
+use crate::corpus::{Call, Corpus, CorpusItem, LocalCoverage};
 use crate::evm;
 use crate::inspector;
 
 pub mod mutators;
-
-pub(crate) type MyCorpus = InMemoryOnDiskCorpus<corpus::CallSequenceInput>;
-pub(crate) type MyObjectiveCorpus = OnDiskCorpus<corpus::CallSequenceInput>;
-pub(crate) type MyState = StdState<MyCorpus, corpus::CallSequenceInput, StdRand, MyObjectiveCorpus>;
-pub(crate) type MyShMem = libafl_bolts::shmem::UnixShMem;
-pub(crate) type MyShMemProvider = libafl_bolts::shmem::StdShMemProvider;
-pub(crate) type MyMgr = libafl::events::llmp::restarting::LlmpRestartingEventManager<
-    (),
-    corpus::CallSequenceInput,
-    MyState,
-    MyShMem,
-    MyShMemProvider,
->;
 
 /// Result produced by a single worker.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -49,7 +26,7 @@ pub struct WorkerResult {
 pub struct PropertyFailure {
     pub property_name: String,
     pub property_selector: [u8; 4],
-    pub call_sequence: corpus::CallSequenceInput,
+    pub call_sequence: Vec<Call>,
     /// Per-call block number / timestamp captured during execution.
     pub call_meta: Vec<crate::evm::CallMeta>,
 }
@@ -57,7 +34,7 @@ pub struct PropertyFailure {
 /// Format a property failure's call sequence as a flat, Medusa-style log.
 pub fn format_failure(artifact: &contract::ContractArtifact, failure: &PropertyFailure) -> String {
     let mut lines = Vec::new();
-    for (i, call) in failure.call_sequence.calls.iter().enumerate() {
+    for (i, call) in failure.call_sequence.iter().enumerate() {
         let n = i + 1;
 
         let block = failure
@@ -170,7 +147,6 @@ pub fn format_failure(artifact: &contract::ContractArtifact, failure: &PropertyF
     lines.join("\n")
 }
 
-/// Format a single decoded Solidity value for display.
 fn format_dyn_value(v: &alloy_dyn_abi::DynSolValue) -> String {
     match v {
         alloy_dyn_abi::DynSolValue::Bool(b) => format!("{}", b),
@@ -185,169 +161,206 @@ fn format_dyn_value(v: &alloy_dyn_abi::DynSolValue) -> String {
 }
 
 pub struct Worker {
-    artifact: contract::ContractArtifact,
-    seeds: Vec<corpus::CallSequenceInput>,
-    config: CampaignConfig,
-    selectors: Vec<[u8; 4]>,
+    artifact: Arc<contract::ContractArtifact>,
+    selectors: Arc<Vec<[u8; 4]>>,
+    config: Arc<CampaignConfig>,
 }
 
 impl Worker {
     pub fn new(
-        artifact: contract::ContractArtifact,
-        seeds: Vec<corpus::CallSequenceInput>,
-        config: CampaignConfig,
-        selectors: Vec<[u8; 4]>,
+        artifact: Arc<contract::ContractArtifact>,
+        config: Arc<CampaignConfig>,
+        selectors: Arc<Vec<[u8; 4]>>,
     ) -> Self {
         Self {
             artifact,
-            seeds,
-            config,
             selectors,
+            config,
         }
     }
 
-    /// Run a LibAFL fuzzing loop for `max_runs` iterations.
-    #[instrument(skip(self, state, mgr, coverage_map), fields(max_runs))]
+    fn mutate_corpus_item(
+        &self,
+        corpus: &Arc<RwLock<Corpus>>,
+        mutators: &mut [Box<dyn mutators::Mutator>],
+        rng: &mut fastrand::Rng,
+        idx: usize,
+        base: CorpusItem,
+    ) -> (Vec<Call>, mutators::MutationResult) {
+        let mut calls = base.calls;
+        let idx_mut = rng.usize(0..mutators.len());
+        let m = &mut mutators[idx_mut];
+        let result = m.mutate(rng, &mut calls);
+        if result == mutators::MutationResult::Mutated
+            && let Ok(mut c) = corpus.write()
+            && let Some(base_item) = c.items.get_mut(idx)
+        {
+            base_item.total_mutations += 1;
+        }
+        (calls, result)
+    }
+
+    #[instrument(skip(self, corpus), fields(max_runs))]
     pub fn run(
         &self,
-        state: Option<MyState>,
-        mgr: &mut MyMgr,
-        coverage_map: &mut [u8],
+        corpus: Arc<RwLock<Corpus>>,
         max_runs: u64,
-        client_id: usize,
+        worker_id: usize,
+        start: std::time::Instant,
+        timeout: std::time::Duration,
     ) -> Result<WorkerResult> {
-        info!(max_runs, "worker run starting");
-        let map_ptr = coverage_map.as_mut_ptr();
+        info!(max_runs, worker_id, "worker run starting");
 
-        // checkrs: allow(unsafe_usage)
-        let observer = unsafe {
-            StdMapObserver::from_mut_ptr("edges", map_ptr, inspector::MAP_SIZE) //
-        };
-        let mut feedback = MaxMapFeedback::new(&observer);
-        let mut objective = CrashFeedback::new();
-
-        let mut state = match state {
-            Some(s) => {
-                trace!("restoring state from previous run");
-                coverage_map.fill(0);
-                s
-            }
-            None => {
-                trace!("creating new state");
-                let coverage_dir = self
-                    .config
-                    .corpus_dir
-                    .as_ref()
-                    .map(|d| d.join(format!("coverage/worker{client_id}")))
-                    .unwrap_or_else(|| {
-                        std::env::temp_dir().join(format!("raptor_coverage_{}", std::process::id()))
-                    });
-                let crash_dir = self
-                    .config
-                    .corpus_dir
-                    .as_ref()
-                    .map(|d| d.join(format!("crashes/worker{client_id}")))
-                    .unwrap_or_else(|| {
-                        std::env::temp_dir().join(format!("raptor_crashes_{}", std::process::id()))
-                    });
-
-                let corpus = MyCorpus::with_meta_format(
-                    &coverage_dir,
-                    Some(OnDiskMetadataFormat::JsonPretty),
-                )
-                .context("coverage corpus failed")?;
-                let objectives = MyObjectiveCorpus::with_meta_format(
-                    &crash_dir,
-                    OnDiskMetadataFormat::JsonPretty,
-                )
-                .context("crash corpus failed")?;
-
-                let mut s = StdState::new(
-                    StdRand::with_seed(self.config.seed),
-                    corpus,
-                    objectives,
-                    &mut feedback,
-                    &mut objective,
-                )?;
-                let seeds = self.seeds.clone();
-                for seed in seeds {
-                    s.corpus_mut().add(Testcase::new(seed))?;
-                }
-                s
-            }
-        };
-
-        let scheduler = QueueScheduler::new();
-        let mut fuzzer = StdFuzzer::new(scheduler, feedback, objective);
-
+        let mut rng = fastrand::Rng::with_seed(self.config.seed + worker_id as u64);
         let runner = evm::EvmRunner::from_target(&self.artifact)?;
         let mut failures = Vec::new();
+        let mut local_coverage = LocalCoverage::new();
 
-        let mut harness = |input: &corpus::CallSequenceInput| {
-            let inspector = inspector::CoverageInspector::from_slice(coverage_map);
-            match runner.run_sequence(&input.calls, inspector) {
-                Ok(res) if res.all_ok && res.property_triggered => {
-                    trace!(property = %res.triggered_property.as_ref().unwrap(), "property triggered");
-                    if let (Some(name), Some(sel)) =
-                        (&res.triggered_property, &res.triggered_property_selector)
-                    {
-                        failures.push(PropertyFailure {
-                            property_name: name.clone(),
-                            property_selector: *sel,
-                            call_sequence: input.clone(),
-                            call_meta: res.call_meta.clone(),
-                        });
-                    }
-                    libafl::executors::ExitKind::Crash
-                }
-                Ok(_) => libafl::executors::ExitKind::Ok,
-                Err(_) => libafl::executors::ExitKind::Ok,
-            }
-        };
-
-        let mut executor = InProcessExecutor::new(
-            &mut harness,
-            tuple_list!(observer),
-            &mut fuzzer,
-            &mut state,
-            mgr,
-        )?;
-        debug!("executor created");
-
-        let mut stages = tuple_list!(StdMutationalStage::with_max_iterations(
-            libafl::mutators::scheduled::HavocScheduledMutator::new(tuple_list!(
-                mutators::SequenceSwapMutator,
-                mutators::SequenceInsertMutator::new(
-                    self.selectors.clone(),
-                    self.config.max_block_number_delay,
-                    self.config.max_block_timestamp_delay,
-                ),
-                mutators::SequenceDeleteMutator,
-                mutators::SequenceSpliceMutator,
-                mutators::SequenceInterleaveMutator,
-                mutators::SequenceHeadMutator,
-                mutators::SequenceTailMutator,
-                mutators::SequenceArgMutator::new(self.artifact.abi.clone()),
-                mutators::SequenceDelayMutator::new(
-                    self.config.max_block_number_delay,
-                    self.config.max_block_timestamp_delay,
-                ),
+        let mut mutators: Vec<Box<dyn mutators::Mutator>> = vec![
+            Box::new(mutators::SequenceSwapMutator),
+            Box::new(mutators::SequenceInsertMutator::new(
+                self.selectors.to_vec(),
+                self.config.max_block_number_delay,
+                self.config.max_block_timestamp_delay,
             )),
-            std::num::NonZeroUsize::new(1).ok_or_else(|| libafl::Error::unknown("non-zero"))?,
-        ));
+            Box::new(mutators::SequenceDeleteMutator),
+            Box::new(mutators::SequenceSpliceMutator::new(corpus.clone())),
+            Box::new(mutators::SequenceInterleaveMutator::new(corpus.clone())),
+            Box::new(mutators::SequenceHeadMutator::new(corpus.clone())),
+            Box::new(mutators::SequenceTailMutator::new(corpus.clone())),
+            Box::new(mutators::SequenceArgMutator::new(self.artifact.abi.clone())),
+            Box::new(mutators::SequenceDelayMutator::new(
+                self.config.max_block_number_delay,
+                self.config.max_block_timestamp_delay,
+            )),
+        ];
 
-        info!(max_runs, "starting fuzz loop");
         let mut runs = 0u64;
         for _ in 0..max_runs {
-            fuzzer
-                .fuzz_one(&mut stages, &mut executor, &mut state, mgr)
-                .context("fuzz iteration failed")?;
+            if start.elapsed() > timeout {
+                break;
+            }
+
+            let item = {
+                let Ok(mut corpus_guard) = corpus.write() else {
+                    break;
+                };
+                corpus_guard.pop_pending_item()
+            };
+
+            let is_replay = item.is_some();
+            let mut base_idx = None;
+            let calls = if let Some(item) = item {
+                item.calls
+            } else {
+                let has_entries = if let Ok(c) = corpus.read() {
+                    c.has_entries()
+                } else {
+                    false
+                };
+                if rng.bool() && has_entries {
+                    let picked = if let Ok(c) = corpus.read() {
+                        c.random_item_for_mutation_with_index(&mut rng)
+                    } else {
+                        None
+                    };
+                    if let Some((idx, base)) = picked {
+                        base_idx = Some(idx);
+                        let (calls, _) =
+                            self.mutate_corpus_item(&corpus, &mut mutators, &mut rng, idx, base);
+                        calls
+                    } else {
+                        generate_random_sequence(&self.selectors, &mut rng, &self.config)
+                    }
+                } else {
+                    generate_random_sequence(&self.selectors, &mut rng, &self.config)
+                }
+            };
+
+            local_coverage.clear();
+            let inspector = inspector::CoverageInspector::new(&mut local_coverage);
+            let result = runner.run_sequence(&calls, inspector)?;
+            let all_ok = result.all_ok;
+            let property_triggered = result.property_triggered;
+
+            let mut item = CorpusItem::new(calls);
+            if all_ok {
+                let Ok(mut corpus_guard) = corpus.write() else {
+                    continue;
+                };
+                let added = corpus_guard.check_and_update_coverage(&local_coverage, &item);
+                if added
+                    && let Some(idx) = base_idx
+                    && let Some(base_item) = corpus_guard.items.get_mut(idx)
+                {
+                    base_item.new_finds_produced += 1;
+                }
+                if is_replay && !added {
+                    corpus_guard.add_item_for_mutation(&item);
+                }
+            }
+
+            if all_ok
+                && property_triggered
+                && let (Some(name), Some(sel)) = (
+                    result.triggered_property,
+                    result.triggered_property_selector,
+                )
+            {
+                let call_meta = result.call_meta;
+                let call_sequence = std::mem::take(&mut item.calls);
+                failures.push(PropertyFailure {
+                    property_name: name,
+                    property_selector: sel,
+                    call_sequence,
+                    call_meta,
+                });
+            }
+
             runs += 1;
         }
-        info!(runs, "fuzz loop finished");
 
+        // Sync discovered failures into the shared corpus for persistence.
+        if let Ok(mut c) = corpus.write() {
+            for failure in &failures {
+                c.add_failure(CorpusItem::new(failure.call_sequence.as_slice().to_vec()));
+            }
+        }
+
+        info!(runs, worker_id, "worker run finished");
         Ok(WorkerResult { runs, failures })
     }
+}
+
+fn generate_random_sequence(
+    selectors: &[[u8; 4]],
+    rng: &mut fastrand::Rng,
+    config: &CampaignConfig,
+) -> Vec<Call> {
+    let len = rng.usize(1..=config.sequence_length.max(1));
+    let mut calls = Vec::with_capacity(len);
+    for _ in 0..len {
+        if selectors.is_empty() {
+            break;
+        }
+        let sel_idx = rng.usize(0..selectors.len());
+        let mut call = Call {
+            selector: selectors[sel_idx],
+            args: vec![0u8; 32 * 3],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        };
+        if config.max_block_number_delay > 0 {
+            call.block_number_delay = rng.u64(0..config.max_block_number_delay + 1);
+        }
+        if config.max_block_timestamp_delay > 0 {
+            call.block_timestamp_delay = rng.u64(0..config.max_block_timestamp_delay + 1);
+        }
+        call.cap_delays();
+        calls.push(call);
+    }
+    calls
 }
 
 #[cfg(test)]
@@ -395,7 +408,7 @@ mod tests {
         let failure = PropertyFailure {
             property_name: "property_caught".into(),
             property_selector: [0; 4],
-            call_sequence: corpus::CallSequenceInput { calls },
+            call_sequence: calls,
             call_meta: vec![
                 evm::CallMeta {
                     block_number: 0,

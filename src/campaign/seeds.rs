@@ -3,10 +3,10 @@
 use std::collections::VecDeque;
 
 use crate::contract::ContractArtifact;
-use crate::corpus;
+use crate::corpus::{Call, CorpusItem};
 
 /// Build seed inputs from the contract ABI.
-pub fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<corpus::CallSequenceInput> {
+pub fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<CorpusItem> {
     let mut seeds = Vec::new();
     let mut action_calls = Vec::new();
 
@@ -18,7 +18,7 @@ pub fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<corpus::C
         );
 
         let signature = func.signature();
-        let call = corpus::Call {
+        let call = Call {
             selector: func.selector().into(),
             args: vec![0u8; func.inputs.len() * 32],
             block_number_delay: 0,
@@ -31,13 +31,11 @@ pub fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<corpus::C
         if is_action {
             action_calls.push(call.replicate());
         }
-        seeds.push(corpus::CallSequenceInput::single(call));
+        seeds.push(CorpusItem::new(vec![call]));
     }
 
     if !action_calls.is_empty() {
-        let mut combined = corpus::CallSequenceInput::new();
-        combined.calls = action_calls.clone();
-        seeds.push(combined);
+        seeds.push(CorpusItem::new(action_calls.clone()));
     }
 
     // Permutation seeds for action functions (up to max_len).
@@ -61,11 +59,11 @@ pub fn build_seeds(artifact: &ContractArtifact, max_len: usize) -> Vec<corpus::C
             }
         }
         for perm in permutations {
-            let mut seq = corpus::CallSequenceInput::new();
+            let mut calls = Vec::new();
             for &i in &perm {
-                seq.calls.push(action_calls[i].replicate());
+                calls.push(action_calls[i].replicate());
             }
-            seeds.push(seq);
+            seeds.push(CorpusItem::new(calls));
         }
     }
 

@@ -8,6 +8,8 @@ use anyhow::{Result, ensure};
 use revm::bytecode::Bytecode;
 use revm::primitives::Bytes;
 
+use crate::contract::source_map::SourceMap;
+
 /// A Foundry-compiled artifact loaded from disk.
 #[derive(Debug, Clone)]
 pub struct ContractArtifact {
@@ -20,6 +22,10 @@ pub struct ContractArtifact {
     /// All contracts compiled in the same project, keyed by initcode.
     /// Each entry holds the contract name and ABI for that contract.
     pub initcode_map: HashMap<Bytes, (String, JsonAbi)>,
+    /// Parsed source map for initcode, if present in the artifact.
+    pub init_source_map: Option<SourceMap>,
+    /// Parsed source map for runtime bytecode, if present in the artifact.
+    pub runtime_source_map: Option<SourceMap>,
 }
 
 /// Scan the ABI for functions that start with `property_` and validate
