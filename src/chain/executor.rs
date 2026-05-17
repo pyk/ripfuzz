@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use alloy_json_abi::JsonAbi;
 use revm::{
-    InspectEvm, MainBuilder, MainContext,
+    MainBuilder, MainContext,
     context::{Context, TxEnv},
     inspector::{InspectCommitEvm, NoOpInspector},
     primitives::{Bytes, TxKind, U256},
@@ -82,18 +82,33 @@ pub fn execute(
             cheatcodes.state.prank = None;
         }
 
-        let tx = TxEnv {
+        let nonce = local_state.next_nonce();
+        let mut ctx = Context::mainnet().with_db(local_state.db);
+        ctx.block.number = U256::from(local_state.block_number);
+        ctx.block.timestamp = U256::from(local_state.block_timestamp);
+        if let Some(fee) = local_state.cheatcodes.fee {
+            ctx.block.basefee = u64::try_from(fee).unwrap_or(0);
+        }
+        if let Some(coinbase) = local_state.cheatcodes.coinbase {
+            ctx.block.beneficiary = coinbase;
+        }
+        if let Some(prevrandao) = local_state.cheatcodes.prevrandao {
+            ctx.block.prevrandao = Some(revm::primitives::FixedBytes::from(prevrandao));
+        }
+        if let Some(chain_id) = local_state.cheatcodes.chain_id {
+            ctx.cfg.chain_id = chain_id.as_limbs()[0];
+        }
+
+        let mut tx = TxEnv {
             caller,
             kind: TxKind::Call(contract_address),
             data: Bytes::from(call.encode()),
             gas_limit: config.gas_limit,
-            nonce: local_state.next_nonce(),
+            nonce,
             ..Default::default()
         };
-
-        let mut ctx = Context::mainnet().with_db(local_state.db);
-        ctx.block.number = U256::from(local_state.block_number);
-        ctx.block.timestamp = U256::from(local_state.block_timestamp);
+        tx.chain_id = Some(ctx.cfg.chain_id);
+        tx.gas_price = ctx.block.basefee as u128;
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
         let result = evm
             .inspect_tx_commit(tx)
@@ -148,15 +163,6 @@ fn check_properties(
     let mut results = Vec::with_capacity(properties.len());
 
     for (selector, name) in properties {
-        let tx = TxEnv {
-            caller: config.caller,
-            kind: TxKind::Call(contract_address),
-            data: Bytes::copy_from_slice(selector),
-            gas_limit: config.gas_limit,
-            nonce: state.next_nonce(),
-            ..Default::default()
-        };
-
         // Property functions are view/pure — revm reverts on any SSTORE,
         // so the DB is functionally unchanged.  We must move the DB into
         // revm's Context (it does not support borrowing) and move it back
@@ -167,8 +173,30 @@ fn check_properties(
         let mut ctx = Context::mainnet().with_db(db);
         ctx.block.number = U256::from(state.block_number);
         ctx.block.timestamp = U256::from(state.block_timestamp);
+        if let Some(fee) = state.cheatcodes.fee {
+            ctx.block.basefee = u64::try_from(fee).unwrap_or(0);
+        }
+        if let Some(coinbase) = state.cheatcodes.coinbase {
+            ctx.block.beneficiary = coinbase;
+        }
+        if let Some(prevrandao) = state.cheatcodes.prevrandao {
+            ctx.block.prevrandao = Some(revm::primitives::FixedBytes::from(prevrandao));
+        }
+        if let Some(chain_id) = state.cheatcodes.chain_id {
+            ctx.cfg.chain_id = chain_id.as_limbs()[0];
+        }
+        let mut tx = TxEnv {
+            caller: config.caller,
+            kind: TxKind::Call(contract_address),
+            data: Bytes::copy_from_slice(selector),
+            gas_limit: config.gas_limit,
+            nonce: state.next_nonce(),
+            ..Default::default()
+        };
+        tx.chain_id = Some(ctx.cfg.chain_id);
+        tx.gas_price = ctx.block.basefee as u128;
         let mut evm = ctx.build_mainnet_with_inspector(NoOpInspector);
-        let result = evm.inspect_one_tx(tx);
+        let result = evm.inspect_tx_commit(tx);
         state.db = evm.ctx.journaled_state.database;
         let result = result.map_err(|e| -> anyhow::Error { e.into() })?;
 

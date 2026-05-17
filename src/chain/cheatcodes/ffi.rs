@@ -8,7 +8,7 @@ use revm::interpreter::CallOutcome;
 use crate::chain::cheatcodes::{CheatcodeInspector, revert_outcome, success_bytes_outcome};
 
 /// `ffi(string[])` returns `bytes`.
-pub const FFI_SELECTOR: [u8; 4] = [0x0a, 0x94, 0xd9, 0x2e];
+pub const FFI_SELECTOR: [u8; 4] = [0x89, 0x16, 0x04, 0x67];
 
 pub fn handle_ffi(
     inspector: &mut CheatcodeInspector,
@@ -48,7 +48,22 @@ pub fn handle_ffi(
     if !output.status.success() {
         return Some(revert_outcome("ffi command failed"));
     }
-    Some(success_bytes_outcome(output.stdout))
+
+    // Medusa / Foundry behaviour: trim whitespace, try hex-decode if prefixed
+    // with 0x, otherwise return raw stdout bytes.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let trimmed = stdout.trim();
+    let bytes = if let Some(hex_str) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
+        hex::decode(hex_str).unwrap_or_else(|_| output.stdout.clone())
+    } else {
+        output.stdout.clone()
+    };
+    Some(success_bytes_outcome(
+        DynSolValue::Bytes(bytes).abi_encode(),
+    ))
 }
 
 #[cfg(test)]

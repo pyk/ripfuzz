@@ -54,6 +54,7 @@ pub fn handle_start_prank(
     inspector.state.start_prank = Some(super::StartPrankState {
         caller: addr,
         origin: addr,
+        set_depth: inspector.depth.saturating_sub(1),
     });
     Some(dummy_success())
 }
@@ -66,10 +67,15 @@ pub fn handle_stop_prank(inspector: &mut CheatcodeInspector) -> Option<CallOutco
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use revm::primitives::Address;
 
     use super::*;
+    use crate::chain::Chain;
     use crate::chain::cheatcodes::CheatcodeInspector;
+    use crate::contract;
+    use crate::corpus::Call;
 
     fn call_data(selector: [u8; 4], addr: Address) -> revm::primitives::Bytes {
         let mut data = vec![0u8; 4 + 32];
@@ -109,8 +115,9 @@ mod tests {
         let addr = Address::new([0xef; 20]);
         let result = handle_start_prank(&mut inspector, &call_data(START_PRANK_SELECTOR, addr));
         assert!(result.is_some());
-        assert!(inspector.state.start_prank.is_some());
-        assert_eq!(inspector.state.start_prank.unwrap().caller, addr);
+        let start = inspector.state.start_prank.unwrap();
+        assert_eq!(start.caller, addr);
+        assert_eq!(start.set_depth, 0);
     }
 
     #[test]
@@ -126,10 +133,48 @@ mod tests {
         inspector.state.start_prank = Some(super::super::StartPrankState {
             caller: Address::ZERO,
             origin: Address::ZERO,
+            set_depth: 0,
         });
         let result = handle_stop_prank(&mut inspector);
         assert!(result.is_some());
         assert!(inspector.state.prank.is_none());
         assert!(inspector.state.start_prank.is_none());
+    }
+
+    #[test]
+    fn cheatcode_prank_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodePrank.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let action_prank: [u8; 4] = [0xe8, 0x29, 0x58, 0x0d]; // action_prank()
+        let action_start: [u8; 4] = [0xb1, 0x61, 0x16, 0x84]; // action_start_prank()
+
+        let output = chain
+            .execute(&vec![
+                Call {
+                    selector: action_prank,
+                    args: vec![],
+                    block_number_delay: 0,
+                    block_timestamp_delay: 0,
+                    ..Default::default()
+                },
+                Call {
+                    selector: action_start,
+                    args: vec![],
+                    block_number_delay: 0,
+                    block_timestamp_delay: 0,
+                    ..Default::default()
+                },
+            ])
+            .unwrap();
+        assert!(output.all_ok, "prank actions should succeed");
+        assert!(
+            output.property_results.iter().all(|p| p.passed),
+            "prank property should pass"
+        );
     }
 }

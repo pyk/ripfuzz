@@ -6,9 +6,9 @@ use revm::interpreter::CallOutcome;
 use crate::chain::cheatcodes::{CheatcodeInspector, success_bytes_outcome};
 
 /// `addr(uint256)` returns `address`.
-pub const ADDR_SELECTOR: [u8; 4] = [0xf8, 0x63, 0x55, 0x1f];
+pub const ADDR_SELECTOR: [u8; 4] = [0xff, 0xa1, 0x86, 0x49];
 /// `sign(uint256, bytes32)`.
-pub const SIGN_SELECTOR: [u8; 4] = [0x16, 0x00, 0xfc, 0x3e];
+pub const SIGN_SELECTOR: [u8; 4] = [0xe3, 0x41, 0xea, 0xa4];
 
 pub fn handle_addr(
     _inspector: &mut CheatcodeInspector,
@@ -68,8 +68,12 @@ pub fn handle_sign(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+    use crate::chain::Chain;
     use crate::chain::cheatcodes::CheatcodeInspector;
+    use crate::contract;
 
     #[test]
     fn addr_derivation_matches_expected() {
@@ -86,6 +90,22 @@ mod tests {
         assert_eq!(
             addr.to_string().to_lowercase(),
             "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+        );
+    }
+
+    #[test]
+    fn cheatcode_wallet_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeWallet.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let output = chain.execute(&vec![]).unwrap();
+        assert!(
+            output.property_results.iter().all(|p| p.passed),
+            "wallet property should pass"
         );
     }
 }

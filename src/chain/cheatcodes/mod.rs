@@ -49,6 +49,9 @@ pub struct CheatcodeState {
     pub coinbase: Option<Address>,
     pub prevrandao: Option<[u8; 32]>,
     pub chain_id: Option<U256>,
+    /// Contract name -> initcode bytes, populated from the artifact so
+    /// `vm.getCode` can resolve contracts by name.
+    pub compiled_contracts: HashMap<String, revm::primitives::Bytes>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +70,9 @@ pub struct PrankState {
 pub struct StartPrankState {
     pub caller: Address,
     pub origin: Address,
+    /// Call depth at which this prank was set.  Only applies to calls
+    /// deeper than this depth (Medusa semantics).
+    pub set_depth: u64,
 }
 
 /// Inspector that intercepts Foundry-compatible cheatcodes.
@@ -134,15 +140,22 @@ impl CheatcodeInspector {
 
     /// Apply an active prank to `inputs.caller` and `tx.origin`.
     fn apply_prank(&mut self, ctx: &mut impl ContextSetters<Tx = TxEnv>, inputs: &mut CallInputs) {
-        if let Some(ref start_prank) = self.state.start_prank {
+        // startPrank: applies to every call deeper than the frame that
+        // configured it (Medusa semantics).
+        if let Some(ref start_prank) = self.state.start_prank
+            && self.depth > start_prank.set_depth + 1
+        {
             let origin = start_prank.origin;
             let caller = start_prank.caller;
             self.patch_origin(ctx, origin);
             inputs.caller = caller;
             return;
         }
+        // Single-call prank / prankHere.
         if let Some(ref prank) = self.state.prank
             && (if prank.here {
+                // prankHere: only the very next direct child call from the
+                // frame where it was set.
                 self.depth == prank.set_depth + 1
             } else {
                 true
@@ -280,11 +293,21 @@ impl<CTX: ContextTr<Db = InMemoryDB, Block = BlockEnv, Tx = TxEnv> + ContextSett
         // Cheatcode calls short-circuit the EVM.  Preserve the caller's gas
         // so the parent frame does not lose gas on every cheatcode invocation.
         outcome.result.gas = Gas::new(inputs.gas_limit);
+        // Ensure return data is copied to the caller's memory at the expected
+        // offset; Solidity relies on this for external call ABI decoding.
+        outcome.memory_offset = inputs.return_memory_offset.clone();
         Some(outcome)
     }
 
     fn call_end(&mut self, ctx: &mut CTX, _inputs: &CallInputs, _outcome: &mut CallOutcome) {
         self.restore_origin(ctx);
+        // If we are returning to the frame that configured startPrank,
+        // clear it so it does not leak into subsequent top-level sequences.
+        if let Some(ref start_prank) = self.state.start_prank
+            && self.depth.saturating_sub(1) <= start_prank.set_depth
+        {
+            self.state.start_prank = None;
+        }
         self.depth = self.depth.saturating_sub(1);
     }
 
@@ -305,6 +328,24 @@ pub(crate) fn dummy_success() -> CallOutcome {
         result: InterpreterResult {
             result: InstructionResult::Stop,
             output: Bytes::new(),
+            gas: Gas::new(0),
+        },
+        memory_offset: 0..0,
+        was_precompile_called: false,
+        precompile_call_logs: Vec::new(),
+    }
+}
+
+/// Build a revert outcome that mimics Solidity `Panic(uint256(0x01))`,
+/// matching Medusa and Foundry assertion-failure encoding.
+pub(crate) fn panic_outcome() -> CallOutcome {
+    let mut encoded = vec![0x4e, 0x48, 0x7b, 0x71];
+    encoded.extend_from_slice(&[0u8; 31]);
+    encoded.push(0x01);
+    CallOutcome {
+        result: InterpreterResult {
+            result: InstructionResult::Revert,
+            output: Bytes::from(encoded),
             gas: Gas::new(0),
         },
         memory_offset: 0..0,

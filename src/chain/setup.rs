@@ -35,6 +35,9 @@ pub fn setup(
         return Ok(state);
     }
 
+    // Preserve compiled-contract map so vm.getCode works across setUp.
+    let compiled_contracts = state.cheatcodes.compiled_contracts.clone();
+
     let mut db = state.db;
     let nonce = crate::result_to_option(db.basic(CALLER))
         .flatten()
@@ -87,8 +90,13 @@ pub fn setup(
         .cheatcodes
         .context("cheatcode inspector missing")?;
     new_state.cheatcodes = cheat_inspector.state;
+    // Restore compiled-contract map so vm.getCode keeps working.
+    new_state.cheatcodes.compiled_contracts = compiled_contracts;
     if let Some(ts) = new_state.cheatcodes.warp_timestamp {
         new_state.block_timestamp = ts.as_limbs()[0];
+    }
+    if let Some(num) = new_state.cheatcodes.roll_number {
+        new_state.block_number = num.as_limbs()[0];
     }
     Ok(new_state)
 }

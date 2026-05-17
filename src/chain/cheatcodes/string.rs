@@ -5,36 +5,35 @@ use alloy_primitives::{Address, I256, U256};
 use revm::interpreter::CallOutcome;
 
 use crate::chain::cheatcodes::{
-    CheatcodeInspector, revert_outcome, success_bool_outcome, success_bytes_outcome,
-    success_u256_outcome,
+    CheatcodeInspector, success_bool_outcome, success_bytes_outcome, success_u256_outcome,
 };
 
 /// `toString(address)` returns `string`.
-pub const TO_STRING_ADDRESS_SELECTOR: [u8; 4] = [0x2f, 0xbe, 0x31, 0xfa];
+pub const TO_STRING_ADDRESS_SELECTOR: [u8; 4] = [0x56, 0xca, 0x62, 0x3e];
 /// `toString(bool)` returns `string`.
-pub const TO_STRING_BOOL_SELECTOR: [u8; 4] = [0x4f, 0x0c, 0xb2, 0x59];
+pub const TO_STRING_BOOL_SELECTOR: [u8; 4] = [0x71, 0xdc, 0xe7, 0xda];
 /// `toString(uint256)` returns `string`.
-pub const TO_STRING_UINT_SELECTOR: [u8; 4] = [0xbe, 0x68, 0x0e, 0x08];
+pub const TO_STRING_UINT_SELECTOR: [u8; 4] = [0x69, 0x00, 0xa3, 0xae];
 /// `toString(int256)` returns `string`.
-pub const TO_STRING_INT_SELECTOR: [u8; 4] = [0x65, 0xd2, 0x9c, 0xcf];
+pub const TO_STRING_INT_SELECTOR: [u8; 4] = [0xa3, 0x22, 0xc4, 0x0e];
 /// `toString(bytes32)` returns `string`.
-pub const TO_STRING_BYTES32_SELECTOR: [u8; 4] = [0x3b, 0x53, 0x3f, 0x4a];
+pub const TO_STRING_BYTES32_SELECTOR: [u8; 4] = [0xb1, 0x1a, 0x19, 0xe8];
 /// `toString(bytes)` returns `string`.
-pub const TO_STRING_BYTES_SELECTOR: [u8; 4] = [0x4f, 0x49, 0x36, 0x7b];
+pub const TO_STRING_BYTES_SELECTOR: [u8; 4] = [0x71, 0xaa, 0xd1, 0x0d];
 /// `parseUint(string)` returns `uint256`.
-pub const PARSE_UINT_SELECTOR: [u8; 4] = [0x2e, 0x33, 0xd0, 0x57];
+pub const PARSE_UINT_SELECTOR: [u8; 4] = [0xfa, 0x91, 0x45, 0x4d];
 /// `parseInt(string)` returns `int256`.
-pub const PARSE_INT_SELECTOR: [u8; 4] = [0x6c, 0x4c, 0x0f, 0x6c];
+pub const PARSE_INT_SELECTOR: [u8; 4] = [0x42, 0x34, 0x6c, 0x5e];
 /// `parseBool(string)` returns `bool`.
-pub const PARSE_BOOL_SELECTOR: [u8; 4] = [0x9d, 0xd3, 0x21, 0x6e];
+pub const PARSE_BOOL_SELECTOR: [u8; 4] = [0x97, 0x4e, 0xf9, 0x24];
 /// `parseAddress(string)` returns `address`.
-pub const PARSE_ADDRESS_SELECTOR: [u8; 4] = [0x72, 0xeb, 0x5f, 0x63];
+pub const PARSE_ADDRESS_SELECTOR: [u8; 4] = [0xc6, 0xce, 0x05, 0x9d];
 /// `parseBytes(string)` returns `bytes`.
-pub const PARSE_BYTES_SELECTOR: [u8; 4] = [0xf0, 0x60, 0x65, 0x81];
+pub const PARSE_BYTES_SELECTOR: [u8; 4] = [0x8f, 0x5d, 0x23, 0x2d];
 /// `parseBytes32(string)` returns `bytes32`.
-pub const PARSE_BYTES32_SELECTOR: [u8; 4] = [0xd3, 0xa9, 0x15, 0x96];
+pub const PARSE_BYTES32_SELECTOR: [u8; 4] = [0x08, 0x7e, 0x6e, 0x81];
 /// `getCode(string)` returns `bytes`.
-pub const GET_CODE_SELECTOR: [u8; 4] = [0x98, 0xe0, 0xc3, 0xfe];
+pub const GET_CODE_SELECTOR: [u8; 4] = [0x8d, 0x1c, 0xc9, 0x25];
 
 fn encode_string(s: &str) -> Vec<u8> {
     DynSolValue::String(s.into()).abi_encode()
@@ -234,16 +233,29 @@ pub fn handle_parse_bytes32(
 }
 
 pub fn handle_get_code(
-    _inspector: &mut CheatcodeInspector,
-    _input: &revm::primitives::Bytes,
+    inspector: &mut CheatcodeInspector,
+    input: &revm::primitives::Bytes,
 ) -> Option<CallOutcome> {
-    Some(revert_outcome("getCode not yet supported"))
+    let val = decode_single(input, DynSolType::String)?;
+    let DynSolValue::String(path) = val else {
+        return None;
+    };
+    // Accept "path:Name" or just "Name".
+    let name = path.split(':').next_back()?.trim();
+    let initcode = inspector.state.compiled_contracts.get(name)?;
+    Some(success_bytes_outcome(
+        DynSolValue::Bytes(initcode.to_vec()).abi_encode(),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+    use crate::chain::Chain;
     use crate::chain::cheatcodes::CheatcodeInspector;
+    use crate::contract;
 
     fn call_data(selector: [u8; 4], encoded: Vec<u8>) -> revm::primitives::Bytes {
         let mut data = selector.to_vec();
@@ -294,6 +306,39 @@ mod tests {
         assert_eq!(
             &out[12..32],
             hex::decode("71c7656ec7ab88b098defb751b7401b5f6d8976f").unwrap()
+        );
+    }
+
+    #[test]
+    fn get_code_looks_up_compiled_contract() {
+        let mut inspector = CheatcodeInspector::new();
+        inspector.state.compiled_contracts.insert(
+            "CheatcodeString".into(),
+            revm::primitives::Bytes::from(vec![0x60, 0x01]),
+        );
+        let encoded = DynSolValue::String("CheatcodeString".into()).abi_encode();
+        let result = handle_get_code(&mut inspector, &call_data(GET_CODE_SELECTOR, encoded));
+        assert!(result.is_some());
+        let out = result.unwrap().result.output;
+        let decoded = DynSolType::Bytes.abi_decode_params(&out).unwrap();
+        assert_eq!(decoded, DynSolValue::Bytes(vec![0x60, 0x01]));
+    }
+
+    #[test]
+    fn cheatcode_string_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeString.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let _action_selector: [u8; 4] = [0x0a, 0x7a, 0x1c, 0x4d]; // property_string_ops_ok() is view, no action needed
+        // The setUp already ran the string ops, just check the property
+        let output = chain.execute(&vec![]).unwrap();
+        assert!(
+            output.property_results.iter().all(|p| p.passed),
+            "string property should pass"
         );
     }
 }

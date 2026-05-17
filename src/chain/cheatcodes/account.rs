@@ -1,7 +1,10 @@
 //! Account manipulation cheatcodes.
 
+use alloy_dyn_abi::{DynSolType, DynSolValue};
 use revm::{
-    Database, context_interface::ContextTr, database::InMemoryDB, interpreter::CallOutcome,
+    context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
+    database::InMemoryDB,
+    interpreter::CallOutcome,
     primitives::U256,
 };
 
@@ -11,17 +14,17 @@ use crate::chain::cheatcodes::{
 };
 
 /// `deal(address, uint256)` — set balance.
-pub const DEAL_SELECTOR: [u8; 4] = [0x14, 0x07, 0xc3, 0x7c];
+pub const DEAL_SELECTOR: [u8; 4] = [0xc8, 0x8a, 0x5e, 0x6d];
 /// `etch(address, bytes)` — set code.
-pub const ETCH_SELECTOR: [u8; 4] = [0xb5, 0xd8, 0x8c, 0x03];
+pub const ETCH_SELECTOR: [u8; 4] = [0xb4, 0xd6, 0xc7, 0x82];
 /// `setNonce(address, uint64)` — set nonce.
-pub const SET_NONCE_SELECTOR: [u8; 4] = [0x17, 0x74, 0xd3, 0xb5];
+pub const SET_NONCE_SELECTOR: [u8; 4] = [0xf8, 0xe1, 0x8b, 0x57];
 /// `getNonce(address)` returns `uint64`.
-pub const GET_NONCE_SELECTOR: [u8; 4] = [0x2f, 0x39, 0x1c, 0x2c];
+pub const GET_NONCE_SELECTOR: [u8; 4] = [0x2d, 0x03, 0x35, 0xab];
 /// `load(address, bytes32)` returns `bytes32`.
-pub const LOAD_SELECTOR: [u8; 4] = [0x4d, 0x23, 0x01, 0xcc];
+pub const LOAD_SELECTOR: [u8; 4] = [0x66, 0x7f, 0x9d, 0x70];
 /// `store(address, bytes32, bytes32)` — set storage.
-pub const STORE_SELECTOR: [u8; 4] = [0x52, 0xef, 0x6b, 0x2c];
+pub const STORE_SELECTOR: [u8; 4] = [0x70, 0xca, 0x10, 0xbb];
 
 pub fn handle_deal<CTX: ContextTr<Db = InMemoryDB>>(
     _inspector: &mut CheatcodeInspector,
@@ -29,13 +32,8 @@ pub fn handle_deal<CTX: ContextTr<Db = InMemoryDB>>(
     input: &revm::primitives::Bytes,
 ) -> Option<CallOutcome> {
     let (addr, value) = decode_address_u256_args(input)?;
-    let mut info = ctx
-        .db_mut()
-        .basic(addr)
-        .unwrap_or_default()
-        .unwrap_or_default();
-    info.balance = value;
-    ctx.db_mut().insert_account_info(addr, info);
+    let mut acc = ctx.journal_mut().load_account_mut(addr).ok()?.data;
+    acc.set_balance(value);
     Some(dummy_success())
 }
 
@@ -44,37 +42,26 @@ pub fn handle_etch<CTX: ContextTr<Db = InMemoryDB>>(
     ctx: &mut CTX,
     input: &revm::primitives::Bytes,
 ) -> Option<CallOutcome> {
-    if input.len() < 4 + 64 {
-        return None;
-    }
-    let addr = revm::primitives::Address::from_slice(&input[4 + 12..4 + 32]);
-    // Decode dynamic bytes: offset at 4+32, length at that offset, data follows.
-    let offset = match usize::try_from(U256::from_be_slice(&input[4 + 32..4 + 64])) {
-        Ok(v) => v,
-        Err(_) => return None,
+    let tuple = DynSolType::Tuple(vec![DynSolType::Address, DynSolType::Bytes]);
+    let decoded = tuple.abi_decode_params(&input[4..]).ok()?;
+    let values = match decoded {
+        DynSolValue::Tuple(v) => v,
+        _ => return None,
     };
-    if input.len() < 4 + 64 + offset + 32 {
+    if values.len() != 2 {
         return None;
     }
-    let data_start = 4 + 64 + offset;
-    let len = match usize::try_from(U256::from_be_slice(&input[data_start..data_start + 32])) {
-        Ok(v) => v,
-        Err(_) => return None,
+    let addr = match &values[0] {
+        DynSolValue::Address(a) => *a,
+        _ => return None,
     };
-    if input.len() < data_start + 32 + len {
-        return None;
-    }
-    let code =
-        revm::primitives::Bytes::copy_from_slice(&input[data_start + 32..data_start + 32 + len]);
-    let mut info = ctx
-        .db_mut()
-        .basic(addr)
-        .unwrap_or_default()
-        .unwrap_or_default();
+    let code = match &values[1] {
+        DynSolValue::Bytes(b) => revm::primitives::Bytes::from(b.clone()),
+        _ => return None,
+    };
     let bytecode = revm::bytecode::Bytecode::new_raw(code);
-    info.code_hash = bytecode.hash_slow();
-    info.code = Some(bytecode);
-    ctx.db_mut().insert_account_info(addr, info);
+    let mut acc = ctx.journal_mut().load_account_mut(addr).ok()?.data;
+    acc.set_code_and_hash_slow(bytecode);
     Some(dummy_success())
 }
 
@@ -91,13 +78,8 @@ pub fn handle_set_nonce<CTX: ContextTr<Db = InMemoryDB>>(
         Ok(v) => v,
         Err(_) => return None,
     };
-    let mut info = ctx
-        .db_mut()
-        .basic(addr)
-        .unwrap_or_default()
-        .unwrap_or_default();
-    info.nonce = nonce;
-    ctx.db_mut().insert_account_info(addr, info);
+    let mut acc = ctx.journal_mut().load_account_mut(addr).ok()?.data;
+    acc.set_nonce(nonce);
     Some(dummy_success())
 }
 
@@ -108,11 +90,11 @@ pub fn handle_get_nonce<CTX: ContextTr<Db = InMemoryDB>>(
 ) -> Option<CallOutcome> {
     let addr = decode_address_arg(input)?;
     let nonce = ctx
-        .db_mut()
-        .basic(addr)
-        .unwrap_or_default()
-        .unwrap_or_default()
-        .nonce;
+        .journal_mut()
+        .load_account(addr)
+        .ok()
+        .map(|s| s.data.info.nonce)
+        .unwrap_or(0);
     Some(success_u256_outcome(U256::from(nonce)))
 }
 
@@ -123,7 +105,8 @@ pub fn handle_load<CTX: ContextTr<Db = InMemoryDB>>(
 ) -> Option<CallOutcome> {
     let (addr, slot) = super::decode_address_bytes32_args(input)?;
     let slot_u256 = U256::from_be_bytes(slot);
-    let value = ctx.db_mut().storage(addr, slot_u256).unwrap_or(U256::ZERO);
+    let mut acc = ctx.journal_mut().load_account_mut(addr).ok()?.data;
+    let value = acc.sload(slot_u256, false).ok()?.data.present_value;
     Some(super::success_bytes_outcome(value.to_be_bytes_vec()))
 }
 
@@ -135,16 +118,17 @@ pub fn handle_store<CTX: ContextTr<Db = InMemoryDB>>(
     let (addr, slot, value) = super::decode_address_bytes32_bytes32_args(input)?;
     let slot_u256 = U256::from_be_bytes(slot);
     let value_u256 = U256::from_be_bytes(value);
-    let _ = ctx
-        .db_mut()
-        .insert_account_storage(addr, slot_u256, value_u256);
+    let mut acc = ctx.journal_mut().load_account_mut(addr).ok()?.data;
+    let _ = acc.sstore(slot_u256, value_u256, false);
     Some(dummy_success())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use revm::{
-        Database, MainContext,
+        MainContext,
         context::Context,
         database::InMemoryDB,
         primitives::{Address, U256},
@@ -152,7 +136,10 @@ mod tests {
     };
 
     use super::*;
+    use crate::chain::Chain;
     use crate::chain::cheatcodes::CheatcodeInspector;
+    use crate::contract;
+    use crate::corpus::Call;
 
     fn call_data(selector: [u8; 4], payload: Vec<u8>) -> revm::primitives::Bytes {
         let mut data = selector.to_vec();
@@ -171,8 +158,8 @@ mod tests {
         payload[32..64].copy_from_slice(&value.to_be_bytes_vec());
         let result = handle_deal(&mut inspector, &mut ctx, &call_data(DEAL_SELECTOR, payload));
         assert!(result.is_some());
-        let info = ctx.db_mut().basic(addr).unwrap().unwrap();
-        assert_eq!(info.balance, value);
+        let info = ctx.journal_mut().load_account(addr).unwrap().data;
+        assert_eq!(info.info.balance, value);
     }
 
     #[test]
@@ -190,8 +177,8 @@ mod tests {
             &call_data(SET_NONCE_SELECTOR, payload),
         );
         assert!(result.is_some());
-        let info = ctx.db_mut().basic(addr).unwrap().unwrap();
-        assert_eq!(info.nonce, nonce);
+        let info = ctx.journal_mut().load_account(addr).unwrap().data;
+        assert_eq!(info.info.nonce, nonce);
     }
 
     #[test]
@@ -244,6 +231,71 @@ mod tests {
         assert_eq!(
             load_result.unwrap().result.output.as_ref(),
             value.as_slice()
+        );
+    }
+
+    #[test]
+    fn etch_sets_code() {
+        let mut inspector = CheatcodeInspector::new();
+        let mut ctx = Context::mainnet().with_db(InMemoryDB::default());
+        let addr = Address::new([0xbe; 20]);
+        let code = vec![
+            0x60, 0x01, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0x60, 0x00, 0xf3,
+        ];
+
+        // Manual ABI encoding for etch(address,bytes):
+        // [selector][padded_addr][bytes_offset][bytes_length][bytes_data...]
+        let mut data = ETCH_SELECTOR.to_vec();
+        let mut padded_addr = vec![0u8; 32];
+        padded_addr[12..32].copy_from_slice(addr.as_slice());
+        data.extend_from_slice(&padded_addr);
+        let bytes_offset: u32 = 64; // 2 * 32
+        let mut offset_word = vec![0u8; 32];
+        offset_word[28..32].copy_from_slice(&bytes_offset.to_be_bytes());
+        data.extend_from_slice(&offset_word);
+        let mut len_word = vec![0u8; 32];
+        len_word[28..32].copy_from_slice(&(code.len() as u32).to_be_bytes());
+        data.extend_from_slice(&len_word);
+        let mut code_padded = code.clone();
+        while code_padded.len() % 32 != 0 {
+            code_padded.push(0);
+        }
+        data.extend_from_slice(&code_padded);
+
+        let result = handle_etch(
+            &mut inspector,
+            &mut ctx,
+            &revm::primitives::Bytes::from(data),
+        );
+        assert!(result.is_some(), "etch should decode and succeed");
+        let info = ctx.journal_mut().load_account(addr).unwrap().data;
+        assert!(info.info.code.is_some());
+        assert!(!info.info.code_hash.is_zero());
+    }
+
+    #[test]
+    fn cheatcode_account_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeAccount.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let action_selector: [u8; 4] = [0x0a, 0x7a, 0x1c, 0x4d]; // action()
+        let calls = vec![Call {
+            selector: action_selector,
+            args: vec![],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        }];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "action() should succeed");
+        assert!(
+            output.property_results.iter().all(|p| p.passed),
+            "all account properties should pass"
         );
     }
 }

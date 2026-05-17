@@ -53,6 +53,8 @@ fn success_u256(value: U256) -> CallOutcome {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use revm::{
         Database, MainContext,
         context::Context,
@@ -62,7 +64,10 @@ mod tests {
     };
 
     use super::*;
+    use crate::chain::Chain;
     use crate::chain::cheatcodes::CheatcodeInspector;
+    use crate::contract;
+    use crate::corpus::Call;
 
     #[test]
     fn snapshot_increments_id() {
@@ -136,6 +141,41 @@ mod tests {
         assert_eq!(
             result.unwrap().result.result,
             revm::interpreter::InstructionResult::Revert
+        );
+    }
+
+    #[test]
+    fn cheatcode_snapshot_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeSnapshot.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let inc_selector: [u8; 4] = [0xd0, 0x9d, 0xe0, 0x8a]; // increment()
+        let calls = vec![
+            Call {
+                selector: inc_selector,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            Call {
+                selector: inc_selector,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+        ];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "all increment() calls should succeed");
+        assert!(
+            output.property_results.iter().all(|p| p.passed),
+            "counter should not be 100"
         );
     }
 }

@@ -105,6 +105,8 @@ pub fn handle_chain_id<CTX: ContextTr<Db = InMemoryDB, Block = BlockEnv> + Conte
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use revm::{
         MainContext,
         context::Context,
@@ -113,7 +115,10 @@ mod tests {
     };
 
     use super::*;
+    use crate::chain::Chain;
     use crate::chain::cheatcodes::CheatcodeInspector;
+    use crate::contract;
+    use crate::corpus::Call;
 
     fn call_data(selector: [u8; 4], value: U256) -> revm::primitives::Bytes {
         let mut data = selector.to_vec();
@@ -177,5 +182,42 @@ mod tests {
         let result = handle_chain_id(&mut inspector, &mut ctx, &call_data(CHAIN_ID_SELECTOR, id));
         assert!(result.is_some());
         assert_eq!(inspector.state.chain_id, Some(id));
+    }
+
+    #[test]
+    fn cheatcode_state_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeState.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let action_selector: [u8; 4] = [0x0a, 0x7a, 0x1c, 0x4d]; // action()
+        let calls = vec![Call {
+            selector: action_selector,
+            args: vec![],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        }];
+
+        let output = chain
+            .execute_with_opts(
+                &calls,
+                crate::chain::executor::ExecutionOptions { trace: true },
+            )
+            .unwrap();
+        assert!(output.all_ok, "action() should succeed");
+        if let Some(ref trace) = output.trace {
+            eprintln!("TRACE:\n{}", trace.format());
+        }
+        for p in &output.property_results {
+            eprintln!("property {}: passed={}", p.name, p.passed);
+        }
+        assert!(
+            output.property_results.iter().all(|p| p.passed),
+            "property_state_correct should pass"
+        );
     }
 }

@@ -58,7 +58,12 @@ pub struct Chain {
 impl Chain {
     /// 1. Compile initcode, deploy, verify deployment success.
     pub fn initialize(artifact: &ContractArtifact) -> Result<Self, ChainInitError> {
-        let (contract_address, state) = initialize(artifact)?;
+        let (contract_address, mut state) = initialize(artifact)?;
+        // Populate compiled-contract map for vm.getCode lookups.
+        state
+            .cheatcodes
+            .compiled_contracts
+            .insert(artifact.contract_name.clone(), artifact.initcode.clone());
         Ok(Self {
             config: ChainConfig::default(),
             state,
