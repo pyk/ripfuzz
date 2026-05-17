@@ -21,6 +21,7 @@ interface Vm {
 
     // Labeling
     function label(address, string calldata) external;
+    function getLabel(address) external view returns (string memory);
 
     // Prank
     function prank(address) external;

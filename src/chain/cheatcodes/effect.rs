@@ -65,6 +65,7 @@ pub enum CheatcodeEffect {
     ReadNonce(Address),
     ReadBalance(Address),
     ReadStorage(Address, U256),
+    GetLabel(Address),
 
     // --- Outcome effects ---
     Revert(String),
@@ -212,6 +213,7 @@ pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = Blo
         CheatcodeEffect::ReadNonce(_)
         | CheatcodeEffect::ReadBalance(_)
         | CheatcodeEffect::ReadStorage(_, _)
+        | CheatcodeEffect::GetLabel(_)
         | CheatcodeEffect::Revert(_)
         | CheatcodeEffect::Panic
         | CheatcodeEffect::ReturnU256(_)

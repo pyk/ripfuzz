@@ -88,6 +88,7 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
 
         // Label
         label::Label::SELECTOR => dispatch::<label::Label>(input),
+        label::GetLabel::SELECTOR => dispatch::<label::GetLabel>(input),
 
         // Assertions
         assert::AssertTrue::SELECTOR => dispatch::<assert::AssertTrue>(input),
@@ -296,6 +297,13 @@ pub(crate) fn build_outcome<CTX: ContextTr<Db = InMemoryDB>>(
                 Err(_) => U256::ZERO,
             };
             Some(success_bytes_outcome(value.to_be_bytes_vec(), gas_limit))
+        }
+        CheatcodeEffect::GetLabel(addr) => {
+            let name = state.labels.get(addr).cloned().unwrap_or_default();
+            Some(success_bytes_outcome(
+                alloy_dyn_abi::DynSolValue::String(name).abi_encode(),
+                gas_limit,
+            ))
         }
         CheatcodeEffect::GetCode(name) => {
             let initcode = state

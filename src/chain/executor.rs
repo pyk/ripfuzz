@@ -54,7 +54,6 @@ pub fn execute(
         t.set_shared_labels(Arc::clone(&shared_labels));
     }
 
-    let shared_labels = Arc::new(RwLock::new(local_state.cheatcodes.labels.clone()));
     let cheatcode_inspector = crate::chain::inspectors::cheatcode::CheatcodeInspector::from_state(
         local_state.cheatcodes.clone(),
     )
@@ -157,6 +156,11 @@ pub fn execute(
             // Sync remaining block overrides back to ChainState so that
             // property checks see fee, coinbase, prevrandao, and chain_id mutations.
             local_state.cheatcodes.block = inspector.2.state.block;
+            // Sync inspector-accumulated labels back so property checks see them.
+            local_state
+                .cheatcodes
+                .labels
+                .clone_from(&inspector.2.state.labels);
             // Clear deal and nonce records so they are not rolled back on a
             // later revert in this sequence.
             inspector.2.state.eth_deals.clear();
@@ -186,6 +190,11 @@ pub fn execute(
                 info.nonce = record.old_nonce;
                 local_state.db.insert_account_info(record.address, info);
             }
+            // Labels are metadata, not state-DB mutations; they survive revert.
+            local_state
+                .cheatcodes
+                .labels
+                .clone_from(&inspector.2.state.labels);
             all_ok = false;
             trace!(idx, "call reverted, aborting sequence");
             break;
