@@ -3,4 +3,4 @@ src = "src"
 out = "out"
 libs = ["lib"]
 cache = true
-evm_version = "paris"
+evm_version = "shanghai"

@@ -4,23 +4,6 @@ use revm::primitives::{Bytes, U256};
 
 use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_u256_arg};
 
-pub struct Prevrandao;
-impl Cheatcode for Prevrandao {
-    type Args = [u8; 32];
-    const SELECTOR: [u8; 4] = [0x3b, 0x92, 0x55, 0x49];
-    fn decode(input: &Bytes) -> Option<Self::Args> {
-        if input.len() < 4 + 32 {
-            return None;
-        }
-        let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(&input[4..4 + 32]);
-        Some(bytes)
-    }
-    fn effects(value: Self::Args) -> Vec<CheatcodeEffect> {
-        vec![CheatcodeEffect::SetPrevrandao(value)]
-    }
-}
-
 pub struct ChainId;
 impl Cheatcode for ChainId {
     type Args = U256;

@@ -25,6 +25,7 @@ pub mod fee;
 pub mod ffi;
 pub mod label;
 pub mod prank;
+pub mod prevrandao;
 pub mod roll;
 pub mod state;
 pub mod string;
@@ -61,7 +62,7 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         roll::Roll::SELECTOR => dispatch::<roll::Roll>(input),
         fee::Fee::SELECTOR => dispatch::<fee::Fee>(input),
         coinbase::Coinbase::SELECTOR => dispatch::<coinbase::Coinbase>(input),
-        state::Prevrandao::SELECTOR => dispatch::<state::Prevrandao>(input),
+        prevrandao::Prevrandao::SELECTOR => dispatch::<prevrandao::Prevrandao>(input),
         state::ChainId::SELECTOR => dispatch::<state::ChainId>(input),
         difficulty::Difficulty::SELECTOR => dispatch::<difficulty::Difficulty>(input),
 
