@@ -4,8 +4,6 @@ use revm::primitives::{Bytes, U256};
 
 use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_u256_arg};
 
-pub const DIFFICULTY_SELECTOR: [u8; 4] = [0x46, 0xcc, 0x92, 0xd9];
-
 pub struct Prevrandao;
 impl Cheatcode for Prevrandao {
     type Args = [u8; 32];

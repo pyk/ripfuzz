@@ -19,6 +19,7 @@ use crate::chain::cheatcodes::effect::CheatcodeEffect;
 pub mod account;
 pub mod assert;
 pub mod coinbase;
+pub mod difficulty;
 pub mod effect;
 pub mod fee;
 pub mod ffi;
@@ -62,7 +63,7 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         coinbase::Coinbase::SELECTOR => dispatch::<coinbase::Coinbase>(input),
         state::Prevrandao::SELECTOR => dispatch::<state::Prevrandao>(input),
         state::ChainId::SELECTOR => dispatch::<state::ChainId>(input),
-        state::DIFFICULTY_SELECTOR => Some(vec![]),
+        difficulty::Difficulty::SELECTOR => dispatch::<difficulty::Difficulty>(input),
 
         // Account manipulation
         account::Deal::SELECTOR => dispatch::<account::Deal>(input),
