@@ -29,9 +29,6 @@ pub struct CheatcodeInspector {
     /// Current EVM call depth (increments in `frame_start`, decrements in
     /// `call_end`/`create_end`).
     pub depth: u64,
-    /// `(original tx.origin, depth_at_which_patched)` — used to restore
-    /// `tx.origin` when a single-call prank frame exits.
-    pub original_origin: Option<(Address, u64)>,
 }
 
 impl CheatcodeInspector {
@@ -40,7 +37,6 @@ impl CheatcodeInspector {
             state: CheatcodeState::default(),
             shared_labels: None,
             depth: 0,
-            original_origin: None,
         }
     }
 
@@ -49,7 +45,6 @@ impl CheatcodeInspector {
             state,
             shared_labels: None,
             depth: 0,
-            original_origin: None,
         }
     }
 
@@ -60,61 +55,126 @@ impl CheatcodeInspector {
 
     /// Patch `tx.origin` and remember the original so it can be restored.
     fn patch_origin(&mut self, ctx: &mut impl ContextSetters<Tx = TxEnv>, new_origin: Address) {
-        if self.original_origin.is_none() {
-            self.original_origin = Some((ctx.tx().caller, self.depth));
+        if self.state.prank.original_origin.is_none() {
+            self.state.prank.original_origin = Some(ctx.tx().caller);
         }
         let mut tx = ctx.tx().clone();
         tx.caller = new_origin;
         ctx.set_tx(tx);
     }
 
-    /// Restore `tx.origin` if we have returned to a depth shallower than
-    /// where we patched it and `startPrank` is no longer active.
-    fn restore_origin(&mut self, ctx: &mut impl ContextSetters<Tx = TxEnv>) {
-        if self.state.prank.start.is_some() {
+    /// Restore `tx.origin` if no prank is active.
+    fn maybe_restore_origin(&mut self, ctx: &mut impl ContextSetters<Tx = TxEnv>) {
+        if self.state.prank.start.is_some() || self.state.prank.active.is_some() {
             return;
         }
-        if let Some((original, patched_at)) = self.original_origin
-            && self.depth <= patched_at
-        {
+        if let Some(orig) = self.state.prank.original_origin {
             let mut tx = ctx.tx().clone();
-            tx.caller = original;
+            tx.caller = orig;
             ctx.set_tx(tx);
-            self.original_origin = None;
+            self.state.prank.original_origin = None;
         }
     }
 
-    /// Apply an active prank to `inputs.caller` and `tx.origin`.
+    /// Apply an active prank to a nested call frame.
     fn apply_prank(&mut self, ctx: &mut impl ContextSetters<Tx = TxEnv>, inputs: &mut CallInputs) {
-        // startPrank: applies to every call deeper than the frame that
-        // configured it (Medusa semantics).
-        if let Some(ref start_prank) = self.state.prank.start
-            && self.depth > start_prank.set_depth + 1
-        {
-            let origin = start_prank.origin;
-            let caller = start_prank.caller;
-            self.patch_origin(ctx, origin);
-            inputs.caller = caller;
-            return;
-        }
-        // Single-call prank / prankHere.
-        if let Some(ref prank) = self.state.prank.active
-            && (if prank.here {
-                // prankHere: only the very next direct child call from the
-                // frame where it was set.
-                self.depth == prank.set_depth + 1
-            } else {
-                true
+        let curr_depth = self.depth;
+        let original_caller = inputs.caller;
+
+        // Collect all info first to avoid borrow issues.
+        let start_info = self
+            .state
+            .prank
+            .start
+            .as_ref()
+            .filter(|s| curr_depth > s.set_depth)
+            .map(|s| (s.caller, s.origin, !s.used));
+
+        let prank_info = self
+            .state
+            .prank
+            .active
+            .as_ref()
+            .filter(|p| {
+                original_caller == p.prank_caller
+                    && curr_depth > p.set_depth
+                    && inputs.target_address != VM_ADDRESS
             })
-        {
-            let origin = prank.origin;
-            let caller = prank.caller;
-            let single_call = prank.single_call;
-            self.patch_origin(ctx, origin);
+            .map(|p| (p.caller, p.origin, p.single_call, !p.used));
+
+        // Apply startPrank.
+        if let Some((caller, _, _)) = start_info {
             inputs.caller = caller;
-            if single_call {
-                self.state.prank.active = None;
-            }
+        }
+        if let Some((_, Some(o), _)) = start_info {
+            self.patch_origin(ctx, o);
+        }
+
+        // Apply single-call prank.
+        if let Some((caller, _, _, _)) = prank_info {
+            inputs.caller = caller;
+        }
+        if let Some((_, Some(o), _, _)) = prank_info {
+            self.patch_origin(ctx, o);
+        }
+        if let Some((_, _, true, _)) = prank_info {
+            self.state.prank.active = None;
+        }
+
+        // Mark used after all borrows are dropped.
+        if start_info.map(|(_, _, needs)| needs).unwrap_or(false)
+            && let Some(ref mut start) = self.state.prank.start
+        {
+            start.used = true;
+        }
+        if prank_info.map(|(_, _, _, needs)| needs).unwrap_or(false)
+            && let Some(ref mut prank) = self.state.prank.active
+        {
+            prank.used = true;
+        }
+    }
+
+    /// Apply an active prank to a contract deployment (CREATE) frame.
+    fn apply_create_prank(&mut self, inputs: &mut CreateInputs) {
+        let curr_depth = self.depth;
+        let original_caller = inputs.caller();
+
+        let start_info = self
+            .state
+            .prank
+            .start
+            .as_ref()
+            .filter(|s| curr_depth > s.set_depth)
+            .map(|s| (s.caller, !s.used));
+
+        let prank_info = self
+            .state
+            .prank
+            .active
+            .as_ref()
+            .filter(|p| original_caller == p.prank_caller && curr_depth > p.set_depth)
+            .map(|p| (p.caller, p.single_call, !p.used));
+
+        if let Some((caller, _)) = start_info {
+            inputs.set_call(caller);
+        }
+
+        if let Some((caller, _, _)) = prank_info {
+            inputs.set_call(caller);
+        }
+        if let Some((_, true, _)) = prank_info {
+            self.state.prank.active = None;
+        }
+
+        if start_info.map(|(_, needs)| needs).unwrap_or(false)
+            && let Some(ref mut start) = self.state.prank.start
+        {
+            start.used = true;
+        }
+        if prank_info.map(|(_, _, needs)| needs).unwrap_or(false)
+            && let Some(ref mut prank) = self.state.prank.active
+        {
+            prank.used = true;
         }
     }
 }
@@ -140,8 +200,10 @@ impl<
 
     fn frame_start(&mut self, ctx: &mut CTX, frame_input: &mut FrameInput) -> Option<FrameResult> {
         self.depth += 1;
-        if let FrameInput::Call(inputs) = frame_input {
-            self.apply_prank(ctx, inputs);
+        match frame_input {
+            FrameInput::Call(inputs) => self.apply_prank(ctx, inputs),
+            FrameInput::Create(inputs) => self.apply_create_prank(inputs),
+            FrameInput::Empty => {}
         }
         None
     }
@@ -161,19 +223,37 @@ impl<
             }
         }
 
-        // Patch set_depth for pranks configured in this call so frame_start
-        // knows which parent frame they belong to.
+        // Patch prank_caller and set_depth for pranks configured in this
+        // cheatcode call so frame_start knows which parent frame they belong
+        // to and which contract initiated them.
+        // Note: frame_start is called BEFORE call() for inner frames, so
+        // self.depth here is the depth of the inner frame (e.g. the VM
+        // precompile call).  The prank initiator is the parent frame, hence
+        // parent_depth.
         let parent_depth = self.depth.saturating_sub(1);
-        if let Some(ref mut prank) = self.state.prank.active
-            && prank.here
-            && prank.set_depth == 0
-        {
-            prank.set_depth = parent_depth;
+        match self.state.prank.active.as_mut() {
+            Some(p) if p.prank_caller == Address::ZERO => {
+                p.prank_caller = inputs.caller;
+            }
+            _ => {}
         }
-        if let Some(ref mut start) = self.state.prank.start
-            && start.set_depth == 0
-        {
-            start.set_depth = parent_depth;
+        match self.state.prank.active.as_mut() {
+            Some(p) if p.set_depth == 0 => {
+                p.set_depth = parent_depth;
+            }
+            _ => {}
+        }
+        match self.state.prank.start.as_mut() {
+            Some(s) if s.prank_caller == Address::ZERO => {
+                s.prank_caller = inputs.caller;
+            }
+            _ => {}
+        }
+        match self.state.prank.start.as_mut() {
+            Some(s) if s.set_depth == 0 => {
+                s.set_depth = parent_depth;
+            }
+            _ => {}
         }
 
         // Sync any newly added labels to the shared map used by the trace
@@ -190,15 +270,19 @@ impl<
     }
 
     fn call_end(&mut self, ctx: &mut CTX, _inputs: &CallInputs, _outcome: &mut CallOutcome) {
-        self.restore_origin(ctx);
-        // If we are returning to the frame that configured startPrank,
-        // clear it so it does not leak into subsequent top-level sequences.
-        if let Some(ref start_prank) = self.state.prank.start
-            && self.depth.saturating_sub(1) <= start_prank.set_depth
+        // Discard an unused single-call prank when the frame that created it ends.
+        if let Some(ref p) = self.state.prank.active
+            && p.single_call
+            && self.depth == p.set_depth
         {
-            self.state.prank.start = None;
+            self.state.prank.active = None;
         }
         self.depth = self.depth.saturating_sub(1);
+        // Restore tx.origin only when the prank initiator frame exits and no
+        // other prank is active.
+        if self.depth == 0 || self.state.prank.active.is_none() {
+            self.maybe_restore_origin(ctx);
+        }
     }
 
     fn create(&mut self, _context: &mut CTX, _inputs: &mut CreateInputs) -> Option<CreateOutcome> {
@@ -206,7 +290,7 @@ impl<
     }
 
     fn create_end(&mut self, ctx: &mut CTX, _inputs: &CreateInputs, _outcome: &mut CreateOutcome) {
-        self.restore_origin(ctx);
         self.depth = self.depth.saturating_sub(1);
+        self.maybe_restore_origin(ctx);
     }
 }

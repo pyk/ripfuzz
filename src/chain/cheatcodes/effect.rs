@@ -198,8 +198,43 @@ pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = Blo
             // new value for the remainder of the current call.
             ctx.set_chain_id(u64::try_from(*v).unwrap_or(u64::MAX));
         }
-        CheatcodeEffect::SetPrank(p) => state.prank.active = Some(p.clone()),
-        CheatcodeEffect::SetStartPrank(p) => state.prank.start = Some(p.clone()),
+        CheatcodeEffect::SetPrank(p) => {
+            // Foundry semantics: a prank can be overwritten only if it was
+            // already used.  vm.prank cannot overwrite an ongoing startPrank.
+            if let Some(ref active) = state.prank.active
+                && !active.used
+            {
+                return Err(
+                    "prank(address) cannot be called when a prank is already active".into(),
+                );
+            }
+            if state.prank.start.is_some() {
+                return Err(
+                    "prank(address) cannot be called when a startPrank is already active".into(),
+                );
+            }
+            state.prank.active = Some(*p);
+        }
+        CheatcodeEffect::SetStartPrank(p) => {
+            // Foundry semantics: startPrank can overwrite a used startPrank,
+            // but not an unused prank or an unused startPrank.
+            if let Some(ref active) = state.prank.active
+                && !active.used
+            {
+                return Err(
+                    "startPrank(address) cannot be called when a prank is already active".into(),
+                );
+            }
+            if let Some(ref start) = state.prank.start
+                && !start.used
+            {
+                return Err(
+                    "startPrank(address) cannot be called when a startPrank is already active"
+                        .into(),
+                );
+            }
+            state.prank.start = Some(*p);
+        }
         CheatcodeEffect::ClearPrank => {
             state.prank.active = None;
             state.prank.start = None;

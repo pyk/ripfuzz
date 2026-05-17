@@ -17,7 +17,7 @@ use crate::chain::state::ChainState;
 use crate::contract::ContractArtifact;
 
 pub const CALLER: Address = Address::new([0xde; 20]);
-pub const GAS_LIMIT: u64 = 3_000_000;
+pub const GAS_LIMIT: u64 = 16_777_216;
 
 /// Insert a dummy VM contract into the database so Solidity's
 /// `extcodesize` check passes when a target calls Foundry cheatcodes.

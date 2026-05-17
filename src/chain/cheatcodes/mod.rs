@@ -82,8 +82,9 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
 
         // Prank
         prank::Prank::SELECTOR => dispatch::<prank::Prank>(input),
-        prank::PrankHere::SELECTOR => dispatch::<prank::PrankHere>(input),
+        prank::PrankOrigin::SELECTOR => dispatch::<prank::PrankOrigin>(input),
         prank::StartPrank::SELECTOR => dispatch::<prank::StartPrank>(input),
+        prank::StartPrankOrigin::SELECTOR => dispatch::<prank::StartPrankOrigin>(input),
         prank::StopPrank::SELECTOR => dispatch::<prank::StopPrank>(input),
 
         // Label
@@ -163,15 +164,23 @@ pub struct BlockCheatState {
 pub struct PrankCheatState {
     pub active: Option<PrankState>,
     pub start: Option<StartPrankState>,
+    /// The original `tx.origin` before any prank was applied.
+    /// Stored in `CheatcodeState` so it survives EVM rebuilds.
+    pub original_origin: Option<Address>,
 }
 
 impl PrankCheatState {
     /// Return the caller that should be used for the top-level transaction.
     pub fn caller_for_top_level(&self) -> Option<Address> {
+        self.start.as_ref().map(|s| s.caller)
+    }
+
+    /// Return the origin that should be used for the top-level transaction.
+    pub fn origin_for_top_level(&self, default: Address) -> Address {
         self.start
             .as_ref()
-            .map(|s| s.caller)
-            .or_else(|| self.active.as_ref().map(|p| p.caller))
+            .and_then(|s| s.origin)
+            .unwrap_or(default)
     }
 }
 
@@ -222,25 +231,29 @@ pub struct BlockOverrides {
     pub chain_id: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PrankState {
     pub caller: Address,
-    pub origin: Address,
+    pub origin: Option<Address>,
     pub single_call: bool,
     /// Call depth of the frame that configured this prank.
     pub set_depth: u64,
-    /// `true` for `prankHere` semantics: applies only to the very next
-    /// direct child call from the frame where it was set.
-    pub here: bool,
+    /// Address of the contract that called the cheatcode (prank initiator).
+    pub prank_caller: Address,
+    /// Whether the prank has been applied at least once.
+    pub used: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StartPrankState {
     pub caller: Address,
-    pub origin: Address,
-    /// Call depth at which this prank was set.  Only applies to calls
-    /// deeper than this depth (Medusa semantics).
+    pub origin: Option<Address>,
+    /// Call depth at which this prank was set.
     pub set_depth: u64,
+    /// Address of the contract that called the cheatcode (prank initiator).
+    pub prank_caller: Address,
+    /// Whether the prank has been applied at least once.
+    pub used: bool,
 }
 
 // ---------------------------------------------------------------------------

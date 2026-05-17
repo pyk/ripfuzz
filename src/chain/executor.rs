@@ -72,20 +72,10 @@ pub fn execute(
     for (idx, call) in calls.iter().enumerate().take(config.max_sequence_calls) {
         local_state.advance_block(call.block_number_delay, call.block_timestamp_delay, idx);
 
-        // Apply persistent prank to the top-level transaction caller.
-        let mut clear_single_call_prank = false;
-        if let Some(ref p) = inspector.2.state.prank.active {
-            clear_single_call_prank = p.single_call;
-        }
-        let caller = inspector
-            .2
-            .state
-            .prank
-            .caller_for_top_level()
-            .unwrap_or(config.caller);
-        if clear_single_call_prank {
-            inspector.2.state.prank.active = None;
-        }
+        // Apply persistent startPrank origin to the top-level transaction.
+        // tx.origin is set via TxEnv::caller.  The top-level msg.sender is
+        // patched in frame_start by apply_prank when startPrank is active.
+        let tx_origin = inspector.2.state.prank.origin_for_top_level(config.caller);
 
         let nonce = local_state.next_nonce();
         let mut ctx = Context::mainnet().with_db(local_state.db);
@@ -111,7 +101,7 @@ pub fn execute(
         }
 
         let mut tx = TxEnv {
-            caller,
+            caller: tx_origin,
             kind: TxKind::Call(contract_address),
             data: Bytes::from(call.encode()),
             gas_limit: config.gas_limit,
@@ -161,6 +151,11 @@ pub fn execute(
                 .cheatcodes
                 .labels
                 .clone_from(&inspector.2.state.labels);
+            // Sync persistent prank state so it survives into the next
+            // sequence call.  Single-call prank (active) is intentionally
+            // NOT synced so it is discarded between top-level calls.
+            local_state.cheatcodes.prank.start = inspector.2.state.prank.start;
+            local_state.cheatcodes.prank.original_origin = inspector.2.state.prank.original_origin;
             // Clear deal and nonce records so they are not rolled back on a
             // later revert in this sequence.
             inspector.2.state.eth_deals.clear();

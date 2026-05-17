@@ -25,8 +25,9 @@ interface Vm {
 
     // Prank
     function prank(address) external;
-    function prankHere(address) external;
+    function prank(address, address) external;
     function startPrank(address) external;
+    function startPrank(address, address) external;
     function stopPrank() external;
 
     // Assertions
