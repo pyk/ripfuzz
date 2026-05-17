@@ -7,7 +7,7 @@ use alloy_json_abi::JsonAbi;
 use revm::{
     Database, MainBuilder, MainContext,
     context::{Context, TxEnv},
-    inspector::{InspectCommitEvm, NoOpInspector},
+    inspector::InspectCommitEvm,
     primitives::{Bytes, TxKind, U256},
 };
 
@@ -157,9 +157,10 @@ pub fn execute(
             // Sync remaining block overrides back to ChainState so that
             // property checks see fee, coinbase, prevrandao, and chain_id mutations.
             local_state.cheatcodes.block = inspector.2.state.block;
-            // Clear deal records so they are not rolled back on a later revert
-            // in this sequence.
+            // Clear deal and nonce records so they are not rolled back on a
+            // later revert in this sequence.
             inspector.2.state.eth_deals.clear();
+            inspector.2.state.nonce_changes.clear();
             trace!(idx, "call succeeded");
         } else {
             // Undo the block context so it does not leak into properties or
@@ -173,6 +174,16 @@ pub fn execute(
                     .unwrap_or_default()
                     .unwrap_or_default();
                 info.balance = record.old_balance;
+                local_state.db.insert_account_info(record.address, info);
+            }
+            // Roll back all nonce changes recorded during this reverted call.
+            for record in inspector.2.state.nonce_changes.drain(..).rev() {
+                let mut info = local_state
+                    .db
+                    .basic(record.address)
+                    .unwrap_or_default()
+                    .unwrap_or_default();
+                info.nonce = record.old_nonce;
                 local_state.db.insert_account_info(record.address, info);
             }
             all_ok = false;
@@ -211,6 +222,9 @@ fn check_properties(
     config: &ChainConfig,
 ) -> Result<Vec<PropertyResult>, ChainExecutionError> {
     let mut results = Vec::with_capacity(properties.len());
+    let mut inspector = crate::chain::inspectors::cheatcode::CheatcodeInspector::from_state(
+        state.cheatcodes.clone(),
+    );
 
     for (selector, name) in properties {
         let db = std::mem::take(&mut state.db);
@@ -244,9 +258,10 @@ fn check_properties(
         };
         tx.chain_id = Some(ctx.cfg.chain_id);
         tx.gas_price = ctx.block.basefee as u128;
-        let mut evm = ctx.build_mainnet_with_inspector(NoOpInspector);
+        let mut evm = ctx.build_mainnet_with_inspector(inspector);
         let result = evm.inspect_tx_commit(tx);
         state.db = evm.ctx.journaled_state.database;
+        inspector = evm.inspector;
         let result = result.map_err(|e| -> anyhow::Error { e.into() })?;
 
         let passed = if result.is_success() {

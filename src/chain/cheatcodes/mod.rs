@@ -15,6 +15,7 @@ use revm::{
 };
 
 pub use deal::DealRecord;
+pub use nonce::NonceRecord;
 
 use crate::chain::cheatcodes::effect::CheatcodeEffect;
 
@@ -29,6 +30,7 @@ pub mod etch;
 pub mod fee;
 pub mod ffi;
 pub mod label;
+pub mod nonce;
 pub mod prank;
 pub mod prevrandao;
 pub mod roll;
@@ -73,8 +75,8 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         // Account manipulation
         deal::Deal::SELECTOR => dispatch::<deal::Deal>(input),
         etch::Etch::SELECTOR => dispatch::<etch::Etch>(input),
-        account::SetNonce::SELECTOR => dispatch::<account::SetNonce>(input),
-        account::GetNonce::SELECTOR => dispatch::<account::GetNonce>(input),
+        nonce::SetNonce::SELECTOR => dispatch::<nonce::SetNonce>(input),
+        nonce::GetNonce::SELECTOR => dispatch::<nonce::GetNonce>(input),
         account::Load::SELECTOR => dispatch::<account::Load>(input),
         account::Store::SELECTOR => dispatch::<account::Store>(input),
 
@@ -184,6 +186,8 @@ pub struct CheatcodeState {
     pub compiled_contracts: HashMap<String, Bytes>,
     /// Rollback records for `vm.deal` (Foundry semantics).
     pub eth_deals: Vec<DealRecord>,
+    /// Rollback records for `vm.setNonce`.
+    pub nonce_changes: Vec<NonceRecord>,
 }
 
 impl CheatcodeState {

@@ -151,12 +151,31 @@ pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = Blo
             ctx.journal_mut().set_code(*addr, bytecode);
         }
         CheatcodeEffect::SetAccountNonce(addr, nonce) => {
+            let current = ctx
+                .journal_mut()
+                .load_account(*addr)
+                .ok()
+                .map(|s| s.data.info.nonce)
+                .unwrap_or(0);
+            if *nonce < current {
+                return Err(format!(
+                    "new nonce ({nonce}) must be strictly equal to or higher than the \
+                     account's current nonce ({current})"
+                ));
+            }
             let mut acc = ctx
                 .journal_mut()
                 .load_account_mut(*addr)
                 .map_err(|_| "account load failed")?
                 .data;
             acc.set_nonce(*nonce);
+            state
+                .nonce_changes
+                .push(crate::chain::cheatcodes::NonceRecord {
+                    address: *addr,
+                    old_nonce: current,
+                    new_nonce: *nonce,
+                });
         }
         CheatcodeEffect::SetStorage(addr, slot, value) => {
             let mut acc = ctx

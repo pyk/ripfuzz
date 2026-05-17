@@ -99,9 +99,11 @@ pub fn setup(
     // Persist cheatcode state from setUp so it carries into each sequence.
     let cheat_inspector = evm.inspector.2;
     new_state.cheatcodes = cheat_inspector.state;
-    // setUp deals are committed to the base state; clear records so they
-    // are not rolled back on a later reverted call in a sequence.
+    // setUp deals and nonce changes are committed to the base state; clear
+    // records so they are not rolled back on a later reverted call in a
+    // sequence.
     new_state.cheatcodes.eth_deals.clear();
+    new_state.cheatcodes.nonce_changes.clear();
     // Restore compiled-contract map so vm.getCode keeps working.
     new_state.cheatcodes.compiled_contracts = compiled_contracts;
     // Persist block context set during setUp so sequences start at the

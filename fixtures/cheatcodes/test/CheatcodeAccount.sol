@@ -8,9 +8,8 @@ contract CheatcodeAccount {
     uint256 public storedSlot;
 
     function setUp() external {
-        // deal + setNonce
+        // deal
         vm.deal(address(this), 5 ether);
-        vm.setNonce(address(this), 7);
 
         // store + load roundtrip
         vm.store(address(this), bytes32(uint256(1)), bytes32(uint256(0xCAFE)));
