@@ -234,4 +234,204 @@ mod tests {
             "warp overwrite should produce correct timestamp"
         );
     }
+
+    #[test]
+    fn warp_decode_zero() {
+        let mut data = Warp::SELECTOR.to_vec();
+        data.extend_from_slice(&U256::ZERO.to_be_bytes_vec());
+        let args = Warp::decode(&Bytes::from(data)).unwrap();
+        let effects = Warp::effects(args);
+        assert_eq!(
+            effects,
+            vec![CheatcodeEffect::SetBlockTimestamp(U256::ZERO)]
+        );
+    }
+
+    #[test]
+    fn warp_decode_max_uint64() {
+        let mut data = Warp::SELECTOR.to_vec();
+        data.extend_from_slice(&U256::from(u64::MAX).to_be_bytes_vec());
+        let args = Warp::decode(&Bytes::from(data)).unwrap();
+        let effects = Warp::effects(args);
+        assert_eq!(
+            effects,
+            vec![CheatcodeEffect::SetBlockTimestamp(U256::from(u64::MAX))]
+        );
+    }
+
+    #[test]
+    fn cheatcode_warp_zero_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeWarp.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let action_warp_zero: [u8; 4] = [0xc0, 0x07, 0xfd, 0xe7];
+        let action_record: [u8; 4] = [0x3c, 0x93, 0x0e, 0xf1];
+        let calls = vec![
+            Call {
+                selector: action_warp_zero,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            Call {
+                selector: action_record,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+        ];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "actions should succeed");
+        let prop = output
+            .property_results
+            .iter()
+            .find(|p| p.name == "property_warp_zero")
+            .expect("property should exist");
+        assert!(prop.passed, "warp to zero should produce correct timestamp");
+    }
+
+    #[test]
+    fn cheatcode_warp_max_uint64_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeWarp.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let action_warp_max: [u8; 4] = [0xaa, 0x59, 0x66, 0x2a];
+        let calls = vec![Call {
+            selector: action_warp_max,
+            args: vec![],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        }];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "action should succeed");
+        let prop = output
+            .property_results
+            .iter()
+            .find(|p| p.name == "property_warp_max_uint64")
+            .expect("property should exist");
+        assert!(
+            prop.passed,
+            "warp to max uint64 should produce correct timestamp"
+        );
+    }
+
+    #[test]
+    fn cheatcode_warp_corpus_isolation_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeWarp.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let action_warp: [u8; 4] = [0xa1, 0x65, 0xf3, 0x2a];
+        let action_record: [u8; 4] = [0x3c, 0x93, 0x0e, 0xf1];
+        let mut args = vec![0u8; 32];
+        args[28..32].copy_from_slice(&9999u32.to_be_bytes());
+        let calls_a = vec![Call {
+            selector: action_warp,
+            args,
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        }];
+
+        let output_a = chain.execute(&calls_a).unwrap();
+        assert!(output_a.all_ok, "sequence A should succeed");
+
+        let calls_b = vec![Call {
+            selector: action_record,
+            args: vec![],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        }];
+
+        let output_b = chain.execute(&calls_b).unwrap();
+        assert!(output_b.all_ok, "sequence B should succeed");
+        let prop = output_b
+            .property_results
+            .iter()
+            .find(|p| p.name == "property_setup_only")
+            .expect("property should exist");
+        assert!(
+            prop.passed,
+            "warp from sequence A should not leak into sequence B"
+        );
+    }
+
+    #[test]
+    fn cheatcode_warp_property_final_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeWarp.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let action_warp_100: [u8; 4] = [0xae, 0x19, 0xc7, 0xe5];
+        let calls = vec![Call {
+            selector: action_warp_100,
+            args: vec![],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        }];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "action should succeed");
+        let prop = output
+            .property_results
+            .iter()
+            .find(|p| p.name == "property_final_timestamp")
+            .expect("property should exist");
+        assert!(
+            prop.passed,
+            "property should see the final warped timestamp"
+        );
+    }
+
+    #[test]
+    fn cheatcode_warp_roll_interaction_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeWarp.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let action_warp_and_roll: [u8; 4] = [0x3b, 0xf2, 0x2f, 0x77];
+        let calls = vec![Call {
+            selector: action_warp_and_roll,
+            args: vec![],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        }];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "action should succeed");
+        let prop = output
+            .property_results
+            .iter()
+            .find(|p| p.name == "property_warp_and_roll")
+            .expect("property should exist");
+        assert!(
+            prop.passed,
+            "warp and roll should coexist without interference"
+        );
+    }
 }

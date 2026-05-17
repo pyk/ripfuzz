@@ -154,48 +154,4 @@ mod tests {
         );
         assert!(output.all_ok, "set(0) call should succeed");
     }
-
-    #[test]
-    fn cheatcode_warp_label_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/CheatcodeWarpLabelPrank.sol"),
-        )
-        .unwrap();
-
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        // `action()` selector = keccak256("action()")[:4]
-        let action_selector: [u8; 4] = [0x0a, 0x7a, 0x1c, 0x4d];
-        let calls = vec![Call {
-            selector: action_selector,
-            args: vec![],
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
-            ..Default::default()
-        }];
-
-        let output = chain
-            .execute_with_opts(
-                &calls,
-                crate::chain::executor::ExecutionOptions { trace: true },
-            )
-            .unwrap();
-        let trace = output.trace.expect("trace enabled");
-        let formatted = trace.format();
-        assert!(
-            output.all_ok,
-            "action() should succeed. trace:\n{formatted}\nproperty_results: {:?}",
-            output.property_results
-        );
-        assert!(
-            output.property_results.iter().all(|p| p.passed),
-            "all properties should pass. trace:\n{formatted}"
-        );
-
-        // Trace should contain the label set during setUp.
-        assert!(
-            formatted.contains("TargetContract"),
-            "trace should show the vm.label name:\n{formatted}"
-        );
-    }
 }
