@@ -1,38 +1,26 @@
-//! `difficulty` cheatcode — no-op on raptor's post-Paris default chain.
-//!
-//! After the Paris (Merge) hard fork, `block.difficulty` was deprecated and
-//! replaced by `block.prevrandao` (EIP-4399). On a post-Paris chain the
-//! `DIFFICULTY` opcode reads `prevrandao`, not the `difficulty` field of the
-//! block header. Raptor uses `Context::mainnet()` which targets a post-Paris
-//! specification, so `vm.difficulty(uint256)` cannot meaningfully mutate
-//! execution context. The canonical behaviour across modern fuzzers is a no-op.
-//! Users who want to control the value returned by the `DIFFICULTY` opcode
-//! should use `vm.prevrandao(bytes32)` instead.
+//! `chainId` cheatcode — set and persist the EVM chain ID.
 
-use revm::primitives::Bytes;
+use revm::primitives::{Bytes, U256};
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect};
+use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_u256_arg};
 
-pub struct Difficulty;
+pub struct ChainId;
 
-impl Cheatcode for Difficulty {
-    type Args = ();
-    const SELECTOR: [u8; 4] = [0x46, 0xcc, 0x92, 0xd9];
+impl Cheatcode for ChainId {
+    type Args = U256;
+    const SELECTOR: [u8; 4] = [0x40, 0x49, 0xdd, 0xd2];
 
     fn decode(input: &Bytes) -> Option<Self::Args> {
-        // The selector is followed by one uint256 argument, but on a post-Paris
-        // chain the value is ignored. We only validate that the calldata is
-        // long enough to contain the argument.
-        if input.len() < 4 + 32 {
-            return None;
-        }
-        Some(())
+        decode_u256_arg(input)
     }
 
-    fn effects(_args: Self::Args) -> Vec<CheatcodeEffect> {
-        // Intentional no-op: raptor runs on a post-Paris chain where the
-        // DIFFICULTY opcode reads prevrandao, not block.difficulty.
-        vec![]
+    fn effects(value: Self::Args) -> Vec<CheatcodeEffect> {
+        if value > U256::from(u64::MAX) {
+            return vec![CheatcodeEffect::Revert(
+                "chain ID must be less than 2^64".to_string(),
+            )];
+        }
+        vec![CheatcodeEffect::SetChainId(value)]
     }
 }
 
@@ -48,62 +36,59 @@ mod tests {
     use crate::contract;
     use crate::corpus::Call;
 
-    // ------------------------------------------------------------------
-    // Unit tests
-    // ------------------------------------------------------------------
-
     #[test]
-    fn difficulty_decode_valid() {
-        let mut data = Difficulty::SELECTOR.to_vec();
-        data.extend_from_slice(&U256::from(42u64).to_be_bytes_vec());
-        let args = Difficulty::decode(&Bytes::from(data));
-        assert!(args.is_some());
-        assert_eq!(Difficulty::effects(args.unwrap()), vec![]);
+    fn chain_id_decode_and_effects() {
+        let mut data = ChainId::SELECTOR.to_vec();
+        data.extend_from_slice(&U256::from(1337u64).to_be_bytes_vec());
+        let args = ChainId::decode(&Bytes::from(data)).unwrap();
+        let effects = ChainId::effects(args);
+        assert_eq!(
+            effects,
+            vec![CheatcodeEffect::SetChainId(U256::from(1337u64))]
+        );
     }
 
     #[test]
-    fn difficulty_decode_zero() {
-        let mut data = Difficulty::SELECTOR.to_vec();
+    fn chain_id_decode_zero() {
+        let mut data = ChainId::SELECTOR.to_vec();
         data.extend_from_slice(&U256::ZERO.to_be_bytes_vec());
-        let args = Difficulty::decode(&Bytes::from(data));
-        assert!(args.is_some());
-        assert_eq!(Difficulty::effects(args.unwrap()), vec![]);
+        let args = ChainId::decode(&Bytes::from(data)).unwrap();
+        let effects = ChainId::effects(args);
+        assert_eq!(effects, vec![CheatcodeEffect::SetChainId(U256::ZERO)]);
     }
 
     #[test]
-    fn difficulty_decode_max_uint256() {
-        let mut data = Difficulty::SELECTOR.to_vec();
-        data.extend_from_slice(&U256::MAX.to_be_bytes_vec());
-        let args = Difficulty::decode(&Bytes::from(data));
-        assert!(args.is_some());
-        assert_eq!(Difficulty::effects(args.unwrap()), vec![]);
+    fn chain_id_decode_max_u64() {
+        let mut data = ChainId::SELECTOR.to_vec();
+        data.extend_from_slice(&U256::from(u64::MAX).to_be_bytes_vec());
+        let args = ChainId::decode(&Bytes::from(data)).unwrap();
+        let effects = ChainId::effects(args);
+        assert_eq!(
+            effects,
+            vec![CheatcodeEffect::SetChainId(U256::from(u64::MAX))]
+        );
     }
 
     #[test]
-    fn difficulty_decode_too_short() {
-        let mut data = Difficulty::SELECTOR.to_vec();
-        data.extend_from_slice(&[0u8; 31]); // one byte short
-        let args = Difficulty::decode(&Bytes::from(data));
-        assert!(args.is_none());
+    fn chain_id_decode_too_large_reverts() {
+        let mut data = ChainId::SELECTOR.to_vec();
+        data.extend_from_slice(&(U256::from(u64::MAX) + U256::from(1)).to_be_bytes_vec());
+        let args = ChainId::decode(&Bytes::from(data)).unwrap();
+        let effects = ChainId::effects(args);
+        assert_eq!(
+            effects,
+            vec![CheatcodeEffect::Revert(
+                "chain ID must be less than 2^64".to_string()
+            )]
+        );
     }
-
-    #[test]
-    fn difficulty_decode_selector_only() {
-        let data = Difficulty::SELECTOR.to_vec();
-        let args = Difficulty::decode(&Bytes::from(data));
-        assert!(args.is_none());
-    }
-
-    // ------------------------------------------------------------------
-    // Integration tests
-    // ------------------------------------------------------------------
 
     #[test]
     #[serial]
-    fn cheatcode_difficulty_setup_integration() {
+    fn cheatcode_chain_id_setup_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeDifficulty.sol"),
+            Path::new("test/CheatcodeChainId.sol"),
         )
         .unwrap();
 
@@ -122,29 +107,29 @@ mod tests {
         let prop = output
             .property_results
             .iter()
-            .find(|p| p.name == "property_setup_difficulty_unchanged")
+            .find(|p| p.name == "property_setup_chain_id_persists")
             .expect("property should exist");
-        assert!(prop.passed, "setUp difficulty should be a no-op");
+        assert!(prop.passed, "setUp chainId should persist into first call");
     }
 
     #[test]
     #[serial]
-    fn cheatcode_difficulty_sequence_integration() {
+    fn cheatcode_chain_id_sequence_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeDifficulty.sol"),
+            Path::new("test/CheatcodeChainId.sol"),
         )
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let call_difficulty: [u8; 4] = [0x59, 0x4a, 0x94, 0x30]; // call_difficulty(uint256)
+        let call_chain_id: [u8; 4] = [0x03, 0x21, 0x0d, 0xc5]; // call_chain_id(uint256)
         let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
         let mut args = vec![0u8; 32];
-        args[28..32].copy_from_slice(&12345u32.to_be_bytes());
+        args[28..32].copy_from_slice(&9999u32.to_be_bytes());
         let calls = vec![
             Call {
-                selector: call_difficulty,
-                args,
+                selector: call_chain_id,
+                args: args.clone(),
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
                 ..Default::default()
@@ -163,26 +148,26 @@ mod tests {
         let prop = output
             .property_results
             .iter()
-            .find(|p| p.name == "property_difficulty_no_op")
+            .find(|p| p.name == "property_chain_id_persists")
             .expect("property should exist");
-        assert!(prop.passed, "difficulty should be a no-op in sequence");
+        assert!(prop.passed, "chainId should persist across calls");
     }
 
     #[test]
     #[serial]
-    fn cheatcode_difficulty_revert_integration() {
+    fn cheatcode_chain_id_revert_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeDifficulty.sol"),
+            Path::new("test/CheatcodeChainId.sol"),
         )
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let call_difficulty_and_revert: [u8; 4] = [0x60, 0xa9, 0x6a, 0x8e]; // call_difficulty_and_revert(uint256)
+        let call_chain_id_and_revert: [u8; 4] = [0x4c, 0x29, 0x55, 0x08]; // call_chain_id_and_revert(uint256)
         let mut args = vec![0u8; 32];
-        args[28..32].copy_from_slice(&9999u32.to_be_bytes());
+        args[28..32].copy_from_slice(&8888u32.to_be_bytes());
         let calls = vec![Call {
-            selector: call_difficulty_and_revert,
+            selector: call_chain_id_and_revert,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -190,31 +175,162 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(!output.all_ok, "difficulty_and_revert should revert");
+        assert!(!output.all_ok, "chainId_and_revert should revert");
         let prop = output
             .property_results
             .iter()
-            .find(|p| p.name == "property_revert_is_still_no_op")
+            .find(|p| p.name == "property_revert_undoes_chain_id")
             .expect("property should exist");
         assert!(
             prop.passed,
-            "reverted difficulty should not leak into properties"
+            "reverted chainId should not leak into properties"
         );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_difficulty_prevrandao_interaction_integration() {
+    fn cheatcode_chain_id_overwrite_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeDifficulty.sol"),
+            Path::new("test/CheatcodeChainId.sol"),
         )
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let call_prevrandao_then_difficulty: [u8; 4] = [0x12, 0xd5, 0x74, 0x98]; // call_prevrandao_then_difficulty()
+        let call_chain_id_100: [u8; 4] = [0xb8, 0x7c, 0x71, 0xa3]; // call_chain_id_100()
+        let call_chain_id_200: [u8; 4] = [0x2e, 0xc7, 0x8f, 0x66]; // call_chain_id_200()
+        let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
+        let calls = vec![
+            Call {
+                selector: call_chain_id_100,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            Call {
+                selector: call_chain_id_200,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            Call {
+                selector: call_record,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+        ];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "calls should succeed");
+        let prop = output
+            .property_results
+            .iter()
+            .find(|p| p.name == "property_chain_id_overwrite")
+            .expect("property should exist");
+        assert!(
+            prop.passed,
+            "chainId overwrite should produce correct value"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn cheatcode_chain_id_zero_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeChainId.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let call_chain_id_zero: [u8; 4] = [0xb0, 0xa1, 0xcc, 0xe5]; // call_chain_id_zero()
+        let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
+        let calls = vec![
+            Call {
+                selector: call_chain_id_zero,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            Call {
+                selector: call_record,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+        ];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "calls should succeed");
+        let prop = output
+            .property_results
+            .iter()
+            .find(|p| p.name == "property_chain_id_zero")
+            .expect("property should exist");
+        assert!(prop.passed, "chainId to zero should produce correct value");
+    }
+
+    #[test]
+    #[serial]
+    fn cheatcode_chain_id_max_u64_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeChainId.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let call_chain_id_max: [u8; 4] = [0x7d, 0xf3, 0x12, 0xe9]; // call_chain_id_max_u64()
+        let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
+        let calls = vec![
+            Call {
+                selector: call_chain_id_max,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            Call {
+                selector: call_record,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+        ];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "calls should succeed");
+        let prop = output
+            .property_results
+            .iter()
+            .find(|p| p.name == "property_chain_id_max_u64")
+            .expect("property should exist");
+        assert!(
+            prop.passed,
+            "chainId to max uint64 should produce correct value"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn cheatcode_chain_id_too_large_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeChainId.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let call_chain_id_too_large: [u8; 4] = [0x2c, 0x93, 0xcd, 0x68]; // call_chain_id_too_large()
         let calls = vec![Call {
-            selector: call_prevrandao_then_difficulty,
+            selector: call_chain_id_too_large,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -222,168 +338,31 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "call should succeed");
+        assert!(!output.all_ok, "chainId too large should revert");
         let prop = output
             .property_results
             .iter()
-            .find(|p| p.name == "property_prevrandao_unaffected")
+            .find(|p| p.name == "property_chain_id_too_large_reverts")
             .expect("property should exist");
-        assert!(
-            prop.passed,
-            "difficulty should not clobber a prior prevrandao setting"
-        );
+        assert!(prop.passed, "chainId too large should not mutate chain ID");
     }
 
     #[test]
     #[serial]
-    fn cheatcode_difficulty_overwrite_integration() {
+    fn cheatcode_chain_id_corpus_isolation_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeDifficulty.sol"),
+            Path::new("test/CheatcodeChainId.sol"),
         )
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let call_difficulty: [u8; 4] = [0x59, 0x4a, 0x94, 0x30]; // call_difficulty(uint256)
-        let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
-        let mut args1 = vec![0u8; 32];
-        args1[31] = 1;
-        let mut args2 = vec![0u8; 32];
-        args2[31] = 2;
-        let calls = vec![
-            Call {
-                selector: call_difficulty,
-                args: args1,
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-            Call {
-                selector: call_difficulty,
-                args: args2,
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-            Call {
-                selector: call_record,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-        ];
-
-        let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_difficulty_still_unchanged")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "multiple difficulty calls should still be no-ops"
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn cheatcode_difficulty_zero_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeDifficulty.sol"),
-        )
-        .unwrap();
-
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let call_difficulty_zero: [u8; 4] = [0xa5, 0xd5, 0x9c, 0xc5]; // call_difficulty_zero()
-        let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
-        let calls = vec![
-            Call {
-                selector: call_difficulty_zero,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-            Call {
-                selector: call_record,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-        ];
-
-        let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_difficulty_zero_no_op")
-            .expect("property should exist");
-        assert!(prop.passed, "difficulty to zero should still be a no-op");
-    }
-
-    #[test]
-    #[serial]
-    fn cheatcode_difficulty_max_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeDifficulty.sol"),
-        )
-        .unwrap();
-
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let call_difficulty_max: [u8; 4] = [0x8d, 0xe4, 0x75, 0x24]; // call_difficulty_max()
-        let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
-        let calls = vec![
-            Call {
-                selector: call_difficulty_max,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-            Call {
-                selector: call_record,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-        ];
-
-        let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_difficulty_max_no_op")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "difficulty to max uint64 should still be a no-op"
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn cheatcode_difficulty_corpus_isolation_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeDifficulty.sol"),
-        )
-        .unwrap();
-
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let call_difficulty: [u8; 4] = [0x59, 0x4a, 0x94, 0x30]; // call_difficulty(uint256)
+        let call_chain_id: [u8; 4] = [0x03, 0x21, 0x0d, 0xc5]; // call_chain_id(uint256)
         let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
         let mut args = vec![0u8; 32];
-        args[28..32].copy_from_slice(&9999u32.to_be_bytes());
+        args[28..32].copy_from_slice(&7777u32.to_be_bytes());
         let calls_a = vec![Call {
-            selector: call_difficulty,
+            selector: call_chain_id,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -410,23 +389,23 @@ mod tests {
             .expect("property should exist");
         assert!(
             prop.passed,
-            "difficulty from sequence A should not leak into sequence B"
+            "chainId from sequence A should not leak into sequence B"
         );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_difficulty_property_final_integration() {
+    fn cheatcode_chain_id_property_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeDifficulty.sol"),
+            Path::new("test/CheatcodeChainId.sol"),
         )
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let call_noop: [u8; 4] = [0x0a, 0xd4, 0xeb, 0x0c]; // call_noop()
+        let call_chain_id_100: [u8; 4] = [0xb8, 0x7c, 0x71, 0xa3]; // call_chain_id_100()
         let calls = vec![Call {
-            selector: call_noop,
+            selector: call_chain_id_100,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -438,8 +417,40 @@ mod tests {
         let prop = output
             .property_results
             .iter()
-            .find(|p| p.name == "property_final_difficulty")
+            .find(|p| p.name == "property_final_chain_id")
             .expect("property should exist");
-        assert!(prop.passed, "property should see the default difficulty");
+        assert!(prop.passed, "property should see the final chainId value");
+    }
+
+    #[test]
+    #[serial]
+    fn cheatcode_chain_id_warp_interaction_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeChainId.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let call_chain_id_and_warp: [u8; 4] = [0xc1, 0x4e, 0x5a, 0xe5]; // call_chain_id_and_warp()
+        let calls = vec![Call {
+            selector: call_chain_id_and_warp,
+            args: vec![],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        }];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "call should succeed");
+        let prop = output
+            .property_results
+            .iter()
+            .find(|p| p.name == "property_chain_id_and_warp")
+            .expect("property should exist");
+        assert!(
+            prop.passed,
+            "chainId and warp should coexist without interference"
+        );
     }
 }

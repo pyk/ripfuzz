@@ -12,12 +12,12 @@ contract CheatcodePrank {
         target = new PrankTarget();
     }
 
-    function action_prank() external {
+    function call_prank() external {
         vm.prank(address(0x123));
         target.record();
     }
 
-    function action_start_prank() external {
+    function call_start_prank() external {
         vm.startPrank(address(0x456));
         target.record();
         target.record();

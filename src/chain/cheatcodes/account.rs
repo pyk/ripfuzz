@@ -235,9 +235,9 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_selector: [u8; 4] = [0x0a, 0x7a, 0x1c, 0x4d]; // action()
+        let call_selector: [u8; 4] = [0x28, 0xb5, 0xe3, 0x2b]; // call()
         let calls = vec![Call {
-            selector: action_selector,
+            selector: call_selector,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -245,7 +245,7 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "action() should succeed");
+        assert!(output.all_ok, "call() should succeed");
         assert!(
             output.property_results.iter().all(|p| p.passed),
             "all account properties should pass"

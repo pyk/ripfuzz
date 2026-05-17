@@ -20,7 +20,7 @@ contract CheatcodeAccount {
         vm.etch(address(0xBEEF), code);
     }
 
-    function action() external {
+    function call() external {
         storedSlot = uint256(vm.load(address(this), bytes32(uint256(1))));
     }
 

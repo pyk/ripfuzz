@@ -112,9 +112,9 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_record: [u8; 4] = [0x49, 0xfc, 0xf8, 0x23]; // action_record_prevrandao()
+        let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let calls = vec![Call {
-            selector: action_record,
+            selector: call_record,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -122,7 +122,7 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "action should succeed");
+        assert!(output.all_ok, "call should succeed");
         let prop = output
             .property_results
             .iter()
@@ -144,20 +144,20 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_prevrandao: [u8; 4] = [0x54, 0x0b, 0xa4, 0x8b]; // action_prevrandao(bytes32)
-        let action_record: [u8; 4] = [0x49, 0xfc, 0xf8, 0x23]; // action_record_prevrandao()
+        let call_prevrandao: [u8; 4] = [0xfc, 0xfe, 0xad, 0xd3]; // call_prevrandao(bytes32)
+        let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let mut args = vec![0u8; 32];
         args[31] = 0xAB;
         let calls = vec![
             Call {
-                selector: action_prevrandao,
+                selector: call_prevrandao,
                 args: args.clone(),
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
                 ..Default::default()
             },
             Call {
-                selector: action_record,
+                selector: call_record,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -166,7 +166,7 @@ mod tests {
         ];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "actions should succeed");
+        assert!(output.all_ok, "calls should succeed");
         let prop = output
             .property_results
             .iter()
@@ -188,11 +188,11 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_revert: [u8; 4] = [0x44, 0x5d, 0xf8, 0x84]; // action_prevrandao_and_revert(bytes32)
+        let call_revert: [u8; 4] = [0x60, 0xb1, 0x2d, 0x9d]; // call_prevrandao_and_revert(bytes32)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&0xDEADu32.to_be_bytes());
         let calls = vec![Call {
-            selector: action_revert,
+            selector: call_revert,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -222,26 +222,26 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_a: [u8; 4] = [0xfb, 0xba, 0xce, 0x4f]; // action_prevrandao_A()
-        let action_b: [u8; 4] = [0x1f, 0x92, 0x86, 0xa3]; // action_prevrandao_B()
-        let action_record: [u8; 4] = [0x49, 0xfc, 0xf8, 0x23]; // action_record_prevrandao()
+        let call_a: [u8; 4] = [0x05, 0xc3, 0xdb, 0x72]; // call_prevrandao_A()
+        let call_b: [u8; 4] = [0xb6, 0xb1, 0xa3, 0x32]; // call_prevrandao_B()
+        let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let calls = vec![
             Call {
-                selector: action_a,
+                selector: call_a,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
                 ..Default::default()
             },
             Call {
-                selector: action_b,
+                selector: call_b,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
                 ..Default::default()
             },
             Call {
-                selector: action_record,
+                selector: call_record,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -250,7 +250,7 @@ mod tests {
         ];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "actions should succeed");
+        assert!(output.all_ok, "calls should succeed");
         let prop = output
             .property_results
             .iter()
@@ -272,18 +272,18 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_zero: [u8; 4] = [0x8e, 0xb1, 0xb2, 0x52]; // action_prevrandao_zero()
-        let action_record: [u8; 4] = [0x49, 0xfc, 0xf8, 0x23]; // action_record_prevrandao()
+        let call_zero: [u8; 4] = [0x4e, 0x48, 0x69, 0xb8]; // call_prevrandao_zero()
+        let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let calls = vec![
             Call {
-                selector: action_zero,
+                selector: call_zero,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
                 ..Default::default()
             },
             Call {
-                selector: action_record,
+                selector: call_record,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -292,7 +292,7 @@ mod tests {
         ];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "actions should succeed");
+        assert!(output.all_ok, "calls should succeed");
         let prop = output
             .property_results
             .iter()
@@ -314,9 +314,9 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_max: [u8; 4] = [0x95, 0x5e, 0x40, 0x20]; // action_prevrandao_max()
+        let call_max: [u8; 4] = [0x9f, 0x00, 0x89, 0xb9]; // call_prevrandao_max()
         let calls = vec![Call {
-            selector: action_max,
+            selector: call_max,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -324,7 +324,7 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "action should succeed");
+        assert!(output.all_ok, "call should succeed");
         let prop = output
             .property_results
             .iter()
@@ -346,12 +346,12 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_prevrandao: [u8; 4] = [0x54, 0x0b, 0xa4, 0x8b]; // action_prevrandao(bytes32)
-        let action_record: [u8; 4] = [0x49, 0xfc, 0xf8, 0x23]; // action_record_prevrandao()
+        let call_prevrandao: [u8; 4] = [0xfc, 0xfe, 0xad, 0xd3]; // call_prevrandao(bytes32)
+        let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&0xDEADu32.to_be_bytes());
         let calls_a = vec![Call {
-            selector: action_prevrandao,
+            selector: call_prevrandao,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -362,7 +362,7 @@ mod tests {
         assert!(output_a.all_ok, "sequence A should succeed");
 
         let calls_b = vec![Call {
-            selector: action_record,
+            selector: call_record,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -392,9 +392,9 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_a: [u8; 4] = [0xfb, 0xba, 0xce, 0x4f]; // action_prevrandao_A()
+        let call_a: [u8; 4] = [0x05, 0xc3, 0xdb, 0x72]; // call_prevrandao_A()
         let calls = vec![Call {
-            selector: action_a,
+            selector: call_a,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -402,7 +402,7 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "action should succeed");
+        assert!(output.all_ok, "call should succeed");
         let prop = output
             .property_results
             .iter()
@@ -424,9 +424,9 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_interaction: [u8; 4] = [0x1c, 0xa5, 0x55, 0x47]; // action_prevrandao_and_roll_warp_fee_coinbase()
+        let call_interaction: [u8; 4] = [0x24, 0xed, 0x68, 0x04]; // call_prevrandao_and_roll_warp_fee_coinbase()
         let calls = vec![Call {
-            selector: action_interaction,
+            selector: call_interaction,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -434,7 +434,7 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "action should succeed");
+        assert!(output.all_ok, "call should succeed");
         let prop = output
             .property_results
             .iter()
@@ -456,9 +456,9 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_interaction: [u8; 4] = [0xdf, 0x9f, 0xed, 0x5d]; // action_prevrandao_then_difficulty()
+        let call_interaction: [u8; 4] = [0x12, 0xd5, 0x74, 0x98]; // call_prevrandao_then_difficulty()
         let calls = vec![Call {
-            selector: action_interaction,
+            selector: call_interaction,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -466,7 +466,7 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "action should succeed");
+        assert!(output.all_ok, "call should succeed");
         let prop = output
             .property_results
             .iter()

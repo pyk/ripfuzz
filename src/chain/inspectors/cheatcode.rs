@@ -125,8 +125,11 @@ impl Default for CheatcodeInspector {
     }
 }
 
-impl<CTX: ContextTr<Db = InMemoryDB, Block = BlockEnv, Tx = TxEnv> + ContextSetters>
-    Inspector<CTX, EthInterpreter> for CheatcodeInspector
+impl<
+    CTX: ContextTr<Db = InMemoryDB, Block = BlockEnv, Tx = TxEnv>
+        + ContextSetters
+        + crate::chain::cheatcodes::effect::CfgMut,
+> Inspector<CTX, EthInterpreter> for CheatcodeInspector
 {
     fn initialize_interp(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
     }

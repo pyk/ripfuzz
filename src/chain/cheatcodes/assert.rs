@@ -451,9 +451,9 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let sel_true: [u8; 4] = [0xd6, 0xb8, 0xdf, 0x1b]; // action_assert_true()
-        let sel_eq: [u8; 4] = [0xd3, 0xe5, 0x18, 0xfd]; // action_assert_eq_uint()
-        let sel_lt: [u8; 4] = [0xdb, 0x0e, 0x9e, 0x0c]; // action_assert_lt()
+        let sel_true: [u8; 4] = [0x2f, 0x03, 0x1a, 0x90]; // call_assert_true()
+        let sel_eq: [u8; 4] = [0x9a, 0x92, 0xb7, 0xce]; // call_assert_eq_uint()
+        let sel_lt: [u8; 4] = [0x7e, 0x22, 0x82, 0x09]; // call_assert_lt()
 
         for sel in [sel_true, sel_eq, sel_lt] {
             let out = chain
@@ -466,7 +466,7 @@ mod tests {
                 }])
                 .unwrap();
             eprintln!("sel={:02x?} all_ok={}", sel, out.all_ok);
-            assert!(out.all_ok, "each assert action should succeed");
+            assert!(out.all_ok, "each assert call should succeed");
         }
         let output = chain.execute(&vec![]).unwrap();
         assert!(

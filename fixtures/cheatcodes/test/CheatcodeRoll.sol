@@ -14,11 +14,11 @@ contract CheatcodeRoll {
         vm.roll(12345);
     }
 
-    function action_record_block_number() external {
+    function call_record_block_number() external {
         recordedBlockNumber = block.number;
     }
 
-    function action_record_timestamp() external {
+    function call_record_timestamp() external {
         recordedTimestamp = block.timestamp;
     }
 
@@ -32,19 +32,19 @@ contract CheatcodeRoll {
 
     // --- Same-sequence persistence ---
 
-    function action_roll(uint256 num) external {
+    function call_roll(uint256 num) external {
         vm.roll(num);
         recordedBlockNumber = block.number;
     }
 
     function property_roll_persists_across_calls() external view returns (bool) {
-        // action_roll(100) -> roll to 100, then advance_block adds 1 for next call
+        // call_roll(100) -> roll to 100, then advance_block adds 1 for next call
         return recordedBlockNumber == 101;
     }
 
     // --- Revert safety ---
 
-    function action_roll_and_revert(uint256 num) external {
+    function call_roll_and_revert(uint256 num) external {
         vm.roll(num);
         revert("intentional");
     }
@@ -55,30 +55,30 @@ contract CheatcodeRoll {
 
     // --- Delay interaction ---
 
-    function action_roll_100() external {
+    function call_roll_100() external {
         vm.roll(100);
     }
 
     function property_roll_with_delay() external view returns (bool) {
-        // action_roll_100() at idx=0, then action_record_block_number() at idx=1 with delay=5
+        // call_roll_100() at idx=0, then call_record_block_number() at idx=1 with delay=5
         // advance_block adds 5, so expected 105
         return block.number == 105;
     }
 
     // --- Roll overwrite ---
 
-    function action_roll_200() external {
+    function call_roll_200() external {
         vm.roll(200);
     }
 
     function property_roll_overwrite() external view returns (bool) {
-        // action_roll_100() -> 100, action_roll_200() -> 200, then advance_block adds 1
+        // call_roll_100() -> 100, call_roll_200() -> 200, then advance_block adds 1
         return block.number == 201;
     }
 
     // --- Edge: roll to zero ---
 
-    function action_roll_zero() external {
+    function call_roll_zero() external {
         vm.roll(0);
     }
 
@@ -89,7 +89,7 @@ contract CheatcodeRoll {
 
     // --- Edge: roll to max uint64 ---
 
-    function action_roll_max_uint64() external {
+    function call_roll_max_uint64() external {
         vm.roll(type(uint64).max);
     }
 
@@ -100,13 +100,13 @@ contract CheatcodeRoll {
     // --- Property sees final roll ---
 
     function property_final_block_number() external view returns (bool) {
-        // If the only call was action_roll_100(), the property should see 100
+        // If the only call was call_roll_100(), the property should see 100
         return block.number == 100;
     }
 
     // --- Cross-cheatcode interaction: roll + warp ---
 
-    function action_roll_and_warp() external {
+    function call_roll_and_warp() external {
         vm.roll(5000);
         vm.warp(1000);
     }

@@ -15,15 +15,15 @@ contract CheatcodeFee {
         vm.fee(12345);
     }
 
-    function action_record_basefee() external {
+    function call_record_basefee() external {
         recordedBaseFee = block.basefee;
     }
 
-    function action_record_block_number() external {
+    function call_record_block_number() external {
         recordedBlockNumber = block.number;
     }
 
-    function action_record_timestamp() external {
+    function call_record_timestamp() external {
         recordedTimestamp = block.timestamp;
     }
 
@@ -37,19 +37,19 @@ contract CheatcodeFee {
 
     // --- Same-sequence persistence ---
 
-    function action_fee(uint256 num) external {
+    function call_fee(uint256 num) external {
         vm.fee(num);
         recordedBaseFee = block.basefee;
     }
 
     function property_fee_persists_across_calls() external view returns (bool) {
-        // action_fee(100) -> fee = 100, next call sees 100 (no auto-advance)
+        // call_fee(100) -> fee = 100, next call sees 100 (no auto-advance)
         return recordedBaseFee == 100;
     }
 
     // --- Revert safety ---
 
-    function action_fee_and_revert(uint256 num) external {
+    function call_fee_and_revert(uint256 num) external {
         vm.fee(num);
         revert("intentional");
     }
@@ -60,22 +60,22 @@ contract CheatcodeFee {
 
     // --- Fee overwrite ---
 
-    function action_fee_100() external {
+    function call_fee_100() external {
         vm.fee(100);
     }
 
-    function action_fee_200() external {
+    function call_fee_200() external {
         vm.fee(200);
     }
 
     function property_fee_overwrite() external view returns (bool) {
-        // action_fee_100 -> 100, action_fee_200 -> 200
+        // call_fee_100 -> 100, call_fee_200 -> 200
         return block.basefee == 200;
     }
 
     // --- Edge: fee to zero ---
 
-    function action_fee_zero() external {
+    function call_fee_zero() external {
         vm.fee(0);
     }
 
@@ -85,7 +85,7 @@ contract CheatcodeFee {
 
     // --- Edge: fee to max uint64 ---
 
-    function action_fee_max_uint64() external {
+    function call_fee_max_uint64() external {
         vm.fee(type(uint64).max);
     }
 
@@ -96,13 +96,13 @@ contract CheatcodeFee {
     // --- Property sees final fee ---
 
     function property_final_basefee() external view returns (bool) {
-        // If the only call was action_fee_100(), the property should see 100
+        // If the only call was call_fee_100(), the property should see 100
         return block.basefee == 100;
     }
 
     // --- Cross-cheatcode interaction: fee + roll + warp ---
 
-    function action_fee_and_roll_warp() external {
+    function call_fee_and_roll_warp() external {
         vm.fee(5000);
         vm.roll(7000);
         vm.warp(9000);

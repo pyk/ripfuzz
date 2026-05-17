@@ -11,15 +11,15 @@ contract CheatcodeAssert {
         passed = true;
     }
 
-    function action_assert_true() external {
+    function call_assert_true() external {
         vm.assertTrue(true);
     }
 
-    function action_assert_eq_uint() external {
+    function call_assert_eq_uint() external {
         vm.assertEq(uint256(42), uint256(42));
     }
 
-    function action_assert_lt() external {
+    function call_assert_lt() external {
         vm.assertLt(uint256(1), uint256(2));
     }
 

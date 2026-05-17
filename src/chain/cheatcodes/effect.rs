@@ -13,6 +13,26 @@ use revm::{
 
 use crate::chain::cheatcodes::{CheatcodeState, PrankState, StartPrankState};
 
+/// Minimal trait to mutate `chain_id` on generic EVM contexts.
+///
+/// Only `chainId` needs this because it mutates `cfg.chain_id` live during a
+/// call so the `CHAINID` opcode sees the new value immediately.
+pub trait CfgMut {
+    fn set_chain_id(&mut self, chain_id: u64);
+}
+
+impl<BLOCK, TX, DB, JOURNAL, CHAIN, LOCAL, SPEC> CfgMut
+    for revm::context::Context<BLOCK, TX, revm::context::CfgEnv<SPEC>, DB, JOURNAL, CHAIN, LOCAL>
+where
+    DB: revm::Database,
+    JOURNAL: revm::context_interface::JournalTr<Database = DB>,
+    LOCAL: revm::context_interface::LocalContextTr,
+{
+    fn set_chain_id(&mut self, chain_id: u64) {
+        self.cfg.chain_id = chain_id;
+    }
+}
+
 /// What a cheatcode wants to change in the EVM or inspector state.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CheatcodeEffect {
@@ -61,7 +81,7 @@ pub enum CheatcodeEffect {
 /// Apply a single effect, mutating `ctx` and/or `state`.
 ///
 /// Returns `Err(reason)` if the effect cannot be applied (e.g. FFI disabled).
-pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = BlockEnv>>(
+pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = BlockEnv> + CfgMut>(
     effect: &CheatcodeEffect,
     ctx: &mut CTX,
     state: &mut CheatcodeState,
@@ -135,7 +155,12 @@ pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = Blo
         }
 
         // --- Inspector state mutations ---
-        CheatcodeEffect::SetChainId(v) => state.block.chain_id = Some(*v),
+        CheatcodeEffect::SetChainId(v) => {
+            state.block.chain_id = Some(*v);
+            // Also update the live EVM context so the CHAINID opcode sees the
+            // new value for the remainder of the current call.
+            ctx.set_chain_id(u64::try_from(*v).unwrap_or(u64::MAX));
+        }
         CheatcodeEffect::SetPrank(p) => state.prank.active = Some(p.clone()),
         CheatcodeEffect::SetStartPrank(p) => state.prank.start = Some(p.clone()),
         CheatcodeEffect::ClearPrank => {

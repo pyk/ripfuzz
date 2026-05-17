@@ -88,9 +88,9 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_record: [u8; 4] = [0xd3, 0x12, 0xbe, 0x09]; // action_record_basefee()
+        let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
         let calls = vec![Call {
-            selector: action_record,
+            selector: call_record,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -98,7 +98,7 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "action should succeed");
+        assert!(output.all_ok, "call should succeed");
         let prop = output
             .property_results
             .iter()
@@ -117,20 +117,20 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee: [u8; 4] = [0xd7, 0x32, 0x98, 0xc4]; // action_fee(uint256)
-        let action_record: [u8; 4] = [0xd3, 0x12, 0xbe, 0x09]; // action_record_basefee()
+        let call_fee: [u8; 4] = [0xa0, 0x67, 0x5b, 0x95]; // call_fee(uint256)
+        let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
         let mut args = vec![0u8; 32];
         args[31] = 100; // U256(100)
         let calls = vec![
             Call {
-                selector: action_fee,
+                selector: call_fee,
                 args: args.clone(),
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
                 ..Default::default()
             },
             Call {
-                selector: action_record,
+                selector: call_record,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -139,7 +139,7 @@ mod tests {
         ];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "actions should succeed");
+        assert!(output.all_ok, "calls should succeed");
         let prop = output
             .property_results
             .iter()
@@ -161,11 +161,11 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_revert: [u8; 4] = [0x4d, 0x01, 0x2a, 0x77]; // action_fee_and_revert(uint256)
+        let call_fee_revert: [u8; 4] = [0x22, 0xfa, 0x48, 0x0c]; // call_fee_and_revert(uint256)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&9999u32.to_be_bytes());
         let calls = vec![Call {
-            selector: action_fee_revert,
+            selector: call_fee_revert,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -192,26 +192,26 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_100: [u8; 4] = [0xcf, 0xb8, 0x64, 0x4c]; // action_fee_100()
-        let action_fee_200: [u8; 4] = [0x80, 0x4f, 0x8d, 0x17]; // action_fee_200()
-        let action_record: [u8; 4] = [0xd3, 0x12, 0xbe, 0x09]; // action_record_basefee()
+        let call_fee_100: [u8; 4] = [0xf8, 0xf9, 0x27, 0xd6]; // call_fee_100()
+        let call_fee_200: [u8; 4] = [0x5d, 0x41, 0xb8, 0xfb]; // call_fee_200()
+        let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
         let calls = vec![
             Call {
-                selector: action_fee_100,
+                selector: call_fee_100,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
                 ..Default::default()
             },
             Call {
-                selector: action_fee_200,
+                selector: call_fee_200,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
                 ..Default::default()
             },
             Call {
-                selector: action_record,
+                selector: call_record,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -220,7 +220,7 @@ mod tests {
         ];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "actions should succeed");
+        assert!(output.all_ok, "calls should succeed");
         let prop = output
             .property_results
             .iter()
@@ -239,18 +239,18 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_zero: [u8; 4] = [0x5c, 0xb6, 0x38, 0x2e]; // action_fee_zero()
-        let action_record: [u8; 4] = [0xd3, 0x12, 0xbe, 0x09]; // action_record_basefee()
+        let call_fee_zero: [u8; 4] = [0x99, 0xe5, 0x90, 0x06]; // call_fee_zero()
+        let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
         let calls = vec![
             Call {
-                selector: action_fee_zero,
+                selector: call_fee_zero,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
                 ..Default::default()
             },
             Call {
-                selector: action_record,
+                selector: call_record,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -259,7 +259,7 @@ mod tests {
         ];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "actions should succeed");
+        assert!(output.all_ok, "calls should succeed");
         let prop = output
             .property_results
             .iter()
@@ -278,9 +278,9 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_max: [u8; 4] = [0x7e, 0xcd, 0x2d, 0xa6]; // action_fee_max_uint64()
+        let call_fee_max: [u8; 4] = [0x5b, 0xf7, 0xaa, 0x07]; // call_fee_max_uint64()
         let calls = vec![Call {
-            selector: action_fee_max,
+            selector: call_fee_max,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -288,7 +288,7 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "action should succeed");
+        assert!(output.all_ok, "call should succeed");
         let prop = output
             .property_results
             .iter()
@@ -310,12 +310,12 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee: [u8; 4] = [0xd7, 0x32, 0x98, 0xc4]; // action_fee(uint256)
-        let action_record: [u8; 4] = [0xd3, 0x12, 0xbe, 0x09]; // action_record_basefee()
+        let call_fee: [u8; 4] = [0xa0, 0x67, 0x5b, 0x95]; // call_fee(uint256)
+        let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&9999u32.to_be_bytes());
         let calls_a = vec![Call {
-            selector: action_fee,
+            selector: call_fee,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -326,7 +326,7 @@ mod tests {
         assert!(output_a.all_ok, "sequence A should succeed");
 
         let calls_b = vec![Call {
-            selector: action_record,
+            selector: call_record,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -356,9 +356,9 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_100: [u8; 4] = [0xcf, 0xb8, 0x64, 0x4c]; // action_fee_100()
+        let call_fee_100: [u8; 4] = [0xf8, 0xf9, 0x27, 0xd6]; // call_fee_100()
         let calls = vec![Call {
-            selector: action_fee_100,
+            selector: call_fee_100,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -366,7 +366,7 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "action should succeed");
+        assert!(output.all_ok, "call should succeed");
         let prop = output
             .property_results
             .iter()
@@ -385,9 +385,9 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_fee_and_roll_warp: [u8; 4] = [0xd2, 0x54, 0x3c, 0xd0]; // action_fee_and_roll_warp()
+        let call_fee_and_roll_warp: [u8; 4] = [0x88, 0x02, 0x2d, 0xe1]; // call_fee_and_roll_warp()
         let calls = vec![Call {
-            selector: action_fee_and_roll_warp,
+            selector: call_fee_and_roll_warp,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -395,7 +395,7 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "action should succeed");
+        assert!(output.all_ok, "call should succeed");
         let prop = output
             .property_results
             .iter()

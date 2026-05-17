@@ -169,20 +169,20 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let action_prank: [u8; 4] = [0xe8, 0x29, 0x58, 0x0d]; // action_prank()
-        let action_start: [u8; 4] = [0xb1, 0x61, 0x16, 0x84]; // action_start_prank()
+        let call_prank: [u8; 4] = [0x0a, 0xfc, 0x56, 0x9f]; // call_prank()
+        let call_start: [u8; 4] = [0xba, 0x0b, 0xa2, 0xa2]; // call_start_prank()
 
         let output = chain
             .execute(&vec![
                 Call {
-                    selector: action_prank,
+                    selector: call_prank,
                     args: vec![],
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
                     ..Default::default()
                 },
                 Call {
-                    selector: action_start,
+                    selector: call_start,
                     args: vec![],
                     block_number_delay: 0,
                     block_timestamp_delay: 0,
@@ -190,7 +190,7 @@ mod tests {
                 },
             ])
             .unwrap();
-        assert!(output.all_ok, "prank actions should succeed");
+        assert!(output.all_ok, "prank calls should succeed");
         assert!(
             output.property_results.iter().all(|p| p.passed),
             "prank property should pass"

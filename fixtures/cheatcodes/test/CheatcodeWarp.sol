@@ -14,11 +14,11 @@ contract CheatcodeWarp {
         vm.warp(1234567890);
     }
 
-    function action_record_timestamp() external {
+    function call_record_timestamp() external {
         recordedTimestamp = block.timestamp;
     }
 
-    function action_record_block_number() external {
+    function call_record_block_number() external {
         recordedBlockNumber = block.number;
     }
 
@@ -32,19 +32,19 @@ contract CheatcodeWarp {
 
     // --- Same-sequence persistence ---
 
-    function action_warp(uint256 ts) external {
+    function call_warp(uint256 ts) external {
         vm.warp(ts);
         recordedTimestamp = block.timestamp;
     }
 
     function property_warp_persists_across_calls() external view returns (bool) {
-        // action_warp(100) -> warp to 100, then advance_block adds 1 for next call
+        // call_warp(100) -> warp to 100, then advance_block adds 1 for next call
         return recordedTimestamp == 101;
     }
 
     // --- Revert safety ---
 
-    function action_warp_and_revert(uint256 ts) external {
+    function call_warp_and_revert(uint256 ts) external {
         vm.warp(ts);
         revert("intentional");
     }
@@ -55,30 +55,30 @@ contract CheatcodeWarp {
 
     // --- Delay interaction ---
 
-    function action_warp_100() external {
+    function call_warp_100() external {
         vm.warp(100);
     }
 
     function property_warp_with_delay() external view returns (bool) {
-        // action_warp_100() at idx=0, then action_record_timestamp() at idx=1 with delay=5
+        // call_warp_100() at idx=0, then call_record_timestamp() at idx=1 with delay=5
         // advance_block adds 5, so expected 105
         return block.timestamp == 105;
     }
 
     // --- Warp overwrite ---
 
-    function action_warp_200() external {
+    function call_warp_200() external {
         vm.warp(200);
     }
 
     function property_warp_overwrite() external view returns (bool) {
-        // action_warp_100() -> 100, action_warp_200() -> 200, then advance_block adds 1
+        // call_warp_100() -> 100, call_warp_200() -> 200, then advance_block adds 1
         return block.timestamp == 201;
     }
 
     // --- Edge: warp to zero ---
 
-    function action_warp_zero() external {
+    function call_warp_zero() external {
         vm.warp(0);
     }
 
@@ -89,7 +89,7 @@ contract CheatcodeWarp {
 
     // --- Edge: warp to max uint64 ---
 
-    function action_warp_max_uint64() external {
+    function call_warp_max_uint64() external {
         vm.warp(type(uint64).max);
     }
 
@@ -100,13 +100,13 @@ contract CheatcodeWarp {
     // --- Property sees final warp ---
 
     function property_final_timestamp() external view returns (bool) {
-        // If the only call was action_warp_100(), the property should see 100
+        // If the only call was call_warp_100(), the property should see 100
         return block.timestamp == 100;
     }
 
     // --- Cross-cheatcode interaction: warp + roll ---
 
-    function action_warp_and_roll() external {
+    function call_warp_and_roll() external {
         vm.warp(1000);
         vm.roll(5000);
     }

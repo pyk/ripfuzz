@@ -13,7 +13,7 @@ contract CheatcodeDifficulty {
         vm.difficulty(9999);
     }
 
-    function action_record() external {
+    function call_record() external {
         recordedDifficulty = block.difficulty;
     }
 
@@ -29,19 +29,19 @@ contract CheatcodeDifficulty {
 
     // --- Same-sequence no-op ---
 
-    function action_difficulty(uint256 x) external {
+    function call_difficulty(uint256 x) external {
         vm.difficulty(x);
         recordedDifficulty = block.difficulty;
     }
 
     function property_difficulty_no_op() external view returns (bool) {
-        // action_difficulty(12345) did nothing, so block.difficulty is still 0.
+        // call_difficulty(12345) did nothing, so block.difficulty is still 0.
         return recordedDifficulty == 0;
     }
 
     // --- Revert safety ---
 
-    function action_difficulty_and_revert(uint256 x) external {
+    function call_difficulty_and_revert(uint256 x) external {
         vm.difficulty(x);
         revert("intentional");
     }
@@ -53,7 +53,7 @@ contract CheatcodeDifficulty {
 
     // --- Interaction with prevrandao ---
 
-    function action_prevrandao_then_difficulty() external {
+    function call_prevrandao_then_difficulty() external {
         vm.prevrandao(bytes32(uint256(42)));
         vm.difficulty(9999);
         recordedDifficulty = block.difficulty;
@@ -68,14 +68,14 @@ contract CheatcodeDifficulty {
     // --- Overwrite (multiple no-ops) ---
 
     function property_difficulty_still_unchanged() external view returns (bool) {
-        // action_difficulty(1) -> action_difficulty(2) -> action_record
+        // call_difficulty(1) -> call_difficulty(2) -> call_record
         // Both calls are no-ops; recordedDifficulty remains 0.
         return recordedDifficulty == 0;
     }
 
     // --- Edge: difficulty to zero ---
 
-    function action_difficulty_zero() external {
+    function call_difficulty_zero() external {
         vm.difficulty(0);
     }
 
@@ -85,7 +85,7 @@ contract CheatcodeDifficulty {
 
     // --- Edge: difficulty to max uint64 ---
 
-    function action_difficulty_max() external {
+    function call_difficulty_max() external {
         vm.difficulty(type(uint64).max);
     }
 
@@ -95,7 +95,7 @@ contract CheatcodeDifficulty {
 
     // --- Property sees default difficulty ---
 
-    function action_noop() external {
+    function call_noop() external {
         // Does nothing; property checks the default state.
     }
 

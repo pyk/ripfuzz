@@ -16,19 +16,19 @@ contract CheatcodeCoinbase {
         vm.coinbase(address(0xCA11BA5E));
     }
 
-    function action_record_coinbase() external {
+    function call_record_coinbase() external {
         recordedCoinbase = block.coinbase;
     }
 
-    function action_record_block_number() external {
+    function call_record_block_number() external {
         recordedBlockNumber = block.number;
     }
 
-    function action_record_timestamp() external {
+    function call_record_timestamp() external {
         recordedTimestamp = block.timestamp;
     }
 
-    function action_record_basefee() external {
+    function call_record_basefee() external {
         recordedBaseFee = block.basefee;
     }
 
@@ -42,19 +42,19 @@ contract CheatcodeCoinbase {
 
     // --- Same-sequence persistence ---
 
-    function action_coinbase(address addr) external {
+    function call_coinbase(address addr) external {
         vm.coinbase(addr);
         recordedCoinbase = block.coinbase;
     }
 
     function property_coinbase_persists_across_calls() external view returns (bool) {
-        // action_coinbase(0xAB) -> coinbase = 0xAB, next call sees 0xAB (no auto-advance)
+        // call_coinbase(0xAB) -> coinbase = 0xAB, next call sees 0xAB (no auto-advance)
         return recordedCoinbase == address(0xAB);
     }
 
     // --- Revert safety ---
 
-    function action_coinbase_and_revert(address addr) external {
+    function call_coinbase_and_revert(address addr) external {
         vm.coinbase(addr);
         revert("intentional");
     }
@@ -65,22 +65,22 @@ contract CheatcodeCoinbase {
 
     // --- Coinbase overwrite ---
 
-    function action_coinbase_A() external {
+    function call_coinbase_A() external {
         vm.coinbase(address(0xA));
     }
 
-    function action_coinbase_B() external {
+    function call_coinbase_B() external {
         vm.coinbase(address(0xB));
     }
 
     function property_coinbase_overwrite() external view returns (bool) {
-        // action_coinbase_A -> 0xA, action_coinbase_B -> 0xB
+        // call_coinbase_A -> 0xA, call_coinbase_B -> 0xB
         return block.coinbase == address(0xB);
     }
 
     // --- Edge: coinbase to zero address ---
 
-    function action_coinbase_zero() external {
+    function call_coinbase_zero() external {
         vm.coinbase(address(0));
     }
 
@@ -91,13 +91,13 @@ contract CheatcodeCoinbase {
     // --- Property sees final coinbase ---
 
     function property_final_coinbase() external view returns (bool) {
-        // If the only call was action_coinbase_A(), the property should see 0xA
+        // If the only call was call_coinbase_A(), the property should see 0xA
         return block.coinbase == address(0xA);
     }
 
     // --- Cross-cheatcode interaction: coinbase + roll + warp + fee ---
 
-    function action_coinbase_and_roll_warp_fee() external {
+    function call_coinbase_and_roll_warp_fee() external {
         vm.coinbase(address(0xC011B4a5E0000000000000000000000000000000));
         vm.roll(7000);
         vm.warp(9000);
