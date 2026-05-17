@@ -41,5 +41,8 @@ alloy-json-abi = "1.6.0"
 alloy-dyn-abi = "1.6.0"
 alloy-primitives = "1.6.0"
 
+# Crypto (wallet cheatcodes)
+k256 = { version = "0.13", features = ["ecdsa"] }
+
 # Corpus file naming
 uuid = { version = "1", features = ["v4"] }

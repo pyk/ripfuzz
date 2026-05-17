@@ -44,8 +44,8 @@ impl CampaignBuilder {
         let artifact = ContractBuilder::build(&self.project_path, &self.contract_path)?;
         info!(contract = %artifact.contract_name, "artifact built");
 
-        // Validate deployment by creating a runner and immediately dropping it.
-        let _runner = crate::evm::EvmRunner::from_target(&artifact)?;
+        // Initialize chain once and share it across workers.
+        let chain = crate::chain::Chain::initialize(&artifact)?.setup()?;
         debug!("deployment validated");
 
         let seeds = build_seeds(&artifact, self.config.sequence_length);
@@ -75,6 +75,7 @@ impl CampaignBuilder {
 
         Ok(Campaign {
             artifact,
+            chain,
             corpus,
             config: self.config,
             selectors,
@@ -86,6 +87,7 @@ impl CampaignBuilder {
 #[derive(Debug)]
 pub struct Campaign {
     artifact: ContractArtifact,
+    chain: crate::chain::Chain,
     corpus: Arc<RwLock<Corpus>>,
     config: CampaignConfig,
     selectors: Vec<[u8; 4]>,
@@ -114,6 +116,7 @@ impl Campaign {
 
         info!(workers, "starting parallel fuzzing campaign");
 
+        let chain = Arc::new(self.chain.clone());
         let artifact = self.artifact.clone();
         let config = self.config.clone();
         let selectors = self.selectors.clone();
@@ -135,13 +138,14 @@ impl Campaign {
             } else {
                 base_runs
             };
+            let chain = Arc::clone(&chain);
             let artifact = Arc::clone(&artifact);
             let config = Arc::clone(&config);
             let selectors = Arc::clone(&selectors);
             let corpus = Arc::clone(&corpus);
 
             let handle = std::thread::spawn(move || {
-                let worker = Worker::new(artifact, config, selectors);
+                let worker = Worker::new(artifact, chain, config, selectors);
                 worker.run(corpus, local_max_runs, worker_id, start, timeout)
             });
             handles.push((worker_id, handle));

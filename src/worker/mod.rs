@@ -8,9 +8,7 @@ use tracing::{info, instrument};
 
 use crate::campaign::CampaignConfig;
 use crate::contract;
-use crate::corpus::{Call, Corpus, CorpusItem, LocalCoverage};
-use crate::evm;
-use crate::inspector;
+use crate::corpus::{Call, Corpus, CorpusItem};
 
 pub mod mutators;
 
@@ -28,7 +26,7 @@ pub struct PropertyFailure {
     pub property_selector: [u8; 4],
     pub call_sequence: Vec<Call>,
     /// Per-call block number / timestamp captured during execution.
-    pub call_meta: Vec<crate::evm::CallMeta>,
+    pub call_meta: Vec<crate::chain::output::CallMeta>,
 }
 
 /// Format a property failure's call sequence as a flat, Medusa-style log.
@@ -89,8 +87,8 @@ pub fn format_failure(artifact: &contract::ContractArtifact, failure: &PropertyF
                         raw,
                         block,
                         time,
-                        crate::evm::GAS_LIMIT,
-                        crate::evm::CALLER,
+                        crate::chain::init::GAS_LIMIT,
+                        crate::chain::init::CALLER,
                         delay_suffix,
                     ));
                     continue;
@@ -107,8 +105,8 @@ pub fn format_failure(artifact: &contract::ContractArtifact, failure: &PropertyF
                         raw,
                         block,
                         time,
-                        crate::evm::GAS_LIMIT,
-                        crate::evm::CALLER,
+                        crate::chain::init::GAS_LIMIT,
+                        crate::chain::init::CALLER,
                         delay_suffix,
                     ));
                     continue;
@@ -139,8 +137,8 @@ pub fn format_failure(artifact: &contract::ContractArtifact, failure: &PropertyF
             args,
             block,
             time,
-            crate::evm::GAS_LIMIT,
-            crate::evm::CALLER,
+            crate::chain::init::GAS_LIMIT,
+            crate::chain::init::CALLER,
             delay_suffix,
         ));
     }
@@ -162,6 +160,7 @@ fn format_dyn_value(v: &alloy_dyn_abi::DynSolValue) -> String {
 
 pub struct Worker {
     artifact: Arc<contract::ContractArtifact>,
+    chain: Arc<crate::chain::Chain>,
     selectors: Arc<Vec<[u8; 4]>>,
     config: Arc<CampaignConfig>,
 }
@@ -169,11 +168,13 @@ pub struct Worker {
 impl Worker {
     pub fn new(
         artifact: Arc<contract::ContractArtifact>,
+        chain: Arc<crate::chain::Chain>,
         config: Arc<CampaignConfig>,
         selectors: Arc<Vec<[u8; 4]>>,
     ) -> Self {
         Self {
             artifact,
+            chain,
             selectors,
             config,
         }
@@ -212,9 +213,7 @@ impl Worker {
         info!(max_runs, worker_id, "worker run starting");
 
         let mut rng = fastrand::Rng::with_seed(self.config.seed + worker_id as u64);
-        let runner = evm::EvmRunner::from_target(&self.artifact)?;
         let mut failures = Vec::new();
-        let mut local_coverage = LocalCoverage::new();
 
         let mut mutators: Vec<Box<dyn mutators::Mutator>> = vec![
             Box::new(mutators::SequenceSwapMutator),
@@ -277,11 +276,10 @@ impl Worker {
                 }
             };
 
-            local_coverage.clear();
-            let inspector = inspector::CoverageInspector::new(&mut local_coverage);
-            let result = runner.run_sequence(&calls, inspector)?;
-            let all_ok = result.all_ok;
-            let property_triggered = result.property_triggered;
+            let output = self.chain.execute(&calls)?;
+            let all_ok = output.all_ok;
+            let property_triggered = output.property_results.iter().any(|p| p.passed);
+            let local_coverage = output.coverage;
 
             let mut item = CorpusItem::new(calls);
             if all_ok {
@@ -302,18 +300,14 @@ impl Worker {
 
             if all_ok
                 && property_triggered
-                && let (Some(name), Some(sel)) = (
-                    result.triggered_property,
-                    result.triggered_property_selector,
-                )
+                && let Some(prop) = output.property_results.into_iter().find(|p| p.passed)
             {
-                let call_meta = result.call_meta;
                 let call_sequence = std::mem::take(&mut item.calls);
                 failures.push(PropertyFailure {
-                    property_name: name,
-                    property_selector: sel,
+                    property_name: prop.name,
+                    property_selector: prop.selector,
                     call_sequence,
-                    call_meta,
+                    call_meta: output.call_meta,
                 });
             }
 
@@ -367,9 +361,9 @@ fn generate_random_sequence(
 mod tests {
     use std::path::Path;
 
+    use crate::chain::output::CallMeta;
     use crate::contract;
     use crate::corpus;
-    use crate::evm;
     use crate::worker::PropertyFailure;
     use crate::worker::format_failure;
 
@@ -410,15 +404,15 @@ mod tests {
             property_selector: [0; 4],
             call_sequence: calls,
             call_meta: vec![
-                evm::CallMeta {
+                CallMeta {
                     block_number: 0,
                     block_timestamp: 0,
                 },
-                evm::CallMeta {
+                CallMeta {
                     block_number: 3,
                     block_timestamp: 4,
                 },
-                evm::CallMeta {
+                CallMeta {
                     block_number: 4,
                     block_timestamp: 5,
                 },

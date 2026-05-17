@@ -33,9 +33,9 @@ pub trait Mutator {
 mod tests {
     use std::path::Path;
 
+    use crate::chain::Chain;
     use crate::contract;
     use crate::corpus;
-    use crate::evm;
     use crate::worker::mutators;
     use crate::worker::mutators::Mutator;
 
@@ -92,7 +92,7 @@ mod tests {
         )
         .unwrap();
 
-        let runner = evm::EvmRunner::from_target(&artifact).unwrap();
+        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
 
         let one = artifact
             .abi
@@ -155,15 +155,12 @@ mod tests {
             );
         }
 
-        let mut local_coverage = crate::corpus::LocalCoverage::new();
-        let res = runner
-            .run_sequence(
-                &calls,
-                crate::inspector::CoverageInspector::new(&mut local_coverage),
-            )
-            .unwrap();
+        let res = chain.execute(&calls).unwrap();
         assert!(res.all_ok, "sequence should succeed");
-        assert!(res.property_triggered, "property should be triggered");
+        assert!(
+            res.property_results.iter().any(|p| p.passed),
+            "property should be triggered"
+        );
 
         for i in 1..res.call_meta.len() {
             assert!(

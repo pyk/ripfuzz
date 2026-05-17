@@ -20,24 +20,31 @@ fn u256_to_usize(v: revm::primitives::U256) -> Option<usize> {
 }
 
 /// Inspector that writes PC-hit counts into a per-contract local coverage map.
+///
+/// Owns its `LocalCoverage` buffer and returns it via `into_coverage`.
 #[derive(Debug)]
-pub struct CoverageInspector<'a> {
-    local: &'a mut LocalCoverage,
+pub struct CoverageInspector {
+    local: LocalCoverage,
     current_call_depth: u64,
     current_contract: Option<ContractId>,
     contract_stack: Vec<Option<ContractId>>,
     last_pc: usize,
 }
 
-impl<'a> CoverageInspector<'a> {
-    pub fn new(local: &'a mut LocalCoverage) -> Self {
+impl CoverageInspector {
+    pub fn new() -> Self {
         Self {
-            local,
+            local: LocalCoverage::new(),
             current_call_depth: 0,
             current_contract: None,
             contract_stack: Vec::new(),
             last_pc: 0,
         }
+    }
+
+    /// Consume the inspector and return the collected coverage.
+    pub fn into_coverage(self) -> LocalCoverage {
+        self.local
     }
 
     fn record_revert(&mut self) {
@@ -55,7 +62,13 @@ impl<'a> CoverageInspector<'a> {
     }
 }
 
-impl<'a, CTX> Inspector<CTX, EthInterpreter> for CoverageInspector<'a> {
+impl Default for CoverageInspector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<CTX> Inspector<CTX, EthInterpreter> for CoverageInspector {
     fn initialize_interp(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
         let hash = interp.bytecode.hash_slow();
         if !hash.is_zero() && !interp.bytecode.is_empty() {
@@ -153,5 +166,65 @@ impl<'a, CTX> Inspector<CTX, EthInterpreter> for CoverageInspector<'a> {
         }
         self.current_call_depth = self.current_call_depth.saturating_sub(1);
         self.current_contract = self.contract_stack.pop().flatten();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use revm::{
+        MainBuilder, MainContext,
+        context::{Context, TxEnv},
+        database::InMemoryDB,
+        inspector::InspectCommitEvm,
+        primitives::{KECCAK_EMPTY, TxKind, U256},
+        state::AccountInfo,
+    };
+
+    use super::CoverageInspector;
+    use crate::chain::init::{CALLER, GAS_LIMIT};
+    use crate::contract;
+
+    #[test]
+    fn coverage_inspector_collects_hits_for_deployed_contract() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/basic-target"),
+            Path::new("src/NamedMismatch.sol"),
+        )
+        .unwrap();
+
+        let mut db = InMemoryDB::default();
+        db.insert_account_info(
+            CALLER,
+            AccountInfo {
+                balance: U256::from(1_000_000_000_000_000_000u128),
+                nonce: 0,
+                code_hash: KECCAK_EMPTY,
+                code: None,
+                account_id: None,
+            },
+        );
+
+        let inspector = CoverageInspector::new();
+        let ctx = Context::mainnet().with_db(db);
+        let mut evm = ctx.build_mainnet_with_inspector(inspector);
+
+        let tx = TxEnv {
+            caller: CALLER,
+            kind: TxKind::Create,
+            data: artifact.initcode.clone(),
+            gas_limit: GAS_LIMIT,
+            ..Default::default()
+        };
+
+        let result = evm.inspect_tx_commit(tx).unwrap();
+        assert!(result.is_success(), "deployment should succeed");
+
+        let coverage = evm.inspector.into_coverage();
+        assert!(
+            !coverage.contracts.is_empty(),
+            "coverage should contain at least one contract"
+        );
     }
 }

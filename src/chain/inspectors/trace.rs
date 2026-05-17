@@ -1,6 +1,7 @@
 //! Call trace inspection and formatting for EVM execution.
 
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_json_abi::JsonAbi;
@@ -20,22 +21,6 @@ pub(crate) const VM_ADDRESS: Address = Address::new([
     0x71, 0x09, 0x70, 0x9e, 0xcf, 0xa9, 0x1a, 0x80, 0x62, 0x6f, 0xf3, 0x98, 0x9d, 0x68, 0xf6, 0x7f,
     0x5b, 0x1d, 0xd1, 0x2d,
 ]);
-
-/// Insert a dummy VM contract into the database so Solidity's
-/// `extcodesize` check passes when a target calls Foundry cheatcodes.
-pub(crate) fn insert_foundry_vm(db: &mut revm::database::InMemoryDB) {
-    let vm_code = revm::bytecode::Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x00]));
-    db.insert_account_info(
-        VM_ADDRESS,
-        revm::state::AccountInfo {
-            balance: revm::primitives::U256::ZERO,
-            nonce: 0,
-            code_hash: vm_code.hash_slow(),
-            code: Some(vm_code),
-            account_id: None,
-        },
-    );
-}
 
 /// A single frame in a call trace.
 #[derive(Debug, Clone)]
@@ -80,20 +65,40 @@ struct CallNode {
     children: Vec<CallNode>,
 }
 
+/// Formatted trace tree produced by [`TraceInspector`].
+#[derive(Debug)]
+pub struct TraceTree {
+    roots: Vec<CallNode>,
+}
+
+impl TraceTree {
+    /// Render the trace tree as a human-readable string.
+    pub fn format(&self) -> String {
+        let mut lines = Vec::new();
+        for (i, root) in self.roots.iter().enumerate() {
+            if i > 0 {
+                lines.push(String::new());
+            }
+            format_node(root, "", true, &mut lines);
+        }
+        lines.join("\n")
+    }
+}
+
 /// Inspector that records a call / create trace with contract and function names.
 #[derive(Debug)]
-pub struct CallTraceInspector {
+pub struct TraceInspector {
     stack: Vec<CallNode>,
     roots: Vec<CallNode>,
     /// Maps initcode to (contract name, abi) for CREATE name resolution.
     initcode_map: HashMap<Bytes, (String, JsonAbi)>,
-    /// Maps deployed address to contract name.
     address_names: HashMap<Address, String>,
-    /// Maps deployed address to ABI for CALL function decoding.
     address_abis: HashMap<Address, JsonAbi>,
+    /// Labels added dynamically during execution (e.g. via `vm.label`).
+    shared_labels: Option<Arc<RwLock<HashMap<Address, String>>>>,
 }
 
-impl CallTraceInspector {
+impl TraceInspector {
     /// Build a new inspector with a mapping of known initcodes to contract metadata.
     pub fn new(initcode_map: HashMap<Bytes, (String, JsonAbi)>) -> Self {
         Self {
@@ -102,6 +107,7 @@ impl CallTraceInspector {
             initcode_map,
             address_names: HashMap::new(),
             address_abis: HashMap::new(),
+            shared_labels: None,
         }
     }
 
@@ -116,35 +122,30 @@ impl CallTraceInspector {
         self.address_abis.insert(address, abi);
     }
 
-    /// Decode and apply a Foundry-style cheatcode.
-    fn handle_cheatcode(&mut self, input: &Bytes) {
-        if input.len() < 4 {
-            return;
-        }
-        let sel: [u8; 4] = input[..4].try_into().unwrap_or([0; 4]);
-
-        // label(address, string) = 0xc657c718
-        const LABEL_SELECTOR: [u8; 4] = [0xc6, 0x57, 0xc7, 0x18];
-        if sel == LABEL_SELECTOR {
-            let types = vec![DynSolType::Address, DynSolType::String];
-            let tuple = DynSolType::Tuple(types);
-            if let Ok(DynSolValue::Tuple(values)) = tuple.abi_decode_params(&input[4..])
-                && let [DynSolValue::Address(addr), DynSolValue::String(name)] = values.as_slice()
-            {
-                self.address_names.insert(*addr, name.clone());
-            }
-        }
+    /// Register a known deployed contract so that CALLs to it are decoded.
+    pub fn register_contract(&mut self, address: Address, name: &str, abi: JsonAbi) {
+        self.address_names.insert(address, name.to_owned());
+        self.address_abis.insert(address, abi);
     }
 
-    pub fn format(&self) -> String {
-        let mut lines = Vec::new();
-        for (i, root) in self.roots.iter().enumerate() {
-            if i > 0 {
-                lines.push(String::new());
-            }
-            format_node(root, "", true, &mut lines);
-        }
-        lines.join("\n")
+    /// Provide a shared label map that is populated by the cheatcode inspector.
+    pub fn set_shared_labels(&mut self, labels: Arc<RwLock<HashMap<Address, String>>>) {
+        self.shared_labels = Some(labels);
+    }
+
+    /// Resolve an address to a human-readable name using both static and shared labels.
+    fn resolve_name(&self, addr: Address) -> Option<String> {
+        self.address_names.get(&addr).cloned().or_else(|| {
+            self.shared_labels.as_ref().and_then(|l| match l.read() {
+                Ok(guard) => guard.get(&addr).cloned(),
+                Err(_) => None,
+            })
+        })
+    }
+
+    /// Consume the inspector and return a [`TraceTree`].
+    pub fn into_trace_tree(self) -> TraceTree {
+        TraceTree { roots: self.roots }
     }
 }
 
@@ -251,14 +252,14 @@ fn format_return(frame: &TraceFrame) -> String {
     }
 }
 
-impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
+impl<CTX: revm::context_interface::ContextTr> Inspector<CTX> for TraceInspector {
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         let input = inputs.input.bytes_local(context.local());
 
-        // Intercept Foundry cheatcode calls to the VM address.
+        // Intercept VM-address calls and push a dummy marker so that
+        // call_end can balance the stack.  The actual cheatcode logic
+        // lives in `CheatcodeInspector`; we only maintain trace state.
         if inputs.target_address == VM_ADDRESS {
-            self.handle_cheatcode(&input);
-            // Push a dummy marker so call_end can balance the stack.
             self.stack.push(CallNode {
                 frame: TraceFrame {
                     kind: TraceKind::VmCall,
@@ -298,7 +299,7 @@ impl<CTX: ContextTr> Inspector<CTX> for CallTraceInspector {
             inputs.target_address
         };
         let target = inputs.target_address;
-        let contract_name = self.address_names.get(&lookup_addr).cloned();
+        let contract_name = self.resolve_name(lookup_addr);
         let func_name = if input.len() >= 4 {
             self.address_abis
                 .get(&lookup_addr)
@@ -644,18 +645,22 @@ fn classify_result(
     abi: Option<&JsonAbi>,
     labels: &HashMap<Address, String>,
 ) -> TraceResult {
-    if result.is_revert() {
-        let reason = abi
-            .and_then(|a| decode_custom_error(a, output, labels))
-            .or_else(|| decode_solidity_error(output))
-            .unwrap_or_else(|| format!("0x{}", hex::encode(output)));
+    if result.is_ok() {
+        TraceResult::Success
+    } else if result.is_revert() {
+        let reason = if let Some(s) = decode_solidity_error(output) {
+            s
+        } else if let Some(a) = abi {
+            decode_custom_error(a, output, labels)
+                .unwrap_or_else(|| format!("0x{}", hex::encode(output)))
+        } else {
+            format!("0x{}", hex::encode(output))
+        };
         TraceResult::Revert { reason }
-    } else if result.is_error() {
+    } else {
         TraceResult::Halt {
             reason: format!("{:?}", result),
         }
-    } else {
-        TraceResult::Success
     }
 }
 
@@ -673,7 +678,7 @@ mod tests {
         state::AccountInfo,
     };
 
-    use super::CallTraceInspector;
+    use super::TraceInspector;
     use crate::contract;
 
     const CALLER: Address = Address::new([0xde; 20]);
@@ -696,9 +701,9 @@ mod tests {
                 account_id: None,
             },
         );
-        super::insert_foundry_vm(&mut db);
+        crate::chain::init::insert_foundry_vm(&mut db);
 
-        let inspector = CallTraceInspector::new(artifact.initcode_map.clone());
+        let inspector = TraceInspector::new(artifact.initcode_map.clone());
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
@@ -712,7 +717,8 @@ mod tests {
         };
 
         evm.inspect_tx_commit(tx).unwrap();
-        evm.inspector.format()
+        let tree = evm.inspector.into_trace_tree();
+        tree.format()
     }
 
     macro_rules! trace_test {
@@ -768,7 +774,7 @@ mod tests {
                 account_id: None,
             },
         );
-        super::insert_foundry_vm(&mut db);
+        crate::chain::init::insert_foundry_vm(&mut db);
 
         let external_addr = Address::new([0x11; 20]);
         db.insert_account_info(
@@ -782,7 +788,7 @@ mod tests {
             },
         );
 
-        let mut inspector = CallTraceInspector::new(trace_artifact.initcode_map.clone());
+        let mut inspector = TraceInspector::new(trace_artifact.initcode_map.clone());
         inspector.label_with_abi(external_addr, "ExternalTarget", target_artifact.abi.clone());
 
         let ctx = Context::mainnet().with_db(db);
@@ -798,7 +804,8 @@ mod tests {
         };
 
         evm.inspect_tx_commit(tx).unwrap();
-        let actual = evm.inspector.format();
+        let tree = evm.inspector.into_trace_tree();
+        let actual = tree.format();
 
         let expected = fs::read_to_string("fixtures/traces/trace/LabelCallTrace.txt")
             .unwrap_or_else(|e| panic!("missing fixture: {}", e));
@@ -830,7 +837,7 @@ mod tests {
                 account_id: None,
             },
         );
-        super::insert_foundry_vm(&mut db);
+        crate::chain::init::insert_foundry_vm(&mut db);
 
         let external_addr = Address::new([0x11; 20]);
         db.insert_account_info(
@@ -844,7 +851,7 @@ mod tests {
             },
         );
 
-        let inspector = CallTraceInspector::new(trace_artifact.initcode_map.clone());
+        let inspector = TraceInspector::new(trace_artifact.initcode_map.clone());
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
@@ -858,7 +865,8 @@ mod tests {
         };
 
         evm.inspect_tx_commit(tx).unwrap();
-        let actual = evm.inspector.format();
+        let tree = evm.inspector.into_trace_tree();
+        let actual = tree.format();
 
         let expected = fs::read_to_string("fixtures/traces/trace/VmLabelTrace.txt")
             .unwrap_or_else(|e| panic!("missing fixture: {}", e));

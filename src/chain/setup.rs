@@ -1,0 +1,94 @@
+//! Chain setup: optional `setUp()` call after deployment.
+
+use std::collections::HashMap;
+
+use anyhow::Context as AnyhowContext;
+use revm::{
+    Database, MainBuilder, MainContext,
+    context::{Context, TxEnv},
+    inspector::InspectCommitEvm,
+    primitives::{Bytes, TxKind},
+};
+
+use tracing::{error, info, instrument, trace};
+
+use crate::chain::error::ChainSetupError;
+use crate::chain::init::{CALLER, GAS_LIMIT};
+use crate::chain::inspectors::{
+    CompositeInspector, coverage::CoverageInspector, trace::TraceInspector,
+};
+use crate::chain::state::ChainState;
+
+const SETUP_SELECTOR: [u8; 4] = [0x0a, 0x92, 0x54, 0xe4];
+
+/// Run `setUp()` if present and return the updated chain state.
+#[instrument(skip(state), fields(contract = %contract_address), err)]
+pub fn setup(
+    state: ChainState,
+    contract_address: revm::primitives::Address,
+    abi: &alloy_json_abi::JsonAbi,
+    initcode_map: &HashMap<Bytes, (String, alloy_json_abi::JsonAbi)>,
+) -> Result<ChainState, ChainSetupError> {
+    let has_setup = abi.functions().any(|f| f.selector() == SETUP_SELECTOR);
+    if !has_setup {
+        trace!("no setUp function found");
+        return Ok(state);
+    }
+
+    let mut db = state.db;
+    let nonce = crate::result_to_option(db.basic(CALLER))
+        .flatten()
+        .map(|info| info.nonce)
+        .unwrap_or(0);
+
+    let mut trace_inspector = TraceInspector::new(initcode_map.clone());
+    if let Some((name, contract_abi)) = state.known_contracts.get(&contract_address) {
+        trace_inspector.register_contract(contract_address, name, contract_abi.clone());
+    }
+    let inspector = CompositeInspector::new(CoverageInspector::new(), Some(trace_inspector))
+        .with_cheatcodes(crate::chain::cheatcodes::CheatcodeState::default());
+    let ctx = Context::mainnet().with_db(db);
+    let mut evm = ctx.build_mainnet_with_inspector(inspector);
+
+    let setup_tx = TxEnv {
+        caller: CALLER,
+        kind: TxKind::Call(contract_address),
+        data: revm::primitives::Bytes::copy_from_slice(&SETUP_SELECTOR),
+        gas_limit: GAS_LIMIT,
+        nonce,
+        ..Default::default()
+    };
+    let setup_result = evm
+        .inspect_tx_commit(setup_tx)
+        .map_err(|e| -> anyhow::Error { e.into() })?;
+    if !setup_result.is_success() {
+        let reason = crate::chain::init::extract_deployment_error(&setup_result);
+        let trace = evm
+            .inspector
+            .trace
+            .context("trace inspector missing")?
+            .into_trace_tree()
+            .format();
+        error!(%reason, "setUp failed");
+        return Err(ChainSetupError::SetupFailed { reason, trace });
+    }
+    info!("setUp succeeded");
+
+    let mut new_state = crate::chain::state::ChainState::new(evm.ctx.journaled_state.database);
+    new_state.caller_nonce = new_state
+        .db
+        .basic(CALLER)
+        .unwrap_or_default()
+        .unwrap_or_default()
+        .nonce;
+    // Persist cheatcode state from setUp so it carries into each sequence.
+    let cheat_inspector = evm
+        .inspector
+        .cheatcodes
+        .context("cheatcode inspector missing")?;
+    new_state.cheatcodes = cheat_inspector.state;
+    if let Some(ts) = new_state.cheatcodes.warp_timestamp {
+        new_state.block_timestamp = ts.as_limbs()[0];
+    }
+    Ok(new_state)
+}
