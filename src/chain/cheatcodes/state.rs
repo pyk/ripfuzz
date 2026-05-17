@@ -6,18 +6,6 @@ use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_address_arg, d
 
 pub const DIFFICULTY_SELECTOR: [u8; 4] = [0x46, 0xcc, 0x92, 0xd9];
 
-pub struct Roll;
-impl Cheatcode for Roll {
-    type Args = U256;
-    const SELECTOR: [u8; 4] = [0x1f, 0x7b, 0x4f, 0x30];
-    fn decode(input: &Bytes) -> Option<Self::Args> {
-        decode_u256_arg(input)
-    }
-    fn effects(value: Self::Args) -> Vec<CheatcodeEffect> {
-        vec![CheatcodeEffect::SetBlockNumber(value)]
-    }
-}
-
 pub struct Fee;
 impl Cheatcode for Fee {
     type Args = U256;
@@ -83,17 +71,6 @@ mod tests {
     use crate::chain::Chain;
     use crate::contract;
     use crate::corpus::Call;
-
-    #[test]
-    fn roll_decode_and_effects() {
-        let mut data = Roll::SELECTOR.to_vec();
-        data.extend_from_slice(&U256::from(42u64).to_be_bytes_vec());
-        let args = Roll::decode(&Bytes::from(data)).unwrap();
-        assert_eq!(
-            Roll::effects(args),
-            vec![CheatcodeEffect::SetBlockNumber(U256::from(42u64))]
-        );
-    }
 
     #[test]
     fn fee_decode_and_effects() {

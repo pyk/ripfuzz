@@ -22,6 +22,7 @@ pub mod effect;
 pub mod ffi;
 pub mod label;
 pub mod prank;
+pub mod roll;
 pub mod state;
 pub mod string;
 pub mod wallet;
@@ -54,7 +55,7 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
     match sel {
         // Block / state manipulation
         warp::Warp::SELECTOR => dispatch::<warp::Warp>(input),
-        state::Roll::SELECTOR => dispatch::<state::Roll>(input),
+        roll::Roll::SELECTOR => dispatch::<roll::Roll>(input),
         state::Fee::SELECTOR => dispatch::<state::Fee>(input),
         state::Coinbase::SELECTOR => dispatch::<state::Coinbase>(input),
         state::Prevrandao::SELECTOR => dispatch::<state::Prevrandao>(input),
