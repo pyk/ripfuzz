@@ -5,20 +5,8 @@ use revm::primitives::{Address, Bytes, U256};
 
 use crate::chain::cheatcodes::{
     Cheatcode, CheatcodeEffect, decode_address_arg, decode_address_bytes32_args,
-    decode_address_bytes32_bytes32_args, decode_address_u256_args,
+    decode_address_bytes32_bytes32_args,
 };
-
-pub struct Deal;
-impl Cheatcode for Deal {
-    type Args = (Address, U256);
-    const SELECTOR: [u8; 4] = [0xc8, 0x8a, 0x5e, 0x6d];
-    fn decode(input: &Bytes) -> Option<Self::Args> {
-        decode_address_u256_args(input)
-    }
-    fn effects((addr, value): Self::Args) -> Vec<CheatcodeEffect> {
-        vec![CheatcodeEffect::SetAccountBalance(addr, value)]
-    }
-}
 
 pub struct Etch;
 impl Cheatcode for Etch {
@@ -125,20 +113,6 @@ mod tests {
     use crate::chain::inspectors::cheatcode::CheatcodeInspector;
     use crate::contract;
     use crate::corpus::Call;
-
-    #[test]
-    fn deal_effect_applies() {
-        let mut inspector = CheatcodeInspector::new();
-        let mut ctx = Context::mainnet().with_db(InMemoryDB::default());
-        let addr = Address::new([0xab; 20]);
-        let value = U256::from(5_000u64);
-        let effects = Deal::effects((addr, value));
-        for e in &effects {
-            apply_effect(e, &mut ctx, &mut inspector.state).unwrap();
-        }
-        let info = ctx.journal_mut().load_account(addr).unwrap().data;
-        assert_eq!(info.info.balance, value);
-    }
 
     #[test]
     fn set_nonce_effect_applies() {

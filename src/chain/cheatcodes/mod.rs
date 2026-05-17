@@ -14,12 +14,15 @@ use revm::{
     primitives::{Address, Bytes, U256},
 };
 
+pub use deal::DealRecord;
+
 use crate::chain::cheatcodes::effect::CheatcodeEffect;
 
 pub mod account;
 pub mod assert;
 pub mod chain_id;
 pub mod coinbase;
+pub mod deal;
 pub mod difficulty;
 pub mod effect;
 pub mod fee;
@@ -67,7 +70,7 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         difficulty::Difficulty::SELECTOR => dispatch::<difficulty::Difficulty>(input),
 
         // Account manipulation
-        account::Deal::SELECTOR => dispatch::<account::Deal>(input),
+        deal::Deal::SELECTOR => dispatch::<deal::Deal>(input),
         account::Etch::SELECTOR => dispatch::<account::Etch>(input),
         account::SetNonce::SELECTOR => dispatch::<account::SetNonce>(input),
         account::GetNonce::SELECTOR => dispatch::<account::GetNonce>(input),
@@ -178,6 +181,8 @@ pub struct CheatcodeState {
     /// Contract name -> initcode bytes, populated from the artifact so
     /// `vm.getCode` can resolve contracts by name.
     pub compiled_contracts: HashMap<String, Bytes>,
+    /// Rollback records for `vm.deal` (Foundry semantics).
+    pub eth_deals: Vec<DealRecord>,
 }
 
 impl CheatcodeState {

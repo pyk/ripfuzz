@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 
 use alloy_json_abi::JsonAbi;
 use revm::{
-    MainBuilder, MainContext,
+    Database, MainBuilder, MainContext,
     context::{Context, TxEnv},
     inspector::{InspectCommitEvm, NoOpInspector},
     primitives::{Bytes, TxKind, U256},
@@ -157,11 +157,24 @@ pub fn execute(
             // Sync remaining block overrides back to ChainState so that
             // property checks see fee, coinbase, prevrandao, and chain_id mutations.
             local_state.cheatcodes.block = inspector.2.state.block;
+            // Clear deal records so they are not rolled back on a later revert
+            // in this sequence.
+            inspector.2.state.eth_deals.clear();
             trace!(idx, "call succeeded");
         } else {
             // Undo the block context so it does not leak into properties or
             // future calls (if we ever stop aborting on revert).
             inspector.2.state.block = prev_block;
+            // Roll back all deals recorded during this reverted call.
+            for record in inspector.2.state.eth_deals.drain(..).rev() {
+                let mut info = local_state
+                    .db
+                    .basic(record.address)
+                    .unwrap_or_default()
+                    .unwrap_or_default();
+                info.balance = record.old_balance;
+                local_state.db.insert_account_info(record.address, info);
+            }
             all_ok = false;
             trace!(idx, "call reverted, aborting sequence");
             break;

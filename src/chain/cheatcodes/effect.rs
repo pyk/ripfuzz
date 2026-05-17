@@ -11,7 +11,7 @@ use revm::{
     primitives::{Address, Bytes, U256},
 };
 
-use crate::chain::cheatcodes::{CheatcodeState, PrankState, StartPrankState};
+use crate::chain::cheatcodes::{CheatcodeState, DealRecord, PrankState, StartPrankState};
 
 /// Minimal trait to mutate `chain_id` on generic EVM contexts.
 ///
@@ -121,12 +121,23 @@ pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = Blo
 
         // --- DB mutations ---
         CheatcodeEffect::SetAccountBalance(addr, v) => {
+            let old_balance = ctx
+                .journal_mut()
+                .load_account(*addr)
+                .ok()
+                .map(|s| s.data.info.balance)
+                .unwrap_or(U256::ZERO);
             let mut acc = ctx
                 .journal_mut()
                 .load_account_mut(*addr)
                 .map_err(|_| "account load failed")?
                 .data;
             acc.set_balance(*v);
+            state.eth_deals.push(DealRecord {
+                address: *addr,
+                old_balance,
+                new_balance: *v,
+            });
         }
         CheatcodeEffect::SetAccountCode(addr, code) => {
             let bytecode = revm::bytecode::Bytecode::new_raw(code.clone());
