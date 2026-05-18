@@ -34,9 +34,9 @@ pub mod nonce;
 pub mod prank;
 pub mod prevrandao;
 pub mod roll;
+pub mod sign;
 pub mod storage;
 pub mod string;
-pub mod wallet;
 pub mod warp;
 
 /// Foundry cheatcode VM contract address.
@@ -135,7 +135,7 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
 
         // Wallet / crypto
         addr::Addr::SELECTOR => dispatch::<addr::Addr>(input),
-        wallet::Sign::SELECTOR => dispatch::<wallet::Sign>(input),
+        sign::Sign::SELECTOR => dispatch::<sign::Sign>(input),
 
         // FFI
         ffi::Ffi::SELECTOR => dispatch::<ffi::Ffi>(input),
