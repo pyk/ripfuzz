@@ -97,6 +97,7 @@ pub fn run(args: Args) -> Result<()> {
         corpus_dir: args.corpus_dir,
         ffi: args.ffi,
     };
+    let _timeout_secs = config.timeout_secs;
     info!(?config, "starting fuzzing campaign");
 
     let campaign = Campaign::for_target(&args.target_path)
@@ -116,9 +117,25 @@ pub fn run(args: Args) -> Result<()> {
 
     let result = campaign.run()?;
 
-    info!(target: "raptor::user", "Fuzzing completed: {} runs", result.runs);
+    let elapsed_secs = result.elapsed_secs;
+    let calls_per_sec = if elapsed_secs > 0.0 {
+        result.total_calls as f64 / elapsed_secs
+    } else {
+        0.0
+    };
+    let avg_gas_per_call = if result.total_calls > 0 {
+        result.total_gas as f64 / result.total_calls as f64
+    } else {
+        0.0
+    };
+
+    info!(target: "raptor::user", "Fuzzing completed: {} runs, {} calls", result.runs, result.total_calls);
+    info!(target: "raptor::user", "Throughput: {:.0} calls/sec", calls_per_sec);
+    info!(target: "raptor::user", "Average gas per call: {:.0}", avg_gas_per_call);
     info!(
         runs = result.runs,
+        total_calls = result.total_calls,
+        total_gas = result.total_gas,
         failures = result.failures.len(),
         "campaign finished"
     );

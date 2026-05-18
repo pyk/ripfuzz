@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use alloy_primitives::I256;
 use revm::{
     context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
     database::InMemoryDB,
@@ -276,6 +277,7 @@ pub(crate) fn build_outcome<CTX: ContextTr<Db = InMemoryDB>>(
         CheatcodeEffect::Revert(reason) => Some(revert_outcome(reason)),
         CheatcodeEffect::Panic => Some(panic_outcome()),
         CheatcodeEffect::ReturnU256(v) => Some(success_u256_outcome(*v, gas_limit)),
+        CheatcodeEffect::ReturnInt256(v) => Some(success_int256_outcome(*v, gas_limit)),
         CheatcodeEffect::ReturnBool(v) => Some(success_bool_outcome(*v, gas_limit)),
         CheatcodeEffect::ReturnBytes(bytes) => {
             Some(success_bytes_outcome(bytes.clone(), gas_limit))
@@ -409,6 +411,19 @@ pub(crate) fn success_u256_outcome(value: U256, gas_limit: u64) -> CallOutcome {
         result: InterpreterResult {
             result: InstructionResult::Return,
             output: Bytes::from(value.to_be_bytes_vec()),
+            gas: Gas::new(gas_limit),
+        },
+        memory_offset: 0..0,
+        was_precompile_called: false,
+        precompile_call_logs: Vec::new(),
+    }
+}
+
+pub(crate) fn success_int256_outcome(value: I256, gas_limit: u64) -> CallOutcome {
+    CallOutcome {
+        result: InterpreterResult {
+            result: InstructionResult::Return,
+            output: Bytes::from(value.into_raw().to_be_bytes_vec()),
             gas: Gas::new(gas_limit),
         },
         memory_offset: 0..0,

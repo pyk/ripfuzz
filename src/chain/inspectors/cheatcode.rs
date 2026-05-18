@@ -79,6 +79,9 @@ impl CheatcodeInspector {
 
     /// Apply an active prank to a nested call frame.
     fn apply_prank(&mut self, ctx: &mut impl ContextSetters<Tx = TxEnv>, inputs: &mut CallInputs) {
+        if self.state.prank.start.is_none() && self.state.prank.active.is_none() {
+            return;
+        }
         let curr_depth = self.depth;
         let original_caller = inputs.caller;
 
@@ -141,6 +144,9 @@ impl CheatcodeInspector {
         ctx: &mut impl ContextSetters<Tx = TxEnv>,
         inputs: &mut CreateInputs,
     ) {
+        if self.state.prank.start.is_none() && self.state.prank.active.is_none() {
+            return;
+        }
         let curr_depth = self.depth;
         let original_caller = inputs.caller();
 

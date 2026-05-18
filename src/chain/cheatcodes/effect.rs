@@ -4,6 +4,7 @@
 //! `apply_effect` function is the only place that mutates `ctx.block`,
 //! `ctx.journal_mut()`, and `inspector.state`.
 
+use alloy_primitives::I256;
 use revm::{
     context::{BlockEnv, ContextSetters},
     context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
@@ -71,6 +72,7 @@ pub enum CheatcodeEffect {
     Revert(String),
     Panic,
     ReturnU256(U256),
+    ReturnInt256(I256),
     ReturnBool(bool),
     ReturnBytes(Vec<u8>),
 
@@ -252,6 +254,7 @@ pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = Blo
         | CheatcodeEffect::Revert(_)
         | CheatcodeEffect::Panic
         | CheatcodeEffect::ReturnU256(_)
+        | CheatcodeEffect::ReturnInt256(_)
         | CheatcodeEffect::ReturnBool(_)
         | CheatcodeEffect::ReturnBytes(_)
         | CheatcodeEffect::GetCode(_)

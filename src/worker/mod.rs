@@ -17,6 +17,10 @@ pub mod mutators;
 pub struct WorkerResult {
     pub runs: u64,
     pub failures: Vec<PropertyFailure>,
+    /// Total individual calls executed across all runs.
+    pub total_calls: u64,
+    /// Total gas consumed across all calls.
+    pub total_gas: u64,
 }
 
 /// A single property failure discovered during fuzzing.
@@ -235,6 +239,8 @@ impl Worker {
         ];
 
         let mut runs = 0u64;
+        let mut total_calls = 0u64;
+        let mut total_gas = 0u64;
         for _ in 0..max_runs {
             if start.elapsed() > timeout {
                 break;
@@ -277,6 +283,8 @@ impl Worker {
             };
 
             let output = self.chain.execute(&calls)?;
+            total_calls += output.total_calls;
+            total_gas += output.total_gas;
             let all_ok = output.all_ok;
             let property_triggered = output.property_results.iter().any(|p| p.passed);
             let local_coverage = output.coverage;
@@ -322,7 +330,12 @@ impl Worker {
         }
 
         info!(runs, worker_id, "worker run finished");
-        Ok(WorkerResult { runs, failures })
+        Ok(WorkerResult {
+            runs,
+            failures,
+            total_calls,
+            total_gas,
+        })
     }
 }
 

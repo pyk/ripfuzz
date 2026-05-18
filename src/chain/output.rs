@@ -11,6 +11,10 @@ pub struct ExecutionOutput {
     pub call_meta: Vec<CallMeta>,
     pub property_results: Vec<PropertyResult>,
     pub all_ok: bool,
+    /// Number of individual calls executed in this sequence (including calls that reverted).
+    pub total_calls: u64,
+    /// Total gas consumed by all calls in this sequence.
+    pub total_gas: u64,
 }
 
 /// Result of checking a single property function.

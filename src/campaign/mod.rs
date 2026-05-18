@@ -158,11 +158,15 @@ impl Campaign {
 
         // Join all worker threads and aggregate results.
         let mut total_runs = 0u64;
+        let mut total_calls = 0u64;
+        let mut total_gas = 0u64;
         let mut all_failures = Vec::new();
         for (worker_id, handle) in handles {
             match handle.join() {
                 Ok(Ok(result)) => {
                     total_runs += result.runs;
+                    total_calls += result.total_calls;
+                    total_gas += result.total_gas;
                     all_failures.extend(result.failures);
                     trace!(worker_id, runs = result.runs, "worker joined");
                 }
@@ -194,9 +198,14 @@ impl Campaign {
             "campaign complete"
         );
 
+        let elapsed_secs = start.elapsed().as_secs_f64();
+
         Ok(CampaignResult {
             runs: total_runs,
             failures: all_failures,
+            total_calls,
+            total_gas,
+            elapsed_secs,
             coverage,
         })
     }

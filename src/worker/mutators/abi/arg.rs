@@ -1,5 +1,7 @@
 //! ABI argument mutator that perturbs decoded Solidity values.
 
+use std::collections::HashMap;
+
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_json_abi::JsonAbi;
 use alloy_primitives::{Address, I256, U256};
@@ -14,38 +16,33 @@ use crate::worker::mutators::{MutationResult, Mutator};
 /// Composite types (arrays, tuples, structs) are supported.
 #[derive(Debug)]
 pub struct SequenceArgMutator {
-    abi: JsonAbi,
+    /// Pre-built map from selector to parsed tuple type (ready to decode).
+    selector_types: HashMap<[u8; 4], DynSolType>,
 }
 
 impl SequenceArgMutator {
     pub fn new(abi: JsonAbi) -> Self {
-        Self { abi }
+        let mut selector_types = HashMap::new();
+        for func in abi.functions() {
+            let sel: [u8; 4] = func.selector().into();
+            let types: Vec<DynSolType> = func
+                .inputs
+                .iter()
+                .filter_map(|p| p.selector_type().parse::<DynSolType>().ok())
+                .collect();
+            selector_types.insert(sel, DynSolType::Tuple(types));
+        }
+        Self { selector_types }
     }
 
     /// Mutate the arguments of a single call.
     ///
     /// Returns `true` if any argument was changed.
     fn mutate_call_args(&self, rng: &mut fastrand::Rng, call: &mut Call) -> bool {
-        let func = match self
-            .abi
-            .functions()
-            .find(|f| f.selector().as_slice() == &call.selector[..])
-        {
-            Some(f) => f,
+        let tuple_type = match self.selector_types.get(&call.selector) {
+            Some(t) => t.clone(),
             None => return false,
         };
-
-        let types: Vec<DynSolType> = match func
-            .inputs
-            .iter()
-            .map(|p| p.selector_type().parse::<DynSolType>())
-            .collect()
-        {
-            Ok(t) => t,
-            Err(_) => return false,
-        };
-
-        let tuple_type = DynSolType::Tuple(types);
 
         let mut values = match tuple_type.abi_decode_params(&call.args) {
             Ok(v) => v,

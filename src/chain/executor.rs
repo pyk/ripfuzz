@@ -59,47 +59,71 @@ pub fn execute(
     )
     .with_shared_labels(shared_labels);
 
-    let mut inspector = InspectorTuple::new(
+    let inspector = InspectorTuple::new(
         coverage_inspector,
         MaybeTrace(trace_inspector),
         cheatcode_inspector,
     );
 
+    // 2.5 Build the EVM once and reuse it across all calls in the sequence.
+    // This avoids reconstructing EthInstructions, EthPrecompiles, and the
+    // frame stack for every single call — a measurable win for short sequences.
+    let db = std::mem::take(&mut local_state.db);
+    let mut ctx = Context::mainnet().with_db(db);
+    ctx.cfg.disable_balance_check = true;
+    ctx.block.number = U256::from(local_state.block_number);
+    ctx.block.timestamp = U256::from(local_state.block_timestamp);
+
+    let overrides = inspector.2.state.block_overrides();
+    if let Some(fee) = overrides.basefee {
+        ctx.block.basefee = fee;
+    }
+    if let Some(beneficiary) = overrides.beneficiary {
+        ctx.block.beneficiary = beneficiary;
+    }
+    if let Some(prevrandao) = overrides.prevrandao {
+        ctx.block.prevrandao = Some(prevrandao);
+    }
+    if let Some(chain_id) = overrides.chain_id {
+        ctx.cfg.chain_id = chain_id;
+    }
+
+    let mut evm = ctx.build_mainnet_with_inspector(inspector);
+
     // 3. Run each call in the sequence.
     let mut call_meta = Vec::with_capacity(calls.len());
     let mut all_ok = true;
+    let mut total_calls = 0u64;
+    let mut total_gas = 0u64;
 
     for (idx, call) in calls.iter().enumerate().take(config.max_sequence_calls) {
         local_state.advance_block(call.block_number_delay, call.block_timestamp_delay, idx);
 
-        // Apply persistent startPrank origin to the top-level transaction.
-        // tx.origin is set via TxEnv::caller.  The top-level msg.sender is
-        // patched in frame_start by apply_prank when startPrank is active.
-        let tx_origin = inspector.2.state.prank.origin_for_top_level(config.caller);
+        evm.ctx.block.number = U256::from(local_state.block_number);
+        evm.ctx.block.timestamp = U256::from(local_state.block_timestamp);
 
-        let nonce = local_state.next_nonce();
-        let mut ctx = Context::mainnet().with_db(local_state.db);
-        ctx.cfg.disable_balance_check = true;
-        ctx.block.number = U256::from(local_state.block_number);
-        ctx.block.timestamp = U256::from(local_state.block_timestamp);
-
-        // Apply non-timestamp/number block overrides from cheatcodes.
-        // Timestamp and number are managed via local_state.block_timestamp /
-        // block_number so advance_block delays compose correctly.
-        let overrides = inspector.2.state.block_overrides();
+        let overrides = evm.inspector.2.state.block_overrides();
         if let Some(fee) = overrides.basefee {
-            ctx.block.basefee = fee;
+            evm.ctx.block.basefee = fee;
         }
         if let Some(beneficiary) = overrides.beneficiary {
-            ctx.block.beneficiary = beneficiary;
+            evm.ctx.block.beneficiary = beneficiary;
         }
         if let Some(prevrandao) = overrides.prevrandao {
-            ctx.block.prevrandao = Some(prevrandao);
+            evm.ctx.block.prevrandao = Some(prevrandao);
         }
         if let Some(chain_id) = overrides.chain_id {
-            ctx.cfg.chain_id = chain_id;
+            evm.ctx.cfg.chain_id = chain_id;
         }
 
+        let tx_origin = evm
+            .inspector
+            .2
+            .state
+            .prank
+            .origin_for_top_level(config.caller);
+
+        let nonce = local_state.next_nonce();
         let mut tx = TxEnv {
             caller: tx_origin,
             kind: TxKind::Call(contract_address),
@@ -108,21 +132,17 @@ pub fn execute(
             nonce,
             ..Default::default()
         };
-        tx.chain_id = Some(ctx.cfg.chain_id);
-        tx.gas_price = ctx.block.basefee as u128;
+        tx.chain_id = Some(evm.ctx.cfg.chain_id);
+        tx.gas_price = evm.ctx.block.basefee as u128;
 
-        // Remember the pre-call block cheat state so we can restore on revert
-        // and detect whether the block context was modified during this call.
-        let prev_block = inspector.2.state.block;
+        let prev_block = evm.inspector.2.state.block;
 
-        let mut evm = ctx.build_mainnet_with_inspector(inspector);
         let result = evm
             .inspect_tx_commit(tx)
             .map_err(|e| -> anyhow::Error { e.into() })?;
 
-        // Re-extract inspector and db for the next iteration.
-        inspector = evm.inspector;
-        local_state.db = evm.ctx.journaled_state.database;
+        total_calls += 1;
+        total_gas += result.tx_gas_used();
 
         call_meta.push(CallMeta {
             block_number: local_state.block_number,
@@ -130,9 +150,7 @@ pub fn execute(
         });
 
         if result.is_success() {
-            // Sync block context into ChainState so the next call sees it,
-            // but only if it was modified during this call (not carried over
-            // from a previous call).
+            let inspector = &mut evm.inspector;
             if inspector.2.state.block.timestamp != prev_block.timestamp
                 && let Some(ts) = inspector.2.state.block.timestamp
             {
@@ -143,49 +161,36 @@ pub fn execute(
             {
                 local_state.block_number = u64::try_from(num).unwrap_or(u64::MAX);
             }
-            // Sync remaining block overrides back to ChainState so that
-            // property checks see fee, coinbase, prevrandao, and chain_id mutations.
             local_state.cheatcodes.block = inspector.2.state.block;
-            // Sync inspector-accumulated labels back so property checks see them.
             local_state
                 .cheatcodes
                 .labels
                 .clone_from(&inspector.2.state.labels);
-            // Sync persistent prank state so it survives into the next
-            // sequence call.  Single-call prank (active) is intentionally
-            // NOT synced so it is discarded between top-level calls.
             local_state.cheatcodes.prank.start = inspector.2.state.prank.start;
             local_state.cheatcodes.prank.original_origin = inspector.2.state.prank.original_origin;
-            // Clear deal and nonce records so they are not rolled back on a
-            // later revert in this sequence.
             inspector.2.state.eth_deals.clear();
             inspector.2.state.nonce_changes.clear();
             trace!(idx, "call succeeded");
         } else {
-            // Undo the block context so it does not leak into properties or
-            // future calls (if we ever stop aborting on revert).
+            let inspector = &mut evm.inspector;
+            let db = &mut evm.ctx.journaled_state.database;
             inspector.2.state.block = prev_block;
-            // Roll back all deals recorded during this reverted call.
             for record in inspector.2.state.eth_deals.drain(..).rev() {
-                let mut info = local_state
-                    .db
+                let mut info = db
                     .basic(record.address)
                     .unwrap_or_default()
                     .unwrap_or_default();
                 info.balance = record.old_balance;
-                local_state.db.insert_account_info(record.address, info);
+                db.insert_account_info(record.address, info);
             }
-            // Roll back all nonce changes recorded during this reverted call.
             for record in inspector.2.state.nonce_changes.drain(..).rev() {
-                let mut info = local_state
-                    .db
+                let mut info = db
                     .basic(record.address)
                     .unwrap_or_default()
                     .unwrap_or_default();
                 info.nonce = record.old_nonce;
-                local_state.db.insert_account_info(record.address, info);
+                db.insert_account_info(record.address, info);
             }
-            // Labels are metadata, not state-DB mutations; they survive revert.
             local_state
                 .cheatcodes
                 .labels
@@ -195,6 +200,10 @@ pub fn execute(
             break;
         }
     }
+
+    // Extract inspector and db for property checks.
+    let inspector = evm.inspector;
+    local_state.db = evm.ctx.journaled_state.database;
 
     // 4. Check properties (read-only calls against the final state).
     let property_results = check_properties(
@@ -215,6 +224,8 @@ pub fn execute(
         call_meta,
         property_results,
         all_ok,
+        total_calls,
+        total_gas,
     })
 }
 
