@@ -15,7 +15,7 @@ bin: ## Install local binary
 .PHONY: test
 test: ## Run tests (120s suite timeout, single-threaded to avoid parallel LibAFL interference)
 	@echo "Running tests"
-	@cargo test
+	@cargo test --quiet
 
 # Catch-all target to handle extra arguments passed to make
 %:

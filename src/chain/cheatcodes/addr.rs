@@ -150,7 +150,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
-        let output = chain.execute(&vec![]).unwrap();
+        let _output = chain.execute(&vec![]).unwrap();
     }
 
     #[test]
