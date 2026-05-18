@@ -256,6 +256,7 @@ pub fn run(args: Args) -> Result<()> {
         fork_config,
     };
     info!(?config, "starting fuzzing campaign");
+    let fork_info = config.fork_config.clone();
 
     let campaign = Campaign::for_target(&args.target_path)
         .with_project(&project_path)
@@ -270,6 +271,9 @@ pub fn run(args: Args) -> Result<()> {
         .map(|(_, n)| n.as_str())
         .collect();
     info!(target: "raptor::user", "Invariants:      {:?}", invariant_names);
+    if let Some(ref fork) = fork_info {
+        info!(target: "raptor::user", "Fork:            {} (block {})", fork.rpc_url, fork.block_number);
+    }
     info!(contract = %artifact.contract_name, invariants = artifact.invariants.len(), "artifact loaded");
 
     let result = campaign.run()?;
