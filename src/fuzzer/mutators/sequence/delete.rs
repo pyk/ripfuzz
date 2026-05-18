@@ -1,7 +1,7 @@
 //! Sequence mutator that deletes a random call.
 
 use crate::corpus::Call;
-use crate::worker::mutators::{MutationResult, Mutator};
+use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Delete a random call from the sequence.
 #[derive(Debug, Default)]

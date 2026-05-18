@@ -1,7 +1,7 @@
 //! Sequence mutator that randomizes block delays.
 
 use crate::corpus::Call;
-use crate::worker::mutators::{MutationResult, Mutator};
+use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Mutate block delays on a random call in the sequence.
 #[derive(Debug, Default)]

@@ -1,4 +1,4 @@
-//! Per-worker fuzzing thread that executes call sequences and reports results.
+//! Per-fuzzer instance that executes call sequences and reports results.
 
 use std::sync::{Arc, RwLock};
 
@@ -12,9 +12,9 @@ use crate::corpus::{Call, Corpus, CorpusItem};
 
 pub mod mutators;
 
-/// Result produced by a single worker.
+/// Result produced by a single fuzzer.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct WorkerResult {
+pub struct FuzzerResult {
     pub runs: u64,
     pub failures: Vec<Crash>,
     /// Total individual calls executed across all runs.
@@ -162,14 +162,14 @@ fn format_dyn_value(v: &alloy_dyn_abi::DynSolValue) -> String {
     }
 }
 
-pub struct Worker {
+pub struct Fuzzer {
     artifact: Arc<contract::ContractArtifact>,
     chain: Arc<crate::chain::Chain>,
     fuzzed_selectors: Arc<Vec<[u8; 4]>>,
     config: Arc<CampaignConfig>,
 }
 
-impl Worker {
+impl Fuzzer {
     pub fn new(
         artifact: Arc<contract::ContractArtifact>,
         chain: Arc<crate::chain::Chain>,
@@ -210,13 +210,13 @@ impl Worker {
         &self,
         corpus: Arc<RwLock<Corpus>>,
         max_runs: u64,
-        worker_id: usize,
+        fuzzer_id: usize,
         start: std::time::Instant,
         timeout: std::time::Duration,
-    ) -> Result<WorkerResult> {
-        info!(max_runs, worker_id, "worker run starting");
+    ) -> Result<FuzzerResult> {
+        info!(max_runs, fuzzer_id, "fuzzer run starting");
 
-        let mut rng = fastrand::Rng::with_seed(self.config.seed + worker_id as u64);
+        let mut rng = fastrand::Rng::with_seed(self.config.seed + fuzzer_id as u64);
         let mut failures = Vec::new();
 
         let mut mutators: Vec<Box<dyn mutators::Mutator>> = vec![
@@ -325,8 +325,8 @@ impl Worker {
             }
         }
 
-        info!(runs, worker_id, "worker run finished");
-        Ok(WorkerResult {
+        info!(runs, fuzzer_id, "fuzzer run finished");
+        Ok(FuzzerResult {
             runs,
             failures,
             total_calls,
@@ -373,8 +373,8 @@ mod tests {
     use crate::chain::output::CallMeta;
     use crate::contract;
     use crate::corpus;
-    use crate::worker::Crash;
-    use crate::worker::format_failure;
+    use crate::fuzzer::Crash;
+    use crate::fuzzer::format_failure;
 
     #[test]
     fn format_failure_uses_block_number_and_timestamp_labels() {

@@ -3,7 +3,7 @@
 use std::sync::{Arc, RwLock};
 
 use crate::corpus::{Call, Corpus};
-use crate::worker::mutators::{MutationResult, Mutator};
+use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Interleave two corpus sequences.
 #[derive(Debug)]

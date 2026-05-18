@@ -5,7 +5,7 @@ use std::path::PathBuf;
 /// Configuration for a fuzzing campaign.
 #[derive(Debug, Clone)]
 pub struct CampaignConfig {
-    pub workers: usize,
+    pub threads: usize,
     pub max_runs: u64,
     pub timeout_secs: u64,
     pub sequence_length: usize,
@@ -22,7 +22,7 @@ pub struct CampaignConfig {
 impl Default for CampaignConfig {
     fn default() -> Self {
         Self {
-            workers: std::thread::available_parallelism()
+            threads: std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(1),
             max_runs: 10000,
@@ -38,8 +38,8 @@ impl Default for CampaignConfig {
 }
 
 impl CampaignConfig {
-    /// Resolved worker count.
-    pub fn worker_count(&self) -> usize {
-        self.workers
+    /// Resolved fuzzer count.
+    pub fn fuzzer_count(&self) -> usize {
+        self.threads
     }
 }

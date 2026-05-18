@@ -10,18 +10,18 @@ use tracing::{debug, info, instrument};
 use crate::campaign::{Campaign, CampaignConfig};
 use crate::contract::resolve_coverage_to_source;
 
-fn default_workers() -> usize {
+fn default_threads() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1)
 }
 
-fn parse_workers(s: &str) -> Result<usize, String> {
+fn parse_threads(s: &str) -> Result<usize, String> {
     let n = s
         .parse::<usize>()
-        .map_err(|e| format!("invalid worker count: {e}"))?;
+        .map_err(|e| format!("invalid thread count: {e}"))?;
     if n == 0 {
-        return Err("workers must be at least 1".into());
+        return Err("threads must be at least 1".into());
     }
     Ok(n)
 }
@@ -36,11 +36,11 @@ pub struct Args {
     #[arg(long = "project", short = 'p')]
     pub project_path: Option<PathBuf>,
 
-    /// Number of parallel workers to spawn.
-    #[arg(short = 'w', long, default_value_t = default_workers(), value_parser = parse_workers)]
-    pub workers: usize,
+    /// Number of parallel fuzzer threads to spawn.
+    #[arg(short = 'w', long = "threads", default_value_t = default_threads(), value_parser = parse_threads)]
+    pub threads: usize,
 
-    /// Maximum number of campaign runs across all workers.
+    /// Maximum number of campaign runs across all fuzzers.
     #[arg(short = 'r', long = "max-runs", default_value = "10000")]
     pub max_runs: u64,
 
@@ -73,7 +73,7 @@ pub struct Args {
     pub ffi: bool,
 }
 
-#[instrument(skip(args), fields(target = ?args.target_path, workers = args.workers, max_runs = args.max_runs))]
+#[instrument(skip(args), fields(target = ?args.target_path, threads = args.threads, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
     let project_path = match args.project_path {
         Some(p) => {
@@ -87,7 +87,7 @@ pub fn run(args: Args) -> Result<()> {
         }
     };
     let config = CampaignConfig {
-        workers: args.workers,
+        threads: args.threads,
         max_runs: args.max_runs,
         timeout_secs: args.timeout_secs,
         sequence_length: args.sequence_length,
@@ -147,7 +147,7 @@ pub fn run(args: Args) -> Result<()> {
             info!(target: "raptor::user", "[FAILED] Invariant Test: {}::{}", artifact.contract_name, failure.function_name);
             info!(target: "raptor::user", "Test for method \"{}::{}\" failed after the following call sequence:", artifact.contract_name, failure.function_name);
             info!(target: "raptor::user", "[Call Sequence]");
-            info!(target: "raptor::user", "{}", crate::worker::format_failure(artifact, failure));
+            info!(target: "raptor::user", "{}", crate::fuzzer::format_failure(artifact, failure));
         }
         let total = artifact.invariants.len();
         let failed = result.failures.len();

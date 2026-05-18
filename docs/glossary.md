@@ -7,7 +7,7 @@ Consistent vocabulary for raptor users and contributors.
 ### Fuzzing Campaign
 
 A single invocation of `raptor fuzz`. A campaign initializes the **target
-contract**, builds seed inputs, and orchestrates one or more **workers** that
+contract**, builds seed inputs, and orchestrates one or more **fuzzers** that
 generate sequences of **function calls**, execute them against a cloned contract
 state, and check that all **properties** still hold. Also called a "fuzz run" or
 "test run".
@@ -43,16 +43,16 @@ A function that establishes the initial state cloned for every fuzz input. The
 contract **constructor** always runs once at deployment. If a function named
 `setUp()` exists, raptor calls it once after deployment.
 
-### Worker
+### Fuzzer
 
-A single parallel fuzzing process that executes function call sequences against
+A single parallel fuzzing instance that executes function call sequences against
 a cloned contract state and reports new coverage or crashes to the campaign
-manager. By default raptor spawns one worker per available CPU core.
+manager. By default raptor spawns one fuzzer per available CPU core.
 
 ### Campaign Result
 
 The aggregated output of a fuzzing campaign, including the total number of
-iterations executed across all workers and any crashes (assert panics)
+iterations executed across all fuzzers and any crashes (assert panics)
 discovered.
 
 ### Crash

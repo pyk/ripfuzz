@@ -36,8 +36,8 @@ mod tests {
     use crate::chain::Chain;
     use crate::contract;
     use crate::corpus;
-    use crate::worker::mutators;
-    use crate::worker::mutators::Mutator;
+    use crate::fuzzer::mutators;
+    use crate::fuzzer::mutators::Mutator;
 
     #[test]
     fn sequence_delay_mutator_respects_cap_invariant() {

@@ -7,7 +7,7 @@ use alloy_json_abi::JsonAbi;
 use alloy_primitives::{Address, I256, U256};
 
 use crate::corpus::Call;
-use crate::worker::mutators::{MutationResult, Mutator};
+use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Mutate the arguments of a random call using ABI type information.
 ///
@@ -190,8 +190,8 @@ mod tests {
     use alloy_primitives::U256;
 
     use crate::corpus;
-    use crate::worker::mutators::Mutator;
-    use crate::worker::mutators::abi;
+    use crate::fuzzer::mutators::Mutator;
+    use crate::fuzzer::mutators::abi;
 
     fn abi_with(function_sig: &str) -> alloy_json_abi::JsonAbi {
         alloy_json_abi::JsonAbi::parse([function_sig]).unwrap()
@@ -213,7 +213,7 @@ mod tests {
         let mut calls = Vec::new();
 
         let result = mutator.mutate(&mut rng, &mut calls);
-        assert_eq!(result, crate::worker::mutators::MutationResult::Skipped);
+        assert_eq!(result, crate::fuzzer::mutators::MutationResult::Skipped);
     }
 
     #[test]
@@ -234,7 +234,7 @@ mod tests {
         let original_args = calls[0].args.clone();
 
         let result = mutator.mutate(&mut rng, &mut calls);
-        assert_eq!(result, crate::worker::mutators::MutationResult::Skipped);
+        assert_eq!(result, crate::fuzzer::mutators::MutationResult::Skipped);
         assert_eq!(calls[0].args, original_args, "args must be unchanged");
     }
 
@@ -257,7 +257,7 @@ mod tests {
             let original_args = calls[0].args.clone();
 
             let result = mutator.mutate(&mut rng, &mut calls);
-            assert_eq!(result, crate::worker::mutators::MutationResult::Mutated);
+            assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
             if calls[0].args != original_args {
                 any_changed = true;
             }
@@ -326,7 +326,7 @@ mod tests {
         }];
 
         let result = mutator.mutate(&mut rng, &mut calls);
-        assert_eq!(result, crate::worker::mutators::MutationResult::Mutated);
+        assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
 
         let mutated = &calls[0].args;
 
@@ -362,7 +362,7 @@ mod tests {
         }];
 
         let result = mutator.mutate(&mut rng, &mut calls);
-        assert_eq!(result, crate::worker::mutators::MutationResult::Mutated);
+        assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
         assert_eq!(calls[0].args[31], 0); // flipped to false
     }
 
@@ -383,7 +383,7 @@ mod tests {
         let original_args = calls[0].args.clone();
 
         let result = mutator.mutate(&mut rng, &mut calls);
-        assert_eq!(result, crate::worker::mutators::MutationResult::Mutated);
+        assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
         assert_ne!(&calls[0].args[12..32], &original_args[12..32]);
     }
 
@@ -432,7 +432,7 @@ mod tests {
         let original_args = calls[0].args.clone();
 
         let result = mutator.mutate(&mut rng, &mut calls);
-        assert_eq!(result, crate::worker::mutators::MutationResult::Mutated);
+        assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
         assert_ne!(calls[0].args, original_args);
     }
 
@@ -480,7 +480,7 @@ mod tests {
         }];
 
         let result = mutator.mutate(&mut rng, &mut calls);
-        assert_eq!(result, crate::worker::mutators::MutationResult::Mutated);
+        assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
         let decoded = DynSolType::Tuple(vec![DynSolType::Uint(8)])
             .abi_decode_params(&calls[0].args)
             .unwrap();
@@ -510,7 +510,7 @@ mod tests {
             let original_args = calls[0].args.clone();
 
             let result = mutator.mutate(&mut rng, &mut calls);
-            assert_eq!(result, crate::worker::mutators::MutationResult::Mutated);
+            assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
             if calls[0].args != original_args {
                 any_changed = true;
             }
@@ -570,7 +570,7 @@ mod tests {
         }];
 
         let result = mutator.mutate(&mut rng, &mut calls);
-        assert_eq!(result, crate::worker::mutators::MutationResult::Mutated);
+        assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
 
         let decoded = DynSolType::Tuple(vec![DynSolType::String])
             .abi_decode_params(&calls[0].args)

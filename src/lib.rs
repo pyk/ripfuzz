@@ -6,8 +6,8 @@ pub mod commands;
 pub mod contract;
 pub mod corpus;
 pub mod foundry;
+pub mod fuzzer;
 pub mod logger;
-pub mod worker;
 
 /// Convert a [`Result`] into an [`Option`] without the `ok()` method call.
 pub(crate) fn result_to_option<T, E>(result: Result<T, E>) -> Option<T> {

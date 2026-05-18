@@ -1,7 +1,7 @@
 //! Sequence mutator that inserts a new random call.
 
 use crate::corpus::Call;
-use crate::worker::mutators::{MutationResult, Mutator};
+use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Insert a new random call at a random position.
 #[derive(Debug, Default)]

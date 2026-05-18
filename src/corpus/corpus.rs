@@ -193,13 +193,13 @@ impl CoverageMap {
     }
 }
 
-/// Per-worker local coverage map keyed by contract bytecode hash.
+/// Per-fuzzer local coverage map keyed by contract bytecode hash.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LocalCoverage {
     pub contracts: HashMap<ContractId, LocalContractCoverage>,
 }
 
-/// Coverage data for a single contract in a worker's local map.
+/// Coverage data for a single contract in a fuzzer's local map.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LocalContractCoverage {
     /// Per-PC raw hit counts.

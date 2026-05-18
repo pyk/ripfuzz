@@ -12,7 +12,7 @@ pub use seeds::build_seeds;
 
 use crate::contract::{ContractArtifact, ContractBuilder};
 use crate::corpus::{Corpus, CoverageMap};
-use crate::worker::Worker;
+use crate::fuzzer::Fuzzer;
 
 pub mod config;
 pub mod result;
@@ -44,7 +44,7 @@ impl CampaignBuilder {
         let artifact = ContractBuilder::build(&self.project_path, &self.contract_path)?;
         info!(contract = %artifact.contract_name, "artifact built");
 
-        // Initialize chain once and share it across workers.
+        // Initialize chain once and share it across fuzzers.
         let chain = crate::chain::Chain::initialize_with_opts(
             &artifact,
             self.project_path.clone(),
@@ -89,7 +89,7 @@ impl CampaignBuilder {
     }
 }
 
-/// A fuzzing campaign that validates a target contract and orchestrates one or more workers.
+/// A fuzzing campaign that validates a target contract and orchestrates one or more fuzzers.
 #[derive(Debug)]
 pub struct Campaign {
     artifact: ContractArtifact,
@@ -116,11 +116,11 @@ impl Campaign {
 
     /// Run the campaign and return an aggregated result.
     pub fn run(&self) -> Result<CampaignResult> {
-        let workers = self.config.worker_count();
+        let fuzzers = self.config.fuzzer_count();
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_secs(self.config.timeout_secs);
 
-        info!(workers, "starting parallel fuzzing campaign");
+        info!(fuzzers, "starting parallel fuzzing campaign");
 
         let chain = Arc::new(self.chain.clone());
         let artifact = self.artifact.clone();
@@ -128,18 +128,18 @@ impl Campaign {
         let fuzzed_selectors = self.fuzzed_selectors.clone();
         let corpus = self.corpus.clone();
 
-        let workers_u64 = workers as u64;
-        let base_runs = config.max_runs / workers_u64;
-        let remainder = (config.max_runs % workers_u64) as usize;
+        let fuzzers_u64 = fuzzers as u64;
+        let base_runs = config.max_runs / fuzzers_u64;
+        let remainder = (config.max_runs % fuzzers_u64) as usize;
         debug!(base_runs, remainder, "run distribution calculated");
 
         let artifact = Arc::new(artifact);
         let config = Arc::new(config);
         let fuzzed_selectors = Arc::new(fuzzed_selectors);
 
-        let mut handles = Vec::with_capacity(workers);
-        for worker_id in 0..workers {
-            let local_max_runs = if worker_id < remainder {
+        let mut handles = Vec::with_capacity(fuzzers);
+        for fuzzer_id in 0..fuzzers {
+            let local_max_runs = if fuzzer_id < remainder {
                 base_runs + 1
             } else {
                 base_runs
@@ -151,31 +151,31 @@ impl Campaign {
             let corpus = Arc::clone(&corpus);
 
             let handle = std::thread::spawn(move || {
-                let worker = Worker::new(artifact, chain, config, fuzzed_selectors);
-                worker.run(corpus, local_max_runs, worker_id, start, timeout)
+                let fuzzer = Fuzzer::new(artifact, chain, config, fuzzed_selectors);
+                fuzzer.run(corpus, local_max_runs, fuzzer_id, start, timeout)
             });
-            handles.push((worker_id, handle));
+            handles.push((fuzzer_id, handle));
         }
 
-        // Join all worker threads and aggregate results.
+        // Join all fuzzer threads and aggregate results.
         let mut total_runs = 0u64;
         let mut total_calls = 0u64;
         let mut total_gas = 0u64;
         let mut all_failures = Vec::new();
-        for (worker_id, handle) in handles {
+        for (fuzzer_id, handle) in handles {
             match handle.join() {
                 Ok(Ok(result)) => {
                     total_runs += result.runs;
                     total_calls += result.total_calls;
                     total_gas += result.total_gas;
                     all_failures.extend(result.failures);
-                    trace!(worker_id, runs = result.runs, "worker joined");
+                    trace!(fuzzer_id, runs = result.runs, "fuzzer joined");
                 }
                 Ok(Err(e)) => {
-                    error!(worker_id, %e, "worker failed");
+                    error!(fuzzer_id, %e, "fuzzer failed");
                 }
                 Err(e) => {
-                    error!(worker_id, ?e, "worker panicked");
+                    error!(fuzzer_id, ?e, "fuzzer panicked");
                 }
             }
         }
@@ -220,9 +220,9 @@ mod tests {
     use crate::campaign::{Campaign, CampaignConfig, CampaignResult};
     use crate::contract;
 
-    fn run_campaign(workers: usize, max_runs: u64) -> CampaignResult {
+    fn run_campaign(threads: usize, max_runs: u64) -> CampaignResult {
         let mut config = CampaignConfig::default();
-        config.workers = workers;
+        config.threads = threads;
         config.max_runs = max_runs;
         config.timeout_secs = 30;
 
@@ -243,7 +243,7 @@ mod tests {
         .unwrap();
 
         let mut config = CampaignConfig::default();
-        config.workers = 1;
+        config.threads = 1;
         let err = Campaign::for_target(Path::new("test/ConstructorRevert.sol"))
             .with_project(Path::new("fixtures/basic-target"))
             .with_config(config)
@@ -264,7 +264,7 @@ mod tests {
         .unwrap();
 
         let mut config = CampaignConfig::default();
-        config.workers = 1;
+        config.threads = 1;
         let err = Campaign::for_target(Path::new("test/ComplexConstructorRevert.sol"))
             .with_project(Path::new("fixtures/basic-target"))
             .with_config(config)
@@ -286,7 +286,7 @@ mod tests {
         .unwrap();
 
         let mut config = CampaignConfig::default();
-        config.workers = 1;
+        config.threads = 1;
         let err = Campaign::for_target(Path::new("test/SetupRevert.sol"))
             .with_project(Path::new("fixtures/basic-target"))
             .with_config(config)
@@ -328,26 +328,26 @@ mod tests {
     }
 
     #[test]
-    fn max_runs_with_one_worker() {
+    fn max_runs_with_one_fuzzer() {
         let result = run_campaign(1, 1000);
-        assert_eq!(result.runs, 1000, "single worker should run all 1000 runs");
+        assert_eq!(result.runs, 1000, "single fuzzer should run all 1000 runs");
     }
 
     #[test]
-    fn max_runs_with_three_workers() {
+    fn max_runs_with_three_fuzzers() {
         let result = run_campaign(3, 1000);
         assert_eq!(
             result.runs, 1000,
-            "total runs across 3 workers should be 1000"
+            "total runs across 3 fuzzers should be 1000"
         );
     }
 
     #[test]
-    fn max_runs_with_four_workers() {
+    fn max_runs_with_four_fuzzers() {
         let result = run_campaign(4, 1000);
         assert_eq!(
             result.runs, 1000,
-            "total runs across 4 workers should be 1000"
+            "total runs across 4 fuzzers should be 1000"
         );
     }
 }

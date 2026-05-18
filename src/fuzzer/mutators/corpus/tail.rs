@@ -1,23 +1,23 @@
-//! Corpus mutator that keeps the head of a sequence.
+//! Corpus mutator that keeps the tail of a sequence.
 
 use std::sync::{Arc, RwLock};
 
 use crate::corpus::{Call, Corpus};
-use crate::worker::mutators::{MutationResult, Mutator};
+use crate::fuzzer::mutators::{MutationResult, Mutator};
 
-/// Take the head of a corpus sequence and keep it, discarding the rest.
+/// Take the tail of a corpus sequence and keep it, discarding the rest.
 #[derive(Debug)]
-pub struct SequenceHeadMutator {
+pub struct SequenceTailMutator {
     corpus: Arc<RwLock<Corpus>>,
 }
 
-impl SequenceHeadMutator {
+impl SequenceTailMutator {
     pub fn new(corpus: Arc<RwLock<Corpus>>) -> Self {
         Self { corpus }
     }
 }
 
-impl Mutator for SequenceHeadMutator {
+impl Mutator for SequenceTailMutator {
     fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
         let Ok(corpus) = self.corpus.read() else {
             return MutationResult::Skipped;
@@ -32,8 +32,8 @@ impl Mutator for SequenceHeadMutator {
         if seq.is_empty() {
             return MutationResult::Skipped;
         }
-        let head_len = rng.usize(1..=seq.len());
-        *calls = seq[..head_len].to_vec();
+        let tail_len = rng.usize(1..=seq.len());
+        *calls = seq[seq.len() - tail_len..].to_vec();
         MutationResult::Mutated
     }
 }
