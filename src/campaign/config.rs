@@ -15,6 +15,8 @@ pub struct CampaignConfig {
     /// Path to the corpus root directory. If set, coverage-guided
     /// persistence is enabled.
     pub corpus_dir: Option<PathBuf>,
+    /// Enable the `ffi` cheatcode (allows arbitrary host command execution).
+    pub ffi: bool,
 }
 
 impl Default for CampaignConfig {
@@ -30,6 +32,7 @@ impl Default for CampaignConfig {
             max_block_number_delay: 5,
             max_block_timestamp_delay: 5,
             corpus_dir: None,
+            ffi: false,
         }
     }
 }

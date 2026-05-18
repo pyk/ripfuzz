@@ -3,6 +3,7 @@
 //! Provides a single entry point for deployment, setup, and sequence execution.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use alloy_json_abi::JsonAbi;
 use revm::primitives::{Address, Bytes};
@@ -58,7 +59,16 @@ pub struct Chain {
 impl Chain {
     /// 1. Compile initcode, deploy, verify deployment success.
     pub fn initialize(artifact: &ContractArtifact) -> Result<Self, ChainInitError> {
-        let (contract_address, mut state) = initialize(artifact)?;
+        Self::initialize_with_opts(artifact, PathBuf::new(), false)
+    }
+
+    /// Initialize with explicit cheatcode configuration.
+    pub fn initialize_with_opts(
+        artifact: &ContractArtifact,
+        project_root: PathBuf,
+        ffi_enabled: bool,
+    ) -> Result<Self, ChainInitError> {
+        let (contract_address, mut state) = initialize(artifact, project_root, ffi_enabled)?;
         // Populate compiled-contract map for vm.getCode lookups.
         // Every contract compiled in the project gets an entry keyed by name.
         let initcode_map = artifact.initcode_map.clone();

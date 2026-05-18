@@ -1,5 +1,7 @@
 //! Chain initialization: deployment of the target contract.
 
+use std::path::PathBuf;
+
 use revm::{
     Database, MainBuilder, MainContext,
     context::{Context, TxEnv},
@@ -74,7 +76,11 @@ const ERROR_SELECTOR: [u8; 4] = [0x08, 0xc3, 0x79, 0xa0];
 
 /// Deploy a contract from an artifact and return the post-deployment chain state.
 #[instrument(skip(target), fields(contract = %target.contract_name), err)]
-pub fn initialize(target: &ContractArtifact) -> Result<(Address, ChainState), ChainInitError> {
+pub fn initialize(
+    target: &ContractArtifact,
+    project_root: PathBuf,
+    ffi_enabled: bool,
+) -> Result<(Address, ChainState), ChainInitError> {
     let mut db = InMemoryDB::default();
 
     db.insert_account_info(
@@ -115,6 +121,8 @@ pub fn initialize(target: &ContractArtifact) -> Result<(Address, ChainState), Ch
 
     let deployed_db = evm.ctx.journaled_state.database;
     let mut state = ChainState::new(deployed_db);
+    state.cheatcodes.project_root = project_root;
+    state.cheatcodes.ffi_enabled = ffi_enabled;
     state.caller_nonce = state
         .db
         .basic(CALLER)

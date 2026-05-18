@@ -67,6 +67,10 @@ pub struct Args {
     /// Directory to load and persist coverage-guided corpus files.
     #[arg(long = "corpus-dir")]
     pub corpus_dir: Option<PathBuf>,
+
+    /// Enable the `ffi` cheatcode (security-sensitive).
+    #[arg(long = "ffi")]
+    pub ffi: bool,
 }
 
 #[instrument(skip(args), fields(target = ?args.target_path, workers = args.workers, max_runs = args.max_runs))]
@@ -91,6 +95,7 @@ pub fn run(args: Args) -> Result<()> {
         max_block_number_delay: args.max_block_number_delay,
         max_block_timestamp_delay: args.max_block_timestamp_delay,
         corpus_dir: args.corpus_dir,
+        ffi: args.ffi,
     };
     info!(?config, "starting fuzzing campaign");
 

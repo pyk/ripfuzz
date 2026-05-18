@@ -45,7 +45,12 @@ impl CampaignBuilder {
         info!(contract = %artifact.contract_name, "artifact built");
 
         // Initialize chain once and share it across workers.
-        let chain = crate::chain::Chain::initialize(&artifact)?.setup()?;
+        let chain = crate::chain::Chain::initialize_with_opts(
+            &artifact,
+            self.project_path.clone(),
+            self.config.ffi,
+        )?
+        .setup()?;
         debug!("deployment validated");
 
         let seeds = build_seeds(&artifact, self.config.sequence_length);

@@ -5,7 +5,7 @@
 //! is the single place where new cheatcodes are registered.
 
 use std::collections::HashMap;
-use std::process::Command;
+use std::path::PathBuf;
 
 use revm::{
     context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
@@ -195,6 +195,8 @@ pub struct CheatcodeState {
     pub prank: PrankCheatState,
     pub labels: HashMap<Address, String>,
     pub ffi_enabled: bool,
+    /// Foundry project root used as the working directory for `vm.ffi`.
+    pub project_root: PathBuf,
     /// Contract name -> initcode bytes, populated from the artifact so
     /// `vm.getCode` can resolve contracts by name.
     pub compiled_contracts: HashMap<String, Bytes>,
@@ -339,41 +341,14 @@ pub(crate) fn build_outcome<CTX: ContextTr<Db = InMemoryDB>>(
             ))
         }
         CheatcodeEffect::FfiExec(args) => {
-            if !state.ffi_enabled {
-                return Some(revert_outcome("ffi disabled: enable via config"));
+            match crate::chain::cheatcodes::ffi::run_ffi(
+                args,
+                state.ffi_enabled,
+                &state.project_root,
+            ) {
+                Ok(encoded) => Some(success_bytes_outcome(encoded, gas_limit)),
+                Err(reason) => Some(revert_outcome(&reason)),
             }
-            if args.is_empty() {
-                return Some(revert_outcome("ffi: no command provided"));
-            }
-            let mut it = args.iter();
-            let Some(cmd) = it.next() else {
-                return Some(revert_outcome("ffi: no command provided"));
-            };
-            let mut command = Command::new(cmd);
-            for arg in it {
-                command.arg(arg);
-            }
-            let output = match command.output() {
-                Ok(v) => v,
-                Err(_) => return Some(revert_outcome("ffi command failed")),
-            };
-            if !output.status.success() {
-                return Some(revert_outcome("ffi command failed"));
-            }
-            let stdout_bytes = output.stdout;
-            let stdout = String::from_utf8_lossy(&stdout_bytes);
-            let trimmed = stdout.trim();
-            let bytes = match trimmed
-                .strip_prefix("0x")
-                .or_else(|| trimmed.strip_prefix("0X"))
-            {
-                Some(hex_str) => hex::decode(hex_str).unwrap_or(stdout_bytes),
-                None => stdout_bytes,
-            };
-            Some(success_bytes_outcome(
-                alloy_dyn_abi::DynSolValue::Bytes(bytes).abi_encode(),
-                gas_limit,
-            ))
         }
         _ => None,
     }) {
