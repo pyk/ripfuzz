@@ -16,6 +16,7 @@ use tracing::trace;
 use crate::chain::{
     ChainConfig,
     error::ChainExecutionError,
+    init::decode_solidity_error,
     inspectors::{InspectorTuple, MaybeTrace, coverage::CoverageInspector, trace::TraceInspector},
     output::{CallMeta, CrashInfo, ExecutionOutput},
     state::ChainState,
@@ -79,6 +80,7 @@ pub fn execute(
     ctx.cfg.disable_balance_check = true;
     ctx.block.number = U256::from(local_state.block_number);
     ctx.block.timestamp = U256::from(local_state.block_timestamp);
+    ctx.block.gas_limit = config.block_gas_limit;
 
     let overrides = inspector.2.state.block_overrides();
     if let Some(fee) = overrides.basefee {
@@ -147,7 +149,7 @@ pub fn execute(
             caller: tx_origin,
             kind: TxKind::Call(contract_address),
             data: Bytes::from(call.encode()),
-            gas_limit: config.gas_limit,
+            gas_limit: config.tx_gas_limit,
             nonce,
             ..Default::default()
         };
@@ -161,11 +163,32 @@ pub fn execute(
             .map_err(|e| -> anyhow::Error { e.into() })?;
 
         total_calls += 1;
-        total_gas += result.tx_gas_used();
+        let gas_used = result.tx_gas_used();
+        total_gas += gas_used;
+
+        let success = result.is_success();
+        let reason = if !success {
+            match &result {
+                revm::context::result::ExecutionResult::Halt { reason, .. } => {
+                    Some(format!("halted: {reason}"))
+                }
+                revm::context::result::ExecutionResult::Revert { output, .. } => {
+                    decode_solidity_error(output)
+                        .map(|r| format!("reverted: {r}"))
+                        .or_else(|| Some("reverted".into()))
+                }
+                _ => Some("failed".into()),
+            }
+        } else {
+            None
+        };
 
         call_meta.push(CallMeta {
             block_number: local_state.block_number,
             block_timestamp: local_state.block_timestamp,
+            gas_used,
+            success,
+            reason,
         });
 
         if result.is_success() {
@@ -228,7 +251,7 @@ pub fn execute(
                 });
             }
             all_ok = false;
-            trace!(idx, "call reverted, aborting sequence");
+            trace!(idx, "call failed, aborting sequence");
             break;
         }
     }

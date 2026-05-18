@@ -25,11 +25,24 @@ pub struct CrashInfo {
     pub selector: [u8; 4],
 }
 
+fn default_true() -> bool {
+    true
+}
+
 /// Metadata for a single call in an executed sequence.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct CallMeta {
     /// Block number at execution time.
     pub block_number: u64,
     /// Block timestamp at execution time.
     pub block_timestamp: u64,
+    /// Gas consumed by this individual call.
+    #[serde(default)]
+    pub gas_used: u64,
+    /// Whether this call succeeded.
+    #[serde(default = "default_true")]
+    pub success: bool,
+    /// If the call reverted or halted, the human-readable reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }

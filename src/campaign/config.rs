@@ -24,6 +24,10 @@ pub struct CampaignConfig {
     pub deploy_value: U256,
     /// Account address used to deploy the target contract.
     pub deployer_address: Address,
+    /// Maximum gas that can be consumed in a single block.
+    pub block_gas_limit: u64,
+    /// Maximum gas sent with each fuzzer-generated transaction.
+    pub tx_gas_limit: u64,
 }
 
 impl Default for CampaignConfig {
@@ -41,10 +45,9 @@ impl Default for CampaignConfig {
             corpus_dir: None,
             ffi: false,
             deploy_value: U256::ZERO,
-            deployer_address: Address::new([
-                0xec, 0x47, 0xd9, 0xca, 0xe5, 0xbd, 0xa5, 0x7f, 0x66, 0x52, 0x26, 0x93, 0xdf, 0x7f,
-                0x28, 0x8f, 0x48, 0x2c, 0x1a, 0xf1,
-            ]),
+            deployer_address: crate::chain::init::DEFAULT_DEPLOYER,
+            block_gas_limit: crate::chain::init::GAS_LIMIT,
+            tx_gas_limit: crate::chain::init::DEFAULT_TX_GAS_LIMIT,
         }
     }
 }

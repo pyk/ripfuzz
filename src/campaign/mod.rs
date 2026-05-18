@@ -50,6 +50,8 @@ impl CampaignBuilder {
             .with_ffi(self.config.ffi)
             .with_deploy_value(self.config.deploy_value)
             .with_deployer(self.config.deployer_address)
+            .with_block_gas_limit(self.config.block_gas_limit)
+            .with_tx_gas_limit(self.config.tx_gas_limit)
             .init()?
             .setup()?;
         debug!("deployment validated");
@@ -210,6 +212,8 @@ impl Campaign {
             elapsed_secs,
             coverage,
             deployer_address: self.config.deployer_address,
+            block_gas_limit: self.config.block_gas_limit,
+            tx_gas_limit: self.config.tx_gas_limit,
         })
     }
 }
@@ -390,6 +394,56 @@ mod tests {
         assert!(
             msg.contains("revert") || msg.contains("value"),
             "non-payable constructor with non-zero value should fail deployment: {msg}"
+        );
+    }
+
+    #[test]
+    fn deployment_oog_shows_clear_error() {
+        let mut config = CampaignConfig::default();
+        config.threads = 1;
+        config.block_gas_limit = 50_000;
+        config.tx_gas_limit = 50_000;
+
+        let err = Campaign::for_target(Path::new("test/DeploymentOog.sol"))
+            .with_project(Path::new("fixtures/basic-target"))
+            .with_config(config)
+            .build()
+            .unwrap_err();
+
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("out of gas") || msg.contains("OutOfGas") || msg.contains("gas limit"),
+            "error should clearly mention out of gas, got: {msg}"
+        );
+        assert!(
+            msg.contains("--block-gas-limit"),
+            "error should suggest --block-gas-limit, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn fuzzing_oog_not_reported_as_failure() {
+        let mut config = CampaignConfig::default();
+        config.threads = 1;
+        config.max_runs = 100;
+        config.timeout_secs = Some(10);
+        config.block_gas_limit = 500_000;
+        config.tx_gas_limit = 100_000;
+
+        let campaign = Campaign::for_target(Path::new("test/FuzzingOog.sol"))
+            .with_project(Path::new("fixtures/basic-target"))
+            .with_config(config)
+            .build()
+            .unwrap();
+        let result = campaign.run().unwrap();
+
+        assert!(
+            result.failures.is_empty(),
+            "OOG should not be reported as invariant failure"
+        );
+        assert!(
+            result.total_calls > 0,
+            "fuzzer should have executed at least some calls"
         );
     }
 }

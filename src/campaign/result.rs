@@ -20,4 +20,8 @@ pub struct CampaignResult {
     pub coverage: CoverageMap,
     /// Account address used to deploy the target contract.
     pub deployer_address: Address,
+    /// Maximum gas that can be consumed in a single block.
+    pub block_gas_limit: u64,
+    /// Maximum gas sent with each fuzzer-generated transaction.
+    pub tx_gas_limit: u64,
 }

@@ -14,7 +14,6 @@ use revm::{
 use tracing::{error, info, instrument, trace};
 
 use crate::chain::error::ChainSetupError;
-use crate::chain::init::GAS_LIMIT;
 use crate::chain::inspectors::{
     InspectorTuple, MaybeTrace, coverage::CoverageInspector, trace::TraceInspector,
 };
@@ -30,6 +29,7 @@ pub fn setup(
     abi: &alloy_json_abi::JsonAbi,
     initcode_map: &HashMap<Bytes, (String, alloy_json_abi::JsonAbi)>,
     deployer: revm::primitives::Address,
+    block_gas_limit: u64,
 ) -> Result<ChainState, ChainSetupError> {
     let has_setup = abi.functions().any(|f| f.selector() == SETUP_SELECTOR);
     if !has_setup {
@@ -69,7 +69,7 @@ pub fn setup(
         caller: deployer,
         kind: TxKind::Call(contract_address),
         data: revm::primitives::Bytes::copy_from_slice(&SETUP_SELECTOR),
-        gas_limit: GAS_LIMIT,
+        gas_limit: block_gas_limit,
         nonce,
         ..Default::default()
     };

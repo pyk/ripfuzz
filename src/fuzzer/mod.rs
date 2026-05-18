@@ -38,6 +38,7 @@ pub fn format_failure(
     artifact: &contract::ContractArtifact,
     failure: &Crash,
     sender: revm::primitives::Address,
+    tx_gas_limit: u64,
 ) -> String {
     let mut lines = Vec::new();
     for (i, call) in failure.call_sequence.iter().enumerate() {
@@ -95,7 +96,7 @@ pub fn format_failure(
                         raw,
                         block,
                         time,
-                        crate::chain::init::GAS_LIMIT,
+                        tx_gas_limit,
                         sender,
                         delay_suffix,
                     ));
@@ -113,7 +114,7 @@ pub fn format_failure(
                         raw,
                         block,
                         time,
-                        crate::chain::init::GAS_LIMIT,
+                        tx_gas_limit,
                         sender,
                         delay_suffix,
                     ));
@@ -145,7 +146,7 @@ pub fn format_failure(
             args,
             block,
             time,
-            crate::chain::init::GAS_LIMIT,
+            tx_gas_limit,
             sender,
             delay_suffix,
         ));
@@ -422,19 +423,27 @@ mod tests {
                 CallMeta {
                     block_number: 0,
                     block_timestamp: 0,
+                    ..Default::default()
                 },
                 CallMeta {
                     block_number: 3,
                     block_timestamp: 4,
+                    ..Default::default()
                 },
                 CallMeta {
                     block_number: 4,
                     block_timestamp: 5,
+                    ..Default::default()
                 },
             ],
         };
 
-        let output = format_failure(&artifact, &failure, crate::chain::init::CALLER);
+        let output = format_failure(
+            &artifact,
+            &failure,
+            crate::chain::init::CALLER,
+            crate::chain::init::DEFAULT_TX_GAS_LIMIT,
+        );
         assert!(
             output.contains("block_number="),
             "output should use block_number label:\n{}",

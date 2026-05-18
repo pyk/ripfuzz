@@ -19,7 +19,8 @@ use crate::corpus::Call;
 #[derive(Debug, Clone)]
 pub struct ChainConfig {
     pub caller: Address,
-    pub gas_limit: u64,
+    pub block_gas_limit: u64,
+    pub tx_gas_limit: u64,
     pub max_sequence_calls: usize,
 }
 
@@ -27,7 +28,8 @@ impl Default for ChainConfig {
     fn default() -> Self {
         Self {
             caller: crate::chain::init::DEFAULT_DEPLOYER,
-            gas_limit: crate::chain::init::GAS_LIMIT,
+            block_gas_limit: crate::chain::init::GAS_LIMIT,
+            tx_gas_limit: crate::chain::init::DEFAULT_TX_GAS_LIMIT,
             max_sequence_calls: 32,
         }
     }
@@ -41,6 +43,8 @@ pub struct ChainBuilder<'a> {
     ffi_enabled: bool,
     deploy_value: U256,
     deployer: Address,
+    block_gas_limit: u64,
+    tx_gas_limit: u64,
 }
 
 impl<'a> ChainBuilder<'a> {
@@ -68,6 +72,18 @@ impl<'a> ChainBuilder<'a> {
         self
     }
 
+    /// Set the maximum gas that can be consumed in a single block.
+    pub fn with_block_gas_limit(mut self, limit: u64) -> Self {
+        self.block_gas_limit = limit;
+        self
+    }
+
+    /// Set the maximum gas sent with each fuzzer-generated transaction.
+    pub fn with_tx_gas_limit(mut self, limit: u64) -> Self {
+        self.tx_gas_limit = limit;
+        self
+    }
+
     /// Deploy the contract, verify deployment success, and return a [`Chain`].
     pub fn init(self) -> Result<Chain, ChainInitError> {
         let (contract_address, mut state) = initialize(
@@ -76,6 +92,7 @@ impl<'a> ChainBuilder<'a> {
             self.ffi_enabled,
             self.deploy_value,
             self.deployer,
+            self.block_gas_limit,
         )?;
         // Populate compiled-contract map for vm.getCode lookups.
         let initcode_map = self.artifact.initcode_map.clone();
@@ -85,6 +102,8 @@ impl<'a> ChainBuilder<'a> {
         Ok(Chain {
             config: ChainConfig {
                 caller: self.deployer,
+                block_gas_limit: self.block_gas_limit,
+                tx_gas_limit: self.tx_gas_limit,
                 ..ChainConfig::default()
             },
             state,
@@ -116,6 +135,8 @@ impl Chain {
             ffi_enabled: false,
             deploy_value: U256::ZERO,
             deployer: crate::chain::init::DEFAULT_DEPLOYER,
+            block_gas_limit: crate::chain::init::GAS_LIMIT,
+            tx_gas_limit: crate::chain::init::DEFAULT_TX_GAS_LIMIT,
         }
     }
 
@@ -127,6 +148,7 @@ impl Chain {
             &self.contract_abi,
             &self.initcode_map,
             self.config.caller,
+            self.config.block_gas_limit,
         )?;
         self.state = new_state;
         Ok(self)
@@ -171,6 +193,7 @@ mod tests {
     use std::path::Path;
 
     use crate::chain::Chain;
+    use crate::chain::executor::ExecutionOptions;
     use crate::contract;
     use crate::corpus::Call;
 
@@ -203,5 +226,43 @@ mod tests {
             "coverage should contain at least one contract"
         );
         assert!(output.all_ok, "set(0) call should succeed");
+    }
+
+    #[test]
+    fn fuzzing_oog_trace_shows_out_of_gas() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/basic-target"),
+            Path::new("test/FuzzingOog.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::for_artifact(&artifact)
+            .with_tx_gas_limit(50_000)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
+
+        // keccak256("gasHog()")[:4] = 0x9befcb18
+        let gas_hog_selector: [u8; 4] = [0x9b, 0xef, 0xcb, 0x18];
+        let calls = vec![Call {
+            selector: gas_hog_selector,
+            args: vec![],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        }];
+
+        let output = chain
+            .execute_with_opts(&calls, ExecutionOptions { trace: true })
+            .unwrap();
+
+        assert!(!output.all_ok, "call should have failed (OOG)");
+        let trace = output.trace.expect("trace should be present");
+        let trace_str = trace.format();
+        assert_eq!(
+            trace_str,
+            "[28936] 0xb48b...71f2::0x9befcb18()\n  └─ ← [Halt] OutOfGas"
+        );
     }
 }
