@@ -60,10 +60,11 @@ impl Chain {
     pub fn initialize(artifact: &ContractArtifact) -> Result<Self, ChainInitError> {
         let (contract_address, mut state) = initialize(artifact)?;
         // Populate compiled-contract map for vm.getCode lookups.
-        state
-            .cheatcodes
-            .compiled_contracts
-            .insert(artifact.contract_name.clone(), artifact.initcode.clone());
+        // Every contract compiled in the project gets an entry keyed by name.
+        let initcode_map = artifact.initcode_map.clone();
+        for (initcode, (name, _abi)) in initcode_map {
+            state.cheatcodes.compiled_contracts.insert(name, initcode);
+        }
         Ok(Self {
             config: ChainConfig::default(),
             state,

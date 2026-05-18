@@ -29,6 +29,7 @@ pub mod effect;
 pub mod etch;
 pub mod fee;
 pub mod ffi;
+pub mod get_code;
 pub mod label;
 pub mod nonce;
 pub mod parse;
@@ -37,7 +38,6 @@ pub mod prevrandao;
 pub mod roll;
 pub mod sign;
 pub mod storage;
-pub mod string;
 pub mod to_string;
 pub mod warp;
 
@@ -133,7 +133,7 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         parse::ParseAddress::SELECTOR => dispatch::<parse::ParseAddress>(input),
         parse::ParseBytes::SELECTOR => dispatch::<parse::ParseBytes>(input),
         parse::ParseBytes32::SELECTOR => dispatch::<parse::ParseBytes32>(input),
-        string::GetCode::SELECTOR => dispatch::<string::GetCode>(input),
+        get_code::GetCode::SELECTOR => dispatch::<get_code::GetCode>(input),
 
         // Wallet / crypto
         addr::Addr::SELECTOR => dispatch::<addr::Addr>(input),
@@ -322,11 +322,16 @@ pub(crate) fn build_outcome<CTX: ContextTr<Db = InMemoryDB>>(
             ))
         }
         CheatcodeEffect::GetCode(name) => {
-            let initcode = state
-                .compiled_contracts
-                .get(name)
-                .cloned()
-                .unwrap_or_default();
+            let Some(initcode) = state.compiled_contracts.get(name) else {
+                return Some(revert_outcome(&format!(
+                    "getCode: contract not found: {name}"
+                )));
+            };
+            if initcode.is_empty() {
+                return Some(revert_outcome(&format!(
+                    "getCode: contract bytecode is empty: {name}"
+                )));
+            }
             Some(success_bytes_outcome(
                 alloy_dyn_abi::DynSolValue::Bytes(initcode.to_vec()).abi_encode(),
                 gas_limit,
