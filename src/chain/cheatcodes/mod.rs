@@ -37,6 +37,7 @@ pub mod roll;
 pub mod sign;
 pub mod storage;
 pub mod string;
+pub mod to_string;
 pub mod warp;
 
 /// Foundry cheatcode VM contract address.
@@ -119,12 +120,12 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         assert::AssertGeInt::SELECTOR => dispatch::<assert::AssertGeInt>(input),
 
         // String / type conversion
-        string::ToStringAddress::SELECTOR => dispatch::<string::ToStringAddress>(input),
-        string::ToStringBool::SELECTOR => dispatch::<string::ToStringBool>(input),
-        string::ToStringUint::SELECTOR => dispatch::<string::ToStringUint>(input),
-        string::ToStringInt::SELECTOR => dispatch::<string::ToStringInt>(input),
-        string::ToStringBytes32::SELECTOR => dispatch::<string::ToStringBytes32>(input),
-        string::ToStringBytes::SELECTOR => dispatch::<string::ToStringBytes>(input),
+        to_string::ToStringAddress::SELECTOR => dispatch::<to_string::ToStringAddress>(input),
+        to_string::ToStringBool::SELECTOR => dispatch::<to_string::ToStringBool>(input),
+        to_string::ToStringUint::SELECTOR => dispatch::<to_string::ToStringUint>(input),
+        to_string::ToStringInt::SELECTOR => dispatch::<to_string::ToStringInt>(input),
+        to_string::ToStringBytes32::SELECTOR => dispatch::<to_string::ToStringBytes32>(input),
+        to_string::ToStringBytes::SELECTOR => dispatch::<to_string::ToStringBytes>(input),
         string::ParseUint::SELECTOR => dispatch::<string::ParseUint>(input),
         string::ParseInt::SELECTOR => dispatch::<string::ParseInt>(input),
         string::ParseBool::SELECTOR => dispatch::<string::ParseBool>(input),

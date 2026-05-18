@@ -1,0 +1,236 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.13;
+
+import {Vm} from "../src/Vm.sol";
+
+contract CheatcodeToString {
+    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+
+    // --- Setup state ---
+    string public setupUint;
+    string public setupBool;
+    string public setupAddress;
+    string public setupBytes32;
+    string public setupInt;
+    string public setupBytes;
+
+    // --- Edge-case state ---
+    string public edgeUint;
+    string public edgeMaxUint;
+    string public edgeInt;
+    string public edgeAddress;
+    string public edgeBool;
+    string public edgeBytes;
+    string public edgeBytes32;
+
+    // --- Round-trip state ---
+    string public rtUint;
+    string public rtInt;
+    string public rtAddress;
+    string public rtBool;
+    string public rtBytes32;
+    string public rtBytes;
+
+    // --- Side-effect state ---
+    uint256 public warpTs;
+    uint256 public rollNum;
+
+    function setUp() external {
+        setupUint = vm.toString(uint256(123));
+        setupBool = vm.toString(true);
+        setupAddress = vm.toString(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+        setupBytes32 = vm.toString(bytes32(uint256(0xdeadbeef)));
+        setupInt = vm.toString(int256(-42));
+        setupBytes = vm.toString(bytes(hex"01ab"));
+    }
+
+    // --- Setup properties ---
+
+    function property_setupUint() external view returns (bool) {
+        return keccak256(bytes(setupUint)) == keccak256(bytes("123"));
+    }
+
+    function property_setupBool() external view returns (bool) {
+        return keccak256(bytes(setupBool)) == keccak256(bytes("true"));
+    }
+
+    function property_setupAddress() external view returns (bool) {
+        return keccak256(bytes(setupAddress))
+            == keccak256(bytes("0x7109709ECfa91a80626fF3989D68f67F5b1DD12D"));
+    }
+
+    function property_setupBytes32() external view returns (bool) {
+        return keccak256(bytes(setupBytes32))
+            == keccak256(bytes("0x00000000000000000000000000000000000000000000000000000000deadbeef"));
+    }
+
+    function property_setupInt() external view returns (bool) {
+        return keccak256(bytes(setupInt)) == keccak256(bytes("-42"));
+    }
+
+    function property_setupBytes() external view returns (bool) {
+        return keccak256(bytes(setupBytes)) == keccak256(bytes("0x01ab"));
+    }
+
+    // --- Round-trip actions ---
+
+    function action_roundTripUint(uint256 value) external {
+        string memory s = vm.toString(value);
+        require(vm.parseUint(s) == value, "round-trip uint failed");
+        rtUint = s;
+    }
+
+    function action_roundTripInt(int256 value) external {
+        string memory s = vm.toString(value);
+        require(vm.parseInt(s) == value, "round-trip int failed");
+        rtInt = s;
+    }
+
+    function action_roundTripAddress(address value) external {
+        string memory s = vm.toString(value);
+        require(vm.parseAddress(s) == value, "round-trip address failed");
+        rtAddress = s;
+    }
+
+    function action_roundTripBool(bool value) external {
+        string memory s = vm.toString(value);
+        require(vm.parseBool(s) == value, "round-trip bool failed");
+        rtBool = s;
+    }
+
+    function action_roundTripBytes32(bytes32 value) external {
+        string memory s = vm.toString(value);
+        require(vm.parseBytes32(s) == value, "round-trip bytes32 failed");
+        rtBytes32 = s;
+    }
+
+    function action_roundTripBytes(bytes calldata value) external {
+        string memory s = vm.toString(value);
+        bytes memory parsed = vm.parseBytes(s);
+        require(keccak256(parsed) == keccak256(value), "round-trip bytes failed");
+        rtBytes = s;
+    }
+
+    // --- Round-trip properties ---
+
+    function property_rtUint() external view returns (bool) {
+        return keccak256(bytes(rtUint)) == keccak256(bytes("12345"));
+    }
+
+    function property_rtInt() external view returns (bool) {
+        return keccak256(bytes(rtInt)) == keccak256(bytes("-123"));
+    }
+
+    function property_rtAddress() external view returns (bool) {
+        return keccak256(bytes(rtAddress))
+            == keccak256(bytes("0x7109709ECfa91a80626fF3989D68f67F5b1DD12D"));
+    }
+
+    function property_rtBool() external view returns (bool) {
+        return keccak256(bytes(rtBool)) == keccak256(bytes("true"));
+    }
+
+    function property_rtBytes32() external view returns (bool) {
+        return keccak256(bytes(rtBytes32))
+            == keccak256(bytes("0xdeadbeef00000000000000000000000000000000000000000000000000000000"));
+    }
+
+    function property_rtBytes() external view returns (bool) {
+        return keccak256(bytes(rtBytes)) == keccak256(bytes("0x01ab"));
+    }
+
+    // --- Edge-case actions ---
+
+    function action_toStringZeroUint() external {
+        edgeUint = vm.toString(uint256(0));
+    }
+
+    function action_toStringMaxUint() external {
+        edgeMaxUint = vm.toString(type(uint256).max);
+    }
+
+    function action_toStringMinInt() external {
+        edgeInt = vm.toString(type(int256).min);
+    }
+
+    function action_toStringZeroAddress() external {
+        edgeAddress = vm.toString(address(0));
+    }
+
+    function action_toStringFalse() external {
+        edgeBool = vm.toString(false);
+    }
+
+    function action_toStringEmptyBytes() external {
+        edgeBytes = vm.toString(bytes(""));
+    }
+
+    function action_toStringEmptyBytes32() external {
+        edgeBytes32 = vm.toString(bytes32(0));
+    }
+
+    // --- Edge-case properties ---
+
+    function property_edgeUint() external view returns (bool) {
+        return keccak256(bytes(edgeUint)) == keccak256(bytes("0"));
+    }
+
+    function property_edgeMaxUint() external view returns (bool) {
+        return keccak256(bytes(edgeMaxUint))
+            == keccak256(bytes("115792089237316195423570985008687907853269984665640564039457584007913129639935"));
+    }
+
+    function property_edgeInt() external view returns (bool) {
+        return keccak256(bytes(edgeInt))
+            == keccak256(bytes("-57896044618658097711785492504343953926634992332820282019728792003956564819968"));
+    }
+
+    function property_edgeAddress() external view returns (bool) {
+        return keccak256(bytes(edgeAddress))
+            == keccak256(bytes("0x0000000000000000000000000000000000000000"));
+    }
+
+    function property_edgeBool() external view returns (bool) {
+        return keccak256(bytes(edgeBool)) == keccak256(bytes("false"));
+    }
+
+    function property_edgeBytes() external view returns (bool) {
+        return keccak256(bytes(edgeBytes)) == keccak256(bytes("0x"));
+    }
+
+    function property_edgeBytes32() external view returns (bool) {
+        return keccak256(bytes(edgeBytes32))
+            == keccak256(bytes("0x0000000000000000000000000000000000000000000000000000000000000000"));
+    }
+
+    // --- Side-effect isolation ---
+
+    function action_toStringThenWarp() external {
+        vm.toString(uint256(42));
+        vm.warp(1234567890);
+        warpTs = block.timestamp;
+    }
+
+    function action_toStringThenRoll() external {
+        vm.toString(uint256(42));
+        vm.roll(9999);
+        rollNum = block.number;
+    }
+
+    function property_sideEffects() external view returns (bool) {
+        return warpTs == 1234567890 && rollNum == 9999;
+    }
+
+    // --- Same-sequence independence ---
+
+    function action_twoToStringCalls() external {
+        string memory s1 = vm.toString(uint256(1));
+        string memory s2 = vm.toString(uint256(2));
+        require(keccak256(bytes(s1)) == keccak256(bytes("1")), "first toString corrupted");
+        require(keccak256(bytes(s2)) == keccak256(bytes("2")), "second toString corrupted");
+    }
+
+    function property_twoToStringCalls_ok() external pure returns (bool) {
+        return true;
+    }
+}

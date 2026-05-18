@@ -39,7 +39,7 @@ impl Default for ChainConfig {
         Self {
             caller: init::CALLER,
             gas_limit: init::GAS_LIMIT,
-            max_sequence_calls: 5,
+            max_sequence_calls: 32,
         }
     }
 }

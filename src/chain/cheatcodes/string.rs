@@ -1,4 +1,4 @@
-//! String / type conversion cheatcodes.
+//! Parsing cheatcodes and `getCode`.
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_primitives::{Address, I256, U256};
@@ -14,70 +14,6 @@ fn decode_single(input: &Bytes, t: DynSolType) -> Option<DynSolValue> {
         _ => None,
     }
 }
-
-fn encode_string(s: &str) -> Vec<u8> {
-    DynSolValue::String(s.into()).abi_encode()
-}
-
-macro_rules! to_string_cheatcode {
-    ($name:ident, $selector:expr, $sol_type:expr, $pat:pat, $fmt:expr) => {
-        pub struct $name;
-        impl Cheatcode for $name {
-            type Args = DynSolValue;
-            const SELECTOR: [u8; 4] = $selector;
-            fn decode(input: &Bytes) -> Option<Self::Args> {
-                decode_single(input, $sol_type)
-            }
-            fn effects(val: Self::Args) -> Vec<CheatcodeEffect> {
-                let $pat = val else { return vec![] };
-                vec![CheatcodeEffect::ReturnBytes(encode_string(&$fmt))]
-            }
-        }
-    };
-}
-
-to_string_cheatcode!(
-    ToStringAddress,
-    [0x56, 0xca, 0x62, 0x3e],
-    DynSolType::Address,
-    DynSolValue::Address(addr),
-    format!("{}", addr)
-);
-to_string_cheatcode!(
-    ToStringBool,
-    [0x71, 0xdc, 0xe7, 0xda],
-    DynSolType::Bool,
-    DynSolValue::Bool(b),
-    format!("{}", b)
-);
-to_string_cheatcode!(
-    ToStringUint,
-    [0x69, 0x00, 0xa3, 0xae],
-    DynSolType::Uint(256),
-    DynSolValue::Uint(u, _),
-    format!("{}", u)
-);
-to_string_cheatcode!(
-    ToStringInt,
-    [0xa3, 0x22, 0xc4, 0x0e],
-    DynSolType::Int(256),
-    DynSolValue::Int(i, _),
-    format!("{}", i)
-);
-to_string_cheatcode!(
-    ToStringBytes32,
-    [0xb1, 0x1a, 0x19, 0xe8],
-    DynSolType::FixedBytes(32),
-    DynSolValue::FixedBytes(b, _),
-    format!("0x{}", hex::encode(b))
-);
-to_string_cheatcode!(
-    ToStringBytes,
-    [0x71, 0xaa, 0xd1, 0x0d],
-    DynSolType::Bytes,
-    DynSolValue::Bytes(b),
-    format!("0x{}", hex::encode(b))
-);
 
 pub struct ParseUint;
 impl Cheatcode for ParseUint {
@@ -255,18 +191,6 @@ mod tests {
         let mut data = selector.to_vec();
         data.extend(encoded);
         Bytes::from(data)
-    }
-
-    #[test]
-    fn to_string_uint_works() {
-        let encoded = DynSolValue::Uint(U256::from(123u64), 256).abi_encode();
-        let args = ToStringUint::decode(&call_data(ToStringUint::SELECTOR, encoded)).unwrap();
-        let effects = ToStringUint::effects(args);
-        let CheatcodeEffect::ReturnBytes(out) = &effects[0] else {
-            panic!("expected ReturnBytes");
-        };
-        let decoded = DynSolType::String.abi_decode_params(out).unwrap();
-        assert_eq!(decoded, DynSolValue::String("123".into()));
     }
 
     #[test]
