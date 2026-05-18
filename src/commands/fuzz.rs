@@ -45,8 +45,8 @@ pub struct Args {
     pub max_runs: u64,
 
     /// Timeout in seconds for the entire fuzzing campaign.
-    #[arg(long = "fuzz-timeout", default_value = "60")]
-    pub timeout_secs: u64,
+    #[arg(short = 't', long = "timeout")]
+    pub timeout_secs: Option<u64>,
 
     /// Maximum number of calls in a generated sequence.
     #[arg(long = "fuzz-seq-len", default_value = "5")]
@@ -97,7 +97,6 @@ pub fn run(args: Args) -> Result<()> {
         corpus_dir: args.corpus_dir,
         ffi: args.ffi,
     };
-    let _timeout_secs = config.timeout_secs;
     info!(?config, "starting fuzzing campaign");
 
     let campaign = Campaign::for_target(&args.target_path)

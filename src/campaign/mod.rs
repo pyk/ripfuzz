@@ -118,7 +118,7 @@ impl Campaign {
     pub fn run(&self) -> Result<CampaignResult> {
         let fuzzers = self.config.fuzzer_count();
         let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(self.config.timeout_secs);
+        let timeout = self.config.timeout_secs.map(std::time::Duration::from_secs);
 
         info!(fuzzers, "starting parallel fuzzing campaign");
 
@@ -224,7 +224,7 @@ mod tests {
         let mut config = CampaignConfig::default();
         config.threads = threads;
         config.max_runs = max_runs;
-        config.timeout_secs = 30;
+        config.timeout_secs = Some(30);
 
         let campaign = Campaign::for_target(Path::new("test/ImpossibleBug.sol"))
             .with_project(Path::new("fixtures/basic-target"))
@@ -313,7 +313,7 @@ mod tests {
 
         let mut config = CampaignConfig::default();
         config.max_runs = 10_000;
-        config.timeout_secs = 10;
+        config.timeout_secs = Some(10);
         let campaign = Campaign::for_target(Path::new("src/L1SimpleKnob.sol"))
             .with_project(Path::new("fixtures/challenges"))
             .with_config(config)

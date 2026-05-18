@@ -7,7 +7,7 @@ use std::path::PathBuf;
 pub struct CampaignConfig {
     pub threads: usize,
     pub max_runs: u64,
-    pub timeout_secs: u64,
+    pub timeout_secs: Option<u64>,
     pub sequence_length: usize,
     pub seed: u64,
     pub max_block_number_delay: u64,
@@ -26,7 +26,7 @@ impl Default for CampaignConfig {
                 .map(|n| n.get())
                 .unwrap_or(1),
             max_runs: 10000,
-            timeout_secs: 60,
+            timeout_secs: None,
             sequence_length: 5,
             seed: 0,
             max_block_number_delay: 5,

@@ -212,7 +212,7 @@ impl Fuzzer {
         max_runs: u64,
         fuzzer_id: usize,
         start: std::time::Instant,
-        timeout: std::time::Duration,
+        timeout: Option<std::time::Duration>,
     ) -> Result<FuzzerResult> {
         info!(max_runs, fuzzer_id, "fuzzer run starting");
 
@@ -242,7 +242,7 @@ impl Fuzzer {
         let mut total_calls = 0u64;
         let mut total_gas = 0u64;
         for _ in 0..max_runs {
-            if start.elapsed() > timeout {
+            if let Some(timeout) = timeout && start.elapsed() > timeout {
                 break;
             }
 
