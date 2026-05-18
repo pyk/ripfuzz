@@ -2,16 +2,12 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use clap_verbosity_flag::{InfoLevel, Verbosity};
 
 use raptor::{commands, logger};
 
 #[derive(Debug, Parser)]
 #[command(name = "raptor", version, about)]
 struct Cli {
-    #[command(flatten)]
-    verbosity: Verbosity<InfoLevel>,
-
     #[command(subcommand)]
     command: Commands,
 }
@@ -24,9 +20,11 @@ enum Commands {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    logger::init(cli.verbosity.tracing_level());
 
     match cli.command {
-        Commands::Fuzz(args) => commands::fuzz::run(args),
+        Commands::Fuzz(args) => {
+            logger::init(Some(args.tracing_level()));
+            commands::fuzz::run(args)
+        }
     }
 }

@@ -56,49 +56,112 @@ pub struct Args {
     #[arg(value_name = "TARGET_PATH")]
     pub target_path: PathBuf,
 
+    // Project & Deployment
     /// Path to the Foundry project root.
-    #[arg(long = "project", short = 'p')]
+    #[arg(
+        short = 'p',
+        long = "project",
+        value_name = "PATH",
+        help_heading = "Project & Deployment"
+    )]
     pub project_path: Option<PathBuf>,
 
+    /// Wei to send during target contract deployment.
+    #[arg(long = "deploy-value", default_value = "0", value_parser = parse_balance, value_name = "WEI", help_heading = "Project & Deployment")]
+    pub deploy_value: U256,
+
+    // Campaign Limits
     /// Number of parallel fuzzer threads to spawn.
-    #[arg(short = 'w', long = "threads", default_value_t = default_threads(), value_parser = parse_threads)]
+    #[arg(short = 'w', long = "threads", default_value_t = default_threads(), value_parser = parse_threads, value_name = "N", help_heading = "Campaign Limits")]
     pub threads: usize,
 
     /// Maximum number of campaign runs across all fuzzers.
-    #[arg(short = 'r', long = "max-runs", default_value = "10000")]
+    #[arg(
+        short = 'r',
+        long = "max-runs",
+        default_value = "10000",
+        value_name = "N",
+        help_heading = "Campaign Limits"
+    )]
     pub max_runs: u64,
 
     /// Timeout in seconds for the entire fuzzing campaign.
-    #[arg(short = 't', long = "timeout")]
+    #[arg(
+        short = 't',
+        long = "timeout",
+        value_name = "SECS",
+        help_heading = "Campaign Limits"
+    )]
     pub timeout_secs: Option<u64>,
 
+    // Sequence
     /// Maximum number of calls in each generated fuzzing sequence.
-    #[arg(short = 'c', long = "max-calls", default_value = "32")]
+    #[arg(
+        short = 'c',
+        long = "max-calls",
+        default_value = "32",
+        value_name = "N",
+        help_heading = "Fuzzing Parameters"
+    )]
     pub sequence_length: usize,
 
     /// Random seed for reproducibility.
-    #[arg(long = "seed", default_value = "0")]
+    #[arg(
+        long = "seed",
+        default_value = "0",
+        value_name = "N",
+        help_heading = "Fuzzing Parameters"
+    )]
     pub seed: u64,
 
     /// Maximum block number delay between calls.
-    #[arg(long = "max-block-delay", default_value = "5")]
+    #[arg(
+        long = "max-block-delay",
+        default_value = "5",
+        value_name = "N",
+        help_heading = "Fuzzing Parameters"
+    )]
     pub max_block_number_delay: u64,
 
     /// Maximum block timestamp delay between calls.
-    #[arg(long = "max-time-delay", default_value = "5")]
+    #[arg(
+        long = "max-time-delay",
+        default_value = "5",
+        value_name = "N",
+        help_heading = "Fuzzing Parameters"
+    )]
     pub max_block_timestamp_delay: u64,
 
+    // Corpus
     /// Directory to load and persist coverage-guided corpus files.
-    #[arg(long = "corpus-dir")]
+    #[arg(long = "corpus-dir", value_name = "DIR", help_heading = "Corpus")]
     pub corpus_dir: Option<PathBuf>,
 
-    /// Enable the `ffi` cheatcode (security-sensitive).
-    #[arg(long = "ffi")]
-    pub ffi: bool,
+    // Logging
+    /// Increase logging verbosity.
+    #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count, help_heading = "Logging")]
+    pub verbose: u8,
 
-    /// Wei to send during target contract deployment.
-    #[arg(long = "deploy-value", default_value = "0", value_parser = parse_balance)]
-    pub deploy_value: U256,
+    /// Decrease logging verbosity.
+    #[arg(short = 'q', long = "quiet", action = clap::ArgAction::Count, help_heading = "Logging")]
+    pub quiet: u8,
+
+    // Security
+    /// Enable the `ffi` cheatcode (security-sensitive).
+    #[arg(long = "ffi", help_heading = "Security")]
+    pub ffi: bool,
+}
+
+impl Args {
+    pub fn tracing_level(&self) -> tracing::Level {
+        match self.verbose as i32 - self.quiet as i32 {
+            i32::MIN..=-2 => tracing::Level::ERROR,
+            -1 => tracing::Level::WARN,
+            0 => tracing::Level::INFO,
+            1 => tracing::Level::DEBUG,
+            2..=i32::MAX => tracing::Level::TRACE,
+        }
+    }
 }
 
 #[instrument(skip(args), fields(target = ?args.target_path, threads = args.threads, max_runs = args.max_runs))]
