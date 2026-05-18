@@ -30,32 +30,6 @@ interface Vm {
     function startPrank(address, address) external;
     function stopPrank() external;
 
-    // Assertions
-    function ensure(bool, string calldata) external;
-    function deny(bool, string calldata) external;
-    function eq(bool, bool, string calldata) external;
-    function eq(uint256, uint256, string calldata) external;
-    function eq(int256, int256, string calldata) external;
-    function eq(address, address, string calldata) external;
-    function eq(bytes32, bytes32, string calldata) external;
-    function eq(string calldata, string calldata, string calldata) external;
-    function eq(bytes calldata, bytes calldata, string calldata) external;
-    function ne(bool, bool, string calldata) external;
-    function ne(uint256, uint256, string calldata) external;
-    function ne(int256, int256, string calldata) external;
-    function ne(address, address, string calldata) external;
-    function ne(bytes32, bytes32, string calldata) external;
-    function ne(string calldata, string calldata, string calldata) external;
-    function ne(bytes calldata, bytes calldata, string calldata) external;
-    function lt(uint256, uint256, string calldata) external;
-    function lt(int256, int256, string calldata) external;
-    function lte(uint256, uint256, string calldata) external;
-    function lte(int256, int256, string calldata) external;
-    function gt(uint256, uint256, string calldata) external;
-    function gt(int256, int256, string calldata) external;
-    function gte(uint256, uint256, string calldata) external;
-    function gte(int256, int256, string calldata) external;
-
     // String / Type conversion
     function toString(address) external pure returns (string memory);
     function toString(bool) external pure returns (string memory);

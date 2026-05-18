@@ -21,7 +21,6 @@ pub use nonce::NonceRecord;
 use crate::chain::cheatcodes::effect::CheatcodeEffect;
 
 pub mod addr;
-pub mod assertions;
 pub mod chain_id;
 pub mod coinbase;
 pub mod deal;
@@ -94,33 +93,6 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         // Label
         label::Label::SELECTOR => dispatch::<label::Label>(input),
         label::GetLabel::SELECTOR => dispatch::<label::GetLabel>(input),
-
-        // Assertions
-        // Assertions
-        assertions::Ensure::SELECTOR => dispatch::<assertions::Ensure>(input),
-        assertions::Deny::SELECTOR => dispatch::<assertions::Deny>(input),
-        assertions::EqBool::SELECTOR => dispatch::<assertions::EqBool>(input),
-        assertions::EqUint::SELECTOR => dispatch::<assertions::EqUint>(input),
-        assertions::EqInt::SELECTOR => dispatch::<assertions::EqInt>(input),
-        assertions::EqAddress::SELECTOR => dispatch::<assertions::EqAddress>(input),
-        assertions::EqBytes32::SELECTOR => dispatch::<assertions::EqBytes32>(input),
-        assertions::EqString::SELECTOR => dispatch::<assertions::EqString>(input),
-        assertions::EqBytes::SELECTOR => dispatch::<assertions::EqBytes>(input),
-        assertions::NeBool::SELECTOR => dispatch::<assertions::NeBool>(input),
-        assertions::NeUint::SELECTOR => dispatch::<assertions::NeUint>(input),
-        assertions::NeInt::SELECTOR => dispatch::<assertions::NeInt>(input),
-        assertions::NeAddress::SELECTOR => dispatch::<assertions::NeAddress>(input),
-        assertions::NeBytes32::SELECTOR => dispatch::<assertions::NeBytes32>(input),
-        assertions::NeString::SELECTOR => dispatch::<assertions::NeString>(input),
-        assertions::NeBytes::SELECTOR => dispatch::<assertions::NeBytes>(input),
-        assertions::LtUint::SELECTOR => dispatch::<assertions::LtUint>(input),
-        assertions::LtInt::SELECTOR => dispatch::<assertions::LtInt>(input),
-        assertions::LteUint::SELECTOR => dispatch::<assertions::LteUint>(input),
-        assertions::LteInt::SELECTOR => dispatch::<assertions::LteInt>(input),
-        assertions::GtUint::SELECTOR => dispatch::<assertions::GtUint>(input),
-        assertions::GtInt::SELECTOR => dispatch::<assertions::GtInt>(input),
-        assertions::GteUint::SELECTOR => dispatch::<assertions::GteUint>(input),
-        assertions::GteInt::SELECTOR => dispatch::<assertions::GteInt>(input),
 
         // String / type conversion
         to_string::ToStringAddress::SELECTOR => dispatch::<to_string::ToStringAddress>(input),
