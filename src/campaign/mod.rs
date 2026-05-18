@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tracing::{debug, error, info, trace};
 
 pub use config::CampaignConfig;
@@ -60,23 +60,12 @@ impl CampaignBuilder {
         self
     }
 
-    /// Build the contract artifact, validate deployment, and generate seeds.
+    /// Build the contract artifact and generate seeds.
     pub fn build(self) -> Result<Campaign> {
         let t0 = std::time::Instant::now();
         let artifact = ContractBuilder::build(&self.project_path, &self.contract_path)?;
         let compile_elapsed = t0.elapsed();
         info!(target: "raptor::user", name = %artifact.contract_name, time_ms = compile_elapsed.as_millis(), "Finished compiling targets");
-
-        // Initialize chain once and share it across fuzzers.
-        let chain = crate::chain::Chain::for_artifact(&artifact)
-            .with_project(&self.project_path)
-            .with_ffi(self.config.ffi)
-            .with_deploy_value(self.config.deploy_value)
-            .with_deployer(self.config.deployer_address)
-            .with_fork_config(self.config.fork_config.clone())
-            .init()?
-            .setup()?;
-        debug!("deployment validated");
 
         let seeds = build_seeds(&artifact, self.config.sequence_length);
         let fuzzed_selectors: Vec<[u8; 4]> = artifact
@@ -98,10 +87,11 @@ impl CampaignBuilder {
 
         Ok(Campaign {
             artifact,
-            chain,
+            chain: None,
             corpus,
             config: self.config,
             fuzzed_selectors,
+            project_path: self.project_path,
         })
     }
 }
@@ -110,10 +100,11 @@ impl CampaignBuilder {
 #[derive(Debug)]
 pub struct Campaign {
     artifact: ContractArtifact,
-    chain: crate::chain::Chain,
+    chain: Option<crate::chain::Chain>,
     corpus: Arc<RwLock<Corpus>>,
     config: CampaignConfig,
     fuzzed_selectors: Vec<[u8; 4]>,
+    project_path: PathBuf,
 }
 
 impl Campaign {
@@ -131,16 +122,33 @@ impl Campaign {
         &self.artifact
     }
 
+    /// Deploy the target contract and run setUp() if present.
+    pub fn deploy(&mut self) -> Result<()> {
+        let chain = crate::chain::Chain::for_artifact(&self.artifact)
+            .with_project(&self.project_path)
+            .with_ffi(self.config.ffi)
+            .with_deploy_value(self.config.deploy_value)
+            .with_deployer(self.config.deployer_address)
+            .with_fork_config(self.config.fork_config.clone())
+            .init()?
+            .setup()?;
+        self.chain = Some(chain);
+        Ok(())
+    }
+
     /// Run the campaign and return an aggregated result.
     pub fn run(&self) -> Result<CampaignResult> {
         let fuzzers = self.config.fuzzer_count();
         let start = std::time::Instant::now();
         let timeout = self.config.timeout_secs.map(std::time::Duration::from_secs);
 
-        info!(target: "raptor::user", workers = fuzzers, "Fuzzing with workers");
+        let chain = self
+            .chain
+            .as_ref()
+            .context("campaign must be deployed before running")?;
         info!(target: "raptor::user", "Fuzzing campaign started");
 
-        let chain = Arc::new(self.chain.clone());
+        let chain = Arc::new(chain.clone());
         let artifact = self.artifact.clone();
         let config = self.config.clone();
         let fuzzed_selectors = self.fuzzed_selectors.clone();
@@ -213,7 +221,9 @@ impl Campaign {
 
         info!(target: "raptor::user", runs = total_runs, failures = all_failures.len(), "Campaign complete");
 
-        self.chain.flush_fork_cache();
+        if let Some(ref chain) = self.chain {
+            chain.flush_fork_cache();
+        }
 
         let elapsed_secs = start.elapsed().as_secs_f64();
 
@@ -243,11 +253,12 @@ mod tests {
         config.max_runs = max_runs;
         config.timeout_secs = Some(30);
 
-        let campaign = Campaign::for_target(Path::new("test/ImpossibleBug.sol"))
+        let mut campaign = Campaign::for_target(Path::new("test/ImpossibleBug.sol"))
             .with_project(Path::new("fixtures/basic-target"))
             .with_config(config)
             .build()
             .unwrap();
+        campaign.deploy().unwrap();
         campaign.run().unwrap()
     }
 
@@ -261,11 +272,12 @@ mod tests {
 
         let mut config = CampaignConfig::default();
         config.threads = 1;
-        let err = Campaign::for_target(Path::new("test/ConstructorRevert.sol"))
+        let mut campaign = Campaign::for_target(Path::new("test/ConstructorRevert.sol"))
             .with_project(Path::new("fixtures/basic-target"))
             .with_config(config)
             .build()
-            .unwrap_err();
+            .unwrap();
+        let err = campaign.deploy().unwrap_err();
         let msg = format!("{err}");
         let expected =
             fs::read_to_string("fixtures/basic-target/test/ConstructorRevertOutput.txt").unwrap();
@@ -282,11 +294,12 @@ mod tests {
 
         let mut config = CampaignConfig::default();
         config.threads = 1;
-        let err = Campaign::for_target(Path::new("test/ComplexConstructorRevert.sol"))
+        let mut campaign = Campaign::for_target(Path::new("test/ComplexConstructorRevert.sol"))
             .with_project(Path::new("fixtures/basic-target"))
             .with_config(config)
             .build()
-            .unwrap_err();
+            .unwrap();
+        let err = campaign.deploy().unwrap_err();
         let msg = format!("{err}");
         let expected =
             fs::read_to_string("fixtures/basic-target/test/ComplexConstructorRevertOutput.txt")
@@ -304,11 +317,12 @@ mod tests {
 
         let mut config = CampaignConfig::default();
         config.threads = 1;
-        let err = Campaign::for_target(Path::new("test/SetupRevert.sol"))
+        let mut campaign = Campaign::for_target(Path::new("test/SetupRevert.sol"))
             .with_project(Path::new("fixtures/basic-target"))
             .with_config(config)
             .build()
-            .unwrap_err();
+            .unwrap();
+        let err = campaign.deploy().unwrap_err();
         let msg = format!("{err}");
         let expected =
             fs::read_to_string("fixtures/basic-target/test/SetupRevertOutput.txt").unwrap();
@@ -331,11 +345,12 @@ mod tests {
         let mut config = CampaignConfig::default();
         config.max_runs = 10_000;
         config.timeout_secs = Some(10);
-        let campaign = Campaign::for_target(Path::new("src/L1SimpleKnob.sol"))
+        let mut campaign = Campaign::for_target(Path::new("src/L1SimpleKnob.sol"))
             .with_project(Path::new("fixtures/challenges"))
             .with_config(config)
             .build()
             .unwrap();
+        campaign.deploy().unwrap();
         let result = campaign.run().unwrap();
 
         assert!(
@@ -376,11 +391,12 @@ mod tests {
         config.timeout_secs = Some(10);
         config.deploy_value = revm::primitives::U256::from(12345);
 
-        let campaign = Campaign::for_target(Path::new("test/PayableConstructor.sol"))
+        let mut campaign = Campaign::for_target(Path::new("test/PayableConstructor.sol"))
             .with_project(Path::new("fixtures/basic-target"))
             .with_config(config)
             .build()
             .unwrap();
+        campaign.deploy().unwrap();
         let result = campaign.run().unwrap();
 
         assert!(
@@ -395,11 +411,12 @@ mod tests {
         config.threads = 1;
         config.deploy_value = revm::primitives::U256::from(1);
 
-        let err = Campaign::for_target(Path::new("test/ImpossibleBug.sol"))
+        let mut campaign = Campaign::for_target(Path::new("test/ImpossibleBug.sol"))
             .with_project(Path::new("fixtures/basic-target"))
             .with_config(config)
             .build()
-            .unwrap_err();
+            .unwrap();
+        let err = campaign.deploy().unwrap_err();
 
         let msg = format!("{err}");
         assert!(

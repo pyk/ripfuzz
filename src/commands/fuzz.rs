@@ -4,7 +4,7 @@ use std::env;
 use std::path::PathBuf;
 
 use alloy_primitives::Address;
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use clap::Parser;
 use revm::primitives::U256;
 use tracing::{debug, info, instrument};
@@ -120,7 +120,6 @@ pub struct Args {
     )]
     pub timeout_secs: Option<u64>,
 
-    // Sequence
     /// Maximum number of calls in each generated fuzzing sequence.
     #[arg(
         short = 'c',
@@ -261,31 +260,38 @@ pub fn run(args: Args) -> Result<()> {
     };
     let fork_info = config.fork_config.clone();
 
-    let campaign = Campaign::for_target(&args.target_path)
+    let t0 = std::time::Instant::now();
+    let mut campaign = Campaign::for_target(&args.target_path)
         .with_project(&project_path)
         .with_config(config)
         .build()?;
-    let artifact = campaign.artifact();
+    let load_elapsed = t0.elapsed();
+    let artifact = campaign.artifact().clone();
 
-    info!(target: "raptor::user", name = %artifact.contract_name, "Loaded target contract");
-    let invariant_names: Vec<&str> = artifact
-        .invariants
-        .iter()
-        .map(|(_, n)| n.as_str())
-        .collect();
+    info!(target: "raptor::user", name = %artifact.contract_name, time_ms = load_elapsed.as_millis(), "Loaded target contract");
     let fuzzed_names: Vec<&str> = artifact
         .abi
         .functions()
         .filter(|f| !f.name.starts_with("invariant_"))
         .map(|f| f.name.as_str())
         .collect();
-    info!(target: "raptor::user", count = artifact.invariants.len(), names = ?invariant_names, "Found invariants");
+    let invariant_names: Vec<&str> = artifact
+        .invariants
+        .iter()
+        .map(|(_, n)| n.as_str())
+        .collect();
+    ensure!(
+        !fuzzed_names.is_empty(),
+        "No fuzzed functions found in target contract"
+    );
     info!(target: "raptor::user", count = fuzzed_names.len(), names = ?fuzzed_names, "Found fuzzed functions");
+    info!(target: "raptor::user", count = artifact.invariants.len(), names = ?invariant_names, "Found invariants");
     if let Some(ref fork) = fork_info {
         info!(target: "raptor::user", rpc = %fork.rpc_url, block = fork.block_number, "Forking");
     }
-    info!(target: "raptor::user", seed = args.seed, max_runs = args.max_runs, seq_length = args.sequence_length, timeout_secs = args.timeout_secs.unwrap_or(0), "Fuzzing configuration");
+    info!(target: "raptor::user", threads = args.threads, seed = args.seed, max_runs = args.max_runs, seq_length = args.sequence_length, timeout_secs = args.timeout_secs.unwrap_or(0), "Fuzzing configuration");
 
+    campaign.deploy()?;
     let result = campaign.run()?;
 
     let elapsed_secs = result.elapsed_secs;
@@ -311,7 +317,7 @@ pub fn run(args: Args) -> Result<()> {
             info!(target: "raptor::user", contract = %artifact.contract_name, test = %failure.function_name, "[FAILED] Invariant Test");
             info!(target: "raptor::user", contract = %artifact.contract_name, test = %failure.function_name, "Test failed after the following call sequence");
             info!(target: "raptor::user", "[Call Sequence]");
-            info!(target: "raptor::user", "{}", crate::fuzzer::format_failure(artifact, failure, result.deployer_address));
+            info!(target: "raptor::user", "{}", crate::fuzzer::format_failure(&artifact, failure, result.deployer_address));
         }
         let total = artifact.invariants.len();
         let failed = result.failures.len();
@@ -321,7 +327,7 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     // Source-level coverage summary
-    let report = resolve_coverage_to_source(&result.coverage, artifact);
+    let report = resolve_coverage_to_source(&result.coverage, &artifact);
     if report.hit_count() > 0 {
         info!(target: "raptor::user", hits = report.hit_count(), "Coverage summary");
     } else {

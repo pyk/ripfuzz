@@ -1,7 +1,7 @@
 //! CLI entry point for the Raptor fuzzer.
 
-use anyhow::Result;
 use clap::{Parser, Subcommand};
+use tracing::error;
 
 use raptor::{commands, logger};
 
@@ -18,13 +18,20 @@ enum Commands {
     Fuzz(commands::fuzz::Args),
 }
 
-fn main() -> Result<()> {
+fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
-    match cli.command {
+    let result = match cli.command {
         Commands::Fuzz(args) => {
             logger::init(Some(args.tracing_level()));
             commands::fuzz::run(args)
         }
+    };
+
+    if let Err(e) = result {
+        error!(target: "raptor::user", "{e}");
+        return std::process::ExitCode::FAILURE;
     }
+
+    std::process::ExitCode::SUCCESS
 }

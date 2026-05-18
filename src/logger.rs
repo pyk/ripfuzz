@@ -15,6 +15,7 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 
 /// ANSI escape sequences — no external color crate.
+const RED: &str = "\x1b[31m";
 const GREEN: &str = "\x1b[32m";
 const DIM: &str = "\x1b[2m";
 const RESET: &str = "\x1b[0m";
@@ -81,9 +82,13 @@ where
     ) -> std::fmt::Result {
         let has_ansi = writer.has_ansi_escapes();
 
-        // 1. Prefix
+        // 1. Prefix — red for errors, green for everything else.
+        let prefix_color = match *event.metadata().level() {
+            tracing::Level::ERROR => RED,
+            _ => GREEN,
+        };
         if has_ansi {
-            write!(writer, "{}[raptor]{} ", GREEN, RESET)?;
+            write!(writer, "{}[raptor]{} ", prefix_color, RESET)?;
         } else {
             write!(writer, "[raptor] ")?;
         }
