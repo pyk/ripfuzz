@@ -18,6 +18,27 @@ pub mod config;
 pub mod result;
 pub mod seeds;
 
+fn load_corpus_with_logging(
+    dir: impl AsRef<Path>,
+    seeds: &[crate::corpus::CorpusItem],
+) -> std::sync::Arc<std::sync::RwLock<Corpus>> {
+    let dir = dir.as_ref();
+    let t0 = std::time::Instant::now();
+    let c = match Corpus::load(dir) {
+        Ok(c) => c,
+        Err(_) => {
+            let mut c = Corpus::with_seeds(seeds.to_vec());
+            c.set_storage_dir(dir);
+            c
+        }
+    };
+    let elapsed = t0.elapsed();
+    let sequences = c.pending.len();
+    let path = dir.to_string_lossy();
+    info!(target: "raptor::user", sequences = sequences, path = %path, time_ms = elapsed.as_millis(), "Loaded corpus");
+    std::sync::Arc::new(std::sync::RwLock::new(c))
+}
+
 /// Builder for constructing a [`Campaign`].
 #[derive(Debug)]
 pub struct CampaignBuilder {
@@ -41,8 +62,10 @@ impl CampaignBuilder {
 
     /// Build the contract artifact, validate deployment, and generate seeds.
     pub fn build(self) -> Result<Campaign> {
+        let t0 = std::time::Instant::now();
         let artifact = ContractBuilder::build(&self.project_path, &self.contract_path)?;
-        info!(contract = %artifact.contract_name, "artifact built");
+        let compile_elapsed = t0.elapsed();
+        info!(target: "raptor::user", name = %artifact.contract_name, time_ms = compile_elapsed.as_millis(), "Finished compiling targets");
 
         // Initialize chain once and share it across fuzzers.
         let chain = crate::chain::Chain::for_artifact(&artifact)
@@ -68,18 +91,10 @@ impl CampaignBuilder {
             "seeds and fuzzed_selectors generated"
         );
 
-        let corpus = if let Some(ref dir) = self.config.corpus_dir {
-            match Corpus::load(dir) {
-                Ok(c) => Arc::new(RwLock::new(c)),
-                Err(_) => {
-                    let mut c = Corpus::with_seeds(seeds);
-                    c.set_storage_dir(dir);
-                    Arc::new(RwLock::new(c))
-                }
-            }
-        } else {
-            Arc::new(RwLock::new(Corpus::with_seeds(seeds)))
-        };
+        let corpus = self.config.corpus_dir.as_ref().map_or_else(
+            || Arc::new(RwLock::new(Corpus::with_seeds(seeds.clone()))),
+            |dir| load_corpus_with_logging(dir, &seeds),
+        );
 
         Ok(Campaign {
             artifact,
@@ -122,7 +137,8 @@ impl Campaign {
         let start = std::time::Instant::now();
         let timeout = self.config.timeout_secs.map(std::time::Duration::from_secs);
 
-        info!(fuzzers, "starting parallel fuzzing campaign");
+        info!(target: "raptor::user", workers = fuzzers, "Fuzzing with workers");
+        info!(target: "raptor::user", "Fuzzing campaign started");
 
         let chain = Arc::new(self.chain.clone());
         let artifact = self.artifact.clone();
@@ -195,11 +211,7 @@ impl Campaign {
             CoverageMap::default()
         };
 
-        info!(
-            total_runs,
-            failures = all_failures.len(),
-            "campaign complete"
-        );
+        info!(target: "raptor::user", runs = total_runs, failures = all_failures.len(), "Campaign complete");
 
         self.chain.flush_fork_cache();
 

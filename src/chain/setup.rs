@@ -30,6 +30,7 @@ pub fn setup(
     initcode_map: &HashMap<Bytes, (String, alloy_json_abi::JsonAbi)>,
     deployer: revm::primitives::Address,
 ) -> Result<ChainState, ChainSetupError> {
+    let t0 = std::time::Instant::now();
     let has_setup = abi.functions().any(|f| f.selector() == SETUP_SELECTOR);
     if !has_setup {
         trace!("no setUp function found");
@@ -89,7 +90,8 @@ pub fn setup(
         error!(%reason, "setUp failed");
         return Err(ChainSetupError::SetupFailed { reason, trace });
     }
-    info!("setUp succeeded");
+    let elapsed = t0.elapsed();
+    info!(target: "raptor::user", time_ms = elapsed.as_millis(), "Ran setUp");
 
     let mut new_state = crate::chain::state::ChainState::new(evm.ctx.journaled_state.database);
     new_state.caller_nonce = new_state

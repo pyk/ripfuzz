@@ -224,8 +224,12 @@ pub fn run(args: Args) -> Result<()> {
 
     let fork_config = match (args.fork_rpc_url, args.fork_rpc_block) {
         (Some(url), Some(block)) => {
+            info!(target: "raptor::user", rpc = %url, "Fetching latest block");
+            let t0 = std::time::Instant::now();
             let latest = crate::chain::fork::fetch_latest_block_number(&url)
                 .context("failed to query latest block")?;
+            let elapsed = t0.elapsed();
+            info!(target: "raptor::user", time_ms = elapsed.as_millis(), block = latest, "Finished fetching latest block");
             if block > latest {
                 bail!("--fork-rpc-block ({block}) exceeds remote latest block ({latest})");
             }
@@ -255,7 +259,6 @@ pub fn run(args: Args) -> Result<()> {
         deployer_address: args.deployer_address,
         fork_config,
     };
-    info!(?config, "starting fuzzing campaign");
     let fork_info = config.fork_config.clone();
 
     let campaign = Campaign::for_target(&args.target_path)
@@ -264,17 +267,24 @@ pub fn run(args: Args) -> Result<()> {
         .build()?;
     let artifact = campaign.artifact();
 
-    info!(target: "raptor::user", "Loaded contract: {}", artifact.contract_name);
+    info!(target: "raptor::user", name = %artifact.contract_name, "Loaded target contract");
     let invariant_names: Vec<&str> = artifact
         .invariants
         .iter()
         .map(|(_, n)| n.as_str())
         .collect();
-    info!(target: "raptor::user", "Invariants:      {:?}", invariant_names);
+    let fuzzed_names: Vec<&str> = artifact
+        .abi
+        .functions()
+        .filter(|f| !f.name.starts_with("invariant_"))
+        .map(|f| f.name.as_str())
+        .collect();
+    info!(target: "raptor::user", count = artifact.invariants.len(), names = ?invariant_names, "Found invariants");
+    info!(target: "raptor::user", count = fuzzed_names.len(), names = ?fuzzed_names, "Found fuzzed functions");
     if let Some(ref fork) = fork_info {
-        info!(target: "raptor::user", "Fork:            {} (block {})", fork.rpc_url, fork.block_number);
+        info!(target: "raptor::user", rpc = %fork.rpc_url, block = fork.block_number, "Forking");
     }
-    info!(contract = %artifact.contract_name, invariants = artifact.invariants.len(), "artifact loaded");
+    info!(target: "raptor::user", seed = args.seed, max_runs = args.max_runs, seq_length = args.sequence_length, timeout_secs = args.timeout_secs.unwrap_or(0), "Fuzzing configuration");
 
     let result = campaign.run()?;
 
@@ -290,23 +300,16 @@ pub fn run(args: Args) -> Result<()> {
         0.0
     };
 
-    info!(target: "raptor::user", "Fuzzing completed: {} runs, {} calls", result.runs, result.total_calls);
-    info!(target: "raptor::user", "Throughput: {:.0} calls/sec", calls_per_sec);
-    info!(target: "raptor::user", "Average gas per call: {:.0}", avg_gas_per_call);
-    info!(
-        runs = result.runs,
-        total_calls = result.total_calls,
-        total_gas = result.total_gas,
-        failures = result.failures.len(),
-        "campaign finished"
-    );
+    info!(target: "raptor::user", runs = result.runs, calls = result.total_calls, "Fuzzing completed");
+    info!(target: "raptor::user", calls_per_sec = calls_per_sec, "Throughput");
+    info!(target: "raptor::user", avg_gas_per_call = avg_gas_per_call, "Average gas per call");
     if result.failures.is_empty() {
-        info!(target: "raptor::user", "All invariants passed.");
+        info!(target: "raptor::user", "All invariants passed");
     } else {
         for failure in &result.failures {
             info!(target: "raptor::user", "");
-            info!(target: "raptor::user", "[FAILED] Invariant Test: {}::{}", artifact.contract_name, failure.function_name);
-            info!(target: "raptor::user", "Test for method \"{}::{}\" failed after the following call sequence:", artifact.contract_name, failure.function_name);
+            info!(target: "raptor::user", contract = %artifact.contract_name, test = %failure.function_name, "[FAILED] Invariant Test");
+            info!(target: "raptor::user", contract = %artifact.contract_name, test = %failure.function_name, "Test failed after the following call sequence");
             info!(target: "raptor::user", "[Call Sequence]");
             info!(target: "raptor::user", "{}", crate::fuzzer::format_failure(artifact, failure, result.deployer_address));
         }
@@ -314,15 +317,15 @@ pub fn run(args: Args) -> Result<()> {
         let failed = result.failures.len();
         let passed = total.saturating_sub(failed);
         info!(target: "raptor::user", "");
-        info!(target: "raptor::user", "Test summary: {} passed, {} failed", passed, failed);
+        info!(target: "raptor::user", passed = passed, failed = failed, "Test summary");
     }
 
     // Source-level coverage summary
     let report = resolve_coverage_to_source(&result.coverage, artifact);
     if report.hit_count() > 0 {
-        info!(target: "raptor::user", "Coverage: {} unique source locations hit", report.hit_count());
+        info!(target: "raptor::user", hits = report.hit_count(), "Coverage summary");
     } else {
-        info!(target: "raptor::user", "Coverage: no source locations hit (source map may be missing)");
+        info!(target: "raptor::user", hits = 0, "Coverage summary");
     }
 
     Ok(())

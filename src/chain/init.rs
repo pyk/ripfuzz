@@ -84,6 +84,7 @@ pub fn initialize(
     deployer: Address,
     fork_config: Option<&crate::chain::fork::ForkConfig>,
 ) -> Result<(Address, ChainState), ChainInitError> {
+    let t0 = std::time::Instant::now();
     let mut db = if let Some(config) = fork_config {
         let backend = crate::chain::fork::ForkBackend::new(config, &project_root).map_err(|e| {
             ChainInitError::Other(anyhow::anyhow!("fork initialization failed: {e}"))
@@ -131,7 +132,8 @@ pub fn initialize(
         error!(%reason, "deployment failed");
         ChainInitError::DeploymentFailed { reason, trace }
     })?;
-    info!(%contract_address, "contract deployed");
+    let elapsed = t0.elapsed();
+    info!(target: "raptor::user", time_ms = elapsed.as_millis(), "Deployed target contract");
 
     let deployed_db = evm.ctx.journaled_state.database;
     let mut state = ChainState::new(deployed_db);
