@@ -53,7 +53,7 @@ pub struct Args {
     pub sequence_length: usize,
 
     /// Random seed for reproducibility.
-    #[arg(long = "fuzz-seed", default_value = "0")]
+    #[arg(long = "seed", default_value = "0")]
     pub seed: u64,
 
     /// Maximum block number delay between calls.
