@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use alloy_primitives::Address;
 use revm::primitives::U256;
 
 /// Configuration for a fuzzing campaign.
@@ -21,6 +22,8 @@ pub struct CampaignConfig {
     pub ffi: bool,
     /// Wei value sent with the target contract deployment transaction.
     pub deploy_value: U256,
+    /// Account address used to deploy the target contract.
+    pub deployer_address: Address,
 }
 
 impl Default for CampaignConfig {
@@ -38,6 +41,10 @@ impl Default for CampaignConfig {
             corpus_dir: None,
             ffi: false,
             deploy_value: U256::ZERO,
+            deployer_address: Address::new([
+                0xec, 0x47, 0xd9, 0xca, 0xe5, 0xbd, 0xa5, 0x7f, 0x66, 0x52, 0x26, 0x93, 0xdf, 0x7f,
+                0x28, 0x8f, 0x48, 0x2c, 0x1a, 0xf1,
+            ]),
         }
     }
 }

@@ -3,6 +3,7 @@
 use std::env;
 use std::path::PathBuf;
 
+use alloy_primitives::Address;
 use anyhow::Result;
 use clap::Parser;
 use revm::primitives::U256;
@@ -50,6 +51,21 @@ fn parse_balance(s: &str) -> Result<U256, String> {
     U256::from_str_radix(trimmed, 10).map_err(|e| format!("invalid decimal balance: {e}"))
 }
 
+fn parse_address(s: &str) -> Result<Address, String> {
+    let trimmed = s.trim();
+    let mut hex = String::from(trimmed.trim_start_matches("0x").trim_start_matches("0X"));
+    if !hex.len().is_multiple_of(2) {
+        hex.insert(0, '0');
+    }
+    let bytes = hex::decode(&hex).map_err(|e| format!("invalid hex address: {e}"))?;
+    if bytes.len() > 20 {
+        return Err("address exceeds 20 bytes".into());
+    }
+    let mut padded = [0u8; 20];
+    padded[20 - bytes.len()..].copy_from_slice(&bytes);
+    Ok(Address::new(padded))
+}
+
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path to the target contract (e.g. ./test/Contract.sol).
@@ -69,6 +85,17 @@ pub struct Args {
     /// Wei to send during target contract deployment.
     #[arg(long = "deploy-value", default_value = "0", value_parser = parse_balance, value_name = "WEI", help_heading = "Project & Deployment")]
     pub deploy_value: U256,
+
+    /// Account address used to deploy the target contract.
+    #[arg(
+        long = "deployer",
+        // address(uint160(uint256(keccak256("raptor deployer"))))
+        default_value = "0xec47d9cae5bda57f66522693df7f288f482c1af1",
+        value_parser = parse_address,
+        value_name = "ADDRESS",
+        help_heading = "Project & Deployment"
+    )]
+    pub deployer_address: Address,
 
     // Campaign Limits
     /// Number of parallel fuzzer threads to spawn.
@@ -188,6 +215,7 @@ pub fn run(args: Args) -> Result<()> {
         corpus_dir: args.corpus_dir,
         ffi: args.ffi,
         deploy_value: args.deploy_value,
+        deployer_address: args.deployer_address,
     };
     info!(?config, "starting fuzzing campaign");
 
@@ -238,7 +266,7 @@ pub fn run(args: Args) -> Result<()> {
             info!(target: "raptor::user", "[FAILED] Invariant Test: {}::{}", artifact.contract_name, failure.function_name);
             info!(target: "raptor::user", "Test for method \"{}::{}\" failed after the following call sequence:", artifact.contract_name, failure.function_name);
             info!(target: "raptor::user", "[Call Sequence]");
-            info!(target: "raptor::user", "{}", crate::fuzzer::format_failure(artifact, failure));
+            info!(target: "raptor::user", "{}", crate::fuzzer::format_failure(artifact, failure, result.deployer_address));
         }
         let total = artifact.invariants.len();
         let failed = result.failures.len();
@@ -260,7 +288,8 @@ pub fn run(args: Args) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_balance;
+    use super::{parse_address, parse_balance};
+    use alloy_primitives::Address;
     use revm::primitives::U256;
 
     #[test]
@@ -322,5 +351,88 @@ mod tests {
             parse_balance("1.5e18").unwrap(),
             U256::from(1_500_000_000_000_000_000u128)
         );
+    }
+
+    #[test]
+    fn parse_address_full() {
+        assert_eq!(
+            parse_address("0xec47d9cae5bda57f66522693df7f288f482c1af1").unwrap(),
+            Address::new([
+                0xec, 0x47, 0xd9, 0xca, 0xe5, 0xbd, 0xa5, 0x7f, 0x66, 0x52, 0x26, 0x93, 0xdf, 0x7f,
+                0x28, 0x8f, 0x48, 0x2c, 0x1a, 0xf1,
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_address_no_prefix() {
+        assert_eq!(
+            parse_address("ec47d9cae5bda57f66522693df7f288f482c1af1").unwrap(),
+            Address::new([
+                0xec, 0x47, 0xd9, 0xca, 0xe5, 0xbd, 0xa5, 0x7f, 0x66, 0x52, 0x26, 0x93, 0xdf, 0x7f,
+                0x28, 0x8f, 0x48, 0x2c, 0x1a, 0xf1,
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_address_short_odd() {
+        assert_eq!(
+            parse_address("0x30000").unwrap(),
+            Address::new([
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_address_short_even() {
+        assert_eq!(
+            parse_address("0x10000").unwrap(),
+            Address::new([
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_address_four_hex() {
+        assert_eq!(
+            parse_address("0xabcd").unwrap(),
+            Address::new([
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0xab, 0xcd,
+            ])
+        );
+    }
+
+    #[test]
+    fn parse_address_zero() {
+        assert_eq!(parse_address("0x0").unwrap(), Address::ZERO);
+    }
+
+    #[test]
+    fn parse_address_empty_after_prefix() {
+        assert_eq!(parse_address("0x").unwrap(), Address::ZERO);
+    }
+
+    #[test]
+    fn parse_address_all_zeros() {
+        assert_eq!(
+            parse_address("0000000000000000000000000000000000000000").unwrap(),
+            Address::ZERO
+        );
+    }
+
+    #[test]
+    fn parse_address_invalid_hex() {
+        assert!(parse_address("0xzz").is_err());
+    }
+
+    #[test]
+    fn parse_address_too_long() {
+        assert!(parse_address("0x000000000000000000000000000000000000000000").is_err());
     }
 }

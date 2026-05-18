@@ -34,7 +34,11 @@ pub struct Crash {
 }
 
 /// Format a crash's call sequence as a flat, Medusa-style log.
-pub fn format_failure(artifact: &contract::ContractArtifact, failure: &Crash) -> String {
+pub fn format_failure(
+    artifact: &contract::ContractArtifact,
+    failure: &Crash,
+    sender: revm::primitives::Address,
+) -> String {
     let mut lines = Vec::new();
     for (i, call) in failure.call_sequence.iter().enumerate() {
         let n = i + 1;
@@ -92,7 +96,7 @@ pub fn format_failure(artifact: &contract::ContractArtifact, failure: &Crash) ->
                         block,
                         time,
                         crate::chain::init::GAS_LIMIT,
-                        crate::chain::init::CALLER,
+                        sender,
                         delay_suffix,
                     ));
                     continue;
@@ -110,7 +114,7 @@ pub fn format_failure(artifact: &contract::ContractArtifact, failure: &Crash) ->
                         block,
                         time,
                         crate::chain::init::GAS_LIMIT,
-                        crate::chain::init::CALLER,
+                        sender,
                         delay_suffix,
                     ));
                     continue;
@@ -142,7 +146,7 @@ pub fn format_failure(artifact: &contract::ContractArtifact, failure: &Crash) ->
             block,
             time,
             crate::chain::init::GAS_LIMIT,
-            crate::chain::init::CALLER,
+            sender,
             delay_suffix,
         ));
     }
@@ -430,7 +434,7 @@ mod tests {
             ],
         };
 
-        let output = format_failure(&artifact, &failure);
+        let output = format_failure(&artifact, &failure, crate::chain::init::CALLER);
         assert!(
             output.contains("block_number="),
             "output should use block_number label:\n{}",

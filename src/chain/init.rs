@@ -19,6 +19,10 @@ use crate::chain::state::ChainState;
 use crate::contract::ContractArtifact;
 
 pub const CALLER: Address = Address::new([0xde; 20]);
+pub const DEFAULT_DEPLOYER: Address = Address::new([
+    0xec, 0x47, 0xd9, 0xca, 0xe5, 0xbd, 0xa5, 0x7f, 0x66, 0x52, 0x26, 0x93, 0xdf, 0x7f, 0x28, 0x8f,
+    0x48, 0x2c, 0x1a, 0xf1,
+]);
 pub const GAS_LIMIT: u64 = 16_777_216;
 
 /// Insert a dummy VM contract into the database so Solidity's
@@ -81,13 +85,15 @@ pub fn initialize(
     project_root: PathBuf,
     ffi_enabled: bool,
     deploy_value: U256,
+    deployer: Address,
 ) -> Result<(Address, ChainState), ChainInitError> {
     let mut db = InMemoryDB::default();
 
     db.insert_account_info(
-        CALLER,
+        deployer,
         AccountInfo {
-            balance: U256::from(u128::MAX),
+            balance: U256::from_str_radix("ffffffffffffffffffffffffffffffff", 16)
+                .unwrap_or(U256::MAX),
             nonce: 0,
             code_hash: KECCAK_EMPTY,
             code: None,
@@ -102,7 +108,7 @@ pub fn initialize(
     let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
     let tx = TxEnv {
-        caller: CALLER,
+        caller: deployer,
         kind: TxKind::Create,
         data: target.initcode.clone(),
         gas_limit: GAS_LIMIT,
@@ -127,7 +133,7 @@ pub fn initialize(
     state.cheatcodes.ffi_enabled = ffi_enabled;
     state.caller_nonce = state
         .db
-        .basic(CALLER)
+        .basic(deployer)
         .unwrap_or_default()
         .unwrap_or_default()
         .nonce;

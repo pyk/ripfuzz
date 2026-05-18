@@ -26,7 +26,7 @@ pub struct ChainConfig {
 impl Default for ChainConfig {
     fn default() -> Self {
         Self {
-            caller: crate::chain::init::CALLER,
+            caller: crate::chain::init::DEFAULT_DEPLOYER,
             gas_limit: crate::chain::init::GAS_LIMIT,
             max_sequence_calls: 32,
         }
@@ -40,6 +40,7 @@ pub struct ChainBuilder<'a> {
     project_root: PathBuf,
     ffi_enabled: bool,
     deploy_value: U256,
+    deployer: Address,
 }
 
 impl<'a> ChainBuilder<'a> {
@@ -61,6 +62,12 @@ impl<'a> ChainBuilder<'a> {
         self
     }
 
+    /// Set the account address used to deploy the target contract.
+    pub fn with_deployer(mut self, deployer: Address) -> Self {
+        self.deployer = deployer;
+        self
+    }
+
     /// Deploy the contract, verify deployment success, and return a [`Chain`].
     pub fn init(self) -> Result<Chain, ChainInitError> {
         let (contract_address, mut state) = initialize(
@@ -68,6 +75,7 @@ impl<'a> ChainBuilder<'a> {
             self.project_root,
             self.ffi_enabled,
             self.deploy_value,
+            self.deployer,
         )?;
         // Populate compiled-contract map for vm.getCode lookups.
         let initcode_map = self.artifact.initcode_map.clone();
@@ -75,7 +83,10 @@ impl<'a> ChainBuilder<'a> {
             state.cheatcodes.compiled_contracts.insert(name, initcode);
         }
         Ok(Chain {
-            config: ChainConfig::default(),
+            config: ChainConfig {
+                caller: self.deployer,
+                ..ChainConfig::default()
+            },
             state,
             contract_address,
             invariants: self.artifact.invariants.clone(),
@@ -104,6 +115,7 @@ impl Chain {
             project_root: PathBuf::new(),
             ffi_enabled: false,
             deploy_value: U256::ZERO,
+            deployer: crate::chain::init::DEFAULT_DEPLOYER,
         }
     }
 
@@ -114,6 +126,7 @@ impl Chain {
             self.contract_address,
             &self.contract_abi,
             &self.initcode_map,
+            self.config.caller,
         )?;
         self.state = new_state;
         Ok(self)

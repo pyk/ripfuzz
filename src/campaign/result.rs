@@ -1,5 +1,7 @@
 //! Campaign result aggregation.
 
+use alloy_primitives::Address;
+
 use crate::corpus::CoverageMap;
 use crate::fuzzer::Crash;
 
@@ -16,4 +18,6 @@ pub struct CampaignResult {
     pub elapsed_secs: f64,
     /// Final global coverage map after all fuzzers finish.
     pub coverage: CoverageMap,
+    /// Account address used to deploy the target contract.
+    pub deployer_address: Address,
 }

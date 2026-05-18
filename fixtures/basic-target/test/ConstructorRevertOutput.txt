@@ -1,5 +1,5 @@
 deployment failed: reverted with 'constructor always reverts'
 
 Trace:
-[336] → new ConstructorRevert@0xe3a207e4225d459095491ea75d30b31968dff887
+[336] → new ConstructorRevert@0xe6caad3d0f2864e2e7832288878e58fbbf58866e
   └─ ← [Revert] constructor always reverts

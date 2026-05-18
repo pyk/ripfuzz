@@ -49,6 +49,7 @@ impl CampaignBuilder {
             .with_project(&self.project_path)
             .with_ffi(self.config.ffi)
             .with_deploy_value(self.config.deploy_value)
+            .with_deployer(self.config.deployer_address)
             .init()?
             .setup()?;
         debug!("deployment validated");
@@ -208,6 +209,7 @@ impl Campaign {
             total_gas,
             elapsed_secs,
             coverage,
+            deployer_address: self.config.deployer_address,
         })
     }
 }

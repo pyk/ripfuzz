@@ -1,8 +1,8 @@
 deployment failed: reverted with 'constructor always reverts'
 
 Trace:
-[157257] → new ComplexConstructorRevert@0xe3a207e4225d459095491ea75d30b31968dff887
-  ├─ [101545] → new Helper@0x3642dabb61aba79183301c78991452600fb35c90
+[157257] → new ComplexConstructorRevert@0xe6caad3d0f2864e2e7832288878e58fbbf58866e
+  ├─ [101545] → new Helper@0x37d435129be17d72a32f153bf83aef17220e9994
   │  └─ ← [Return] 507 bytes of code
   ├─ [22537] Helper::setValue(200)
   │  └─ ← [Stop]
