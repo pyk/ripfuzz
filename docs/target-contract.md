@@ -224,6 +224,19 @@ For each fuzz input, raptor performs this exact sequence:
 | Bug on           | `assert` panic          | Invariant `false`   | Property `false`       | Property `false`        |
 | Bug on revert    | `assert` only           | No                  | No                     | No                      |
 
+## Fork Mode
+
+When `--fork-rpc-url` and `--fork-rpc-block` are passed to `raptor fuzz`, the EVM
+initializes its database from a remote Ethereum node at the specified block.
+This lets target contracts reference live mainnet (or testnet) state — for
+example, querying the real USDC contract — while still fuzzing locally.
+
+Fork state is read-only from the RPC perspective: raptor caches every remote
+account, slot, and block hash in memory, writes that cache to disk on campaign
+end, and never persists local EVM mutations (deployments, setup, sequence
+execution) beyond the in-memory `CacheDB`. Because each fuzz input clones the
+post-setup `CacheDB`, local writes are naturally isolated between runs.
+
 ## Configuration
 
 Invariant prefixes and other behavior can be configured in `raptor.toml`:
