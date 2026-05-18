@@ -182,6 +182,17 @@ impl CoverageMap {
         update
     }
 
+    /// Total number of unique coverage hits (edges + jump edges) across all contracts.
+    pub fn hit_count(&self) -> usize {
+        let edge_hits: usize = self
+            .contracts
+            .values()
+            .map(|c| c.edges.iter().filter(|&&e| e != 0).count())
+            .sum();
+        let jump_hits: usize = self.contracts.values().map(|c| c.jump_edges.len()).sum();
+        edge_hits + jump_hits
+    }
+
     /// Whether the update represents interesting new coverage.
     pub fn is_interesting(update: &CoverageUpdate) -> bool {
         update.new_edges > 0

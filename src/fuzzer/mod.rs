@@ -1,5 +1,6 @@
 //! Per-fuzzer instance that executes call sequences and reports results.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
@@ -210,6 +211,7 @@ impl Fuzzer {
     }
 
     #[instrument(skip(self, corpus), fields(max_runs))]
+    #[allow(clippy::too_many_arguments)]
     pub fn run(
         &self,
         corpus: Arc<RwLock<Corpus>>,
@@ -217,6 +219,10 @@ impl Fuzzer {
         fuzzer_id: usize,
         start: std::time::Instant,
         timeout: Option<std::time::Duration>,
+        shared_runs: Arc<AtomicU64>,
+        shared_calls: Arc<AtomicU64>,
+        shared_gas: Arc<AtomicU64>,
+        shared_failures: Arc<AtomicU64>,
     ) -> Result<FuzzerResult> {
         info!(max_runs, fuzzer_id, "fuzzer run starting");
 
@@ -319,9 +325,13 @@ impl Fuzzer {
                     call_sequence,
                     call_meta: output.call_meta,
                 });
+                shared_failures.fetch_add(1, Ordering::Relaxed);
             }
 
             runs += 1;
+            shared_runs.fetch_add(1, Ordering::Relaxed);
+            shared_calls.fetch_add(output.total_calls, Ordering::Relaxed);
+            shared_gas.fetch_add(output.total_gas, Ordering::Relaxed);
         }
 
         // Sync discovered failures into the shared corpus for persistence.

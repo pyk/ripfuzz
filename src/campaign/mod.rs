@@ -1,6 +1,7 @@
 //! Campaign orchestration: configuration, setup, and result aggregation.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result};
@@ -107,6 +108,18 @@ pub struct Campaign {
     project_path: PathBuf,
 }
 
+/// Format a duration as `1m23s` or `1h2m3s`.
+fn format_duration(d: std::time::Duration) -> String {
+    let secs = d.as_secs();
+    if secs >= 3600 {
+        format!("{}h{}m{}s", secs / 3600, (secs % 3600) / 60, secs % 60)
+    } else if secs >= 60 {
+        format!("{}m{}s", secs / 60, secs % 60)
+    } else {
+        format!("{}s", secs)
+    }
+}
+
 impl Campaign {
     /// Start building a campaign for the given target contract.
     pub fn for_target(contract: impl AsRef<Path>) -> CampaignBuilder {
@@ -163,6 +176,93 @@ impl Campaign {
         let config = Arc::new(config);
         let fuzzed_selectors = Arc::new(fuzzed_selectors);
 
+        // Shared atomic counters for live progress.
+        let shared_runs = Arc::new(AtomicU64::new(0));
+        let shared_calls = Arc::new(AtomicU64::new(0));
+        let shared_gas = Arc::new(AtomicU64::new(0));
+        let shared_failures = Arc::new(AtomicU64::new(0));
+
+        // Progress reporting thread.
+        let progress_shutdown = Arc::new(AtomicBool::new(false));
+        let progress_handle = {
+            let shutdown = Arc::clone(&progress_shutdown);
+            let corpus = Arc::clone(&corpus);
+            let chain = Arc::clone(&chain);
+            let shared_runs = Arc::clone(&shared_runs);
+            let shared_calls = Arc::clone(&shared_calls);
+            let shared_gas = Arc::clone(&shared_gas);
+            let shared_failures = Arc::clone(&shared_failures);
+            std::thread::spawn(move || {
+                let mut last_calls = 0u64;
+                let mut last_gas = 0u64;
+                let mut last_time = std::time::Instant::now();
+                while !shutdown.load(Ordering::Relaxed) {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    let now = std::time::Instant::now();
+                    let elapsed = now.duration_since(start);
+                    let interval_secs = now.duration_since(last_time).as_secs_f64().max(1e-6);
+
+                    let total_runs = shared_runs.load(Ordering::Relaxed);
+                    let total_calls = shared_calls.load(Ordering::Relaxed);
+                    let total_gas = shared_gas.load(Ordering::Relaxed);
+                    let failure_count = shared_failures.load(Ordering::Relaxed);
+
+                    let calls_delta = total_calls.saturating_sub(last_calls);
+                    let gas_delta = total_gas.saturating_sub(last_gas);
+
+                    let calls_per_sec = (calls_delta as f64 / interval_secs) as u64;
+                    let gas_per_sec = (gas_delta as f64 / interval_secs) as u64;
+
+                    let corpus_size = if let Ok(c) = corpus.read() {
+                        c.items.len()
+                    } else {
+                        0
+                    };
+
+                    let coverage_hits = if let Ok(c) = corpus.read() {
+                        c.coverage().hit_count()
+                    } else {
+                        0
+                    };
+
+                    let elapsed_str = format_duration(elapsed);
+                    let calls_str = format!("{}({}/s)", total_calls, calls_per_sec);
+
+                    if let Some(stats) = chain.cache_stats() {
+                        info!(
+                            target: "raptor::user",
+                            elapsed = %elapsed_str,
+                            runs = total_runs,
+                            calls = %calls_str,
+                            corpus = corpus_size,
+                            coverage = coverage_hits,
+                            failures = failure_count,
+                            gas_per_sec = gas_per_sec,
+                            rpc_cache_hit = stats.hits,
+                            rpc_cache_miss = stats.misses,
+                            "fuzz:"
+                        );
+                    } else {
+                        info!(
+                            target: "raptor::user",
+                            elapsed = %elapsed_str,
+                            runs = total_runs,
+                            calls = %calls_str,
+                            corpus = corpus_size,
+                            coverage = coverage_hits,
+                            failures = failure_count,
+                            gas_per_sec = gas_per_sec,
+                            "fuzz:"
+                        );
+                    }
+
+                    last_calls = total_calls;
+                    last_gas = total_gas;
+                    last_time = now;
+                }
+            })
+        };
+
         let mut handles = Vec::with_capacity(fuzzers);
         for fuzzer_id in 0..fuzzers {
             let local_max_runs = if fuzzer_id < remainder {
@@ -175,10 +275,24 @@ impl Campaign {
             let config = Arc::clone(&config);
             let fuzzed_selectors = Arc::clone(&fuzzed_selectors);
             let corpus = Arc::clone(&corpus);
+            let shared_runs = Arc::clone(&shared_runs);
+            let shared_calls = Arc::clone(&shared_calls);
+            let shared_gas = Arc::clone(&shared_gas);
+            let shared_failures = Arc::clone(&shared_failures);
 
             let handle = std::thread::spawn(move || {
                 let fuzzer = Fuzzer::new(artifact, chain, config, fuzzed_selectors);
-                fuzzer.run(corpus, local_max_runs, fuzzer_id, start, timeout)
+                fuzzer.run(
+                    corpus,
+                    local_max_runs,
+                    fuzzer_id,
+                    start,
+                    timeout,
+                    shared_runs,
+                    shared_calls,
+                    shared_gas,
+                    shared_failures,
+                )
             });
             handles.push((fuzzer_id, handle));
         }
@@ -205,6 +319,9 @@ impl Campaign {
                 }
             }
         }
+
+        progress_shutdown.store(true, Ordering::Relaxed);
+        let _ = progress_handle.join();
 
         // Persist corpus to disk if a directory was configured.
         if let Ok(c) = self.corpus.read()

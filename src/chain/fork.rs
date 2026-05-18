@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 #[cfg(test)]
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use alloy_primitives::{Address, B256, U256};
@@ -82,6 +83,10 @@ struct ForkBackendInner {
     /// network. Used for non-fork campaigns so `ForkDatabase` behaves like
     /// `InMemoryDB`.
     is_empty: bool,
+    /// Total cache hits across all cache types.
+    cache_hits: AtomicU64,
+    /// Total cache misses that triggered an RPC fetch.
+    cache_misses: AtomicU64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +176,8 @@ impl ForkBackend {
                 code_cache: RwLock::new(code_cache),
                 cache_file,
                 is_empty: false,
+                cache_hits: AtomicU64::new(0),
+                cache_misses: AtomicU64::new(0),
             }),
         })
     }
@@ -191,6 +198,8 @@ impl ForkBackend {
                 code_cache: RwLock::new(HashMap::new()),
                 cache_file: PathBuf::new(),
                 is_empty: true,
+                cache_hits: AtomicU64::new(0),
+                cache_misses: AtomicU64::new(0),
             }),
         }
     }
@@ -239,6 +248,27 @@ impl ForkBackend {
     }
 }
 
+/// Snapshot of fork cache performance.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CacheStats {
+    pub hits: u64,
+    pub misses: u64,
+}
+
+impl ForkBackend {
+    /// Return current cache hit/miss counters.
+    /// Returns `None` when the backend is empty (non-fork mode).
+    pub fn cache_stats(&self) -> Option<CacheStats> {
+        if self.inner.is_empty {
+            return None;
+        }
+        Some(CacheStats {
+            hits: self.inner.cache_hits.load(Ordering::Relaxed),
+            misses: self.inner.cache_misses.load(Ordering::Relaxed),
+        })
+    }
+}
+
 impl Default for ForkBackend {
     fn default() -> Self {
         Self::empty()
@@ -259,6 +289,7 @@ impl ForkBackend {
             let cache = self.inner.account_cache.read().map_err(lock_poisoned)?;
             if let Some(acc) = cache.get(&address) {
                 trace!(%address, "account cache hit");
+                self.inner.cache_hits.fetch_add(1, Ordering::Relaxed);
                 return Ok(Some(AccountInfo {
                     balance: acc.balance,
                     nonce: acc.nonce,
@@ -274,6 +305,7 @@ impl ForkBackend {
         }
 
         trace!(%address, "account cache miss — fetching from RPC");
+        self.inner.cache_misses.fetch_add(1, Ordering::Relaxed);
         let fetched = self.inner.fetch_account(address)?;
         let info = AccountInfo {
             balance: fetched.balance,
@@ -306,10 +338,12 @@ impl ForkBackend {
             let cache = self.inner.code_cache.read().map_err(lock_poisoned)?;
             if let Some(code) = cache.get(&code_hash) {
                 trace!(%code_hash, "code_by_hash cache hit");
+                self.inner.cache_hits.fetch_add(1, Ordering::Relaxed);
                 return Ok(code.clone());
             }
         }
         trace!(%code_hash, "code_by_hash cache miss — no RPC fetch available, returning empty");
+        self.inner.cache_misses.fetch_add(1, Ordering::Relaxed);
         warn!(%code_hash, "code_by_hash cache miss — returning empty bytecode (expected if hash originated from basic_ref)");
         Ok(Bytecode::default())
     }
@@ -325,11 +359,13 @@ impl ForkBackend {
             let cache = self.inner.slot_cache.read().map_err(lock_poisoned)?;
             if let Some(val) = cache.get(&(address, index)) {
                 trace!(%address, %index, "slot cache hit");
+                self.inner.cache_hits.fetch_add(1, Ordering::Relaxed);
                 return Ok(*val);
             }
         }
 
         trace!(%address, %index, method = "eth_getStorageAt", "slot cache miss — fetching from RPC");
+        self.inner.cache_misses.fetch_add(1, Ordering::Relaxed);
         let value = self.inner.fetch_slot(address, index)?;
 
         {
@@ -351,6 +387,7 @@ impl ForkBackend {
             let cache = self.inner.block_hash_cache.read().map_err(lock_poisoned)?;
             if let Some(hash) = cache.get(&number) {
                 trace!(number, "block hash cache hit");
+                self.inner.cache_hits.fetch_add(1, Ordering::Relaxed);
                 return Ok(*hash);
             }
         }
@@ -359,6 +396,7 @@ impl ForkBackend {
             method = "eth_getBlockByNumber",
             "block hash cache miss — fetching from RPC"
         );
+        self.inner.cache_misses.fetch_add(1, Ordering::Relaxed);
         let hash = self.inner.fetch_block_hash(number)?;
         {
             let mut cache = self.inner.block_hash_cache.write().map_err(lock_poisoned)?;

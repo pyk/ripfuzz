@@ -178,6 +178,11 @@ impl Chain {
             tracing::error!(%e, "failed to flush fork cache");
         }
     }
+
+    /// Return fork cache statistics, if a fork backend is present.
+    pub fn cache_stats(&self) -> Option<crate::chain::fork::CacheStats> {
+        self.state.db.db.cache_stats()
+    }
 }
 
 #[cfg(test)]
