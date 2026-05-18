@@ -38,7 +38,6 @@ pub fn format_failure(
     artifact: &contract::ContractArtifact,
     failure: &Crash,
     sender: revm::primitives::Address,
-    tx_gas_limit: u64,
 ) -> String {
     let mut lines = Vec::new();
     for (i, call) in failure.call_sequence.iter().enumerate() {
@@ -96,7 +95,7 @@ pub fn format_failure(
                         raw,
                         block,
                         time,
-                        tx_gas_limit,
+                        u64::MAX,
                         sender,
                         delay_suffix,
                     ));
@@ -114,7 +113,7 @@ pub fn format_failure(
                         raw,
                         block,
                         time,
-                        tx_gas_limit,
+                        u64::MAX,
                         sender,
                         delay_suffix,
                     ));
@@ -146,7 +145,7 @@ pub fn format_failure(
             args,
             block,
             time,
-            tx_gas_limit,
+            u64::MAX,
             sender,
             delay_suffix,
         ));
@@ -438,12 +437,7 @@ mod tests {
             ],
         };
 
-        let output = format_failure(
-            &artifact,
-            &failure,
-            crate::chain::init::CALLER,
-            crate::chain::init::DEFAULT_TX_GAS_LIMIT,
-        );
+        let output = format_failure(&artifact, &failure, crate::chain::init::CALLER);
         assert!(
             output.contains("block_number="),
             "output should use block_number label:\n{}",

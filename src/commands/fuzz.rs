@@ -28,16 +28,6 @@ fn parse_threads(s: &str) -> Result<usize, String> {
     Ok(n)
 }
 
-fn parse_gas_limit(s: &str) -> Result<u64, String> {
-    let n = s
-        .parse::<u64>()
-        .map_err(|e| format!("invalid gas limit: {e}"))?;
-    if n == 0 {
-        return Err("gas limit must be greater than 0".into());
-    }
-    Ok(n)
-}
-
 fn parse_balance(s: &str) -> Result<U256, String> {
     let trimmed = s.trim();
     if trimmed.is_empty() {
@@ -105,26 +95,6 @@ pub struct Args {
         help_heading = "Project & Deployment"
     )]
     pub deployer_address: Address,
-
-    /// Maximum gas that can be consumed in a single block.
-    #[arg(
-        long = "block-gas-limit",
-        default_value_t = crate::chain::init::GAS_LIMIT,
-        value_parser = parse_gas_limit,
-        value_name = "N",
-        help_heading = "Fuzzing Parameters"
-    )]
-    pub block_gas_limit: u64,
-
-    /// Gas limit for each fuzzer-generated transaction.
-    #[arg(
-        long = "tx-gas-limit",
-        default_value_t = crate::chain::init::DEFAULT_TX_GAS_LIMIT,
-        value_parser = parse_gas_limit,
-        value_name = "N",
-        help_heading = "Fuzzing Parameters"
-    )]
-    pub tx_gas_limit: u64,
 
     // Campaign Limits
     /// Number of parallel fuzzer threads to spawn.
@@ -233,14 +203,6 @@ pub fn run(args: Args) -> Result<()> {
             cwd
         }
     };
-    if args.tx_gas_limit > args.block_gas_limit {
-        return Err(anyhow::anyhow!(
-            "--tx-gas-limit ({}) cannot exceed --block-gas-limit ({})",
-            args.tx_gas_limit,
-            args.block_gas_limit
-        ));
-    }
-
     let config = CampaignConfig {
         threads: args.threads,
         max_runs: args.max_runs,
@@ -253,8 +215,6 @@ pub fn run(args: Args) -> Result<()> {
         ffi: args.ffi,
         deploy_value: args.deploy_value,
         deployer_address: args.deployer_address,
-        block_gas_limit: args.block_gas_limit,
-        tx_gas_limit: args.tx_gas_limit,
     };
     info!(?config, "starting fuzzing campaign");
 
@@ -305,7 +265,7 @@ pub fn run(args: Args) -> Result<()> {
             info!(target: "raptor::user", "[FAILED] Invariant Test: {}::{}", artifact.contract_name, failure.function_name);
             info!(target: "raptor::user", "Test for method \"{}::{}\" failed after the following call sequence:", artifact.contract_name, failure.function_name);
             info!(target: "raptor::user", "[Call Sequence]");
-            info!(target: "raptor::user", "{}", crate::fuzzer::format_failure(artifact, failure, result.deployer_address, result.tx_gas_limit));
+            info!(target: "raptor::user", "{}", crate::fuzzer::format_failure(artifact, failure, result.deployer_address));
         }
         let total = artifact.invariants.len();
         let failed = result.failures.len();
@@ -327,34 +287,9 @@ pub fn run(args: Args) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_address, parse_balance, parse_gas_limit};
+    use super::{parse_address, parse_balance};
     use alloy_primitives::Address;
     use revm::primitives::U256;
-
-    #[test]
-    fn parse_gas_limit_valid() {
-        assert_eq!(parse_gas_limit("16777216").unwrap(), 16_777_216);
-        assert_eq!(parse_gas_limit("12500000").unwrap(), 12_500_000);
-        assert_eq!(parse_gas_limit("500000").unwrap(), 500_000);
-    }
-
-    #[test]
-    fn parse_gas_limit_zero_rejected() {
-        let err = parse_gas_limit("0").unwrap_err();
-        assert!(
-            err.contains("greater than 0"),
-            "expected >0 error, got: {err}"
-        );
-    }
-
-    #[test]
-    fn parse_gas_limit_invalid() {
-        let err = parse_gas_limit("abc").unwrap_err();
-        assert!(
-            err.contains("invalid gas limit"),
-            "expected parse error, got: {err}"
-        );
-    }
 
     #[test]
     fn parse_balance_empty() {

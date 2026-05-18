@@ -78,9 +78,9 @@ pub fn execute(
     let db = std::mem::take(&mut local_state.db);
     let mut ctx = Context::mainnet().with_db(db);
     ctx.cfg.disable_balance_check = true;
+    ctx.cfg.tx_gas_limit_cap = Some(u64::MAX);
     ctx.block.number = U256::from(local_state.block_number);
     ctx.block.timestamp = U256::from(local_state.block_timestamp);
-    ctx.block.gas_limit = config.block_gas_limit;
 
     let overrides = inspector.2.state.block_overrides();
     if let Some(fee) = overrides.basefee {
@@ -149,7 +149,7 @@ pub fn execute(
             caller: tx_origin,
             kind: TxKind::Call(contract_address),
             data: Bytes::from(call.encode()),
-            gas_limit: config.tx_gas_limit,
+            gas_limit: u64::MAX,
             nonce,
             ..Default::default()
         };

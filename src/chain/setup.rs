@@ -29,7 +29,6 @@ pub fn setup(
     abi: &alloy_json_abi::JsonAbi,
     initcode_map: &HashMap<Bytes, (String, alloy_json_abi::JsonAbi)>,
     deployer: revm::primitives::Address,
-    block_gas_limit: u64,
 ) -> Result<ChainState, ChainSetupError> {
     let has_setup = abi.functions().any(|f| f.selector() == SETUP_SELECTOR);
     if !has_setup {
@@ -62,14 +61,16 @@ pub fn setup(
         MaybeTrace(Some(trace_inspector)),
         cheatcode_inspector,
     );
-    let ctx = Context::mainnet().with_db(db);
+    let mut ctx = Context::mainnet().with_db(db);
+    ctx.block.gas_limit = u64::MAX;
+    ctx.cfg.tx_gas_limit_cap = Some(u64::MAX);
     let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
     let setup_tx = TxEnv {
         caller: deployer,
         kind: TxKind::Call(contract_address),
         data: revm::primitives::Bytes::copy_from_slice(&SETUP_SELECTOR),
-        gas_limit: block_gas_limit,
+        gas_limit: u64::MAX,
         nonce,
         ..Default::default()
     };

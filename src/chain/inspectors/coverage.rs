@@ -183,8 +183,10 @@ mod tests {
     };
 
     use super::CoverageInspector;
-    use crate::chain::init::{CALLER, GAS_LIMIT};
+    use crate::chain::init::CALLER;
     use crate::contract;
+
+    const GAS_LIMIT: u64 = 16_777_216;
 
     #[test]
     fn coverage_inspector_collects_hits_for_deployed_contract() {

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use revm::{
     Database, MainBuilder, MainContext,
-    context::result::{ExecutionResult, HaltReason},
+    context::result::ExecutionResult,
     context::{Context, TxEnv},
     database::InMemoryDB,
     inspector::InspectCommitEvm,
@@ -25,8 +25,6 @@ pub const DEFAULT_DEPLOYER: Address = Address::new([
     0xc3, 0x42, 0x96, 0x17, 0x5b, 0x9e, 0x78, 0xf6, 0x6e, 0xdb, 0xea, 0xeb, 0x7a, 0xce, 0xa4, 0xc6,
     0x15, 0xc0, 0x92, 0xe1,
 ]);
-pub const GAS_LIMIT: u64 = 16_777_216;
-pub const DEFAULT_TX_GAS_LIMIT: u64 = 12_500_000;
 
 /// Insert a dummy VM contract into the database so Solidity's
 /// `extcodesize` check passes when a target calls Foundry cheatcodes.
@@ -55,12 +53,7 @@ pub(crate) fn extract_deployment_error(result: &revm::context::result::Execution
                 format!("reverted (output: 0x{})", hex::encode(output))
             }
         }
-        ExecutionResult::Halt { reason, .. } => match reason {
-            HaltReason::OutOfGas(_) => {
-                format!("ran out of gas ({reason}) -- try increasing --block-gas-limit")
-            }
-            _ => format!("halted: {reason}"),
-        },
+        ExecutionResult::Halt { reason, .. } => format!("halted: {reason}"),
     }
 }
 
@@ -90,7 +83,6 @@ pub fn initialize(
     ffi_enabled: bool,
     deploy_value: U256,
     deployer: Address,
-    block_gas_limit: u64,
 ) -> Result<(Address, ChainState), ChainInitError> {
     let mut db = InMemoryDB::default();
 
@@ -109,27 +101,23 @@ pub fn initialize(
 
     let inspector =
         crate::chain::inspectors::trace::TraceInspector::new(target.initcode_map.clone());
-    let ctx = Context::mainnet().with_db(db);
+    let mut ctx = Context::mainnet().with_db(db);
+    ctx.block.gas_limit = u64::MAX;
+    ctx.cfg.tx_gas_limit_cap = Some(u64::MAX);
     let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
     let tx = TxEnv {
         caller: deployer,
         kind: TxKind::Create,
         data: target.initcode.clone(),
-        gas_limit: block_gas_limit,
+        gas_limit: u64::MAX,
         value: deploy_value,
         ..Default::default()
     };
 
-    let result = evm.inspect_tx_commit(tx).map_err(|e| {
-        let err: anyhow::Error = e.into();
-        let msg = format!("{err}");
-        if msg.contains("gas limit") || msg.contains("gas cost") {
-            anyhow::anyhow!("{msg} -- try increasing --block-gas-limit")
-        } else {
-            err
-        }
-    })?;
+    let result = evm
+        .inspect_tx_commit(tx)
+        .map_err(|e| -> anyhow::Error { e.into() })?;
     let contract_address = result.created_address().ok_or_else(|| {
         let reason = extract_deployment_error(&result);
         let trace = evm.inspector.into_trace_tree().format();
