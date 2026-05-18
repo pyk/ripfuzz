@@ -132,7 +132,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_record: [u8; 4] = [0x4a, 0x77, 0x6c, 0xd7]; // call_record_nonce()
         let calls = vec![Call {
             selector: call_record,
@@ -155,7 +159,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_set: [u8; 4] = [0x7c, 0x2e, 0x07, 0x7d]; // call_set_nonce(uint64)
         let call_record: [u8; 4] = [0x69, 0x46, 0x76, 0xb0]; // call_record_target_nonce()
         let mut args = vec![0u8; 32];
@@ -190,7 +198,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_revert: [u8; 4] = [0xe8, 0xff, 0x5f, 0x65]; // call_set_nonce_and_revert(uint64)
         let mut args = vec![0u8; 32];
         args[24..32].copy_from_slice(&9999u64.to_be_bytes());
@@ -215,7 +227,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_invalid: [u8; 4] = [0xe9, 0xa1, 0x75, 0xa0]; // call_set_nonce_invalid()
         let calls = vec![Call {
             selector: call_invalid,
@@ -238,7 +254,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_100: [u8; 4] = [0x62, 0x48, 0xf0, 0x69]; // call_set_nonce_100()
         let call_200: [u8; 4] = [0x43, 0xbd, 0x31, 0xcf]; // call_set_nonce_200()
         let calls = vec![
@@ -271,7 +291,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_zero: [u8; 4] = [0x04, 0xe5, 0x75, 0x75]; // call_set_nonce_zero()
         let calls = vec![Call {
             selector: call_zero,
@@ -294,7 +318,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_max: [u8; 4] = [0xbc, 0x2e, 0x2c, 0xff]; // call_set_nonce_max()
         let calls = vec![Call {
             selector: call_max,
@@ -317,7 +345,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_empty: [u8; 4] = [0xc9, 0x9e, 0x35, 0x8a]; // call_set_nonce_empty(uint64)
         let mut args = vec![0u8; 32];
         args[24..32].copy_from_slice(&42u64.to_be_bytes());
@@ -342,7 +374,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_eoa: [u8; 4] = [0x1a, 0x55, 0x83, 0xc9]; // call_set_nonce_eoa(uint64)
         let mut args = vec![0u8; 32];
         args[24..32].copy_from_slice(&99u64.to_be_bytes());
@@ -367,7 +403,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_100: [u8; 4] = [0x62, 0x48, 0xf0, 0x69]; // call_set_nonce_100()
         let calls = vec![Call {
             selector: call_100,
@@ -390,7 +430,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_cross: [u8; 4] = [0x4c, 0x23, 0x4c, 0xd2]; // call_set_nonce_and_warp_roll()
         let calls = vec![Call {
             selector: call_cross,
@@ -413,7 +457,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_self: [u8; 4] = [0xce, 0xe3, 0xfb, 0x40]; // call_self_set_nonce(uint64)
         let mut args = vec![0u8; 32];
         args[24..32].copy_from_slice(&50u64.to_be_bytes());
@@ -438,7 +486,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_100: [u8; 4] = [0x62, 0x48, 0xf0, 0x69]; // call_set_nonce_100()
         let calls_a = vec![Call {
             selector: call_100,

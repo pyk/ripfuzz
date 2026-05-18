@@ -211,7 +211,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0x8b, 0xa4, 0x07, 0x24]; // call_prank_sender()
         let output = chain
             .execute(&[Call {
@@ -233,7 +237,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0x32, 0x69, 0xe0, 0x01]; // call_prank_origin()
         let output = chain
             .execute(&[Call {
@@ -255,7 +263,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0xcf, 0xc6, 0x97, 0xd1]; // call_prank_consumed()
         let output = chain
             .execute(&[Call {
@@ -277,7 +289,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0x9c, 0x86, 0xb2, 0x45]; // call_start_stop()
         let output = chain
             .execute_with_opts(
@@ -302,7 +318,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_start: [u8; 4] = [0x9c, 0x86, 0xb2, 0x45]; // call_start_stop()
         // Trace is printed by the start_stop test above.
         chain
@@ -324,7 +344,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_start: [u8; 4] = [0xa4, 0x03, 0xd2, 0x7d]; // call_start_no_stop()
         let call_after: [u8; 4] = [0x57, 0xee, 0x3f, 0x81]; // call_after_start_no_stop()
         let output = chain
@@ -356,7 +380,11 @@ mod tests {
             Path::new("test/CheatcodePrankSetup.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0x3e, 0xa0, 0x27, 0xaf]; // call_expect_persisted()
         let output = chain
             .execute(&[Call {
@@ -378,7 +406,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_prank: [u8; 4] = [0x8b, 0xa4, 0x07, 0x24]; // call_prank_sender()
         let call_consumed: [u8; 4] = [0xcf, 0xc6, 0x97, 0xd1]; // call_prank_consumed()
         let output = chain
@@ -410,7 +442,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0x3f, 0xf7, 0x0f, 0xda]; // call_prank_nested()
         let output = chain
             .execute(&[Call {
@@ -432,7 +468,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0x6f, 0x61, 0x93, 0xa3]; // call_start_nested()
         let output = chain
             .execute(&[Call {
@@ -454,7 +494,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_start: [u8; 4] = [0xa4, 0x03, 0xd2, 0x7d]; // call_start_no_stop()
         let call_stop: [u8; 4] = [0xa6, 0xb0, 0x8f, 0x5f]; // call_stop_mid()
         let call_after: [u8; 4] = [0x96, 0x9a, 0x98, 0xbd]; // call_after_stop()
@@ -495,7 +539,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0x46, 0x32, 0x20, 0x46]; // call_prank_constructor()
         let output = chain
             .execute(&[Call {
@@ -517,7 +565,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0x50, 0xb1, 0x17, 0x4e]; // call_modifier_prank()
         let output = chain
             .execute(&[Call {
@@ -539,7 +591,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_mod: [u8; 4] = [0x50, 0xb1, 0x17, 0x4e]; // call_modifier_prank()
         let call_after: [u8; 4] = [0x96, 0x9a, 0x98, 0xbd]; // call_after_stop()
         let output = chain
@@ -571,7 +627,11 @@ mod tests {
             Path::new("test/CheatcodePrankSetup.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_revert: [u8; 4] = [0x90, 0x37, 0x8f, 0xba]; // call_override_and_revert()
         let output = chain
             .execute(&[Call {
@@ -607,7 +667,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0xe7, 0xb4, 0x28, 0x84]; // call_start_overwrite_used()
         let output = chain
             .execute(&[Call {
@@ -629,7 +693,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0x6a, 0x0f, 0xa3, 0x90]; // call_start_overwrite_unused_reverts()
         let output = chain
             .execute(&[Call {
@@ -651,7 +719,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0x6e, 0x68, 0xaf, 0x8e]; // call_prank_over_start_reverts()
         let output = chain
             .execute(&[Call {
@@ -673,7 +745,11 @@ mod tests {
             Path::new("test/CheatcodePrank.sol"),
         )
         .unwrap();
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call: [u8; 4] = [0x4c, 0x7b, 0x41, 0x90]; // call_double_prank_reverts()
         let output = chain
             .execute(&[Call {

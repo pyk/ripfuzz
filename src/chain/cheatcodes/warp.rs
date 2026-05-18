@@ -54,7 +54,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55]; // call_record_timestamp()
         let calls = vec![Call {
             selector: call_record,
@@ -77,7 +81,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_warp: [u8; 4] = [0x5d, 0x57, 0xe2, 0x7f]; // call_warp(uint256)
         let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55]; // call_record_timestamp()
         let mut args = vec![0u8; 32];
@@ -112,7 +120,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_warp_revert: [u8; 4] = [0xc0, 0x7d, 0xae, 0xdf]; // call_warp_and_revert(uint256)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&9999u32.to_be_bytes());
@@ -137,7 +149,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_warp_100: [u8; 4] = [0x14, 0x43, 0x9b, 0x94]; // call_warp_100()
         let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55]; // call_record_timestamp()
         let calls = vec![
@@ -170,7 +186,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_warp_100: [u8; 4] = [0x14, 0x43, 0x9b, 0x94]; // call_warp_100()
         let call_warp_200: [u8; 4] = [0x5c, 0xb1, 0xed, 0xfe]; // call_warp_200()
         let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55]; // call_record_timestamp()
@@ -235,7 +255,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_warp_zero: [u8; 4] = [0xb3, 0x97, 0xad, 0xb5];
         let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55];
         let calls = vec![
@@ -268,7 +292,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_warp_max: [u8; 4] = [0x94, 0x91, 0xec, 0x37];
         let calls = vec![Call {
             selector: call_warp_max,
@@ -291,7 +319,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_warp: [u8; 4] = [0x5d, 0x57, 0xe2, 0x7f];
         let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55];
         let mut args = vec![0u8; 32];
@@ -328,7 +360,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_warp_100: [u8; 4] = [0x14, 0x43, 0x9b, 0x94];
         let calls = vec![Call {
             selector: call_warp_100,
@@ -351,7 +387,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_warp_and_roll: [u8; 4] = [0xb0, 0xd9, 0xad, 0x03];
         let calls = vec![Call {
             selector: call_warp_and_roll,

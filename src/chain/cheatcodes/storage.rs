@@ -168,7 +168,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_record: [u8; 4] = [0xa1, 0xda, 0x7e, 0x1c]; // call_record_slot_a()
         let calls = vec![Call {
             selector: call_record,
@@ -191,7 +195,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_then_load: [u8; 4] = [0x47, 0x16, 0x49, 0xa5]; // call_store_then_load(bytes32)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&0xFACADEu32.to_be_bytes());
@@ -216,7 +224,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_and_revert: [u8; 4] = [0x9b, 0xc0, 0x03, 0xa3]; // call_store_and_revert(bytes32)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&0xBADu32.to_be_bytes());
@@ -241,7 +253,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_overwrite: [u8; 4] = [0x73, 0x6b, 0xd4, 0x90]; // call_store_overwrite()
         let calls = vec![Call {
             selector: call_store_overwrite,
@@ -264,7 +280,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_load_empty: [u8; 4] = [0xd2, 0x98, 0x9e, 0x0e]; // call_load_empty()
         let calls = vec![Call {
             selector: call_load_empty,
@@ -287,7 +307,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_then_load: [u8; 4] = [0x47, 0x16, 0x49, 0xa5]; // call_store_then_load(bytes32)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&0xFACADEu32.to_be_bytes());
@@ -324,7 +348,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_load_and_warp: [u8; 4] = [0xce, 0x3d, 0x66, 0xe5]; // call_load_and_warp()
         let calls = vec![Call {
             selector: call_load_and_warp,
@@ -347,7 +375,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_load_precompile: [u8; 4] = [0x1c, 0x18, 0x63, 0x68]; // call_load_precompile()
         let calls = vec![Call {
             selector: call_load_precompile,
@@ -374,7 +406,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_record: [u8; 4] = [0xa1, 0xda, 0x7e, 0x1c]; // call_record_slot_a()
         let calls = vec![Call {
             selector: call_record,
@@ -397,7 +433,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_then_load: [u8; 4] = [0x47, 0x16, 0x49, 0xa5]; // call_store_then_load(bytes32)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&0xFACADEu32.to_be_bytes());
@@ -422,7 +462,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_and_revert: [u8; 4] = [0x9b, 0xc0, 0x03, 0xa3]; // call_store_and_revert(bytes32)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&0xBADu32.to_be_bytes());
@@ -447,7 +491,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_overwrite: [u8; 4] = [0x73, 0x6b, 0xd4, 0x90]; // call_store_overwrite()
         let calls = vec![Call {
             selector: call_store_overwrite,
@@ -470,7 +518,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_zero: [u8; 4] = [0xd2, 0x52, 0xd1, 0xbf]; // call_store_zero()
         let calls = vec![Call {
             selector: call_store_zero,
@@ -493,7 +545,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_empty: [u8; 4] = [0x95, 0x21, 0x71, 0xa8]; // call_store_empty()
         let calls = vec![Call {
             selector: call_store_empty,
@@ -516,7 +572,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_step1: [u8; 4] = [0x01, 0x6f, 0x31, 0x93]; // call_store_step1()
         let call_step2: [u8; 4] = [0x17, 0x1c, 0x7e, 0xcf]; // call_store_step2()
         let calls = vec![
@@ -549,7 +609,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_then_load: [u8; 4] = [0x47, 0x16, 0x49, 0xa5]; // call_store_then_load(bytes32)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&0xFACADEu32.to_be_bytes());
@@ -586,7 +650,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_precompile: [u8; 4] = [0x77, 0x26, 0x45, 0xc9]; // call_store_precompile()
         let calls = vec![Call {
             selector: call_store_precompile,
@@ -609,7 +677,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_store_and_warp: [u8; 4] = [0x53, 0xd5, 0x28, 0x9f]; // call_store_and_warp()
         let calls = vec![Call {
             selector: call_store_and_warp,

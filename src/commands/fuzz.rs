@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
+use revm::primitives::U256;
 use tracing::{debug, info, instrument};
 
 use crate::campaign::{Campaign, CampaignConfig};
@@ -24,6 +25,29 @@ fn parse_threads(s: &str) -> Result<usize, String> {
         return Err("threads must be at least 1".into());
     }
     Ok(n)
+}
+
+fn parse_balance(s: &str) -> Result<U256, String> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Ok(U256::ZERO);
+    }
+
+    let lower = trimmed.to_lowercase();
+    if let Some(stripped) = lower.strip_prefix("0x") {
+        return U256::from_str_radix(stripped, 16).map_err(|e| format!("invalid hex balance: {e}"));
+    }
+
+    if trimmed.contains(['e', 'E']) {
+        let f = trimmed
+            .parse::<f64>()
+            .map_err(|e| format!("invalid scientific notation balance: {e}"))?;
+        let plain = format!("{:.0}", f);
+        return U256::from_str_radix(&plain, 10)
+            .map_err(|e| format!("invalid scientific notation balance: {e}"));
+    }
+
+    U256::from_str_radix(trimmed, 10).map_err(|e| format!("invalid decimal balance: {e}"))
 }
 
 #[derive(Debug, Parser)]
@@ -71,6 +95,10 @@ pub struct Args {
     /// Enable the `ffi` cheatcode (security-sensitive).
     #[arg(long = "ffi")]
     pub ffi: bool,
+
+    /// Wei to send during target contract deployment.
+    #[arg(long = "deploy-value", default_value = "0", value_parser = parse_balance)]
+    pub deploy_value: U256,
 }
 
 #[instrument(skip(args), fields(target = ?args.target_path, threads = args.threads, max_runs = args.max_runs))]
@@ -96,6 +124,7 @@ pub fn run(args: Args) -> Result<()> {
         max_block_timestamp_delay: args.max_block_timestamp_delay,
         corpus_dir: args.corpus_dir,
         ffi: args.ffi,
+        deploy_value: args.deploy_value,
     };
     info!(?config, "starting fuzzing campaign");
 
@@ -164,4 +193,71 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_balance;
+    use revm::primitives::U256;
+
+    #[test]
+    fn parse_balance_empty() {
+        assert_eq!(parse_balance("").unwrap(), U256::ZERO);
+    }
+
+    #[test]
+    fn parse_balance_zero() {
+        assert_eq!(parse_balance("0").unwrap(), U256::ZERO);
+    }
+
+    #[test]
+    fn parse_balance_decimal() {
+        assert_eq!(parse_balance("1000").unwrap(), U256::from(1000));
+    }
+
+    #[test]
+    fn parse_balance_hex() {
+        assert_eq!(parse_balance("0x1a2b").unwrap(), U256::from(6699));
+    }
+
+    #[test]
+    fn parse_balance_hex_uppercase() {
+        assert_eq!(parse_balance("0x1A2B").unwrap(), U256::from(6699));
+    }
+
+    #[test]
+    fn parse_balance_scientific_lower() {
+        assert_eq!(
+            parse_balance("1e18").unwrap(),
+            U256::from(1_000_000_000_000_000_000u128)
+        );
+    }
+
+    #[test]
+    fn parse_balance_scientific_upper() {
+        assert_eq!(
+            parse_balance("1E18").unwrap(),
+            U256::from(1_000_000_000_000_000_000u128)
+        );
+    }
+
+    #[test]
+    fn parse_balance_invalid_hex() {
+        assert!(parse_balance("0xzz").is_err());
+    }
+
+    #[test]
+    fn parse_balance_invalid_decimal() {
+        assert!(parse_balance("abc").is_err());
+    }
+
+    #[test]
+    fn parse_balance_scientific_rounds() {
+        // 1.5e18 parses as f64 and rounds to 1500000000000000000,
+        // which is valid under Medusa's rules.
+        assert_eq!(
+            parse_balance("1.5e18").unwrap(),
+            U256::from(1_500_000_000_000_000_000u128)
+        );
+    }
 }

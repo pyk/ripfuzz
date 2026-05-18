@@ -111,7 +111,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let calls = vec![Call {
             selector: call_record,
@@ -134,7 +138,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_prevrandao: [u8; 4] = [0xfc, 0xfe, 0xad, 0xd3]; // call_prevrandao(bytes32)
         let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let mut args = vec![0u8; 32];
@@ -169,7 +177,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_revert: [u8; 4] = [0x60, 0xb1, 0x2d, 0x9d]; // call_prevrandao_and_revert(bytes32)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&0xDEADu32.to_be_bytes());
@@ -194,7 +206,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_a: [u8; 4] = [0x05, 0xc3, 0xdb, 0x72]; // call_prevrandao_A()
         let call_b: [u8; 4] = [0xb6, 0xb1, 0xa3, 0x32]; // call_prevrandao_B()
         let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
@@ -235,7 +251,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_zero: [u8; 4] = [0x4e, 0x48, 0x69, 0xb8]; // call_prevrandao_zero()
         let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let calls = vec![
@@ -268,7 +288,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_max: [u8; 4] = [0x9f, 0x00, 0x89, 0xb9]; // call_prevrandao_max()
         let calls = vec![Call {
             selector: call_max,
@@ -291,7 +315,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_prevrandao: [u8; 4] = [0xfc, 0xfe, 0xad, 0xd3]; // call_prevrandao(bytes32)
         let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let mut args = vec![0u8; 32];
@@ -328,7 +356,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_a: [u8; 4] = [0x05, 0xc3, 0xdb, 0x72]; // call_prevrandao_A()
         let calls = vec![Call {
             selector: call_a,
@@ -351,7 +383,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_interaction: [u8; 4] = [0x24, 0xed, 0x68, 0x04]; // call_prevrandao_and_roll_warp_fee_coinbase()
         let calls = vec![Call {
             selector: call_interaction,
@@ -374,7 +410,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_interaction: [u8; 4] = [0x12, 0xd5, 0x74, 0x98]; // call_prevrandao_then_difficulty()
         let calls = vec![Call {
             selector: call_interaction,

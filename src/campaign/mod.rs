@@ -45,12 +45,12 @@ impl CampaignBuilder {
         info!(contract = %artifact.contract_name, "artifact built");
 
         // Initialize chain once and share it across fuzzers.
-        let chain = crate::chain::Chain::initialize_with_opts(
-            &artifact,
-            self.project_path.clone(),
-            self.config.ffi,
-        )?
-        .setup()?;
+        let chain = crate::chain::Chain::for_artifact(&artifact)
+            .with_project(&self.project_path)
+            .with_ffi(self.config.ffi)
+            .with_deploy_value(self.config.deploy_value)
+            .init()?
+            .setup()?;
         debug!("deployment validated");
 
         let seeds = build_seeds(&artifact, self.config.sequence_length);
@@ -348,6 +348,46 @@ mod tests {
         assert_eq!(
             result.runs, 1000,
             "total runs across 4 fuzzers should be 1000"
+        );
+    }
+
+    #[test]
+    fn payable_constructor_accepts_deploy_value() {
+        let mut config = CampaignConfig::default();
+        config.threads = 1;
+        config.max_runs = 100;
+        config.timeout_secs = Some(10);
+        config.deploy_value = revm::primitives::U256::from(12345);
+
+        let campaign = Campaign::for_target(Path::new("test/PayableConstructor.sol"))
+            .with_project(Path::new("fixtures/basic-target"))
+            .with_config(config)
+            .build()
+            .unwrap();
+        let result = campaign.run().unwrap();
+
+        assert!(
+            result.failures.is_empty(),
+            "payable constructor should accept deploy value and invariant should pass"
+        );
+    }
+
+    #[test]
+    fn non_payable_constructor_rejects_deploy_value() {
+        let mut config = CampaignConfig::default();
+        config.threads = 1;
+        config.deploy_value = revm::primitives::U256::from(1);
+
+        let err = Campaign::for_target(Path::new("test/ImpossibleBug.sol"))
+            .with_project(Path::new("fixtures/basic-target"))
+            .with_config(config)
+            .build()
+            .unwrap_err();
+
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("revert") || msg.contains("value"),
+            "non-payable constructor with non-zero value should fail deployment: {msg}"
         );
     }
 }

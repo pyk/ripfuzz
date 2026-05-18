@@ -401,7 +401,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let output = chain.execute(&[]).unwrap();
         assert!(output.all_ok, "setup should succeed");
         assert!(
@@ -419,7 +423,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
 
         let call_zero_uint: [u8; 4] = [0xe4, 0x1b, 0x29, 0x67]; // action_toStringZeroUint()
         let call_max_uint: [u8; 4] = [0x13, 0x78, 0x98, 0xec]; // action_toStringMaxUint()
@@ -498,7 +506,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
 
         let call_warp: [u8; 4] = [0xe1, 0xea, 0xa3, 0x64]; // action_toStringThenWarp()
         let call_roll: [u8; 4] = [0xb3, 0xbb, 0x26, 0x2d]; // action_toStringThenRoll()
@@ -541,7 +553,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
 
         let call_rt_uint: [u8; 4] = [0x76, 0xff, 0xa8, 0x77]; // action_roundTripUint(uint256)
         let call_rt_int: [u8; 4] = [0x71, 0xd9, 0xdb, 0x42]; // action_roundTripInt(int256)

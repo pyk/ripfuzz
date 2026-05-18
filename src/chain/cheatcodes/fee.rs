@@ -87,7 +87,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
         let calls = vec![Call {
             selector: call_record,
@@ -110,7 +114,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_fee: [u8; 4] = [0xa0, 0x67, 0x5b, 0x95]; // call_fee(uint256)
         let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
         let mut args = vec![0u8; 32];
@@ -145,7 +153,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_fee_revert: [u8; 4] = [0x22, 0xfa, 0x48, 0x0c]; // call_fee_and_revert(uint256)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&9999u32.to_be_bytes());
@@ -170,7 +182,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_fee_100: [u8; 4] = [0xf8, 0xf9, 0x27, 0xd6]; // call_fee_100()
         let call_fee_200: [u8; 4] = [0x5d, 0x41, 0xb8, 0xfb]; // call_fee_200()
         let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
@@ -211,7 +227,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_fee_zero: [u8; 4] = [0x99, 0xe5, 0x90, 0x06]; // call_fee_zero()
         let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
         let calls = vec![
@@ -244,7 +264,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_fee_max: [u8; 4] = [0x5b, 0xf7, 0xaa, 0x07]; // call_fee_max_uint64()
         let calls = vec![Call {
             selector: call_fee_max,
@@ -267,7 +291,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_fee: [u8; 4] = [0xa0, 0x67, 0x5b, 0x95]; // call_fee(uint256)
         let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
         let mut args = vec![0u8; 32];
@@ -304,7 +332,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_fee_100: [u8; 4] = [0xf8, 0xf9, 0x27, 0xd6]; // call_fee_100()
         let calls = vec![Call {
             selector: call_fee_100,
@@ -327,7 +359,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_fee_and_roll_warp: [u8; 4] = [0x88, 0x02, 0x2d, 0xe1]; // call_fee_and_roll_warp()
         let calls = vec![Call {
             selector: call_fee_and_roll_warp,

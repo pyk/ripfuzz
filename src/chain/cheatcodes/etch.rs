@@ -105,7 +105,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_selector: [u8; 4] = [0x0c, 0xed, 0x93, 0xdf]; // call_record_extcodesize_cafe()
         let calls = vec![Call {
             selector: call_selector,
@@ -128,7 +132,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_etch: [u8; 4] = [0xf4, 0x0e, 0x08, 0x6d]; // call_etch_beef()
         let calls = vec![
             Call {
@@ -160,7 +168,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_etch: [u8; 4] = [0xf4, 0x0e, 0x08, 0x6d]; // call_etch_beef()
         let call_record: [u8; 4] = [0x0c, 0xed, 0x93, 0xdf]; // call_record_extcodesize_cafe()
 
@@ -196,7 +208,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_revert: [u8; 4] = [0x30, 0x77, 0x83, 0x7b]; // call_etch_and_revert()
         let calls = vec![Call {
             selector: call_revert,
@@ -220,7 +236,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_overwrite: [u8; 4] = [0xf0, 0x40, 0x7f, 0x90]; // call_etch_overwrite()
         let calls = vec![Call {
             selector: call_overwrite,
@@ -243,7 +263,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_new: [u8; 4] = [0x05, 0xa6, 0x5c, 0x5a]; // call_etch_new_account()
         let calls = vec![Call {
             selector: call_new,
@@ -294,7 +318,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_precompile: [u8; 4] = [0xbb, 0xf4, 0x3e, 0x73]; // call_etch_precompile()
         let calls = vec![Call {
             selector: call_precompile,

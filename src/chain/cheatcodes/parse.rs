@@ -393,7 +393,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let output = chain.execute(&[]).unwrap();
         assert!(output.all_ok, "setup properties should pass");
     }
@@ -407,7 +411,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_parse_and_store: [u8; 4] = [0x7b, 0x47, 0xb7, 0xab];
         let encoded = DynSolValue::String("42".into()).abi_encode();
         let calls = vec![Call {
@@ -431,7 +439,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_parse_no_side_effect: [u8; 4] = [0xfd, 0xe9, 0x9f, 0x77];
         let encoded = DynSolValue::String("123".into()).abi_encode();
         let calls = vec![Call {
@@ -455,7 +467,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_parse_and_revert: [u8; 4] = [0x55, 0xef, 0x2b, 0x8a];
         let encoded = DynSolValue::String("not a number".into()).abi_encode();
         let calls = vec![Call {
@@ -479,7 +495,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_parse_then_deal: [u8; 4] = [0xdf, 0x49, 0x23, 0x83];
         let encoded = DynSolValue::String("1000".into()).abi_encode();
         let calls = vec![Call {
@@ -503,7 +523,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let output = chain.execute(&[]).unwrap();
         assert!(output.all_ok, "round trip properties should pass");
     }
@@ -517,7 +541,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let output = chain.execute(&[]).unwrap();
         assert!(output.all_ok, "max value properties should pass");
     }
@@ -531,7 +559,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let output = chain.execute(&[]).unwrap();
         assert!(output.all_ok, "hex input properties should pass");
     }
@@ -545,7 +577,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let output = chain.execute(&[]).unwrap();
         assert!(output.all_ok, "bool variant properties should pass");
     }
@@ -559,7 +595,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
 
         let call_parse_and_store: [u8; 4] = [0x7b, 0x47, 0xb7, 0xab];
         let encoded = DynSolValue::String("42".into()).abi_encode();

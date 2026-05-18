@@ -235,7 +235,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let output = chain.execute(&[]).unwrap();
         assert!(output.all_ok, "empty sequence should succeed");
     }
@@ -249,7 +253,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_label: [u8; 4] = [0xa9, 0x43, 0xd2, 0xa8]; // call_label(address,string)
 
         let addr = Address::new([
@@ -293,7 +301,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_label_twice: [u8; 4] = [0x3b, 0x39, 0xae, 0x8c]; // call_label_twice()
         let calls = vec![Call {
             selector: call_label_twice,
@@ -316,7 +328,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_label_then_revert: [u8; 4] = [0x27, 0xbb, 0xf3, 0x71]; // call_label_then_revert()
         let calls = vec![Call {
             selector: call_label_then_revert,
@@ -339,7 +355,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_label_empty: [u8; 4] = [0xdb, 0xe0, 0x00, 0x79]; // call_label_empty()
         let calls = vec![Call {
             selector: call_label_empty,
@@ -362,7 +382,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_label_zero: [u8; 4] = [0x07, 0x60, 0xb1, 0x08]; // call_label_zero()
         let calls = vec![Call {
             selector: call_label_zero,
@@ -385,7 +409,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_label_overrides_setup: [u8; 4] = [0x2f, 0xd6, 0xb5, 0x5d]; // call_label_overrides_setup()
         let calls = vec![Call {
             selector: call_label_overrides_setup,
@@ -408,7 +436,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_label: [u8; 4] = [0xa9, 0x43, 0xd2, 0xa8]; // call_label(address,string)
 
         let addr = Address::new([

@@ -206,7 +206,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let _output = chain.execute(&vec![]).unwrap();
     }
 
@@ -219,7 +223,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let sign_sel: [u8; 4] = [0x2f, 0x64, 0xb9, 0x69]; // call_sign_and_store(uint256)
         let mut args = vec![0u8; 32];
         args[31..32].copy_from_slice(&1u8.to_be_bytes());
@@ -246,7 +254,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let revert_sel: [u8; 4] = [0xaa, 0x23, 0xc0, 0x04]; // call_sign_and_revert(uint256)
         let mut args = vec![0u8; 32];
         args[31..32].copy_from_slice(&1u8.to_be_bytes());
@@ -273,7 +285,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let sign_pk_1: [u8; 4] = [0x29, 0xb6, 0x23, 0x1f]; // call_sign_pk_1()
         let sign_pk_2: [u8; 4] = [0x65, 0x0a, 0x2c, 0xc7]; // call_sign_pk_2()
         let calls = vec![
@@ -310,7 +326,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let zero_sel: [u8; 4] = [0x63, 0x99, 0x58, 0xe0]; // call_sign_zero()
         let calls = vec![Call {
             selector: zero_sel,
@@ -335,7 +355,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let large_sel: [u8; 4] = [0x03, 0x02, 0x81, 0xa6]; // call_sign_too_large()
         let calls = vec![Call {
             selector: large_sel,
@@ -360,7 +384,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let boundary_sel: [u8; 4] = [0x88, 0x75, 0xc4, 0xa5]; // call_sign_boundary()
         let calls = vec![Call {
             selector: boundary_sel,
@@ -385,7 +413,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let sign_pk_1: [u8; 4] = [0x29, 0xb6, 0x23, 0x1f]; // call_sign_pk_1()
         let calls = vec![Call {
             selector: sign_pk_1,
@@ -410,7 +442,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let cross_sel: [u8; 4] = [0xad, 0x73, 0x11, 0xd5]; // call_sign_and_warp_roll(uint256)
         let mut args = vec![0u8; 32];
         args[31..32].copy_from_slice(&1u8.to_be_bytes());
@@ -437,7 +473,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let diff_sel: [u8; 4] = [0x4b, 0xb9, 0xc7, 0x75]; // call_sign_different_digest(uint256)
         let mut args = vec![0u8; 32];
         args[31..32].copy_from_slice(&1u8.to_be_bytes());
@@ -464,7 +504,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let sign_pk_1: [u8; 4] = [0x29, 0xb6, 0x23, 0x1f]; // call_sign_pk_1()
         let calls_a = vec![Call {
             selector: sign_pk_1,

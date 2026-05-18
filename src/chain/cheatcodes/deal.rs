@@ -96,7 +96,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_record: [u8; 4] = [0x1f, 0xec, 0xba, 0xb3]; // call_record_target_balance()
         let calls = vec![Call {
             selector: call_record,
@@ -119,7 +123,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_deal: [u8; 4] = [0xc3, 0x44, 0x3e, 0x79]; // call_deal(uint256)
         let call_record: [u8; 4] = [0x1f, 0xec, 0xba, 0xb3]; // call_record_target_balance()
         let mut args = vec![0u8; 32];
@@ -154,7 +162,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_deal_revert: [u8; 4] = [0x20, 0xcf, 0x7c, 0x0b]; // call_deal_and_revert(uint256)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&9999u32.to_be_bytes());
@@ -179,7 +191,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_deal_100: [u8; 4] = [0x1d, 0xa2, 0x66, 0x31]; // call_deal_100()
         let call_deal_200: [u8; 4] = [0xe8, 0x37, 0xf1, 0x89]; // call_deal_200()
         let calls = vec![
@@ -212,7 +228,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_deal_zero: [u8; 4] = [0x1c, 0x29, 0x90, 0xc9]; // call_deal_zero()
         let calls = vec![Call {
             selector: call_deal_zero,
@@ -235,7 +255,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_deal_max: [u8; 4] = [0x10, 0x7d, 0x54, 0x7e]; // call_deal_max()
         let calls = vec![Call {
             selector: call_deal_max,
@@ -258,7 +282,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_deal_empty: [u8; 4] = [0x18, 0xfd, 0x7c, 0x84]; // call_deal_empty(uint256)
         let mut args = vec![0u8; 32];
         args[31] = 42; // U256(42)
@@ -283,7 +311,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_deal_100: [u8; 4] = [0x1d, 0xa2, 0x66, 0x31]; // call_deal_100()
         let calls = vec![Call {
             selector: call_deal_100,
@@ -306,7 +338,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_deal_and_warp_roll: [u8; 4] = [0x94, 0xd9, 0xd2, 0xbc]; // call_deal_and_warp_roll()
         let calls = vec![Call {
             selector: call_deal_and_warp_roll,
@@ -329,7 +365,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_self_deal: [u8; 4] = [0xc4, 0xc7, 0xde, 0xea]; // call_self_deal(uint256)
         let mut args = vec![0u8; 32];
         args[24..32].copy_from_slice(&(1_000_000_000_000_000_000u64).to_be_bytes());
@@ -354,7 +394,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_deal_100: [u8; 4] = [0x1d, 0xa2, 0x66, 0x31]; // call_deal_100()
         let calls_a = vec![Call {
             selector: call_deal_100,

@@ -161,14 +161,13 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize_with_opts(
-            &artifact,
-            Path::new("fixtures/cheatcodes").to_path_buf(),
-            true,
-        )
-        .unwrap()
-        .setup()
-        .unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .with_project(Path::new("fixtures/cheatcodes"))
+            .with_ffi(true)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_record: [u8; 4] = [0xc6, 0x4e, 0x6d, 0xa4]; // action_record_hash()
         let calls = vec![Call {
             selector: call_record,
@@ -191,14 +190,13 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize_with_opts(
-            &artifact,
-            Path::new("fixtures/cheatcodes").to_path_buf(),
-            true,
-        )
-        .unwrap()
-        .setup()
-        .unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .with_project(Path::new("fixtures/cheatcodes"))
+            .with_ffi(true)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let action_ffi_echo: [u8; 4] = [0x6a, 0xad, 0xa2, 0xed]; // action_ffi_echo(string)
         let mut args = vec![0u8; 32 + 32 + 32];
         // offset to string data
@@ -239,14 +237,13 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize_with_opts(
-            &artifact,
-            Path::new("fixtures/cheatcodes").to_path_buf(),
-            true,
-        )
-        .unwrap()
-        .setup()
-        .unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .with_project(Path::new("fixtures/cheatcodes"))
+            .with_ffi(true)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let action_ffi_and_revert: [u8; 4] = [0x38, 0x08, 0x1c, 0x97]; // action_ffi_and_revert()
         let calls = vec![Call {
             selector: action_ffi_and_revert,
@@ -274,14 +271,13 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize_with_opts(
-            &artifact,
-            Path::new("fixtures/cheatcodes").to_path_buf(),
-            true,
-        )
-        .unwrap()
-        .setup()
-        .unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .with_project(Path::new("fixtures/cheatcodes"))
+            .with_ffi(true)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let action_ffi_hex: [u8; 4] = [0xc8, 0xf1, 0x28, 0x13]; // action_ffi_hex()
         let calls = vec![Call {
             selector: action_ffi_hex,
@@ -304,14 +300,13 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize_with_opts(
-            &artifact,
-            Path::new("fixtures/cheatcodes").to_path_buf(),
-            true,
-        )
-        .unwrap()
-        .setup()
-        .unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .with_project(Path::new("fixtures/cheatcodes"))
+            .with_ffi(true)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let action_ffi_raw: [u8; 4] = [0x57, 0x30, 0x82, 0x43]; // action_ffi_raw()
         let calls = vec![Call {
             selector: action_ffi_raw,
@@ -334,14 +329,13 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize_with_opts(
-            &artifact,
-            Path::new("fixtures/cheatcodes").to_path_buf(),
-            true,
-        )
-        .unwrap()
-        .setup()
-        .unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .with_project(Path::new("fixtures/cheatcodes"))
+            .with_ffi(true)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let action_ffi_empty: [u8; 4] = [0x52, 0x9e, 0xac, 0xe7]; // action_ffi_empty()
         let calls = vec![Call {
             selector: action_ffi_empty,
@@ -364,14 +358,13 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize_with_opts(
-            &artifact,
-            Path::new("fixtures/cheatcodes").to_path_buf(),
-            true,
-        )
-        .unwrap()
-        .setup()
-        .unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .with_project(Path::new("fixtures/cheatcodes"))
+            .with_ffi(true)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let action_ffi_fail: [u8; 4] = [0x4d, 0x78, 0xdd, 0xb2]; // action_ffi_fail()
         let calls = vec![Call {
             selector: action_ffi_fail,
@@ -394,14 +387,13 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize_with_opts(
-            &artifact,
-            Path::new("fixtures/cheatcodes").to_path_buf(),
-            true,
-        )
-        .unwrap()
-        .setup()
-        .unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .with_project(Path::new("fixtures/cheatcodes"))
+            .with_ffi(true)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
 
         // Sequence A: store a new hash via ffi
         let action_ffi_echo: [u8; 4] = [0x6a, 0xad, 0xa2, 0xed]; // action_ffi_echo(string)
@@ -441,14 +433,13 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize_with_opts(
-            &artifact,
-            Path::new("fixtures/cheatcodes").to_path_buf(),
-            true,
-        )
-        .unwrap()
-        .setup()
-        .unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .with_project(Path::new("fixtures/cheatcodes"))
+            .with_ffi(true)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let action_ffi_echo: [u8; 4] = [0x6a, 0xad, 0xa2, 0xed]; // action_ffi_echo(string)
         let mut args = vec![0u8; 32 + 32 + 32];
         args[24..32].copy_from_slice(&32u64.to_be_bytes());
@@ -475,14 +466,13 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize_with_opts(
-            &artifact,
-            Path::new("fixtures/cheatcodes").to_path_buf(),
-            true,
-        )
-        .unwrap()
-        .setup()
-        .unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .with_project(Path::new("fixtures/cheatcodes"))
+            .with_ffi(true)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let action_ffi_and_warp: [u8; 4] = [0x84, 0x0e, 0xac, 0xeb]; // action_ffi_and_warp()
         let calls = vec![Call {
             selector: action_ffi_and_warp,

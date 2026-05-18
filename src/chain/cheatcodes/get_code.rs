@@ -213,7 +213,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let output = chain.execute(&[]).unwrap();
         assert!(output.all_ok, "setup should succeed");
     }
@@ -227,7 +231,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
 
         let action_deploy: [u8; 4] = [0xa7, 0x6f, 0x21, 0x8b]; // action_deployHelper()
 
@@ -252,7 +260,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
 
         let action_deploy1: [u8; 4] = [0xa7, 0x6f, 0x21, 0x8b]; // action_deployHelper()
         let action_deploy2: [u8; 4] = [0x74, 0xad, 0xfb, 0xd7]; // action_deployHelperAgain()
@@ -287,7 +299,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
 
         let action_missing: [u8; 4] = [0x2a, 0xb2, 0xe8, 0x5b]; // action_getMissingCode()
 
@@ -315,7 +331,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
 
         let action_bare: [u8; 4] = [0x15, 0x2a, 0x1e, 0xa2]; // action_getCodeBare()
         let action_file: [u8; 4] = [0x67, 0x16, 0x21, 0xfb]; // action_getCodeFile()
@@ -358,7 +378,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
 
         let action_self: [u8; 4] = [0x8b, 0xce, 0x43, 0x9b]; // action_getSelfCode()
 

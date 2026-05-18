@@ -80,13 +80,14 @@ pub fn initialize(
     target: &ContractArtifact,
     project_root: PathBuf,
     ffi_enabled: bool,
+    deploy_value: U256,
 ) -> Result<(Address, ChainState), ChainInitError> {
     let mut db = InMemoryDB::default();
 
     db.insert_account_info(
         CALLER,
         AccountInfo {
-            balance: U256::from(1_000_000_000_000_000_000u128),
+            balance: U256::from(u128::MAX),
             nonce: 0,
             code_hash: KECCAK_EMPTY,
             code: None,
@@ -105,6 +106,7 @@ pub fn initialize(
         kind: TxKind::Create,
         data: target.initcode.clone(),
         gas_limit: GAS_LIMIT,
+        value: deploy_value,
         ..Default::default()
     };
 

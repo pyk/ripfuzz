@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use revm::primitives::U256;
+
 /// Configuration for a fuzzing campaign.
 #[derive(Debug, Clone)]
 pub struct CampaignConfig {
@@ -17,6 +19,8 @@ pub struct CampaignConfig {
     pub corpus_dir: Option<PathBuf>,
     /// Enable the `ffi` cheatcode (allows arbitrary host command execution).
     pub ffi: bool,
+    /// Wei value sent with the target contract deployment transaction.
+    pub deploy_value: U256,
 }
 
 impl Default for CampaignConfig {
@@ -33,6 +37,7 @@ impl Default for CampaignConfig {
             max_block_timestamp_delay: 5,
             corpus_dir: None,
             ffi: false,
+            deploy_value: U256::ZERO,
         }
     }
 }

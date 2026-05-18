@@ -107,7 +107,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
         let calls = vec![Call {
             selector: call_record,
@@ -130,7 +134,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_difficulty: [u8; 4] = [0x59, 0x4a, 0x94, 0x30]; // call_difficulty(uint256)
         let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
         let mut args = vec![0u8; 32];
@@ -165,7 +173,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_difficulty_and_revert: [u8; 4] = [0x60, 0xa9, 0x6a, 0x8e]; // call_difficulty_and_revert(uint256)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&9999u32.to_be_bytes());
@@ -190,7 +202,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_prevrandao_then_difficulty: [u8; 4] = [0x12, 0xd5, 0x74, 0x98]; // call_prevrandao_then_difficulty()
         let calls = vec![Call {
             selector: call_prevrandao_then_difficulty,
@@ -213,7 +229,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_difficulty: [u8; 4] = [0x59, 0x4a, 0x94, 0x30]; // call_difficulty(uint256)
         let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
         let mut args1 = vec![0u8; 32];
@@ -257,7 +277,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_difficulty_zero: [u8; 4] = [0xa5, 0xd5, 0x9c, 0xc5]; // call_difficulty_zero()
         let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
         let calls = vec![
@@ -290,7 +314,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_difficulty_max: [u8; 4] = [0x8d, 0xe4, 0x75, 0x24]; // call_difficulty_max()
         let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
         let calls = vec![
@@ -323,7 +351,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_difficulty: [u8; 4] = [0x59, 0x4a, 0x94, 0x30]; // call_difficulty(uint256)
         let call_record: [u8; 4] = [0x8f, 0xbd, 0x24, 0x95]; // call_record()
         let mut args = vec![0u8; 32];
@@ -360,7 +392,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_noop: [u8; 4] = [0x0a, 0xd4, 0xeb, 0x0c]; // call_noop()
         let calls = vec![Call {
             selector: call_noop,

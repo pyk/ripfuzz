@@ -68,7 +68,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_record: [u8; 4] = [0xe8, 0xc1, 0x48, 0xfb]; // call_record_coinbase()
         let calls = vec![Call {
             selector: call_record,
@@ -91,7 +95,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_coinbase: [u8; 4] = [0xa3, 0xd2, 0x69, 0x68]; // call_coinbase(address)
         let call_record: [u8; 4] = [0xe8, 0xc1, 0x48, 0xfb]; // call_record_coinbase()
         let mut args = vec![0u8; 32];
@@ -126,7 +134,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_revert: [u8; 4] = [0xd0, 0xec, 0x30, 0xf3]; // call_coinbase_and_revert(address)
         let mut args = vec![0u8; 32];
         args[28..32].copy_from_slice(&0xDEADu32.to_be_bytes());
@@ -151,7 +163,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_a: [u8; 4] = [0x7a, 0xae, 0x30, 0x59]; // call_coinbase_A()
         let call_b: [u8; 4] = [0x4a, 0x35, 0x3e, 0x4e]; // call_coinbase_B()
         let call_record: [u8; 4] = [0xe8, 0xc1, 0x48, 0xfb]; // call_record_coinbase()
@@ -192,7 +208,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_zero: [u8; 4] = [0x3b, 0x34, 0x40, 0x8c]; // call_coinbase_zero()
         let call_record: [u8; 4] = [0xe8, 0xc1, 0x48, 0xfb]; // call_record_coinbase()
         let calls = vec![
@@ -225,7 +245,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_coinbase: [u8; 4] = [0xa3, 0xd2, 0x69, 0x68]; // call_coinbase(address)
         let call_record: [u8; 4] = [0xe8, 0xc1, 0x48, 0xfb]; // call_record_coinbase()
         let mut args = vec![0u8; 32];
@@ -262,7 +286,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_a: [u8; 4] = [0x7a, 0xae, 0x30, 0x59]; // call_coinbase_A()
         let calls = vec![Call {
             selector: call_a,
@@ -285,7 +313,11 @@ mod tests {
         )
         .unwrap();
 
-        let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
         let call_interaction: [u8; 4] = [0x55, 0x0b, 0x0c, 0xbe]; // call_coinbase_and_roll_warp_fee()
         let calls = vec![Call {
             selector: call_interaction,
