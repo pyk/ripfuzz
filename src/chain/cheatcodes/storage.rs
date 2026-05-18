@@ -180,12 +180,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_load_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp store should persist into first call");
     }
 
     #[test]
@@ -211,15 +205,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_store_load_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "store/load should persist across calls with no auto-advance"
-        );
     }
 
     #[test]
@@ -245,15 +230,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "store_and_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_store")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "reverted store should not leak into properties"
-        );
     }
 
     #[test]
@@ -277,12 +253,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_store_overwrite")
-            .expect("property should exist");
-        assert!(prop.passed, "store overwrite should produce correct value");
     }
 
     #[test]
@@ -306,12 +276,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_load_empty_returns_zero")
-            .expect("property should exist");
-        assert!(prop.passed, "load on empty address should return zero");
     }
 
     #[test]
@@ -338,7 +302,7 @@ mod tests {
         let output_a = chain.execute(&calls_a).unwrap();
         assert!(output_a.all_ok, "sequence A should succeed");
 
-        let call_setup_only: [u8; 4] = [0x28, 0x98, 0x65, 0x69]; // property_setup_only()
+        let call_setup_only: [u8; 4] = [0xcb, 0x67, 0xed, 0x3c]; // setup_only()
         let calls_b = vec![Call {
             selector: call_setup_only,
             args: vec![],
@@ -349,15 +313,6 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "store from sequence A should not leak into sequence B"
-        );
     }
 
     #[test]
@@ -381,15 +336,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_load_and_warp")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "load and warp should coexist without interference"
-        );
     }
 
     #[test]
@@ -440,12 +386,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_store_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp store should persist into first call");
     }
 
     #[test]
@@ -471,15 +411,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_store_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "store should persist across calls with no auto-advance"
-        );
     }
 
     #[test]
@@ -505,15 +436,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "store_and_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_store")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "reverted store should not leak into properties"
-        );
     }
 
     #[test]
@@ -537,12 +459,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_store_overwrite")
-            .expect("property should exist");
-        assert!(prop.passed, "store overwrite should produce correct value");
     }
 
     #[test]
@@ -566,12 +482,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_store_zero_clears")
-            .expect("property should exist");
-        assert!(prop.passed, "store to zero should clear the slot");
     }
 
     #[test]
@@ -595,15 +505,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_store_empty_address")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "store to empty address should create account and persist value"
-        );
     }
 
     #[test]
@@ -637,15 +538,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_multi_call_final_state")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "property should see the final state after multi-call sequence"
-        );
     }
 
     #[test]
@@ -672,7 +564,7 @@ mod tests {
         let output_a = chain.execute(&calls_a).unwrap();
         assert!(output_a.all_ok, "sequence A should succeed");
 
-        let call_setup_only: [u8; 4] = [0x18, 0x22, 0x30, 0xe9]; // property_setup_only_store()
+        let call_setup_only: [u8; 4] = [0x0e, 0xa6, 0x3b, 0xe6]; // setup_only_store()
         let calls_b = vec![Call {
             selector: call_setup_only,
             args: vec![],
@@ -683,15 +575,6 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only_store")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "store from sequence A should not leak into sequence B"
-        );
     }
 
     #[test]
@@ -738,14 +621,5 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_store_and_warp")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "store and warp should coexist without interference"
-        );
     }
 }

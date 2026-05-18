@@ -26,11 +26,11 @@ contract CheatcodeNonce {
         recordedNonce = vm.getNonce(TARGET);
     }
 
-    function property_setup_nonce_persists() external view returns (bool) {
+    function setup_nonce_persists() external view returns (bool) {
         return vm.getNonce(address(this)) == 7 && vm.getNonce(TARGET) == 5;
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return vm.getNonce(address(this)) == 7;
     }
 
@@ -41,7 +41,7 @@ contract CheatcodeNonce {
         recordedNonce = vm.getNonce(TARGET);
     }
 
-    function property_nonce_persists_across_calls() external view returns (bool) {
+    function nonce_persists_across_calls() external view returns (bool) {
         return recordedNonce == 100;
     }
 
@@ -52,7 +52,7 @@ contract CheatcodeNonce {
         revert("intentional");
     }
 
-    function property_revert_undoes_nonce() external view returns (bool) {
+    function revert_undoes_nonce() external view returns (bool) {
         return vm.getNonce(TARGET) == 5;
     }
 
@@ -62,7 +62,7 @@ contract CheatcodeNonce {
         vm.setNonce(TARGET, 1); // current is 5, so 1 < 5 must revert
     }
 
-    function property_invalid_nonce_reverted() external view returns (bool) {
+    function invalid_nonce_reverted() external view returns (bool) {
         return vm.getNonce(TARGET) == 5;
     }
 
@@ -76,7 +76,7 @@ contract CheatcodeNonce {
         vm.setNonce(TARGET, 200);
     }
 
-    function property_nonce_overwrite() external view returns (bool) {
+    function nonce_overwrite() external view returns (bool) {
         return vm.getNonce(TARGET) == 200;
     }
 
@@ -86,7 +86,7 @@ contract CheatcodeNonce {
         vm.setNonce(EMPTY_ADDR, 0);
     }
 
-    function property_nonce_zero() external view returns (bool) {
+    function nonce_zero() external view returns (bool) {
         return vm.getNonce(EMPTY_ADDR) == 0;
     }
 
@@ -96,7 +96,7 @@ contract CheatcodeNonce {
         vm.setNonce(TARGET, type(uint64).max);
     }
 
-    function property_nonce_max() external view returns (bool) {
+    function nonce_max() external view returns (bool) {
         return vm.getNonce(TARGET) == type(uint64).max;
     }
 
@@ -106,7 +106,7 @@ contract CheatcodeNonce {
         vm.setNonce(EMPTY_ADDR, nonce);
     }
 
-    function property_nonce_empty() external view returns (bool) {
+    function nonce_empty() external view returns (bool) {
         return vm.getNonce(EMPTY_ADDR) == 42;
     }
 
@@ -116,13 +116,13 @@ contract CheatcodeNonce {
         vm.setNonce(EOA, nonce);
     }
 
-    function property_nonce_eoa() external view returns (bool) {
+    function nonce_eoa() external view returns (bool) {
         return vm.getNonce(EOA) == 99;
     }
 
     // --- Property sees final nonce ---
 
-    function property_final_nonce() external view returns (bool) {
+    function final_nonce() external view returns (bool) {
         return vm.getNonce(TARGET) == 100;
     }
 
@@ -134,7 +134,7 @@ contract CheatcodeNonce {
         vm.roll(67890);
     }
 
-    function property_nonce_and_warp_roll() external view returns (bool) {
+    function nonce_and_warp_roll() external view returns (bool) {
         return vm.getNonce(TARGET) == 333
             && block.timestamp == 12345
             && block.number == 67890;
@@ -146,7 +146,7 @@ contract CheatcodeNonce {
         vm.setNonce(address(this), nonce);
     }
 
-    function property_self_set_nonce_overwrites_setup() external view returns (bool) {
+    function self_set_nonce_overwrites_setup() external view returns (bool) {
         return vm.getNonce(address(this)) == 50;
     }
 }

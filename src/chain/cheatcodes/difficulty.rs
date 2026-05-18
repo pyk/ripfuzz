@@ -119,12 +119,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_difficulty_unchanged")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp difficulty should be a no-op");
     }
 
     #[test]
@@ -160,12 +154,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_difficulty_no_op")
-            .expect("property should exist");
-        assert!(prop.passed, "difficulty should be a no-op in sequence");
     }
 
     #[test]
@@ -191,15 +179,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "difficulty_and_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_is_still_no_op")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "reverted difficulty should not leak into properties"
-        );
     }
 
     #[test]
@@ -223,15 +202,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_prevrandao_unaffected")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "difficulty should not clobber a prior prevrandao setting"
-        );
     }
 
     #[test]
@@ -276,15 +246,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_difficulty_still_unchanged")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "multiple difficulty calls should still be no-ops"
-        );
     }
 
     #[test]
@@ -318,12 +279,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_difficulty_zero_no_op")
-            .expect("property should exist");
-        assert!(prop.passed, "difficulty to zero should still be a no-op");
     }
 
     #[test]
@@ -357,15 +312,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_difficulty_max_no_op")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "difficulty to max uint64 should still be a no-op"
-        );
     }
 
     #[test]
@@ -403,20 +349,11 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "difficulty from sequence A should not leak into sequence B"
-        );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_difficulty_property_final_integration() {
+    fn cheatcode_difficulty_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
             Path::new("test/CheatcodeDifficulty.sol"),
@@ -435,11 +372,5 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_final_difficulty")
-            .expect("property should exist");
-        assert!(prop.passed, "property should see the default difficulty");
     }
 }

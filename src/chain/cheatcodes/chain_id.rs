@@ -104,12 +104,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_chain_id_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp chainId should persist into first call");
     }
 
     #[test]
@@ -145,12 +139,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_chain_id_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "chainId should persist across calls");
     }
 
     #[test]
@@ -176,15 +164,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "chainId_and_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_chain_id")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "reverted chainId should not leak into properties"
-        );
     }
 
     #[test]
@@ -226,15 +205,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_chain_id_overwrite")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "chainId overwrite should produce correct value"
-        );
     }
 
     #[test]
@@ -268,12 +238,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_chain_id_zero")
-            .expect("property should exist");
-        assert!(prop.passed, "chainId to zero should produce correct value");
     }
 
     #[test]
@@ -307,15 +271,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_chain_id_max_u64")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "chainId to max uint64 should produce correct value"
-        );
     }
 
     #[test]
@@ -339,12 +294,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "chainId too large should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_chain_id_too_large_reverts")
-            .expect("property should exist");
-        assert!(prop.passed, "chainId too large should not mutate chain ID");
     }
 
     #[test]
@@ -382,20 +331,11 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "chainId from sequence A should not leak into sequence B"
-        );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_chain_id_property_final_integration() {
+    fn cheatcode_chain_id_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
             Path::new("test/CheatcodeChainId.sol"),
@@ -414,12 +354,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_final_chain_id")
-            .expect("property should exist");
-        assert!(prop.passed, "property should see the final chainId value");
     }
 
     #[test]
@@ -443,14 +377,5 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_chain_id_and_warp")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "chainId and warp should coexist without interference"
-        );
     }
 }

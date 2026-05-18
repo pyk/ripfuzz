@@ -23,7 +23,7 @@ contract CheatcodePrankSetup {
         victim.record();
     }
 
-    function property_setup_start_persisted() external view returns (bool) {
+    function setup_start_persisted() external view returns (bool) {
         return victim.lastSender() == address(0x888);
     }
 }

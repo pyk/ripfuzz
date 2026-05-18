@@ -16,25 +16,25 @@ pub mod mutators;
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct WorkerResult {
     pub runs: u64,
-    pub failures: Vec<PropertyFailure>,
+    pub failures: Vec<Crash>,
     /// Total individual calls executed across all runs.
     pub total_calls: u64,
     /// Total gas consumed across all calls.
     pub total_gas: u64,
 }
 
-/// A single property failure discovered during fuzzing.
+/// A single crash (assert panic) discovered during fuzzing.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PropertyFailure {
-    pub property_name: String,
-    pub property_selector: [u8; 4],
+pub struct Crash {
+    pub function_name: String,
+    pub selector: [u8; 4],
     pub call_sequence: Vec<Call>,
     /// Per-call block number / timestamp captured during execution.
     pub call_meta: Vec<crate::chain::output::CallMeta>,
 }
 
-/// Format a property failure's call sequence as a flat, Medusa-style log.
-pub fn format_failure(artifact: &contract::ContractArtifact, failure: &PropertyFailure) -> String {
+/// Format a crash's call sequence as a flat, Medusa-style log.
+pub fn format_failure(artifact: &contract::ContractArtifact, failure: &Crash) -> String {
     let mut lines = Vec::new();
     for (i, call) in failure.call_sequence.iter().enumerate() {
         let n = i + 1;
@@ -165,7 +165,7 @@ fn format_dyn_value(v: &alloy_dyn_abi::DynSolValue) -> String {
 pub struct Worker {
     artifact: Arc<contract::ContractArtifact>,
     chain: Arc<crate::chain::Chain>,
-    selectors: Arc<Vec<[u8; 4]>>,
+    fuzzed_selectors: Arc<Vec<[u8; 4]>>,
     config: Arc<CampaignConfig>,
 }
 
@@ -174,12 +174,12 @@ impl Worker {
         artifact: Arc<contract::ContractArtifact>,
         chain: Arc<crate::chain::Chain>,
         config: Arc<CampaignConfig>,
-        selectors: Arc<Vec<[u8; 4]>>,
+        fuzzed_selectors: Arc<Vec<[u8; 4]>>,
     ) -> Self {
         Self {
             artifact,
             chain,
-            selectors,
+            fuzzed_selectors,
             config,
         }
     }
@@ -222,7 +222,7 @@ impl Worker {
         let mut mutators: Vec<Box<dyn mutators::Mutator>> = vec![
             Box::new(mutators::SequenceSwapMutator),
             Box::new(mutators::SequenceInsertMutator::new(
-                self.selectors.to_vec(),
+                self.fuzzed_selectors.to_vec(),
                 self.config.max_block_number_delay,
                 self.config.max_block_timestamp_delay,
             )),
@@ -275,10 +275,10 @@ impl Worker {
                             self.mutate_corpus_item(&corpus, &mut mutators, &mut rng, idx, base);
                         calls
                     } else {
-                        generate_random_sequence(&self.selectors, &mut rng, &self.config)
+                        generate_random_sequence(&self.fuzzed_selectors, &mut rng, &self.config)
                     }
                 } else {
-                    generate_random_sequence(&self.selectors, &mut rng, &self.config)
+                    generate_random_sequence(&self.fuzzed_selectors, &mut rng, &self.config)
                 }
             };
 
@@ -286,7 +286,6 @@ impl Worker {
             total_calls += output.total_calls;
             total_gas += output.total_gas;
             let all_ok = output.all_ok;
-            let property_triggered = output.property_results.iter().any(|p| p.passed);
             let local_coverage = output.coverage;
 
             let mut item = CorpusItem::new(calls);
@@ -306,14 +305,11 @@ impl Worker {
                 }
             }
 
-            if all_ok
-                && property_triggered
-                && let Some(prop) = output.property_results.into_iter().find(|p| p.passed)
-            {
+            if let Some(crash) = output.crash {
                 let call_sequence = std::mem::take(&mut item.calls);
-                failures.push(PropertyFailure {
-                    property_name: prop.name,
-                    property_selector: prop.selector,
+                failures.push(Crash {
+                    function_name: crash.name,
+                    selector: crash.selector,
                     call_sequence,
                     call_meta: output.call_meta,
                 });
@@ -377,7 +373,7 @@ mod tests {
     use crate::chain::output::CallMeta;
     use crate::contract;
     use crate::corpus;
-    use crate::worker::PropertyFailure;
+    use crate::worker::Crash;
     use crate::worker::format_failure;
 
     #[test]
@@ -412,9 +408,9 @@ mod tests {
             },
         ];
 
-        let failure = PropertyFailure {
-            property_name: "property_caught".into(),
-            property_selector: [0; 4],
+        let failure = Crash {
+            function_name: "invariant_caught".into(),
+            selector: [0; 4],
             call_sequence: calls,
             call_meta: vec![
                 CallMeta {

@@ -15,7 +15,7 @@ contract CheatcodeSnapshotRevert {
         counter++;
     }
 
-    function property_counter_never_100() external view returns (bool) {
-        return counter != 100;
+    function invariant_counter_never_100() external view {
+        assert(counter != 100);
     }
 }

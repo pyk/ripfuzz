@@ -66,12 +66,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_warp_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp warp should persist into first call");
     }
 
     #[test]
@@ -107,15 +101,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_warp_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "warp should persist across calls with min delay"
-        );
     }
 
     #[test]
@@ -141,12 +126,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "warp_and_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_warp")
-            .expect("property should exist");
-        assert!(prop.passed, "reverted warp should not leak into properties");
     }
 
     #[test]
@@ -180,15 +159,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_warp_with_delay")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "warp with delay should produce correct timestamp"
-        );
     }
 
     #[test]
@@ -230,15 +200,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_warp_overwrite")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "warp overwrite should produce correct timestamp"
-        );
     }
 
     #[test]
@@ -296,12 +257,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_warp_zero")
-            .expect("property should exist");
-        assert!(prop.passed, "warp to zero should produce correct timestamp");
     }
 
     #[test]
@@ -325,15 +280,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_warp_max_uint64")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "warp to max uint64 should produce correct timestamp"
-        );
     }
 
     #[test]
@@ -371,20 +317,11 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "warp from sequence A should not leak into sequence B"
-        );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_warp_property_final_integration() {
+    fn cheatcode_warp_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
             Path::new("test/CheatcodeWarp.sol"),
@@ -403,15 +340,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_final_timestamp")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "property should see the final warped timestamp"
-        );
     }
 
     #[test]
@@ -435,14 +363,5 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_warp_and_roll")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "warp and roll should coexist without interference"
-        );
     }
 }

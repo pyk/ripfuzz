@@ -61,15 +61,15 @@ contract CheatcodeGetCode {
         selfCode = vm.getCode("CheatcodeGetCode");
     }
 
-    function property_setupGetCode() external view returns (bool) {
+    function setupGetCode() external view returns (bool) {
         return setupAddr != address(0) && Helper(setupAddr).magic() == 42;
     }
 
-    function property_actionGetCode() external view returns (bool) {
+    function actionGetCode() external view returns (bool) {
         return actionAddr != address(0) && Helper(actionAddr).magic() == 42;
     }
 
-    function property_multiGetCode() external view returns (bool) {
+    function multiGetCode() external view returns (bool) {
         return actionAddr != address(0)
             && actionAddr2 != address(0)
             && actionAddr != actionAddr2
@@ -77,16 +77,16 @@ contract CheatcodeGetCode {
             && Helper(actionAddr2).magic() == 42;
     }
 
-    function property_errorCase() external view returns (bool) {
+    function errorCase() external view returns (bool) {
         return missingReverted;
     }
 
-    function property_formats() external view returns (bool) {
+    function formats() external view returns (bool) {
         return keccak256(bareCode) == keccak256(fileCode)
             && keccak256(fileCode) == keccak256(fullCode);
     }
 
-    function property_selfLookup() external view returns (bool) {
+    function selfLookup() external view returns (bool) {
         return selfCode.length > 0;
     }
 }

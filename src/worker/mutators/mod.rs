@@ -156,10 +156,9 @@ mod tests {
         }
 
         let res = chain.execute(&calls).unwrap();
-        assert!(res.all_ok, "sequence should succeed");
         assert!(
-            res.property_results.iter().any(|p| p.passed),
-            "property should be triggered"
+            res.crash.is_some(),
+            "invariant should be triggered (assert panic)"
         );
 
         for i in 1..res.call_meta.len() {

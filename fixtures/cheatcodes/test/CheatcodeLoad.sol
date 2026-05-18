@@ -28,12 +28,12 @@ contract CheatcodeLoad {
         recordedValue = vm.load(TARGET, SLOT_A);
     }
 
-    function property_setup_load_persists() external view returns (bool) {
+    function setup_load_persists() external view returns (bool) {
         return vm.load(address(this), SLOT_A) == bytes32(uint256(0xCAFE))
             && vm.load(TARGET, SLOT_A) == bytes32(uint256(0xBABE));
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return vm.load(address(this), SLOT_A) == bytes32(uint256(0xCAFE));
     }
 
@@ -44,7 +44,7 @@ contract CheatcodeLoad {
         recordedValue = vm.load(TARGET, SLOT_A);
     }
 
-    function property_store_load_persists_across_calls() external view returns (bool) {
+    function store_load_persists_across_calls() external view returns (bool) {
         return recordedValue == bytes32(uint256(0xFACADE));
     }
 
@@ -55,7 +55,7 @@ contract CheatcodeLoad {
         revert("intentional");
     }
 
-    function property_revert_undoes_store() external view returns (bool) {
+    function revert_undoes_store() external view returns (bool) {
         // setUp stored 0xBABE in SLOT_A of TARGET; SLOT_B was never touched.
         // If vm.store is rolled back on revert, SLOT_B must be zero.
         return vm.load(TARGET, SLOT_B) == bytes32(0);
@@ -68,7 +68,7 @@ contract CheatcodeLoad {
         vm.store(TARGET, SLOT_A, bytes32(uint256(0x2222)));
     }
 
-    function property_store_overwrite() external view returns (bool) {
+    function store_overwrite() external view returns (bool) {
         return vm.load(TARGET, SLOT_A) == bytes32(uint256(0x2222));
     }
 
@@ -78,13 +78,13 @@ contract CheatcodeLoad {
         recordedValue = vm.load(EMPTY_ADDR, SLOT_A);
     }
 
-    function property_load_empty_returns_zero() external view returns (bool) {
+    function load_empty_returns_zero() external view returns (bool) {
         return recordedValue == bytes32(0);
     }
 
     // --- Property sees final state ---
 
-    function property_final_load() external view returns (bool) {
+    function final_load() external view returns (bool) {
         return vm.load(address(this), SLOT_A) == bytes32(uint256(0xCAFE));
     }
 
@@ -95,7 +95,7 @@ contract CheatcodeLoad {
         vm.warp(12345);
     }
 
-    function property_load_and_warp() external view returns (bool) {
+    function load_and_warp() external view returns (bool) {
         return vm.load(address(this), SLOT_A) == bytes32(uint256(0x9999))
             && block.timestamp == 12345;
     }

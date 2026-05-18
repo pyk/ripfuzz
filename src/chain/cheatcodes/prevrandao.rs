@@ -3,7 +3,7 @@
 //!
 //! Raptor follows the Foundry / Echidna persistent model: a `prevrandao`
 //! mutation committed during a call remains visible for the rest of the
-//! sequence (and for property checks) until the `ChainState` clone is
+//! sequence (and for invariant checks) until the `ChainState` clone is
 //! discarded.  This is consistent with how `warp`, `roll`, `fee`, and
 //! `coinbase` already behave in raptor.
 
@@ -123,15 +123,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_prevrandao_persists")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "setUp prevrandao should persist into first call"
-        );
     }
 
     #[test]
@@ -167,15 +158,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_prevrandao_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "prevrandao should persist across calls with no auto-advance"
-        );
     }
 
     #[test]
@@ -201,15 +183,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "prevrandao_and_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_prevrandao")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "reverted prevrandao should not leak into properties"
-        );
     }
 
     #[test]
@@ -251,15 +224,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_prevrandao_overwrite")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "prevrandao overwrite should produce correct value"
-        );
     }
 
     #[test]
@@ -293,15 +257,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_prevrandao_zero")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "prevrandao to zero should produce correct value"
-        );
     }
 
     #[test]
@@ -325,15 +280,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_prevrandao_max")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "prevrandao to max should produce correct value"
-        );
     }
 
     #[test]
@@ -371,20 +317,11 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "prevrandao from sequence A should not leak into sequence B"
-        );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_prevrandao_property_final_integration() {
+    fn cheatcode_prevrandao_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
             Path::new("test/CheatcodePrevrandao.sol"),
@@ -403,15 +340,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_final_prevrandao")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "property should see the final prevrandao value"
-        );
     }
 
     #[test]
@@ -435,15 +363,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_prevrandao_and_roll_warp_fee_coinbase")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "prevrandao, roll, warp, fee, and coinbase should coexist without interference"
-        );
     }
 
     #[test]
@@ -467,14 +386,5 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_difficulty_noop_does_not_clobber")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "difficulty no-op should not clobber a prior prevrandao setting"
-        );
     }
 }

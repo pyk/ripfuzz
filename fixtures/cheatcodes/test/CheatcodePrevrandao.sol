@@ -38,11 +38,11 @@ contract CheatcodePrevrandao {
         recordedCoinbase = block.coinbase;
     }
 
-    function property_setup_prevrandao_persists() external view returns (bool) {
+    function setup_prevrandao_persists() external view returns (bool) {
         return recordedPrevrandao == bytes32(uint256(0xCA11BA5E));
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return block.prevrandao == uint256(0xCA11BA5E);
     }
 
@@ -53,7 +53,7 @@ contract CheatcodePrevrandao {
         recordedPrevrandao = bytes32(uint256(block.prevrandao));
     }
 
-    function property_prevrandao_persists_across_calls() external view returns (bool) {
+    function prevrandao_persists_across_calls() external view returns (bool) {
         // call_prevrandao(0xAB) -> prevrandao = 0xAB, next call sees 0xAB (no auto-advance)
         return recordedPrevrandao == bytes32(uint256(0xAB));
     }
@@ -65,7 +65,7 @@ contract CheatcodePrevrandao {
         revert("intentional");
     }
 
-    function property_revert_undoes_prevrandao() external view returns (bool) {
+    function revert_undoes_prevrandao() external view returns (bool) {
         return block.prevrandao != uint256(0xDEAD);
     }
 
@@ -79,7 +79,7 @@ contract CheatcodePrevrandao {
         vm.prevrandao(bytes32(uint256(0xB)));
     }
 
-    function property_prevrandao_overwrite() external view returns (bool) {
+    function prevrandao_overwrite() external view returns (bool) {
         // call_prevrandao_A -> 0xA, call_prevrandao_B -> 0xB
         return block.prevrandao == uint256(0xB);
     }
@@ -90,7 +90,7 @@ contract CheatcodePrevrandao {
         vm.prevrandao(bytes32(0));
     }
 
-    function property_prevrandao_zero() external view returns (bool) {
+    function prevrandao_zero() external view returns (bool) {
         return block.prevrandao == uint256(0);
     }
 
@@ -100,13 +100,13 @@ contract CheatcodePrevrandao {
         vm.prevrandao(bytes32(type(uint256).max));
     }
 
-    function property_prevrandao_max() external view returns (bool) {
+    function prevrandao_max() external view returns (bool) {
         return block.prevrandao == uint256(type(uint256).max);
     }
 
     // --- Property sees final prevrandao ---
 
-    function property_final_prevrandao() external view returns (bool) {
+    function final_prevrandao() external view returns (bool) {
         // If the only call was call_prevrandao_A(), the property should see 0xA
         return block.prevrandao == uint256(0xA);
     }
@@ -121,7 +121,7 @@ contract CheatcodePrevrandao {
         vm.coinbase(address(0xC011BA5E));
     }
 
-    function property_prevrandao_and_roll_warp_fee_coinbase() external view returns (bool) {
+    function prevrandao_and_roll_warp_fee_coinbase() external view returns (bool) {
         return block.prevrandao == uint256(0xBEEF)
             && block.number == 7000
             && block.timestamp == 9000
@@ -138,7 +138,7 @@ contract CheatcodePrevrandao {
         recordedPrevrandao = bytes32(uint256(block.prevrandao));
     }
 
-    function property_difficulty_noop_does_not_clobber() external view returns (bool) {
+    function difficulty_noop_does_not_clobber() external view returns (bool) {
         // On post-Paris, block.difficulty reads prevrandao.
         // vm.difficulty(9999) is a no-op and must not overwrite the prior prevrandao.
         return recordedDifficulty == uint256(0xF00D)

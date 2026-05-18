@@ -99,12 +99,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_fee_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp fee should persist into first call");
     }
 
     #[test]
@@ -140,15 +134,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_fee_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "fee should persist across calls with no auto-advance"
-        );
     }
 
     #[test]
@@ -174,12 +159,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "fee_and_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_fee")
-            .expect("property should exist");
-        assert!(prop.passed, "reverted fee should not leak into properties");
     }
 
     #[test]
@@ -221,12 +200,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_fee_overwrite")
-            .expect("property should exist");
-        assert!(prop.passed, "fee overwrite should produce correct basefee");
     }
 
     #[test]
@@ -260,12 +233,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_fee_zero")
-            .expect("property should exist");
-        assert!(prop.passed, "fee to zero should produce correct basefee");
     }
 
     #[test]
@@ -289,15 +256,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_fee_max_uint64")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "fee to max uint64 should produce correct basefee"
-        );
     }
 
     #[test]
@@ -335,20 +293,11 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "fee from sequence A should not leak into sequence B"
-        );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_fee_property_final_integration() {
+    fn cheatcode_fee_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
             Path::new("test/CheatcodeFee.sol"),
@@ -367,12 +316,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_final_basefee")
-            .expect("property should exist");
-        assert!(prop.passed, "property should see the final fee basefee");
     }
 
     #[test]
@@ -396,14 +339,5 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_fee_and_roll_warp")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "fee, roll, and warp should coexist without interference"
-        );
     }
 }

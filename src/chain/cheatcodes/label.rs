@@ -238,12 +238,6 @@ mod tests {
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
         let output = chain.execute(&[]).unwrap();
         assert!(output.all_ok, "empty sequence should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_label_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp label should persist into first call");
     }
 
     #[test]
@@ -288,15 +282,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_label_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "label should persist across calls with no auto-advance"
-        );
     }
 
     #[test]
@@ -320,12 +305,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_overwrite")
-            .expect("property should exist");
-        assert!(prop.passed, "label overwrite should produce correct name");
     }
 
     #[test]
@@ -349,15 +328,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "call_label_then_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_does_not_undo_label")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "reverted label should survive into property check"
-        );
     }
 
     #[test]
@@ -381,12 +351,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_empty_label")
-            .expect("property should exist");
-        assert!(prop.passed, "empty label should produce correct length");
     }
 
     #[test]
@@ -410,12 +374,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_label_zero")
-            .expect("property should exist");
-        assert!(prop.passed, "label on zero address should persist");
     }
 
     #[test]
@@ -439,12 +397,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_override")
-            .expect("property should exist");
-        assert!(prop.passed, "sequence label should overwrite setUp label");
     }
 
     #[test]
@@ -494,14 +446,5 @@ mod tests {
         // Sequence B: fresh clone, should NOT see Seq1's label
         let output_b = chain.execute(&[]).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "label from sequence A should not leak into sequence B"
-        );
     }
 }

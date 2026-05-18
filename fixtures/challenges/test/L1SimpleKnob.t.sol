@@ -11,10 +11,14 @@ contract L1SimpleKnobTest {
     }
 
     function testCatchDragon() public {
-        assert(!knob.property_caught());
+        knob.invariant_caught(); // succeeds before dragon
         knob.one();
         knob.two();
         knob.three();
-        assert(knob.property_caught());
+        try knob.invariant_caught() {
+            revert("invariant should have reverted after dragon");
+        } catch {
+            // expected revert — dragon caught!
+        }
     }
 }

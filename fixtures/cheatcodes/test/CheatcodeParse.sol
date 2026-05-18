@@ -29,7 +29,7 @@ contract CheatcodeParse {
         );
     }
 
-    function property_setup_parse_persists() external view returns (bool) {
+    function setup_parse_persists() external view returns (bool) {
         return
             storedUint == 999 &&
             storedInt == -999 &&
@@ -48,7 +48,7 @@ contract CheatcodeParse {
         storedUint = vm.parseUint(s);
     }
 
-    function property_parse_persists_in_sequence()
+    function parse_persists_in_sequence()
         external
         view
         returns (bool)
@@ -71,7 +71,7 @@ contract CheatcodeParse {
         );
     }
 
-    function property_pure_isolation() external view returns (bool) {
+    function pure_isolation() external view returns (bool) {
         // After call_parse_no_side_effect, nothing should have changed
         return storedUint == 999; // setUp value intact
     }
@@ -83,7 +83,7 @@ contract CheatcodeParse {
         revert("should not reach here");
     }
 
-    function property_revert_on_malformed() external view returns (bool) {
+    function revert_on_malformed() external view returns (bool) {
         // setUp value should still be intact because the call reverted
         return storedUint == 999;
     }
@@ -95,19 +95,19 @@ contract CheatcodeParse {
         vm.deal(address(0xBEEF), amt);
     }
 
-    function property_parse_deal() external view returns (bool) {
+    function parse_deal() external view returns (bool) {
         return address(0xBEEF).balance == 1000;
     }
 
     // --- Round-trip: toString -> parse ---
 
-    function property_to_string_round_trip() external view returns (bool) {
+    function to_string_round_trip() external view returns (bool) {
         uint256 original = 12345;
         uint256 recovered = vm.parseUint(vm.toString(original));
         return recovered == original;
     }
 
-    function property_bool_round_trip() external view returns (bool) {
+    function bool_round_trip() external view returns (bool) {
         bool original = true;
         bool recovered = vm.parseBool(vm.toString(original));
         return recovered == original;
@@ -115,19 +115,19 @@ contract CheatcodeParse {
 
     // --- Edge: max values ---
 
-    function property_max_uint() external view returns (bool) {
+    function max_uint() external view returns (bool) {
         uint256 max = type(uint256).max;
         uint256 parsed = vm.parseUint(vm.toString(max));
         return parsed == max;
     }
 
-    function property_max_int() external view returns (bool) {
+    function max_int() external view returns (bool) {
         int256 max = type(int256).max;
         int256 parsed = vm.parseInt(vm.toString(max));
         return parsed == max;
     }
 
-    function property_min_int() external view returns (bool) {
+    function min_int() external view returns (bool) {
         int256 min = type(int256).min;
         int256 parsed = vm.parseInt(vm.toString(min));
         return parsed == min;
@@ -135,17 +135,17 @@ contract CheatcodeParse {
 
     // --- Edge: hex inputs ---
 
-    function property_hex_uint() external view returns (bool) {
+    function hex_uint() external view returns (bool) {
         return vm.parseUint("0xff") == 255;
     }
 
-    function property_hex_address() external view returns (bool) {
+    function hex_address() external view returns (bool) {
         return
             vm.parseAddress("0x71c7656ec7ab88b098defb751b7401b5f6d8976f") ==
             address(0x71C7656EC7ab88b098defB751B7401B5f6d8976F);
     }
 
-    function property_hex_bytes32() external view returns (bool) {
+    function hex_bytes32() external view returns (bool) {
         return
             vm.parseBytes32(
                 "0x2222222222222222222222222222222222222222222222222222222222222222"
@@ -157,7 +157,7 @@ contract CheatcodeParse {
 
     // --- Edge: bool variants ---
 
-    function property_bool_true_variants() external view returns (bool) {
+    function bool_true_variants() external view returns (bool) {
         return
             vm.parseBool("true") &&
             vm.parseBool("TRUE") &&
@@ -165,7 +165,7 @@ contract CheatcodeParse {
             vm.parseBool("1");
     }
 
-    function property_bool_false_variants() external view returns (bool) {
+    function bool_false_variants() external view returns (bool) {
         return
             !vm.parseBool("false") &&
             !vm.parseBool("FALSE") &&

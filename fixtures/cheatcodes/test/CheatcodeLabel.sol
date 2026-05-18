@@ -15,11 +15,11 @@ contract CheatcodeLabel {
         vm.label(TARGET, "TargetFromSetup");
     }
 
-    function property_setup_label_persists() external view returns (bool) {
+    function setup_label_persists() external view returns (bool) {
         return keccak256(bytes(vm.getLabel(TARGET))) == keccak256(bytes("TargetFromSetup"));
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return bytes(vm.getLabel(OTHER)).length == 0;
     }
 
@@ -33,7 +33,7 @@ contract CheatcodeLabel {
         return vm.getLabel(addr);
     }
 
-    function property_label_persists_across_calls() external view returns (bool) {
+    function label_persists_across_calls() external view returns (bool) {
         return keccak256(bytes(vm.getLabel(OTHER))) == keccak256(bytes("OtherLabel"));
     }
 
@@ -44,7 +44,7 @@ contract CheatcodeLabel {
         vm.label(TARGET, "Second");
     }
 
-    function property_overwrite() external view returns (bool) {
+    function overwrite() external view returns (bool) {
         return keccak256(bytes(vm.getLabel(TARGET))) == keccak256(bytes("Second"));
     }
 
@@ -55,7 +55,7 @@ contract CheatcodeLabel {
         revert("intentional");
     }
 
-    function property_revert_does_not_undo_label() external view returns (bool) {
+    function revert_does_not_undo_label() external view returns (bool) {
         // label is metadata, not state; it survives the revert
         return keccak256(bytes(vm.getLabel(TARGET))) == keccak256(bytes("RevertedLabel"));
     }
@@ -66,7 +66,7 @@ contract CheatcodeLabel {
         vm.label(TARGET, "");
     }
 
-    function property_empty_label() external view returns (bool) {
+    function empty_label() external view returns (bool) {
         return bytes(vm.getLabel(TARGET)).length == 0;
     }
 
@@ -76,7 +76,7 @@ contract CheatcodeLabel {
         vm.label(address(0), "ZeroAddress");
     }
 
-    function property_label_zero() external view returns (bool) {
+    function label_zero() external view returns (bool) {
         return keccak256(bytes(vm.getLabel(address(0)))) == keccak256(bytes("ZeroAddress"));
     }
 
@@ -86,7 +86,7 @@ contract CheatcodeLabel {
         vm.label(TARGET, "Overridden");
     }
 
-    function property_setup_override() external view returns (bool) {
+    function setup_override() external view returns (bool) {
         return keccak256(bytes(vm.getLabel(TARGET))) == keccak256(bytes("Overridden"));
     }
 }

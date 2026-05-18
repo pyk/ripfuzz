@@ -23,12 +23,12 @@ contract CheatcodeFFI {
         // Re-read recordedHash so properties can assert on it
     }
 
-    function property_setup_ffi_executes() external view returns (bool) {
+    function setup_ffi_executes() external view returns (bool) {
         bytes memory expected = bytes("setup\n");
         return recordedHash == keccak256(expected);
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return recordedHash == keccak256(bytes("setup\n"));
     }
 
@@ -42,7 +42,7 @@ contract CheatcodeFFI {
         recordedHash = keccak256(res);
     }
 
-    function property_ffi_persists_across_calls() external view returns (bool) {
+    function ffi_persists_across_calls() external view returns (bool) {
         // action_ffi_echo("hello") at idx=0, then action_record_hash() at idx=1
         // Expected: hash of "hello\n"
         return recordedHash == keccak256(bytes("hello\n"));
@@ -62,7 +62,7 @@ contract CheatcodeFFI {
         revert("intentional");
     }
 
-    function property_revert_does_not_undo_ffi() external view returns (bool) {
+    function revert_does_not_undo_ffi() external view returns (bool) {
         // The storage write after ffi was reverted, so recordedHash should
         // still be the setup value (or whatever it was before the reverted call).
         return recordedHash == keccak256(bytes("setup\n"));
@@ -80,7 +80,7 @@ contract CheatcodeFFI {
         recordedHash = keccak256(res);
     }
 
-    function property_ffi_hex_decoded() external view returns (bool) {
+    function ffi_hex_decoded() external view returns (bool) {
         bytes memory expected = abi.encode("hi");
         return recordedHash == keccak256(expected);
     }
@@ -95,7 +95,7 @@ contract CheatcodeFFI {
         recordedHash = keccak256(res);
     }
 
-    function property_ffi_raw_bytes() external view returns (bool) {
+    function ffi_raw_bytes() external view returns (bool) {
         return recordedHash == keccak256(bytes("hello\n"));
     }
 
@@ -116,7 +116,7 @@ contract CheatcodeFFI {
 
     // --- Property sees final FFI result ---
 
-    function property_final_ffi_result() external view returns (bool) {
+    function final_ffi_result() external view returns (bool) {
         // If the only call was action_ffi_echo("final"), the hash should match
         return recordedHash == keccak256(bytes("final\n"));
     }
@@ -134,7 +134,7 @@ contract CheatcodeFFI {
         recordedTimestamp = block.timestamp;
     }
 
-    function property_ffi_and_warp() external view returns (bool) {
+    function ffi_and_warp() external view returns (bool) {
         return recordedHash == keccak256(bytes("gm\n"))
             && recordedTimestamp == 999999;
     }

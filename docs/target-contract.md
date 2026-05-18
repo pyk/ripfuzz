@@ -10,7 +10,7 @@ functions**:
 
 1. **Setup Functions**: initialize state before fuzzing begins
 2. **Fuzzed Functions**: function calls the fuzzer can make to mutate state
-3. **Property Functions**: invariants the fuzzer checks after every call
+3. **Invariant Functions**: invariants the fuzzer checks after every call
    sequence
 
 ## Example
@@ -37,7 +37,7 @@ contract CounterTarget {
     // 2. FUZZED FUNCTIONS (FUNCTION CALLS)
     // -------------------------------------------------
     // Any external/public function that does NOT match
-    // a property prefix is a function call. Raptor will call
+    // an invariant prefix is a function call. Raptor will call
     // these with type-appropriate random inputs.
 
     function increment() external {
@@ -54,19 +54,19 @@ contract CounterTarget {
     }
 
     // -------------------------------------------------
-    // 3. PROPERTY FUNCTIONS (invariants)
+    // 3. INVARIANT FUNCTIONS
     // -------------------------------------------------
-    // Functions with the `property_` prefix, no arguments,
-    // and a `bool` return value. Raptor calls these
-    // after every function call sequence. If any returns `false`,
-    // raptor reports a bug.
+    // Functions with the `invariant_` prefix, no arguments,
+    // and declared `pure` or `view`. Raptor appends these
+    // to the end of every function call sequence. If any
+    // reverts with an `assert` panic, raptor reports a bug.
 
-    function property_count_never_overflows() external view returns (bool) {
-        return count >= count + 1; // sanity check
+    function invariant_count_never_overflows() external view {
+        assert(count >= count + 1); // sanity check
     }
 
-    function property_count_stays_small() external view returns (bool) {
-        return count < 1000;
+    function invariant_count_stays_small() external view {
+        assert(count < 1000);
     }
 }
 ```
@@ -112,7 +112,7 @@ A function is treated as a function call if **all** of these are true:
 
 - It is `external` or `public`
 - It is **not** a setup function (`setUp`)
-- It does **not** match a property prefix (see below)
+- It does **not** match an invariant prefix (see below)
 
 ### Input generation
 
@@ -139,52 +139,55 @@ calls). This lets raptor explore stateful interactions.
 // 4. borrow(999)   // <- maybe this triggers an invariant violation
 ```
 
-## 3. Property Functions (Invariants)
+## 3. Invariant Functions
 
-Property functions are **boolean checks** that must always hold.
+Invariant functions are **state checks** that must always hold.
 
 ### Naming convention
 
-By default, property functions must match the prefix:
+By default, invariant functions must match the prefix:
 
 ```
-property_
+invariant_
 ```
 
-Example: `property_balance_positive`, `property_no_reentrancy`
+Example: `invariant_balance_positive`, `invariant_no_reentrancy`
 
 ### Signature requirements
 
-A valid property function **must** have exactly this signature:
+A valid invariant function **must** have this signature shape:
 
 ```solidity
-function property_<name>() external view returns (bool)
+function invariant_<name>() external view
 ```
 
 Requirements:
 
-- Name starts with `property_` (configurable)
+- Name starts with `invariant_` (configurable)
 - Takes **no arguments**
-- Returns exactly one `bool`
 - Is `view` or `pure` (read-only)
+- Return type is optional and ignored
 
 ### Semantics
 
-- Raptor calls **all** property functions after every function call sequence
-- If **any** property returns `false`, the fuzzer records a **crash**
-  (objective)
-- If a property itself reverts, that is also treated as a failure
-- Properties are **not** called as function calls (they are checked, not fuzzed)
+- Raptor appends **all** invariant calls to the end of every function call
+  sequence and executes them in the same EVM loop
+- If **any** invariant reverts with a Solidity `assert` panic (`Panic(0x01)`),
+  the fuzzer records a **crash** (objective)
+- Reverts caused by `require` or other reasons set `all_ok = false` but do
+  **not** produce a crash
+- Invariants are **not** called as fuzzed function calls (they are appended,
+  not randomly generated)
 
-### Example properties
+### Example invariants
 
 ```solidity
-function property_solvency() external view returns (bool) {
-    return token.balanceOf(address(pool)) >= pool.totalDeposits();
+function invariant_solvency() external view {
+    assert(token.balanceOf(address(pool)) >= pool.totalDeposits());
 }
 
-function property_user_cant_borrow_more_than_deposited() external view returns (bool) {
-    return pool.totalBorrows() <= pool.totalDeposits();
+function invariant_user_cant_borrow_more_than_deposited() external view {
+    assert(pool.totalBorrows() <= pool.totalDeposits());
 }
 ```
 
@@ -194,13 +197,19 @@ For each fuzz input, raptor performs this exact sequence:
 
 ```
 1. CLONE the post-setup state
-2. EXECUTE the function call sequence (e.g. 1-32 calls)
-3. CHECK all property functions
-4. RECORD result:
+2. BUILD the call sequence:
+   - fuzzed calls (randomly generated or mutated)
+   - invariant calls (appended automatically)
+3. EXECUTE every call in a single loop
+4. After each call:
+   - Succeeded → continue
+   - Reverted with assert panic → CRASH (BUG!)
+   - Reverted for any other reason → all_ok = false, break
+5. RECORD result:
    - New coverage → add to corpus
-   - Property returned false → add to objectives (BUG!)
-   - Revert during function call → normal execution (not a bug)
-5. RESET state (discard clone, go back to base)
+   - Assert panic detected → add to objectives (BUG!)
+   - Normal revert → not a bug
+6. RESET state (discard clone, go back to base)
 ```
 
 ## Comparison with Other Fuzzers
@@ -209,18 +218,18 @@ For each fuzz input, raptor performs this exact sequence:
 | ---------------- | ----------------------- | ------------------- | ---------------------- | ----------------------- |
 | Setup            | `constructor`/`setUp()` | `setUp()`           | Deployment + `setUp()` | `constructor`/`setUp()` |
 | Function Calls   | All external/public     | Handlers            | All external/public    | All external/public     |
-| Property prefix  | `property_`             | `invariant_`        | `property_`            | `echidna_`              |
-| Property args    | None                    | None                | None                   | None                    |
-| Property returns | `bool`                  | `bool`              | `bool`                 | `bool`                  |
-| Bug on           | Property `false`        | Invariant `false`   | Property `false`       | Property `false`        |
-| Bug on revert    | No                      | No                  | No                     | No                      |
+| Invariant prefix | `invariant_`            | `invariant_`        | `property_`            | `echidna_`              |
+| Invariant args   | None                    | None                | None                   | None                    |
+| Invariant returns| Ignored                 | `bool`              | `bool`                 | `bool`                  |
+| Bug on           | `assert` panic          | Invariant `false`   | Property `false`       | Property `false`        |
+| Bug on revert    | `assert` only           | No                  | No                     | No                      |
 
 ## Configuration
 
-Property prefixes and other behavior can be configured in `raptor.toml`:
+Invariant prefixes and other behavior can be configured in `raptor.toml`:
 
 ```toml
-[fuzzing.testing.property]
+[fuzzing.testing.invariant]
 enabled = true
-prefixes = ["property_"]
+prefixes = ["invariant_"]
 ```

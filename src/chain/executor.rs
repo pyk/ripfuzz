@@ -17,7 +17,7 @@ use crate::chain::{
     ChainConfig,
     error::ChainExecutionError,
     inspectors::{InspectorTuple, MaybeTrace, coverage::CoverageInspector, trace::TraceInspector},
-    output::{CallMeta, ExecutionOutput, PropertyResult},
+    output::{CallMeta, CrashInfo, ExecutionOutput},
     state::ChainState,
 };
 use crate::corpus::Call;
@@ -29,12 +29,20 @@ pub struct ExecutionOptions {
     pub trace: bool,
 }
 
-/// Execute a call sequence against a cloned post-setup state.
+/// Solidity `Panic(uint256)` selector: keccak256("Panic(uint256)")[:4]
+const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
+
+/// Detect a Solidity `assert` failure (`Panic(0x01)`) in revert output.
+fn is_assert_failure(output: &revm::primitives::Bytes) -> bool {
+    output.len() >= 36 && output[..4] == PANIC_SELECTOR && output[35] == 0x01
+}
+
+/// Execute a call sequence (plus appended invariant calls) against a cloned post-setup state.
 #[allow(clippy::too_many_arguments)]
 pub fn execute(
     state: &ChainState,
     contract_address: revm::primitives::Address,
-    properties: &[([u8; 4], String)],
+    invariants: &[([u8; 4], String)],
     contract_abi: &alloy_json_abi::JsonAbi,
     config: &ChainConfig,
     initcode_map: &HashMap<Bytes, (String, JsonAbi)>,
@@ -66,8 +74,6 @@ pub fn execute(
     );
 
     // 2.5 Build the EVM once and reuse it across all calls in the sequence.
-    // This avoids reconstructing EthInstructions, EthPrecompiles, and the
-    // frame stack for every single call — a measurable win for short sequences.
     let db = std::mem::take(&mut local_state.db);
     let mut ctx = Context::mainnet().with_db(db);
     ctx.cfg.disable_balance_check = true;
@@ -90,13 +96,26 @@ pub fn execute(
 
     let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
-    // 3. Run each call in the sequence.
-    let mut call_meta = Vec::with_capacity(calls.len());
+    // 3. Build combined call sequence: fuzzed calls + invariant calls.
+    let mut sequence = calls.to_vec();
+    for (selector, _name) in invariants {
+        sequence.push(Call {
+            selector: *selector,
+            args: vec![],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        });
+    }
+
+    // 4. Run each call in the combined sequence.
+    let mut call_meta = Vec::with_capacity(sequence.len());
     let mut all_ok = true;
     let mut total_calls = 0u64;
     let mut total_gas = 0u64;
+    let mut crash: Option<CrashInfo> = None;
 
-    for (idx, call) in calls.iter().enumerate().take(config.max_sequence_calls) {
+    for (idx, call) in sequence.iter().enumerate().take(config.max_sequence_calls) {
         local_state.advance_block(call.block_number_delay, call.block_timestamp_delay, idx);
 
         evm.ctx.block.number = U256::from(local_state.block_number);
@@ -195,24 +214,28 @@ pub fn execute(
                 .cheatcodes
                 .labels
                 .clone_from(&inspector.2.state.labels);
+            if let Some(output) = result.output()
+                && is_assert_failure(output)
+            {
+                let name = contract_abi
+                    .functions()
+                    .find(|f| f.selector().as_slice() == call.selector)
+                    .map(|f| f.name.to_owned())
+                    .unwrap_or_else(|| format!("0x{}", hex::encode(call.selector)));
+                crash = Some(CrashInfo {
+                    name,
+                    selector: call.selector,
+                });
+            }
             all_ok = false;
             trace!(idx, "call reverted, aborting sequence");
             break;
         }
     }
 
-    // Extract inspector and db for property checks.
+    // Extract inspector and db.
     let inspector = evm.inspector;
     local_state.db = evm.ctx.journaled_state.database;
-
-    // 4. Check properties (read-only calls against the final state).
-    let property_results = check_properties(
-        &mut local_state,
-        contract_address,
-        properties,
-        contract_abi,
-        config,
-    )?;
 
     // 5. Assemble output from owned inspectors.
     let coverage = inspector.0.into_coverage();
@@ -222,87 +245,9 @@ pub fn execute(
         coverage,
         trace,
         call_meta,
-        property_results,
         all_ok,
         total_calls,
         total_gas,
+        crash,
     })
-}
-
-fn check_properties(
-    state: &mut ChainState,
-    contract_address: revm::primitives::Address,
-    properties: &[([u8; 4], String)],
-    _contract_abi: &alloy_json_abi::JsonAbi,
-    config: &ChainConfig,
-) -> Result<Vec<PropertyResult>, ChainExecutionError> {
-    let mut results = Vec::with_capacity(properties.len());
-    let mut inspector = crate::chain::inspectors::cheatcode::CheatcodeInspector::from_state(
-        state.cheatcodes.clone(),
-    );
-
-    for (selector, name) in properties {
-        let db = std::mem::take(&mut state.db);
-        let mut ctx = Context::mainnet().with_db(db);
-        ctx.cfg.disable_balance_check = true;
-        ctx.block.number = U256::from(state.block_number);
-        ctx.block.timestamp = U256::from(state.block_timestamp);
-
-        // Apply non-timestamp/number block overrides from cheatcodes.
-        let overrides = state.cheatcodes.block_overrides();
-        if let Some(fee) = overrides.basefee {
-            ctx.block.basefee = fee;
-        }
-        if let Some(beneficiary) = overrides.beneficiary {
-            ctx.block.beneficiary = beneficiary;
-        }
-        if let Some(prevrandao) = overrides.prevrandao {
-            ctx.block.prevrandao = Some(prevrandao);
-        }
-        if let Some(chain_id) = overrides.chain_id {
-            ctx.cfg.chain_id = chain_id;
-        }
-
-        let mut tx = TxEnv {
-            caller: config.caller,
-            kind: TxKind::Call(contract_address),
-            data: Bytes::copy_from_slice(selector),
-            gas_limit: config.gas_limit,
-            nonce: state.next_nonce(),
-            ..Default::default()
-        };
-        tx.chain_id = Some(ctx.cfg.chain_id);
-        tx.gas_price = ctx.block.basefee as u128;
-        let mut evm = ctx.build_mainnet_with_inspector(inspector);
-        let result = evm.inspect_tx_commit(tx);
-        state.db = evm.ctx.journaled_state.database;
-        inspector = evm.inspector;
-        let result = result.map_err(|e| -> anyhow::Error { e.into() })?;
-
-        let passed = if result.is_success() {
-            let out = result.output();
-            if let Some(output) = out
-                && output.len() == 32
-                && output[31] == 1
-            {
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-
-        results.push(PropertyResult {
-            name: name.into(),
-            selector: *selector,
-            passed,
-        });
-
-        if passed {
-            trace!(property = %name, "property returned true");
-        }
-    }
-
-    Ok(results)
 }

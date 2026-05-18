@@ -24,7 +24,7 @@ contract CheatcodeStore {
         recordedValue = vm.load(address(this), SLOT_A);
     }
 
-    function property_setup_store_persists() external view returns (bool) {
+    function setup_store_persists() external view returns (bool) {
         return vm.load(address(this), SLOT_A) == bytes32(uint256(0xCAFE))
             && vm.load(TARGET, SLOT_A) == bytes32(uint256(0xBABE));
     }
@@ -36,7 +36,7 @@ contract CheatcodeStore {
         recordedValue = vm.load(TARGET, SLOT_A);
     }
 
-    function property_store_persists_across_calls() external view returns (bool) {
+    function store_persists_across_calls() external view returns (bool) {
         return recordedValue == bytes32(uint256(0xFACADE));
     }
 
@@ -47,7 +47,7 @@ contract CheatcodeStore {
         revert("intentional");
     }
 
-    function property_revert_undoes_store() external view returns (bool) {
+    function revert_undoes_store() external view returns (bool) {
         return vm.load(TARGET, SLOT_B) == bytes32(0);
     }
 
@@ -58,7 +58,7 @@ contract CheatcodeStore {
         vm.store(TARGET, SLOT_A, bytes32(uint256(0x2222)));
     }
 
-    function property_store_overwrite() external view returns (bool) {
+    function store_overwrite() external view returns (bool) {
         return vm.load(TARGET, SLOT_A) == bytes32(uint256(0x2222));
     }
 
@@ -68,7 +68,7 @@ contract CheatcodeStore {
         vm.store(TARGET, SLOT_A, bytes32(0));
     }
 
-    function property_store_zero_clears() external view returns (bool) {
+    function store_zero_clears() external view returns (bool) {
         return vm.load(TARGET, SLOT_A) == bytes32(0);
     }
 
@@ -79,7 +79,7 @@ contract CheatcodeStore {
         recordedValue = vm.load(EMPTY_ADDR, SLOT_A);
     }
 
-    function property_store_empty_address() external view returns (bool) {
+    function store_empty_address() external view returns (bool) {
         return recordedValue == bytes32(uint256(0xFACE));
     }
 
@@ -93,7 +93,7 @@ contract CheatcodeStore {
         vm.store(address(this), SLOT_B, bytes32(uint256(0xBBBB)));
     }
 
-    function property_multi_call_final_state() external view returns (bool) {
+    function multi_call_final_state() external view returns (bool) {
         return vm.load(address(this), SLOT_B) == bytes32(uint256(0xBBBB));
     }
 
@@ -103,7 +103,7 @@ contract CheatcodeStore {
         vm.store(address(0x01), SLOT_A, bytes32(uint256(0xBAD)));
     }
 
-    function property_precompile_store_reverts() external view returns (bool) {
+    function precompile_store_reverts() external view returns (bool) {
         // This property should never be reached if the precompile store reverts.
         // We include a trivial true so the fixture compiles; the test asserts
         // that the call reverts instead of checking this property.
@@ -117,14 +117,14 @@ contract CheatcodeStore {
         vm.warp(12345);
     }
 
-    function property_store_and_warp() external view returns (bool) {
+    function store_and_warp() external view returns (bool) {
         return vm.load(address(this), SLOT_A) == bytes32(uint256(0x9999))
             && block.timestamp == 12345;
     }
 
     // --- Corpus isolation helper ---
 
-    function property_setup_only_store() external view returns (bool) {
+    function setup_only_store() external view returns (bool) {
         return vm.load(address(this), SLOT_A) == bytes32(uint256(0xCAFE));
     }
 }

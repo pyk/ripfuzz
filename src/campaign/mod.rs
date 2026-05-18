@@ -54,15 +54,16 @@ impl CampaignBuilder {
         debug!("deployment validated");
 
         let seeds = build_seeds(&artifact, self.config.sequence_length);
-        let selectors: Vec<[u8; 4]> = artifact
+        let fuzzed_selectors: Vec<[u8; 4]> = artifact
             .abi
             .functions()
+            .filter(|f| !f.name.starts_with("invariant_"))
             .map(|f| f.selector().into())
             .collect();
         debug!(
             seed_count = seeds.len(),
-            selector_count = selectors.len(),
-            "seeds and selectors generated"
+            selector_count = fuzzed_selectors.len(),
+            "seeds and fuzzed_selectors generated"
         );
 
         let corpus = if let Some(ref dir) = self.config.corpus_dir {
@@ -83,7 +84,7 @@ impl CampaignBuilder {
             chain,
             corpus,
             config: self.config,
-            selectors,
+            fuzzed_selectors,
         })
     }
 }
@@ -95,7 +96,7 @@ pub struct Campaign {
     chain: crate::chain::Chain,
     corpus: Arc<RwLock<Corpus>>,
     config: CampaignConfig,
-    selectors: Vec<[u8; 4]>,
+    fuzzed_selectors: Vec<[u8; 4]>,
 }
 
 impl Campaign {
@@ -124,7 +125,7 @@ impl Campaign {
         let chain = Arc::new(self.chain.clone());
         let artifact = self.artifact.clone();
         let config = self.config.clone();
-        let selectors = self.selectors.clone();
+        let fuzzed_selectors = self.fuzzed_selectors.clone();
         let corpus = self.corpus.clone();
 
         let workers_u64 = workers as u64;
@@ -134,7 +135,7 @@ impl Campaign {
 
         let artifact = Arc::new(artifact);
         let config = Arc::new(config);
-        let selectors = Arc::new(selectors);
+        let fuzzed_selectors = Arc::new(fuzzed_selectors);
 
         let mut handles = Vec::with_capacity(workers);
         for worker_id in 0..workers {
@@ -146,11 +147,11 @@ impl Campaign {
             let chain = Arc::clone(&chain);
             let artifact = Arc::clone(&artifact);
             let config = Arc::clone(&config);
-            let selectors = Arc::clone(&selectors);
+            let fuzzed_selectors = Arc::clone(&fuzzed_selectors);
             let corpus = Arc::clone(&corpus);
 
             let handle = std::thread::spawn(move || {
-                let worker = Worker::new(artifact, chain, config, selectors);
+                let worker = Worker::new(artifact, chain, config, fuzzed_selectors);
                 worker.run(corpus, local_max_runs, worker_id, start, timeout)
             });
             handles.push((worker_id, handle));
@@ -306,8 +307,8 @@ mod tests {
         .unwrap();
 
         assert!(
-            !artifact.properties.is_empty(),
-            "property_caught() should be discovered as a property"
+            !artifact.invariants.is_empty(),
+            "invariant_caught() should be discovered as an invariant"
         );
 
         let mut config = CampaignConfig::default();
@@ -322,7 +323,7 @@ mod tests {
 
         assert!(
             !result.failures.is_empty(),
-            "raptor should find at least one property failure (dragon caught)"
+            "raptor should find at least one crash (dragon caught)"
         );
     }
 

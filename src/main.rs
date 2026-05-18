@@ -18,7 +18,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Start a property-based fuzzing campaign.
+    /// Start an invariant fuzzing campaign.
     Fuzz(commands::fuzz::Args),
 }
 

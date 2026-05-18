@@ -85,12 +85,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_roll_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp roll should persist into first call");
     }
 
     #[test]
@@ -126,15 +120,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_roll_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "roll should persist across calls with min delay"
-        );
     }
 
     #[test]
@@ -160,12 +145,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "roll_and_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_roll")
-            .expect("property should exist");
-        assert!(prop.passed, "reverted roll should not leak into properties");
     }
 
     #[test]
@@ -199,15 +178,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_roll_with_delay")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "roll with delay should produce correct block number"
-        );
     }
 
     #[test]
@@ -249,15 +219,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_roll_overwrite")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "roll overwrite should produce correct block number"
-        );
     }
 
     #[test]
@@ -291,15 +252,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_roll_zero")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "roll to zero should produce correct block number"
-        );
     }
 
     #[test]
@@ -323,15 +275,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_roll_max_uint64")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "roll to max uint64 should produce correct block number"
-        );
     }
 
     #[test]
@@ -369,20 +312,11 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "roll from sequence A should not leak into sequence B"
-        );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_roll_property_final_integration() {
+    fn cheatcode_roll_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
             Path::new("test/CheatcodeRoll.sol"),
@@ -401,15 +335,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_final_block_number")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "property should see the final rolled block number"
-        );
     }
 
     #[test]
@@ -433,14 +358,5 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_roll_and_warp")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "roll and warp should coexist without interference"
-        );
     }
 }

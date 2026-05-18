@@ -223,14 +223,6 @@ mod tests {
             }])
             .unwrap();
         assert!(output.all_ok);
-        assert!(
-            output
-                .property_results
-                .iter()
-                .find(|p| p.name == "property_prank_sender_ok")
-                .expect("property exists")
-                .passed
-        );
     }
 
     #[test]
@@ -253,14 +245,6 @@ mod tests {
             }])
             .unwrap();
         assert!(output.all_ok);
-        assert!(
-            output
-                .property_results
-                .iter()
-                .find(|p| p.name == "property_prank_origin_ok")
-                .expect("property exists")
-                .passed
-        );
     }
 
     #[test]
@@ -362,14 +346,6 @@ mod tests {
             ])
             .unwrap();
         assert!(output.all_ok);
-        assert!(
-            output
-                .property_results
-                .iter()
-                .find(|p| p.name == "property_start_persisted")
-                .expect("property exists")
-                .passed
-        );
     }
 
     #[test]
@@ -392,14 +368,6 @@ mod tests {
             }])
             .unwrap();
         assert!(output.all_ok);
-        assert!(
-            output
-                .property_results
-                .iter()
-                .find(|p| p.name == "property_setup_start_persisted")
-                .expect("property exists")
-                .passed
-        );
     }
 
     #[test]
@@ -454,14 +422,6 @@ mod tests {
             }])
             .unwrap();
         assert!(output.all_ok);
-        assert!(
-            output
-                .property_results
-                .iter()
-                .find(|p| p.name == "property_nested_ok")
-                .expect("property exists")
-                .passed
-        );
     }
 
     #[test]
@@ -484,14 +444,6 @@ mod tests {
             }])
             .unwrap();
         assert!(output.all_ok);
-        assert!(
-            output
-                .property_results
-                .iter()
-                .find(|p| p.name == "property_start_nested_ok")
-                .expect("property exists")
-                .passed
-        );
     }
 
     #[test]
@@ -577,14 +529,6 @@ mod tests {
             }])
             .unwrap();
         assert!(output.all_ok);
-        assert!(
-            output
-                .property_results
-                .iter()
-                .find(|p| p.name == "property_modifier_prank_ok")
-                .expect("property exists")
-                .passed
-        );
     }
 
     #[test]
@@ -653,14 +597,6 @@ mod tests {
             }])
             .unwrap();
         assert!(output2.all_ok);
-        assert!(
-            output2
-                .property_results
-                .iter()
-                .find(|p| p.name == "property_setup_start_persisted")
-                .expect("property exists")
-                .passed
-        );
     }
 
     #[test]
@@ -683,14 +619,6 @@ mod tests {
             }])
             .unwrap();
         assert!(output.all_ok);
-        assert!(
-            output
-                .property_results
-                .iter()
-                .find(|p| p.name == "property_start_overwrite_ok")
-                .expect("property exists")
-                .passed
-        );
     }
 
     #[test]

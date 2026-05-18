@@ -18,21 +18,23 @@ The Solidity file you pass to `raptor fuzz` (e.g. `./test/CounterTarget.sol`).
 It is the contract raptor compiles, deploys, and exercises. Also called a
 **handler contract** in some tooling communities.
 
-### Property Function
+### Invariant Function
 
 A Solidity function that encodes an invariant. By default it must:
 
-- start with the prefix `property_`
+- start with the prefix `invariant_`
 - take no arguments
-- return `bool`
+- be `pure` or `view`
 
-Raptor calls every property after each function call sequence. If any returns
-`false`, the fuzzer records a bug. Synonyms: **invariant**, **property test**.
+Raptor appends every invariant to the end of each function call sequence and
+executes it in the same EVM loop. If an invariant reverts with a Solidity
+`assert` failure (`Panic(0x01)`), the fuzzer records a crash. The return
+value, if any, is ignored. Synonyms: **invariant**, **property test**.
 
 ### Function Call (Fuzzed Function)
 
 Any external or public function in the target contract that is _not_ a setup or
-property function. Raptor calls these with randomly-generated arguments to
+invariant function. Raptor calls these with randomly-generated arguments to
 mutate contract state. A single fuzz input is a **sequence of function calls**.
 
 ### Setup Function
@@ -50,20 +52,21 @@ manager. By default raptor spawns one worker per available CPU core.
 ### Campaign Result
 
 The aggregated output of a fuzzing campaign, including the total number of
-iterations executed across all workers and any crashes (property failures)
+iterations executed across all workers and any crashes (assert panics)
 discovered.
 
 ### Crash
 
-A failure recorded when a property function returns `false` or reverts during
-its check. The fuzzer treats a crash as a bug and adds it to the set of
-objectives. Synonyms: **objective**, **bug**.
+A failure recorded when any call (fuzzed or invariant) reverts with a Solidity
+`assert` panic (`Panic(0x01)`). The fuzzer treats a crash as a bug and adds it
+to the set of objectives. Reverts caused by `require` or other reasons do
+not produce a crash. Synonyms: **objective**, **bug**.
 
 ## Correspondence with Other Fuzzers
 
 | Raptor        | Foundry (invariant) | Medusa        | Echidna       |
 | ------------- | ------------------- | ------------- | ------------- |
 | Target        | Handler             | Target        | Target        |
-| `property_`   | `invariant_`        | `property_`   | `echidna_`    |
+| `invariant_`  | `invariant_`        | `property_`   | `echidna_`    |
 | Function Call | Handler function    | Function call | Function call |
 | Campaign      | Test run            | Fuzzing run   | Test run      |

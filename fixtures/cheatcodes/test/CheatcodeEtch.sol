@@ -20,7 +20,7 @@ contract CheatcodeEtch {
         // intentionally empty; property checks extcodesize
     }
 
-    function property_setup_etch_persists() external view returns (bool) {
+    function setup_etch_persists() external view returns (bool) {
         uint256 size;
         assembly { size := extcodesize(0xCAFE) }
         return size > 0;
@@ -31,7 +31,7 @@ contract CheatcodeEtch {
         vm.etch(address(0xBEEF), RUNTIME_CODE);
     }
 
-    function property_etch_persists_across_calls() external view returns (bool) {
+    function etch_persists_across_calls() external view returns (bool) {
         uint256 size;
         assembly { size := extcodesize(0xBEEF) }
         return size > 0;
@@ -43,7 +43,7 @@ contract CheatcodeEtch {
         revert("intentional");
     }
 
-    function property_revert_undoes_etch() external view returns (bool) {
+    function revert_undoes_etch() external view returns (bool) {
         uint256 size;
         assembly { size := extcodesize(0xDEAD) }
         return size == 0;
@@ -55,7 +55,7 @@ contract CheatcodeEtch {
         vm.etch(address(0xBEEF), EMPTY_CODE);
     }
 
-    function property_etch_overwrite() external view returns (bool) {
+    function etch_overwrite() external view returns (bool) {
         uint256 size;
         assembly { size := extcodesize(0xBEEF) }
         return size == 0;
@@ -66,14 +66,14 @@ contract CheatcodeEtch {
         vm.etch(address(0xFACADE), RUNTIME_CODE);
     }
 
-    function property_etch_new_account() external view returns (bool) {
+    function etch_new_account() external view returns (bool) {
         uint256 size;
         assembly { size := extcodesize(0xFACADE) }
         return size > 0;
     }
 
     // --- Property sees final state ---
-    function property_final_etch() external view returns (bool) {
+    function final_etch() external view returns (bool) {
         uint256 size;
         assembly { size := extcodesize(0xCAFE) }
         return size > 0;
@@ -84,7 +84,7 @@ contract CheatcodeEtch {
         vm.etch(address(0x01), RUNTIME_CODE);
     }
 
-    function property_precompile_unchanged() external view returns (bool) {
+    function precompile_unchanged() external view returns (bool) {
         // If the precompile guard works, call_etch_precompile reverts and
         // this property is never evaluated. We include it for completeness.
         return true;

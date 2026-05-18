@@ -11,10 +11,14 @@ contract L5ComboLockTest {
     }
 
     function testCatchDragon() public {
-        assert(!lock.property_caught());
+        lock.invariant_caught(); // succeeds before dragon
         lock.prime(17);
         lock.even(42);
         lock.odd(99);
-        assert(lock.property_caught());
+        try lock.invariant_caught() {
+            revert("invariant should have reverted after dragon");
+        } catch {
+            // expected revert — dragon caught!
+        }
     }
 }

@@ -22,11 +22,11 @@ contract CheatcodeRoll {
         recordedTimestamp = block.timestamp;
     }
 
-    function property_setup_roll_persists() external view returns (bool) {
+    function setup_roll_persists() external view returns (bool) {
         return recordedBlockNumber == 12345;
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return block.number == 12345;
     }
 
@@ -37,7 +37,7 @@ contract CheatcodeRoll {
         recordedBlockNumber = block.number;
     }
 
-    function property_roll_persists_across_calls() external view returns (bool) {
+    function roll_persists_across_calls() external view returns (bool) {
         // call_roll(100) -> roll to 100, then advance_block adds 1 for next call
         return recordedBlockNumber == 101;
     }
@@ -49,7 +49,7 @@ contract CheatcodeRoll {
         revert("intentional");
     }
 
-    function property_revert_undoes_roll() external view returns (bool) {
+    function revert_undoes_roll() external view returns (bool) {
         return block.number != 9999;
     }
 
@@ -59,7 +59,7 @@ contract CheatcodeRoll {
         vm.roll(100);
     }
 
-    function property_roll_with_delay() external view returns (bool) {
+    function roll_with_delay() external view returns (bool) {
         // call_roll_100() at idx=0, then call_record_block_number() at idx=1 with delay=5
         // advance_block adds 5, so expected 105
         return block.number == 105;
@@ -71,7 +71,7 @@ contract CheatcodeRoll {
         vm.roll(200);
     }
 
-    function property_roll_overwrite() external view returns (bool) {
+    function roll_overwrite() external view returns (bool) {
         // call_roll_100() -> 100, call_roll_200() -> 200, then advance_block adds 1
         return block.number == 201;
     }
@@ -82,7 +82,7 @@ contract CheatcodeRoll {
         vm.roll(0);
     }
 
-    function property_roll_zero() external view returns (bool) {
+    function roll_zero() external view returns (bool) {
         // roll to 0 at idx=0, then advance_block adds 1 for idx=1
         return block.number == 1;
     }
@@ -93,13 +93,13 @@ contract CheatcodeRoll {
         vm.roll(type(uint64).max);
     }
 
-    function property_roll_max_uint64() external view returns (bool) {
+    function roll_max_uint64() external view returns (bool) {
         return block.number == type(uint64).max;
     }
 
     // --- Property sees final roll ---
 
-    function property_final_block_number() external view returns (bool) {
+    function final_block_number() external view returns (bool) {
         // If the only call was call_roll_100(), the property should see 100
         return block.number == 100;
     }
@@ -111,7 +111,7 @@ contract CheatcodeRoll {
         vm.warp(1000);
     }
 
-    function property_roll_and_warp() external view returns (bool) {
+    function roll_and_warp() external view returns (bool) {
         return block.number == 5000 && block.timestamp == 1000;
     }
 }

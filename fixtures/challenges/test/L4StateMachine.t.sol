@@ -11,11 +11,15 @@ contract L4StateMachineTest {
     }
 
     function testCatchDragon() public {
-        assert(!machine.property_caught());
+        machine.invariant_caught(); // succeeds before dragon
         machine.stepA();
         machine.stepB();
         machine.stepC();
         machine.finish();
-        assert(machine.property_caught());
+        try machine.invariant_caught() {
+            revert("invariant should have reverted after dragon");
+        } catch {
+            // expected revert — dragon caught!
+        }
     }
 }

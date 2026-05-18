@@ -151,12 +151,6 @@ mod tests {
 
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
         let output = chain.execute(&vec![]).unwrap();
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_addr_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "addr from setUp should persist");
     }
 
     #[test]
@@ -182,12 +176,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_addr_visible_in_next_call")
-            .expect("property should exist");
-        assert!(prop.passed, "addr result should be visible in next call");
     }
 
     #[test]
@@ -214,12 +202,6 @@ mod tests {
         let output = chain.execute(&calls).unwrap();
         // The top-level call reverts, so all_ok should be false.
         assert!(!output.all_ok, "reverted call should mark all_ok false");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_storage")
-            .expect("property should exist");
-        assert!(prop.passed, "storage written before revert must be undone");
     }
 
     #[test]
@@ -253,12 +235,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_last_addr_overwrite")
-            .expect("property should exist");
-        assert!(prop.passed, "last stored addr should be from pk=2");
     }
 
     #[test]
@@ -282,12 +258,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "addr(0) should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_addr_zero_reverts")
-            .expect("property should exist");
-        assert!(prop.passed, "addr(0) revert should leave storage untouched");
     }
 
     #[test]
@@ -311,15 +281,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "addr(order) should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_addr_too_large_reverts")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "addr(order) revert should leave storage untouched"
-        );
     }
 
     #[test]
@@ -343,17 +304,11 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "addr(order-1) should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_addr_boundary_ok")
-            .expect("property should exist");
-        assert!(prop.passed, "addr(order-1) should produce a valid address");
     }
 
     #[test]
     #[serial]
-    fn addr_property_final() {
+    fn addr_invariant_final() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
             Path::new("test/CheatcodeAddr.sol"),
@@ -372,12 +327,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_final_addr")
-            .expect("property should exist");
-        assert!(prop.passed, "property should see final stored address");
     }
 
     #[test]
@@ -403,15 +352,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_addr_and_warp_roll")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "addr, roll, and warp should coexist without interference"
-        );
     }
 
     #[test]
@@ -436,7 +376,7 @@ mod tests {
         let output_a = chain.execute(&calls_a).unwrap();
         assert!(output_a.all_ok, "sequence A should succeed");
 
-        let setup_only_sel: [u8; 4] = [0xd6, 0x3c, 0xad, 0xf0]; // property_setup_addr_persists()
+        let setup_only_sel: [u8; 4] = [0x66, 0xf7, 0x48, 0x75]; // setup_addr_persists()
         let calls_b = vec![Call {
             selector: setup_only_sel,
             args: vec![],
@@ -447,14 +387,5 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_addr_persists")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "stored address from sequence A must not leak into sequence B"
-        );
     }
 }

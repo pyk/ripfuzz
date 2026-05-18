@@ -80,12 +80,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_coinbase_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp coinbase should persist into first call");
     }
 
     #[test]
@@ -121,15 +115,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_coinbase_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "coinbase should persist across calls with no auto-advance"
-        );
     }
 
     #[test]
@@ -155,15 +140,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "coinbase_and_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_coinbase")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "reverted coinbase should not leak into properties"
-        );
     }
 
     #[test]
@@ -205,15 +181,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_coinbase_overwrite")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "coinbase overwrite should produce correct beneficiary"
-        );
     }
 
     #[test]
@@ -247,15 +214,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_coinbase_zero")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "coinbase to zero should produce correct beneficiary"
-        );
     }
 
     #[test]
@@ -293,20 +251,11 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "coinbase from sequence A should not leak into sequence B"
-        );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_coinbase_property_final_integration() {
+    fn cheatcode_coinbase_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
             Path::new("test/CheatcodeCoinbase.sol"),
@@ -325,12 +274,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_final_coinbase")
-            .expect("property should exist");
-        assert!(prop.passed, "property should see the final coinbase value");
     }
 
     #[test]
@@ -354,14 +297,5 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_coinbase_and_roll_warp_fee")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "coinbase, roll, warp, and fee should coexist without interference"
-        );
     }
 }

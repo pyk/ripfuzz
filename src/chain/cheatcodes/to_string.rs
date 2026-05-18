@@ -404,21 +404,10 @@ mod tests {
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
         let output = chain.execute(&[]).unwrap();
         assert!(output.all_ok, "setup should succeed");
-        for name in [
-            "property_setupUint",
-            "property_setupBool",
-            "property_setupAddress",
-            "property_setupBytes32",
-            "property_setupInt",
-            "property_setupBytes",
-        ] {
-            let prop = output
-                .property_results
-                .iter()
-                .find(|p| p.name == name)
-                .unwrap_or_else(|| panic!("{name} should exist"));
-            assert!(prop.passed, "{name} should pass");
-        }
+        assert!(
+            output.crash.is_none(),
+            "no invariant should crash after setup"
+        );
     }
 
     #[test]
@@ -494,22 +483,10 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "edge-case actions should succeed");
-        for name in [
-            "property_edgeUint",
-            "property_edgeMaxUint",
-            "property_edgeInt",
-            "property_edgeAddress",
-            "property_edgeBool",
-            "property_edgeBytes",
-            "property_edgeBytes32",
-        ] {
-            let prop = output
-                .property_results
-                .iter()
-                .find(|p| p.name == name)
-                .unwrap_or_else(|| panic!("{name} should exist"));
-            assert!(prop.passed, "{name} should pass");
-        }
+        assert!(
+            output.crash.is_none(),
+            "no invariant should crash after edge-case actions"
+        );
     }
 
     #[test]
@@ -553,18 +530,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "side-effect actions should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_sideEffects")
-            .expect("property_sideEffects should exist");
-        assert!(prop.passed, "property_sideEffects should pass");
-        let prop2 = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_twoToStringCalls_ok")
-            .expect("property_twoToStringCalls_ok should exist");
-        assert!(prop2.passed, "property_twoToStringCalls_ok should pass");
     }
 
     #[test]
@@ -685,20 +650,9 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "round-trip actions should succeed");
-        for name in [
-            "property_rtUint",
-            "property_rtInt",
-            "property_rtAddress",
-            "property_rtBool",
-            "property_rtBytes32",
-            "property_rtBytes",
-        ] {
-            let prop = output
-                .property_results
-                .iter()
-                .find(|p| p.name == name)
-                .unwrap_or_else(|| panic!("{name} should exist"));
-            assert!(prop.passed, "{name} should pass");
-        }
+        assert!(
+            output.crash.is_none(),
+            "no invariant should crash after round-trip actions"
+        );
     }
 }

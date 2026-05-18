@@ -107,13 +107,13 @@ pub fn run(args: Args) -> Result<()> {
     let artifact = campaign.artifact();
 
     info!(target: "raptor::user", "Loaded contract: {}", artifact.contract_name);
-    let property_names: Vec<&str> = artifact
-        .properties
+    let invariant_names: Vec<&str> = artifact
+        .invariants
         .iter()
         .map(|(_, n)| n.as_str())
         .collect();
-    info!(target: "raptor::user", "Properties:      {:?}", property_names);
-    info!(contract = %artifact.contract_name, properties = artifact.properties.len(), "artifact loaded");
+    info!(target: "raptor::user", "Invariants:      {:?}", invariant_names);
+    info!(contract = %artifact.contract_name, invariants = artifact.invariants.len(), "artifact loaded");
 
     let result = campaign.run()?;
 
@@ -140,16 +140,16 @@ pub fn run(args: Args) -> Result<()> {
         "campaign finished"
     );
     if result.failures.is_empty() {
-        info!(target: "raptor::user", "All properties passed.");
+        info!(target: "raptor::user", "All invariants passed.");
     } else {
         for failure in &result.failures {
             info!(target: "raptor::user", "");
-            info!(target: "raptor::user", "[FAILED] Property Test: {}::{}", artifact.contract_name, failure.property_name);
-            info!(target: "raptor::user", "Test for method \"{}::{}\" failed after the following call sequence:", artifact.contract_name, failure.property_name);
+            info!(target: "raptor::user", "[FAILED] Invariant Test: {}::{}", artifact.contract_name, failure.function_name);
+            info!(target: "raptor::user", "Test for method \"{}::{}\" failed after the following call sequence:", artifact.contract_name, failure.function_name);
             info!(target: "raptor::user", "[Call Sequence]");
             info!(target: "raptor::user", "{}", crate::worker::format_failure(artifact, failure));
         }
-        let total = artifact.properties.len();
+        let total = artifact.invariants.len();
         let failed = result.failures.len();
         let passed = total.saturating_sub(failed);
         info!(target: "raptor::user", "");

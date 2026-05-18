@@ -18,11 +18,11 @@ contract CheatcodeChainId {
         recordedChainId = block.chainid;
     }
 
-    function property_setup_chain_id_persists() external view returns (bool) {
+    function setup_chain_id_persists() external view returns (bool) {
         return recordedChainId == 1337;
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return block.chainid == 1337;
     }
 
@@ -33,7 +33,7 @@ contract CheatcodeChainId {
         recordedChainId = block.chainid;
     }
 
-    function property_chain_id_persists() external view returns (bool) {
+    function chain_id_persists() external view returns (bool) {
         return recordedChainId == 9999;
     }
 
@@ -44,7 +44,7 @@ contract CheatcodeChainId {
         revert("intentional");
     }
 
-    function property_revert_undoes_chain_id() external view returns (bool) {
+    function revert_undoes_chain_id() external view returns (bool) {
         return block.chainid == 1337;
     }
 
@@ -58,7 +58,7 @@ contract CheatcodeChainId {
         vm.chainId(200);
     }
 
-    function property_chain_id_overwrite() external view returns (bool) {
+    function chain_id_overwrite() external view returns (bool) {
         return recordedChainId == 200;
     }
 
@@ -68,7 +68,7 @@ contract CheatcodeChainId {
         vm.chainId(0);
     }
 
-    function property_chain_id_zero() external view returns (bool) {
+    function chain_id_zero() external view returns (bool) {
         return recordedChainId == 0;
     }
 
@@ -78,7 +78,7 @@ contract CheatcodeChainId {
         vm.chainId(type(uint64).max);
     }
 
-    function property_chain_id_max_u64() external view returns (bool) {
+    function chain_id_max_u64() external view returns (bool) {
         return recordedChainId == type(uint64).max;
     }
 
@@ -88,14 +88,14 @@ contract CheatcodeChainId {
         vm.chainId(uint256(type(uint64).max) + 1);
     }
 
-    function property_chain_id_too_large_reverts() external view returns (bool) {
+    function chain_id_too_large_reverts() external view returns (bool) {
         // If the cheatcode reverted correctly, the chain ID must be unchanged.
         return block.chainid == 1337;
     }
 
     // --- Property sees final chainId ---
 
-    function property_final_chain_id() external view returns (bool) {
+    function final_chain_id() external view returns (bool) {
         // If the only call was call_chain_id_100(), the property should see 100
         return block.chainid == 100;
     }
@@ -109,7 +109,7 @@ contract CheatcodeChainId {
         recordedTimestamp = block.timestamp;
     }
 
-    function property_chain_id_and_warp() external view returns (bool) {
+    function chain_id_and_warp() external view returns (bool) {
         return recordedChainId == 12345 && recordedTimestamp == 67890;
     }
 }

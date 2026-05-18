@@ -19,7 +19,7 @@ contract CheatcodeAddr {
         derivedFromSetup = vm.addr(1);
     }
 
-    function property_setup_addr_persists() external view returns (bool) {
+    function setup_addr_persists() external view returns (bool) {
         return derivedFromSetup == ADDR_PK_1;
     }
 
@@ -30,7 +30,7 @@ contract CheatcodeAddr {
         derivedFromCall = vm.addr(pk);
     }
 
-    function property_addr_visible_in_next_call() external view returns (bool) {
+    function addr_visible_in_next_call() external view returns (bool) {
         return derivedFromCall == address(0xd9A284367b6D3e25A91c91b5A430AF2593886EB9);
     }
 
@@ -41,7 +41,7 @@ contract CheatcodeAddr {
         revert("intentional");
     }
 
-    function property_revert_undoes_storage() external view returns (bool) {
+    function revert_undoes_storage() external view returns (bool) {
         // If call_derive_and_revert reverted, lastStoredAddr must still be address(0)
         return lastStoredAddr == address(0);
     }
@@ -56,7 +56,7 @@ contract CheatcodeAddr {
         lastStoredAddr = vm.addr(2);
     }
 
-    function property_last_addr_overwrite() external view returns (bool) {
+    function last_addr_overwrite() external view returns (bool) {
         return lastStoredAddr == address(0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF);
     }
 
@@ -66,7 +66,7 @@ contract CheatcodeAddr {
         lastStoredAddr = vm.addr(0);
     }
 
-    function property_addr_zero_reverts() external view returns (bool) {
+    function addr_zero_reverts() external view returns (bool) {
         // If the call reverted correctly, lastStoredAddr must still be address(0)
         return lastStoredAddr == address(0);
     }
@@ -78,7 +78,7 @@ contract CheatcodeAddr {
         lastStoredAddr = vm.addr(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141);
     }
 
-    function property_addr_too_large_reverts() external view returns (bool) {
+    function addr_too_large_reverts() external view returns (bool) {
         return lastStoredAddr == address(0);
     }
 
@@ -88,14 +88,14 @@ contract CheatcodeAddr {
         lastStoredAddr = vm.addr(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140);
     }
 
-    function property_addr_boundary_ok() external view returns (bool) {
+    function addr_boundary_ok() external view returns (bool) {
         // The address for order-1 is a known test vector we can hardcode after verifying once.
         return lastStoredAddr == address(0x80C0dbf239224071c59dD8970ab9d542E3414aB2);
     }
 
     // --- Property sees final stored address ---
 
-    function property_final_addr() external view returns (bool) {
+    function final_addr() external view returns (bool) {
         return lastStoredAddr == ADDR_PK_1;
     }
 
@@ -107,7 +107,7 @@ contract CheatcodeAddr {
         vm.roll(67890);
     }
 
-    function property_addr_and_warp_roll() external view returns (bool) {
+    function addr_and_warp_roll() external view returns (bool) {
         return lastStoredAddr == ADDR_PK_1
             && block.timestamp == 12345
             && block.number == 67890;

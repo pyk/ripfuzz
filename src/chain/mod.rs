@@ -51,7 +51,7 @@ pub struct Chain {
     config: ChainConfig,
     state: ChainState,
     contract_address: Address,
-    properties: Vec<([u8; 4], String)>,
+    invariants: Vec<([u8; 4], String)>,
     contract_abi: JsonAbi,
     initcode_map: HashMap<Bytes, (String, JsonAbi)>,
 }
@@ -79,7 +79,7 @@ impl Chain {
             config: ChainConfig::default(),
             state,
             contract_address,
-            properties: artifact.properties.clone(),
+            invariants: artifact.invariants.clone(),
             contract_abi: artifact.abi.clone(),
             initcode_map: artifact.initcode_map.clone(),
         })
@@ -111,7 +111,7 @@ impl Chain {
         execute(
             &self.state,
             self.contract_address,
-            &self.properties,
+            &self.invariants,
             &self.contract_abi,
             &self.config,
             &self.initcode_map,

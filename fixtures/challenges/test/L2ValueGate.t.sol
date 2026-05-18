@@ -11,8 +11,12 @@ contract L2ValueGateTest {
     }
 
     function testCatchDragon() public {
-        assert(!gate.property_caught());
+        gate.invariant_caught(); // succeeds before dragon
         gate.unlock(0xBAAAAAAD);
-        assert(gate.property_caught());
+        try gate.invariant_caught() {
+            revert("invariant should have reverted after dragon");
+        } catch {
+            // expected revert — dragon caught!
+        }
     }
 }

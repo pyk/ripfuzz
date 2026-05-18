@@ -46,8 +46,7 @@ contract StateMachine {
         }
     }
 
-    /// @return true when the dragon is caught.
-    function property_caught() external view returns (bool) {
-        return property == 4 ether;
+    function invariant_caught() external view {
+        assert(property != 4 ether);
     }
 }

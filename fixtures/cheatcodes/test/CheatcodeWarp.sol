@@ -22,11 +22,11 @@ contract CheatcodeWarp {
         recordedBlockNumber = block.number;
     }
 
-    function property_setup_warp_persists() external view returns (bool) {
+    function setup_warp_persists() external view returns (bool) {
         return recordedTimestamp == 1234567890;
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return block.timestamp == 1234567890;
     }
 
@@ -37,7 +37,7 @@ contract CheatcodeWarp {
         recordedTimestamp = block.timestamp;
     }
 
-    function property_warp_persists_across_calls() external view returns (bool) {
+    function warp_persists_across_calls() external view returns (bool) {
         // call_warp(100) -> warp to 100, then advance_block adds 1 for next call
         return recordedTimestamp == 101;
     }
@@ -49,7 +49,7 @@ contract CheatcodeWarp {
         revert("intentional");
     }
 
-    function property_revert_undoes_warp() external view returns (bool) {
+    function revert_undoes_warp() external view returns (bool) {
         return block.timestamp != 9999;
     }
 
@@ -59,7 +59,7 @@ contract CheatcodeWarp {
         vm.warp(100);
     }
 
-    function property_warp_with_delay() external view returns (bool) {
+    function warp_with_delay() external view returns (bool) {
         // call_warp_100() at idx=0, then call_record_timestamp() at idx=1 with delay=5
         // advance_block adds 5, so expected 105
         return block.timestamp == 105;
@@ -71,7 +71,7 @@ contract CheatcodeWarp {
         vm.warp(200);
     }
 
-    function property_warp_overwrite() external view returns (bool) {
+    function warp_overwrite() external view returns (bool) {
         // call_warp_100() -> 100, call_warp_200() -> 200, then advance_block adds 1
         return block.timestamp == 201;
     }
@@ -82,7 +82,7 @@ contract CheatcodeWarp {
         vm.warp(0);
     }
 
-    function property_warp_zero() external view returns (bool) {
+    function warp_zero() external view returns (bool) {
         // warp to 0 at idx=0, then advance_block adds 1 for idx=1
         return block.timestamp == 1;
     }
@@ -93,13 +93,13 @@ contract CheatcodeWarp {
         vm.warp(type(uint64).max);
     }
 
-    function property_warp_max_uint64() external view returns (bool) {
+    function warp_max_uint64() external view returns (bool) {
         return block.timestamp == type(uint64).max;
     }
 
     // --- Property sees final warp ---
 
-    function property_final_timestamp() external view returns (bool) {
+    function final_timestamp() external view returns (bool) {
         // If the only call was call_warp_100(), the property should see 100
         return block.timestamp == 100;
     }
@@ -111,7 +111,7 @@ contract CheatcodeWarp {
         vm.roll(5000);
     }
 
-    function property_warp_and_roll() external view returns (bool) {
+    function warp_and_roll() external view returns (bool) {
         return block.timestamp == 1000 && block.number == 5000;
     }
 }

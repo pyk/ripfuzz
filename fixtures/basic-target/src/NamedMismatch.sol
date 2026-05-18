@@ -8,7 +8,7 @@ contract DifferentName {
         value = x;
     }
 
-    function property_is_set() external view returns (bool) {
+    function invariant_is_set() external view returns (bool) {
         return value > 0;
     }
 }

@@ -46,29 +46,29 @@ contract CheatcodeToString {
 
     // --- Setup properties ---
 
-    function property_setupUint() external view returns (bool) {
+    function check_setupUint() external view returns (bool) {
         return keccak256(bytes(setupUint)) == keccak256(bytes("123"));
     }
 
-    function property_setupBool() external view returns (bool) {
+    function check_setupBool() external view returns (bool) {
         return keccak256(bytes(setupBool)) == keccak256(bytes("true"));
     }
 
-    function property_setupAddress() external view returns (bool) {
+    function check_setupAddress() external view returns (bool) {
         return keccak256(bytes(setupAddress))
             == keccak256(bytes("0x7109709ECfa91a80626fF3989D68f67F5b1DD12D"));
     }
 
-    function property_setupBytes32() external view returns (bool) {
+    function check_setupBytes32() external view returns (bool) {
         return keccak256(bytes(setupBytes32))
             == keccak256(bytes("0x00000000000000000000000000000000000000000000000000000000deadbeef"));
     }
 
-    function property_setupInt() external view returns (bool) {
+    function check_setupInt() external view returns (bool) {
         return keccak256(bytes(setupInt)) == keccak256(bytes("-42"));
     }
 
-    function property_setupBytes() external view returns (bool) {
+    function check_setupBytes() external view returns (bool) {
         return keccak256(bytes(setupBytes)) == keccak256(bytes("0x01ab"));
     }
 
@@ -113,29 +113,29 @@ contract CheatcodeToString {
 
     // --- Round-trip properties ---
 
-    function property_rtUint() external view returns (bool) {
+    function check_rtUint() external view returns (bool) {
         return keccak256(bytes(rtUint)) == keccak256(bytes("12345"));
     }
 
-    function property_rtInt() external view returns (bool) {
+    function check_rtInt() external view returns (bool) {
         return keccak256(bytes(rtInt)) == keccak256(bytes("-123"));
     }
 
-    function property_rtAddress() external view returns (bool) {
+    function check_rtAddress() external view returns (bool) {
         return keccak256(bytes(rtAddress))
             == keccak256(bytes("0x7109709ECfa91a80626fF3989D68f67F5b1DD12D"));
     }
 
-    function property_rtBool() external view returns (bool) {
+    function check_rtBool() external view returns (bool) {
         return keccak256(bytes(rtBool)) == keccak256(bytes("true"));
     }
 
-    function property_rtBytes32() external view returns (bool) {
+    function check_rtBytes32() external view returns (bool) {
         return keccak256(bytes(rtBytes32))
             == keccak256(bytes("0xdeadbeef00000000000000000000000000000000000000000000000000000000"));
     }
 
-    function property_rtBytes() external view returns (bool) {
+    function check_rtBytes() external view returns (bool) {
         return keccak256(bytes(rtBytes)) == keccak256(bytes("0x01ab"));
     }
 
@@ -171,34 +171,34 @@ contract CheatcodeToString {
 
     // --- Edge-case properties ---
 
-    function property_edgeUint() external view returns (bool) {
+    function check_edgeUint() external view returns (bool) {
         return keccak256(bytes(edgeUint)) == keccak256(bytes("0"));
     }
 
-    function property_edgeMaxUint() external view returns (bool) {
+    function check_edgeMaxUint() external view returns (bool) {
         return keccak256(bytes(edgeMaxUint))
             == keccak256(bytes("115792089237316195423570985008687907853269984665640564039457584007913129639935"));
     }
 
-    function property_edgeInt() external view returns (bool) {
+    function check_edgeInt() external view returns (bool) {
         return keccak256(bytes(edgeInt))
             == keccak256(bytes("-57896044618658097711785492504343953926634992332820282019728792003956564819968"));
     }
 
-    function property_edgeAddress() external view returns (bool) {
+    function check_edgeAddress() external view returns (bool) {
         return keccak256(bytes(edgeAddress))
             == keccak256(bytes("0x0000000000000000000000000000000000000000"));
     }
 
-    function property_edgeBool() external view returns (bool) {
+    function check_edgeBool() external view returns (bool) {
         return keccak256(bytes(edgeBool)) == keccak256(bytes("false"));
     }
 
-    function property_edgeBytes() external view returns (bool) {
+    function check_edgeBytes() external view returns (bool) {
         return keccak256(bytes(edgeBytes)) == keccak256(bytes("0x"));
     }
 
-    function property_edgeBytes32() external view returns (bool) {
+    function check_edgeBytes32() external view returns (bool) {
         return keccak256(bytes(edgeBytes32))
             == keccak256(bytes("0x0000000000000000000000000000000000000000000000000000000000000000"));
     }
@@ -217,7 +217,7 @@ contract CheatcodeToString {
         rollNum = block.number;
     }
 
-    function property_sideEffects() external view returns (bool) {
+    function check_sideEffects() external view returns (bool) {
         return warpTs == 1234567890 && rollNum == 9999;
     }
 
@@ -230,7 +230,7 @@ contract CheatcodeToString {
         require(keccak256(bytes(s2)) == keccak256(bytes("2")), "second toString corrupted");
     }
 
-    function property_twoToStringCalls_ok() external pure returns (bool) {
+    function check_twoToStringCalls() external pure returns (bool) {
         return true;
     }
 }

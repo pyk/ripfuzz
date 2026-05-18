@@ -17,13 +17,13 @@ contract CheatcodeDifficulty {
         recordedDifficulty = block.difficulty;
     }
 
-    function property_setup_difficulty_unchanged() external view returns (bool) {
+    function setup_difficulty_unchanged() external view returns (bool) {
         // setUp() called vm.difficulty(9999) but it must be a no-op.
         // On post-Paris, block.difficulty reads prevrandao, which defaults to 0.
         return recordedDifficulty == 0;
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return block.difficulty == 0;
     }
 
@@ -34,7 +34,7 @@ contract CheatcodeDifficulty {
         recordedDifficulty = block.difficulty;
     }
 
-    function property_difficulty_no_op() external view returns (bool) {
+    function difficulty_no_op() external view returns (bool) {
         // call_difficulty(12345) did nothing, so block.difficulty is still 0.
         return recordedDifficulty == 0;
     }
@@ -46,7 +46,7 @@ contract CheatcodeDifficulty {
         revert("intentional");
     }
 
-    function property_revert_is_still_no_op() external view returns (bool) {
+    function revert_is_still_no_op() external view returns (bool) {
         // Even if the call reverted, there was nothing to undo.
         return block.difficulty == 0;
     }
@@ -59,7 +59,7 @@ contract CheatcodeDifficulty {
         recordedDifficulty = block.difficulty;
     }
 
-    function property_prevrandao_unaffected() external view returns (bool) {
+    function prevrandao_unaffected() external view returns (bool) {
         // prevrandao was set to 42; difficulty(9999) must not overwrite it.
         // On post-Paris, block.difficulty == prevrandao.
         return recordedDifficulty == 42;
@@ -67,7 +67,7 @@ contract CheatcodeDifficulty {
 
     // --- Overwrite (multiple no-ops) ---
 
-    function property_difficulty_still_unchanged() external view returns (bool) {
+    function difficulty_still_unchanged() external view returns (bool) {
         // call_difficulty(1) -> call_difficulty(2) -> call_record
         // Both calls are no-ops; recordedDifficulty remains 0.
         return recordedDifficulty == 0;
@@ -79,7 +79,7 @@ contract CheatcodeDifficulty {
         vm.difficulty(0);
     }
 
-    function property_difficulty_zero_no_op() external view returns (bool) {
+    function difficulty_zero_no_op() external view returns (bool) {
         return block.difficulty == 0;
     }
 
@@ -89,7 +89,7 @@ contract CheatcodeDifficulty {
         vm.difficulty(type(uint64).max);
     }
 
-    function property_difficulty_max_no_op() external view returns (bool) {
+    function difficulty_max_no_op() external view returns (bool) {
         return block.difficulty == 0;
     }
 
@@ -99,7 +99,7 @@ contract CheatcodeDifficulty {
         // Does nothing; property checks the default state.
     }
 
-    function property_final_difficulty() external view returns (bool) {
+    function final_difficulty() external view returns (bool) {
         return block.difficulty == 0;
     }
 }

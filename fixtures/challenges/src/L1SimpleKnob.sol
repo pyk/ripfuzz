@@ -35,8 +35,7 @@ contract SimpleKnob {
         }
     }
 
-    /// @return true when the dragon is caught.
-    function property_caught() external view returns (bool) {
-        return property == 3 ether;
+    function invariant_caught() external view {
+        assert(property != 3 ether);
     }
 }

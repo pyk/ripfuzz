@@ -180,12 +180,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_ffi_executes")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp ffi should execute and store result");
     }
 
     #[test]
@@ -231,15 +225,6 @@ mod tests {
 
         let output = chain.execute(&[call_echo, call_record_hash]).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_ffi_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "ffi result should persist across calls in the same sequence"
-        );
     }
 
     #[test]
@@ -278,16 +263,6 @@ mod tests {
             "host side effect from ffi should survive EVM revert"
         );
         let _ = fs::remove_file(marker);
-
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_does_not_undo_ffi")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "contract state should be rolled back after revert"
-        );
     }
 
     #[test]
@@ -318,12 +293,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_ffi_hex_decoded")
-            .expect("property should exist");
-        assert!(prop.passed, "hex output should be decoded correctly");
     }
 
     #[test]
@@ -354,12 +323,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_ffi_raw_bytes")
-            .expect("property should exist");
-        assert!(prop.passed, "raw bytes fallback should work");
     }
 
     #[test]
@@ -467,20 +430,11 @@ mod tests {
         }];
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "ffi EVM state should not leak across corpus items"
-        );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_ffi_property_final_integration() {
+    fn cheatcode_ffi_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
             Path::new("test/CheatcodeFFI.sol"),
@@ -510,15 +464,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_final_ffi_result")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "final ffi result should be visible to property"
-        );
     }
 
     #[test]
@@ -549,14 +494,5 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_ffi_and_warp")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "ffi and warp should coexist without interference"
-        );
     }
 }

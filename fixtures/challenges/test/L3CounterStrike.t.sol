@@ -11,11 +11,15 @@ contract L3CounterStrikeTest {
     }
 
     function testCatchDragon() public {
-        assert(!strike.property_caught());
+        strike.invariant_caught(); // succeeds before dragon
         for (uint256 i = 0; i < 7; i++) {
             strike.tick();
         }
         strike.claim();
-        assert(strike.property_caught());
+        try strike.invariant_caught() {
+            revert("invariant should have reverted after dragon");
+        } catch {
+            // expected revert — dragon caught!
+        }
     }
 }

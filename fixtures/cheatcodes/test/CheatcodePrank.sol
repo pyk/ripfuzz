@@ -160,36 +160,36 @@ contract CheatcodePrank {
         victim.record();
     }
 
-    // --- Properties ---
+    // --- Checks ---
 
-    function property_prank_sender_ok() external view returns (bool) {
+    function prank_sender_ok() external view returns (bool) {
         return victim.lastSender() == address(0x111);
     }
 
-    function property_prank_origin_ok() external view returns (bool) {
+    function prank_origin_ok() external view returns (bool) {
         return victim.lastSender() == address(0x222)
             && victim.lastOrigin() == address(0x333);
     }
 
-    function property_start_persisted() external view returns (bool) {
+    function start_persisted() external view returns (bool) {
         return victim.lastSender() == address(0x777);
     }
 
-    function property_start_overwrite_ok() external view returns (bool) {
+    function start_overwrite_ok() external view returns (bool) {
         return victim.lastSender() == address(0x222);
     }
 
-    function property_nested_ok() external view returns (bool) {
+    function nested_ok() external view returns (bool) {
         return victim.lastSender() == address(0x999)
             && inner.lastSender() == address(victim);
     }
 
-    function property_start_nested_ok() external view returns (bool) {
+    function start_nested_ok() external view returns (bool) {
         return victim.lastSender() == address(0xaaa)
             && inner.lastSender() == address(0xaaa);
     }
 
-    function property_modifier_prank_ok() external view returns (bool) {
+    function modifier_prank_ok() external view returns (bool) {
         return victim.lastSender() == actors[0];
     }
 }

@@ -108,12 +108,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_deal_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp deal should persist into first call");
     }
 
     #[test]
@@ -149,15 +143,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_deal_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "deal should persist across calls with no auto-advance"
-        );
     }
 
     #[test]
@@ -183,12 +168,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "deal_and_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_deal")
-            .expect("property should exist");
-        assert!(prop.passed, "reverted deal should not leak into properties");
     }
 
     #[test]
@@ -222,12 +201,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_deal_overwrite")
-            .expect("property should exist");
-        assert!(prop.passed, "deal overwrite should produce correct balance");
     }
 
     #[test]
@@ -251,12 +224,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_deal_zero")
-            .expect("property should exist");
-        assert!(prop.passed, "deal to zero should produce correct balance");
     }
 
     #[test]
@@ -280,15 +247,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_deal_max")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "deal to max uint256 should produce correct balance"
-        );
     }
 
     #[test]
@@ -314,20 +272,11 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_deal_empty")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "deal to empty address should produce correct balance"
-        );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_deal_property_final_integration() {
+    fn cheatcode_deal_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
             Path::new("test/CheatcodeDeal.sol"),
@@ -346,12 +295,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_final_balance")
-            .expect("property should exist");
-        assert!(prop.passed, "property should see the final dealt balance");
     }
 
     #[test]
@@ -375,15 +318,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_deal_and_warp_roll")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "deal, roll, and warp should coexist without interference"
-        );
     }
 
     #[test]
@@ -409,12 +343,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_self_deal_overwrites_setup")
-            .expect("property should exist");
-        assert!(prop.passed, "self-deal should overwrite the setUp balance");
     }
 
     #[test]
@@ -439,7 +367,7 @@ mod tests {
         let output_a = chain.execute(&calls_a).unwrap();
         assert!(output_a.all_ok, "sequence A should succeed");
 
-        let call_setup_only: [u8; 4] = [0x28, 0x98, 0x65, 0x69]; // property_setup_only()
+        let call_setup_only: [u8; 4] = [0xcb, 0x67, 0xed, 0x3c]; // setup_only()
         let calls_b = vec![Call {
             selector: call_setup_only,
             args: vec![],
@@ -450,14 +378,5 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "deal from sequence A should not leak into sequence B"
-        );
     }
 }

@@ -251,7 +251,7 @@ impl LocalCoverage {
 pub struct Corpus {
     /// Coverage-increasing sequences available for mutation.
     pub items: Vec<CorpusItem>,
-    /// Property failures discovered during the campaign.
+    /// Crash sequences discovered during the campaign.
     pub failures: Vec<CorpusItem>,
     /// Sequences loaded from disk that have not been replayed yet.
     pub pending: Vec<CorpusItem>,

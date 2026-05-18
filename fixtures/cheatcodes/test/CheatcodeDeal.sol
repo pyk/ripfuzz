@@ -21,11 +21,11 @@ contract CheatcodeDeal {
         recordedBalance = TARGET.balance;
     }
 
-    function property_setup_deal_persists() external view returns (bool) {
+    function setup_deal_persists() external view returns (bool) {
         return address(this).balance == 5 ether && TARGET.balance == 3 ether;
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return address(this).balance == 5 ether;
     }
 
@@ -36,7 +36,7 @@ contract CheatcodeDeal {
         recordedBalance = TARGET.balance;
     }
 
-    function property_deal_persists_across_calls() external view returns (bool) {
+    function deal_persists_across_calls() external view returns (bool) {
         // call_deal(100) -> next call sees 100
         return recordedBalance == 100;
     }
@@ -48,7 +48,7 @@ contract CheatcodeDeal {
         revert("intentional");
     }
 
-    function property_revert_undoes_deal() external view returns (bool) {
+    function revert_undoes_deal() external view returns (bool) {
         // setUp dealt 3 ether; if call_deal_and_revert reverted, balance must be 3 ether
         return TARGET.balance == 3 ether;
     }
@@ -63,7 +63,7 @@ contract CheatcodeDeal {
         vm.deal(TARGET, 200);
     }
 
-    function property_deal_overwrite() external view returns (bool) {
+    function deal_overwrite() external view returns (bool) {
         return TARGET.balance == 200;
     }
 
@@ -73,7 +73,7 @@ contract CheatcodeDeal {
         vm.deal(TARGET, 0);
     }
 
-    function property_deal_zero() external view returns (bool) {
+    function deal_zero() external view returns (bool) {
         return TARGET.balance == 0;
     }
 
@@ -83,7 +83,7 @@ contract CheatcodeDeal {
         vm.deal(TARGET, type(uint256).max);
     }
 
-    function property_deal_max() external view returns (bool) {
+    function deal_max() external view returns (bool) {
         return TARGET.balance == type(uint256).max;
     }
 
@@ -93,13 +93,13 @@ contract CheatcodeDeal {
         vm.deal(EMPTY_ADDR, amt);
     }
 
-    function property_deal_empty() external view returns (bool) {
+    function deal_empty() external view returns (bool) {
         return EMPTY_ADDR.balance == 42;
     }
 
     // --- Property sees final deal ---
 
-    function property_final_balance() external view returns (bool) {
+    function final_balance() external view returns (bool) {
         // If the only call was call_deal_100(), property should see 100
         return TARGET.balance == 100;
     }
@@ -112,7 +112,7 @@ contract CheatcodeDeal {
         vm.roll(67890);
     }
 
-    function property_deal_and_warp_roll() external view returns (bool) {
+    function deal_and_warp_roll() external view returns (bool) {
         return TARGET.balance == 777
             && block.timestamp == 12345
             && block.number == 67890;
@@ -124,7 +124,7 @@ contract CheatcodeDeal {
         vm.deal(address(this), amt);
     }
 
-    function property_self_deal_overwrites_setup() external view returns (bool) {
+    function self_deal_overwrites_setup() external view returns (bool) {
         // setUp dealt 5 ether, then call_self_deal(1 ether) should overwrite
         return address(this).balance == 1 ether;
     }

@@ -32,11 +32,11 @@ contract CheatcodeCoinbase {
         recordedBaseFee = block.basefee;
     }
 
-    function property_setup_coinbase_persists() external view returns (bool) {
+    function setup_coinbase_persists() external view returns (bool) {
         return recordedCoinbase == address(0xCA11BA5E);
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return block.coinbase == address(0xCA11BA5E);
     }
 
@@ -47,7 +47,7 @@ contract CheatcodeCoinbase {
         recordedCoinbase = block.coinbase;
     }
 
-    function property_coinbase_persists_across_calls() external view returns (bool) {
+    function coinbase_persists_across_calls() external view returns (bool) {
         // call_coinbase(0xAB) -> coinbase = 0xAB, next call sees 0xAB (no auto-advance)
         return recordedCoinbase == address(0xAB);
     }
@@ -59,7 +59,7 @@ contract CheatcodeCoinbase {
         revert("intentional");
     }
 
-    function property_revert_undoes_coinbase() external view returns (bool) {
+    function revert_undoes_coinbase() external view returns (bool) {
         return block.coinbase != address(0xDEAD);
     }
 
@@ -73,7 +73,7 @@ contract CheatcodeCoinbase {
         vm.coinbase(address(0xB));
     }
 
-    function property_coinbase_overwrite() external view returns (bool) {
+    function coinbase_overwrite() external view returns (bool) {
         // call_coinbase_A -> 0xA, call_coinbase_B -> 0xB
         return block.coinbase == address(0xB);
     }
@@ -84,13 +84,13 @@ contract CheatcodeCoinbase {
         vm.coinbase(address(0));
     }
 
-    function property_coinbase_zero() external view returns (bool) {
+    function coinbase_zero() external view returns (bool) {
         return block.coinbase == address(0);
     }
 
     // --- Property sees final coinbase ---
 
-    function property_final_coinbase() external view returns (bool) {
+    function final_coinbase() external view returns (bool) {
         // If the only call was call_coinbase_A(), the property should see 0xA
         return block.coinbase == address(0xA);
     }
@@ -104,7 +104,7 @@ contract CheatcodeCoinbase {
         vm.fee(5000);
     }
 
-    function property_coinbase_and_roll_warp_fee() external view returns (bool) {
+    function coinbase_and_roll_warp_fee() external view returns (bool) {
         return block.coinbase == address(0xC011B4a5E0000000000000000000000000000000)
             && block.number == 7000
             && block.timestamp == 9000

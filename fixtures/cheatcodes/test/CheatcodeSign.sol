@@ -28,11 +28,11 @@ contract CheatcodeSign {
         recoveredAddr = ecrecover(DIGEST, v, r, s);
     }
 
-    function property_setup_sign_persists() external view returns (bool) {
+    function setup_sign_persists() external view returns (bool) {
         return recoveredAddr == ADDR_PK_1;
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         // After setUp, the signature should already be stored.
         return recoveredAddr == ADDR_PK_1;
     }
@@ -48,7 +48,7 @@ contract CheatcodeSign {
         recoveredAddr = ecrecover(DIGEST, v, r, s);
     }
 
-    function property_sign_visible_in_next_call() external view returns (bool) {
+    function sign_visible_in_next_call() external view returns (bool) {
         return recoveredAddr == ADDR_PK_1;
     }
 
@@ -63,7 +63,7 @@ contract CheatcodeSign {
         revert("intentional");
     }
 
-    function property_revert_undoes_storage() external view returns (bool) {
+    function revert_undoes_storage() external view returns (bool) {
         // If call_sign_and_revert reverted, all storage must be back to setUp values.
         return recoveredAddr == ADDR_PK_1;
     }
@@ -87,7 +87,7 @@ contract CheatcodeSign {
         recoveredAddr = ecrecover(DIGEST, v, r, s);
     }
 
-    function property_last_sign_overwrite() external view returns (bool) {
+    function last_sign_overwrite() external view returns (bool) {
         return recoveredAddr == ADDR_PK_2;
     }
 
@@ -100,7 +100,7 @@ contract CheatcodeSign {
         storedS = s;
     }
 
-    function property_sign_zero_reverts() external view returns (bool) {
+    function sign_zero_reverts() external view returns (bool) {
         // If the call reverted correctly, storage must still hold setUp values.
         return recoveredAddr == ADDR_PK_1;
     }
@@ -115,7 +115,7 @@ contract CheatcodeSign {
         storedS = s;
     }
 
-    function property_sign_too_large_reverts() external view returns (bool) {
+    function sign_too_large_reverts() external view returns (bool) {
         return recoveredAddr == ADDR_PK_1;
     }
 
@@ -130,13 +130,13 @@ contract CheatcodeSign {
         recoveredAddr = ecrecover(DIGEST, v, r, s);
     }
 
-    function property_sign_boundary_ok() external view returns (bool) {
+    function sign_boundary_ok() external view returns (bool) {
         return recoveredAddr != address(0);
     }
 
     // --- Property sees final stored signature ---
 
-    function property_final_signature() external view returns (bool) {
+    function final_signature() external view returns (bool) {
         return recoveredAddr == ADDR_PK_1;
     }
 
@@ -152,7 +152,7 @@ contract CheatcodeSign {
         vm.roll(67890);
     }
 
-    function property_sign_and_warp_roll() external view returns (bool) {
+    function sign_and_warp_roll() external view returns (bool) {
         return recoveredAddr == ADDR_PK_1
             && block.timestamp == 12345
             && block.number == 67890;
@@ -169,7 +169,7 @@ contract CheatcodeSign {
         recoveredAddr = ecrecover(digest2, v, r, s);
     }
 
-    function property_different_digest_recoverable() external view returns (bool) {
+    function different_digest_recoverable() external view returns (bool) {
         return recoveredAddr == ADDR_PK_1;
     }
 }

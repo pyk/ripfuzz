@@ -27,11 +27,11 @@ contract CheatcodeFee {
         recordedTimestamp = block.timestamp;
     }
 
-    function property_setup_fee_persists() external view returns (bool) {
+    function setup_fee_persists() external view returns (bool) {
         return recordedBaseFee == 12345;
     }
 
-    function property_setup_only() external view returns (bool) {
+    function setup_only() external view returns (bool) {
         return block.basefee == 12345;
     }
 
@@ -42,7 +42,7 @@ contract CheatcodeFee {
         recordedBaseFee = block.basefee;
     }
 
-    function property_fee_persists_across_calls() external view returns (bool) {
+    function fee_persists_across_calls() external view returns (bool) {
         // call_fee(100) -> fee = 100, next call sees 100 (no auto-advance)
         return recordedBaseFee == 100;
     }
@@ -54,7 +54,7 @@ contract CheatcodeFee {
         revert("intentional");
     }
 
-    function property_revert_undoes_fee() external view returns (bool) {
+    function revert_undoes_fee() external view returns (bool) {
         return block.basefee != 9999;
     }
 
@@ -68,7 +68,7 @@ contract CheatcodeFee {
         vm.fee(200);
     }
 
-    function property_fee_overwrite() external view returns (bool) {
+    function fee_overwrite() external view returns (bool) {
         // call_fee_100 -> 100, call_fee_200 -> 200
         return block.basefee == 200;
     }
@@ -79,7 +79,7 @@ contract CheatcodeFee {
         vm.fee(0);
     }
 
-    function property_fee_zero() external view returns (bool) {
+    function fee_zero() external view returns (bool) {
         return block.basefee == 0;
     }
 
@@ -89,13 +89,13 @@ contract CheatcodeFee {
         vm.fee(type(uint64).max);
     }
 
-    function property_fee_max_uint64() external view returns (bool) {
+    function fee_max_uint64() external view returns (bool) {
         return block.basefee == type(uint64).max;
     }
 
     // --- Property sees final fee ---
 
-    function property_final_basefee() external view returns (bool) {
+    function final_basefee() external view returns (bool) {
         // If the only call was call_fee_100(), the property should see 100
         return block.basefee == 100;
     }
@@ -108,7 +108,7 @@ contract CheatcodeFee {
         vm.warp(9000);
     }
 
-    function property_fee_and_roll_warp() external view returns (bool) {
+    function fee_and_roll_warp() external view returns (bool) {
         return block.basefee == 5000
             && block.number == 7000
             && block.timestamp == 9000;

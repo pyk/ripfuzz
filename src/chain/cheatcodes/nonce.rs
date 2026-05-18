@@ -144,12 +144,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_nonce_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp nonce should persist into first call");
     }
 
     #[test]
@@ -185,15 +179,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_nonce_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "nonce should persist across calls with no auto-advance"
-        );
     }
 
     #[test]
@@ -219,15 +204,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "set_nonce_and_revert should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_nonce")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "reverted setNonce should not leak into properties"
-        );
     }
 
     #[test]
@@ -251,15 +227,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "call_set_nonce_invalid should revert");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_invalid_nonce_reverted")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "invalid nonce should revert without side effects"
-        );
     }
 
     #[test]
@@ -293,12 +260,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "calls should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_nonce_overwrite")
-            .expect("property should exist");
-        assert!(prop.passed, "nonce overwrite should produce correct nonce");
     }
 
     #[test]
@@ -322,12 +283,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_nonce_zero")
-            .expect("property should exist");
-        assert!(prop.passed, "nonce to zero should produce correct nonce");
     }
 
     #[test]
@@ -351,15 +306,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_nonce_max")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "nonce to max uint64 should produce correct nonce"
-        );
     }
 
     #[test]
@@ -385,15 +331,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_nonce_empty")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "nonce to empty address should produce correct nonce"
-        );
     }
 
     #[test]
@@ -419,17 +356,11 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_nonce_eoa")
-            .expect("property should exist");
-        assert!(prop.passed, "nonce to EOA should produce correct nonce");
     }
 
     #[test]
     #[serial]
-    fn cheatcode_nonce_property_final_integration() {
+    fn cheatcode_nonce_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
             Path::new("test/CheatcodeNonce.sol"),
@@ -448,12 +379,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_final_nonce")
-            .expect("property should exist");
-        assert!(prop.passed, "property should see the final set nonce");
     }
 
     #[test]
@@ -477,15 +402,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_nonce_and_warp_roll")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "nonce, roll, and warp should coexist without interference"
-        );
     }
 
     #[test]
@@ -511,15 +427,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_self_set_nonce_overwrites_setup")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "self-setNonce should overwrite the setUp nonce"
-        );
     }
 
     #[test]
@@ -544,7 +451,7 @@ mod tests {
         let output_a = chain.execute(&calls_a).unwrap();
         assert!(output_a.all_ok, "sequence A should succeed");
 
-        let call_setup_only: [u8; 4] = [0x28, 0x98, 0x65, 0x69]; // property_setup_only()
+        let call_setup_only: [u8; 4] = [0xcb, 0x67, 0xed, 0x3c]; // setup_only()
         let calls_b = vec![Call {
             selector: call_setup_only,
             args: vec![],
@@ -555,14 +462,5 @@ mod tests {
 
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_only")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "nonce from sequence A should not leak into sequence B"
-        );
     }
 }

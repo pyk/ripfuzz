@@ -9,20 +9,20 @@ pub struct ExecutionOutput {
     pub coverage: LocalCoverage,
     pub trace: Option<TraceTree>,
     pub call_meta: Vec<CallMeta>,
-    pub property_results: Vec<PropertyResult>,
     pub all_ok: bool,
     /// Number of individual calls executed in this sequence (including calls that reverted).
     pub total_calls: u64,
     /// Total gas consumed by all calls in this sequence.
     pub total_gas: u64,
+    /// If an assert panic was detected, details about the crash.
+    pub crash: Option<CrashInfo>,
 }
 
-/// Result of checking a single property function.
+/// Details about an assert panic crash detected during execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PropertyResult {
+pub struct CrashInfo {
     pub name: String,
     pub selector: [u8; 4],
-    pub passed: bool,
 }
 
 /// Metadata for a single call in an executed sequence.

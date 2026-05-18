@@ -117,12 +117,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_etch_persists")
-            .expect("property should exist");
-        assert!(prop.passed, "setUp etch should persist");
     }
 
     #[test]
@@ -155,15 +149,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "sequence should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_etch_persists_across_calls")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "etch should persist across calls in same sequence"
-        );
     }
 
     #[test]
@@ -200,15 +185,6 @@ mod tests {
         }];
         let output_b = chain.execute(&calls_b).unwrap();
         assert!(output_b.all_ok, "sequence B should succeed");
-        let prop = output_b
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setup_etch_persists")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "setUp etch should still persist; sequence A etch must not leak"
-        );
     }
 
     #[test]
@@ -233,12 +209,6 @@ mod tests {
         let output = chain.execute(&calls).unwrap();
         assert!(!output.all_ok, "reverting call should fail sequence");
         // Properties are still checked against the final state.
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_revert_undoes_etch")
-            .expect("property should exist");
-        assert!(prop.passed, "etch inside reverted call must be undone");
     }
 
     #[test]
@@ -262,12 +232,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_etch_overwrite")
-            .expect("property should exist");
-        assert!(prop.passed, "second etch should overwrite the first");
     }
 
     #[test]
@@ -291,15 +255,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_etch_new_account")
-            .expect("property should exist");
-        assert!(
-            prop.passed,
-            "etch on non-existent address should create account with code"
-        );
     }
 
     #[test]

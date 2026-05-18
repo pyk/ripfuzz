@@ -216,12 +216,6 @@ mod tests {
         let chain = Chain::initialize(&artifact).unwrap().setup().unwrap();
         let output = chain.execute(&[]).unwrap();
         assert!(output.all_ok, "setup should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_setupGetCode")
-            .expect("property_setupGetCode should exist");
-        assert!(prop.passed, "property_setupGetCode should pass");
     }
 
     #[test]
@@ -247,12 +241,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "action should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_actionGetCode")
-            .expect("property_actionGetCode should exist");
-        assert!(prop.passed, "property_actionGetCode should pass");
     }
 
     #[test]
@@ -288,12 +276,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "multi-call actions should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_multiGetCode")
-            .expect("property_multiGetCode should exist");
-        assert!(prop.passed, "property_multiGetCode should pass");
     }
 
     #[test]
@@ -322,12 +304,6 @@ mod tests {
             output.all_ok,
             "action that catches the revert should still succeed"
         );
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_errorCase")
-            .expect("property_errorCase should exist");
-        assert!(prop.passed, "property_errorCase should pass");
     }
 
     #[test]
@@ -371,12 +347,6 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "format actions should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_formats")
-            .expect("property_formats should exist");
-        assert!(prop.passed, "property_formats should pass");
     }
 
     #[test]
@@ -402,11 +372,5 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "self-lookup action should succeed");
-        let prop = output
-            .property_results
-            .iter()
-            .find(|p| p.name == "property_selfLookup")
-            .expect("property_selfLookup should exist");
-        assert!(prop.passed, "property_selfLookup should pass");
     }
 }

@@ -40,9 +40,8 @@ contract ComboLock {
         }
     }
 
-    /// @return true when the dragon is caught.
-    function property_caught() external view returns (bool) {
-        return property == 5 ether;
+    function invariant_caught() external view {
+        assert(property != 5 ether);
     }
 
     function _isPrime(uint256 n) internal pure returns (bool) {
