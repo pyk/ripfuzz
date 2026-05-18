@@ -48,8 +48,8 @@ pub struct Args {
     #[arg(short = 't', long = "timeout")]
     pub timeout_secs: Option<u64>,
 
-    /// Maximum number of calls in a generated sequence.
-    #[arg(long = "fuzz-seq-len", default_value = "5")]
+    /// Maximum number of calls in each generated fuzzing sequence.
+    #[arg(short = 'c', long = "max-calls", default_value = "32")]
     pub sequence_length: usize,
 
     /// Random seed for reproducibility.

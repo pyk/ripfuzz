@@ -27,7 +27,7 @@ impl Default for CampaignConfig {
                 .unwrap_or(1),
             max_runs: 10000,
             timeout_secs: None,
-            sequence_length: 5,
+            sequence_length: 32,
             seed: 0,
             max_block_number_delay: 5,
             max_block_timestamp_delay: 5,

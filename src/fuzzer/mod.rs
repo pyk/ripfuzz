@@ -242,7 +242,9 @@ impl Fuzzer {
         let mut total_calls = 0u64;
         let mut total_gas = 0u64;
         for _ in 0..max_runs {
-            if let Some(timeout) = timeout && start.elapsed() > timeout {
+            if let Some(timeout) = timeout
+                && start.elapsed() > timeout
+            {
                 break;
             }
 
