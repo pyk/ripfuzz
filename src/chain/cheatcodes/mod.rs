@@ -19,6 +19,7 @@ pub use nonce::NonceRecord;
 
 use crate::chain::cheatcodes::effect::CheatcodeEffect;
 
+pub mod addr;
 pub mod assert;
 pub mod chain_id;
 pub mod coinbase;
@@ -133,7 +134,7 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         string::GetCode::SELECTOR => dispatch::<string::GetCode>(input),
 
         // Wallet / crypto
-        wallet::Addr::SELECTOR => dispatch::<wallet::Addr>(input),
+        addr::Addr::SELECTOR => dispatch::<addr::Addr>(input),
         wallet::Sign::SELECTOR => dispatch::<wallet::Sign>(input),
 
         // FFI
