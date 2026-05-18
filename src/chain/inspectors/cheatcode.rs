@@ -6,7 +6,6 @@ use std::sync::{Arc, RwLock};
 use revm::{
     context::{BlockEnv, ContextSetters, TxEnv},
     context_interface::ContextTr,
-    database::InMemoryDB,
     handler::FrameResult,
     inspector::Inspector,
     interpreter::{
@@ -204,7 +203,7 @@ impl Default for CheatcodeInspector {
 }
 
 impl<
-    CTX: ContextTr<Db = InMemoryDB, Block = BlockEnv, Tx = TxEnv>
+    CTX: ContextTr<Block = BlockEnv, Tx = TxEnv>
         + ContextSetters
         + crate::chain::cheatcodes::effect::CfgMut,
 > Inspector<CTX, EthInterpreter> for CheatcodeInspector

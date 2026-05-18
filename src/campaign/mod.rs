@@ -50,6 +50,7 @@ impl CampaignBuilder {
             .with_ffi(self.config.ffi)
             .with_deploy_value(self.config.deploy_value)
             .with_deployer(self.config.deployer_address)
+            .with_fork_config(self.config.fork_config.clone())
             .init()?
             .setup()?;
         debug!("deployment validated");
@@ -199,6 +200,8 @@ impl Campaign {
             failures = all_failures.len(),
             "campaign complete"
         );
+
+        self.chain.flush_fork_cache();
 
         let elapsed_secs = start.elapsed().as_secs_f64();
 

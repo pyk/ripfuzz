@@ -4,7 +4,7 @@ use std::env;
 use std::path::PathBuf;
 
 use alloy_primitives::Address;
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use revm::primitives::U256;
 use tracing::{debug, info, instrument};
@@ -172,6 +172,24 @@ pub struct Args {
     #[arg(short = 'q', long = "quiet", action = clap::ArgAction::Count, help_heading = "Logging")]
     pub quiet: u8,
 
+    // Fork
+    /// JSON-RPC URL to fork from (e.g. https://eth.llamarpc.com).
+    #[arg(long = "fork-rpc-url", value_name = "URL", help_heading = "Fork")]
+    pub fork_rpc_url: Option<String>,
+
+    /// Block number to fork at. Must be <= the remote latest block.
+    #[arg(long = "fork-rpc-block", value_name = "N", help_heading = "Fork")]
+    pub fork_rpc_block: Option<u64>,
+
+    /// Number of concurrent RPC connections for fork mode.
+    #[arg(
+        long = "fork-rpc-pool",
+        default_value = "4",
+        value_name = "N",
+        help_heading = "Fork"
+    )]
+    pub fork_rpc_pool: u32,
+
     // Security
     /// Enable the `ffi` cheatcode (security-sensitive).
     #[arg(long = "ffi", help_heading = "Security")]
@@ -203,6 +221,26 @@ pub fn run(args: Args) -> Result<()> {
             cwd
         }
     };
+
+    let fork_config = match (args.fork_rpc_url, args.fork_rpc_block) {
+        (Some(url), Some(block)) => {
+            let latest = crate::chain::fork::fetch_latest_block_number(&url)
+                .context("failed to query latest block")?;
+            if block > latest {
+                bail!("--fork-rpc-block ({block}) exceeds remote latest block ({latest})");
+            }
+            Some(crate::chain::fork::ForkConfig {
+                rpc_url: url,
+                block_number: block,
+                pool_size: args.fork_rpc_pool.max(1),
+            })
+        }
+        (None, None) => None,
+        (Some(_), None) | (None, Some(_)) => {
+            bail!("--fork-rpc-url and --fork-rpc-block must be provided together");
+        }
+    };
+
     let config = CampaignConfig {
         threads: args.threads,
         max_runs: args.max_runs,
@@ -215,6 +253,7 @@ pub fn run(args: Args) -> Result<()> {
         ffi: args.ffi,
         deploy_value: args.deploy_value,
         deployer_address: args.deployer_address,
+        fork_config,
     };
     info!(?config, "starting fuzzing campaign");
 

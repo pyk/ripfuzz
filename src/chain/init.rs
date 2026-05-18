@@ -6,7 +6,6 @@ use revm::{
     Database, MainBuilder, MainContext,
     context::result::ExecutionResult,
     context::{Context, TxEnv},
-    database::InMemoryDB,
     inspector::InspectCommitEvm,
     primitives::{Address, Bytes, KECCAK_EMPTY, TxKind, U256},
     state::AccountInfo,
@@ -16,7 +15,7 @@ use tracing::{error, info, instrument};
 
 use crate::chain::error::ChainInitError;
 use crate::chain::inspectors::trace::VM_ADDRESS;
-use crate::chain::state::ChainState;
+use crate::chain::state::{ChainDatabase, ChainState};
 use crate::contract::ContractArtifact;
 
 pub const CALLER: Address = Address::new([0xde; 20]);
@@ -28,7 +27,7 @@ pub const DEFAULT_DEPLOYER: Address = Address::new([
 
 /// Insert a dummy VM contract into the database so Solidity's
 /// `extcodesize` check passes when a target calls Foundry cheatcodes.
-pub(crate) fn insert_foundry_vm(db: &mut InMemoryDB) {
+pub(crate) fn insert_foundry_vm(db: &mut ChainDatabase) {
     let vm_code = revm::bytecode::Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x00]));
     db.insert_account_info(
         VM_ADDRESS,
@@ -83,8 +82,16 @@ pub fn initialize(
     ffi_enabled: bool,
     deploy_value: U256,
     deployer: Address,
+    fork_config: Option<&crate::chain::fork::ForkConfig>,
 ) -> Result<(Address, ChainState), ChainInitError> {
-    let mut db = InMemoryDB::default();
+    let mut db = if let Some(config) = fork_config {
+        let backend = crate::chain::fork::ForkBackend::new(config, &project_root).map_err(|e| {
+            ChainInitError::Other(anyhow::anyhow!("fork initialization failed: {e}"))
+        })?;
+        crate::chain::fork::ForkDatabase::new(backend)
+    } else {
+        crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty())
+    };
 
     db.insert_account_info(
         deployer,

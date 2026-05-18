@@ -8,7 +8,6 @@ use alloy_primitives::I256;
 use revm::{
     context::{BlockEnv, ContextSetters},
     context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
-    database::InMemoryDB,
     primitives::{Address, Bytes, U256},
 };
 
@@ -84,7 +83,7 @@ pub enum CheatcodeEffect {
 /// Apply a single effect, mutating `ctx` and/or `state`.
 ///
 /// Returns `Err(reason)` if the effect cannot be applied (e.g. FFI disabled).
-pub fn apply_effect<CTX: ContextTr<Db = InMemoryDB> + ContextSetters<Block = BlockEnv> + CfgMut>(
+pub fn apply_effect<CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut>(
     effect: &CheatcodeEffect,
     ctx: &mut CTX,
     state: &mut CheatcodeState,

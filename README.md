@@ -21,6 +21,9 @@ Run the test suite:
 
 ```sh
 cargo test
+
+# Run integration tests for network forking
+RAPTOR_FORK_RPC_URL=<url> cargo test -- --ignored
 ```
 
 Check code with Clippy:

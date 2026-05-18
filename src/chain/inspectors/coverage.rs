@@ -176,7 +176,6 @@ mod tests {
     use revm::{
         MainBuilder, MainContext,
         context::{Context, TxEnv},
-        database::InMemoryDB,
         inspector::InspectCommitEvm,
         primitives::{KECCAK_EMPTY, TxKind, U256},
         state::AccountInfo,
@@ -196,7 +195,8 @@ mod tests {
         )
         .unwrap();
 
-        let mut db = InMemoryDB::default();
+        let mut db =
+            crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty());
         db.insert_account_info(
             CALLER,
             AccountInfo {

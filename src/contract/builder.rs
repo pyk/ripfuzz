@@ -13,8 +13,10 @@ use crate::foundry::artifact as foundry_artifact;
 use crate::foundry::forge;
 use crate::foundry::toml as foundry_toml;
 
-/// Scan a Solidity source file for `contract`, `interface`, and `library`
-/// declarations and return the declared names.
+/// Scan a Solidity source file for `contract` declarations and return the
+/// declared names. Interfaces and libraries are intentionally excluded: they
+/// are not deployable targets and should not trigger "multiple contracts"
+/// errors when defined alongside a target contract.
 fn source_contract_names(source: &str) -> Vec<String> {
     let mut names = Vec::new();
     let mut in_block_comment = false;
@@ -42,23 +44,21 @@ fn source_contract_names(source: &str) -> Vec<String> {
         let line = line.split("//").next().unwrap_or(line);
         let line = line.split("/*").next().unwrap_or(line);
 
-        for keyword in ["contract ", "interface ", "library "] {
-            if let Some(pos) = line.find(keyword) {
-                let after = &line[pos + keyword.len()..];
-                let name = after
-                    .split(|c: char| c.is_whitespace() || c == '{' || c == '(')
-                    .next()
-                    .unwrap_or("")
-                    .trim();
-                if !name.is_empty()
-                    && name
-                        .chars()
-                        .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
-                {
-                    names.push(name.into());
-                }
-                break;
-            }
+        let Some(pos) = line.find("contract ") else {
+            continue;
+        };
+        let after = &line[pos + "contract ".len()..];
+        let name = after
+            .split(|c: char| c.is_whitespace() || c == '{' || c == '(')
+            .next()
+            .unwrap_or("")
+            .trim();
+        if !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+        {
+            names.push(name.into());
         }
     }
 
@@ -216,7 +216,7 @@ impl ContractBuilder {
             }
             _ => bail!(
                 "multiple contracts found in {}: {:?}. \
-                 Specify which contract to fuzz with --contract",
+                 Move each contract into its own file",
                 source_path.as_ref().display(),
                 candidates
                     .iter()

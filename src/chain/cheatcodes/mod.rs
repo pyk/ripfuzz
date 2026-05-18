@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use alloy_primitives::I256;
 use revm::{
     context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
-    database::InMemoryDB,
     interpreter::{CallOutcome, Gas, InstructionResult, InterpreterResult},
     primitives::{Address, Bytes, U256},
 };
@@ -239,7 +238,7 @@ pub struct StartPrankState {
 //  Outcome helpers
 // ---------------------------------------------------------------------------
 
-pub(crate) fn build_outcome<CTX: ContextTr<Db = InMemoryDB>>(
+pub(crate) fn build_outcome<CTX: ContextTr>(
     effects: &[CheatcodeEffect],
     gas_limit: u64,
     ctx: &mut CTX,

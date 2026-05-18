@@ -5,17 +5,19 @@ use std::collections::HashMap;
 use alloy_json_abi::JsonAbi;
 use revm::{
     Database,
-    database::InMemoryDB,
     primitives::{Address, Bytes, U256},
     state::AccountInfo,
 };
 
 use crate::chain::cheatcodes::CheatcodeState;
 
+/// The database type used for all campaigns (forked and local).
+pub type ChainDatabase = crate::chain::fork::ForkDatabase;
+
 /// Everything that must be cloned for each sequence execution.
 #[derive(Clone, Debug)]
 pub struct ChainState {
-    pub db: InMemoryDB,
+    pub db: ChainDatabase,
     pub block_number: u64,
     pub block_timestamp: u64,
     pub caller_nonce: u64,
@@ -26,7 +28,7 @@ pub struct ChainState {
 }
 
 impl ChainState {
-    pub fn new(db: InMemoryDB) -> Self {
+    pub fn new(db: ChainDatabase) -> Self {
         Self {
             db,
             block_number: 1,
@@ -35,6 +37,11 @@ impl ChainState {
             known_contracts: HashMap::new(),
             cheatcodes: CheatcodeState::default(),
         }
+    }
+
+    /// Flush the fork cache to disk if a fork backend is present.
+    pub fn flush_fork_cache(&self) -> anyhow::Result<()> {
+        self.db.db.flush_cache()
     }
 
     /// Advance block context by the given delays.

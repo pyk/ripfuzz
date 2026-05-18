@@ -39,6 +39,7 @@ pub struct ChainBuilder<'a> {
     ffi_enabled: bool,
     deploy_value: U256,
     deployer: Address,
+    fork_config: Option<crate::chain::fork::ForkConfig>,
 }
 
 impl<'a> ChainBuilder<'a> {
@@ -66,6 +67,12 @@ impl<'a> ChainBuilder<'a> {
         self
     }
 
+    /// Set the optional fork configuration.
+    pub fn with_fork_config(mut self, config: Option<crate::chain::fork::ForkConfig>) -> Self {
+        self.fork_config = config;
+        self
+    }
+
     /// Deploy the contract, verify deployment success, and return a [`Chain`].
     pub fn init(self) -> Result<Chain, ChainInitError> {
         let (contract_address, mut state) = initialize(
@@ -74,6 +81,7 @@ impl<'a> ChainBuilder<'a> {
             self.ffi_enabled,
             self.deploy_value,
             self.deployer,
+            self.fork_config.as_ref(),
         )?;
         // Populate compiled-contract map for vm.getCode lookups.
         let initcode_map = self.artifact.initcode_map.clone();
@@ -114,6 +122,7 @@ impl Chain {
             ffi_enabled: false,
             deploy_value: U256::ZERO,
             deployer: crate::chain::init::DEFAULT_DEPLOYER,
+            fork_config: None,
         }
     }
 
@@ -161,6 +170,13 @@ impl Chain {
     /// Access the contract ABI.
     pub fn contract_abi(&self) -> &JsonAbi {
         &self.contract_abi
+    }
+
+    /// Flush the underlying fork cache to disk, if one exists.
+    pub fn flush_fork_cache(&self) {
+        if let Err(e) = self.state.flush_fork_cache() {
+            tracing::error!(%e, "failed to flush fork cache");
+        }
     }
 }
 

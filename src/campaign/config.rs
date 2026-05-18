@@ -24,6 +24,9 @@ pub struct CampaignConfig {
     pub deploy_value: U256,
     /// Account address used to deploy the target contract.
     pub deployer_address: Address,
+    /// Optional fork configuration. When set, the campaign initializes
+    /// the EVM database from a remote RPC node at the specified block.
+    pub fork_config: Option<crate::chain::fork::ForkConfig>,
 }
 
 impl Default for CampaignConfig {
@@ -42,6 +45,7 @@ impl Default for CampaignConfig {
             ffi: false,
             deploy_value: U256::ZERO,
             deployer_address: crate::chain::init::DEFAULT_DEPLOYER,
+            fork_config: None,
         }
     }
 }
