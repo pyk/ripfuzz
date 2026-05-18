@@ -31,6 +31,7 @@ pub mod fee;
 pub mod ffi;
 pub mod label;
 pub mod nonce;
+pub mod parse;
 pub mod prank;
 pub mod prevrandao;
 pub mod roll;
@@ -126,12 +127,12 @@ pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<Cheatc
         to_string::ToStringInt::SELECTOR => dispatch::<to_string::ToStringInt>(input),
         to_string::ToStringBytes32::SELECTOR => dispatch::<to_string::ToStringBytes32>(input),
         to_string::ToStringBytes::SELECTOR => dispatch::<to_string::ToStringBytes>(input),
-        string::ParseUint::SELECTOR => dispatch::<string::ParseUint>(input),
-        string::ParseInt::SELECTOR => dispatch::<string::ParseInt>(input),
-        string::ParseBool::SELECTOR => dispatch::<string::ParseBool>(input),
-        string::ParseAddress::SELECTOR => dispatch::<string::ParseAddress>(input),
-        string::ParseBytes::SELECTOR => dispatch::<string::ParseBytes>(input),
-        string::ParseBytes32::SELECTOR => dispatch::<string::ParseBytes32>(input),
+        parse::ParseUint::SELECTOR => dispatch::<parse::ParseUint>(input),
+        parse::ParseInt::SELECTOR => dispatch::<parse::ParseInt>(input),
+        parse::ParseBool::SELECTOR => dispatch::<parse::ParseBool>(input),
+        parse::ParseAddress::SELECTOR => dispatch::<parse::ParseAddress>(input),
+        parse::ParseBytes::SELECTOR => dispatch::<parse::ParseBytes>(input),
+        parse::ParseBytes32::SELECTOR => dispatch::<parse::ParseBytes32>(input),
         string::GetCode::SELECTOR => dispatch::<string::GetCode>(input),
 
         // Wallet / crypto
