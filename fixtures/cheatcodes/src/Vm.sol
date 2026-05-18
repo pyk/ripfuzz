@@ -31,30 +31,30 @@ interface Vm {
     function stopPrank() external;
 
     // Assertions
-    function assertTrue(bool) external;
-    function assertFalse(bool) external;
-    function assertEq(bool, bool) external;
-    function assertEq(uint256, uint256) external;
-    function assertEq(int256, int256) external;
-    function assertEq(address, address) external;
-    function assertEq(bytes32, bytes32) external;
-    function assertEq(string calldata, string calldata) external;
-    function assertEq(bytes calldata, bytes calldata) external;
-    function assertNotEq(bool, bool) external;
-    function assertNotEq(uint256, uint256) external;
-    function assertNotEq(int256, int256) external;
-    function assertNotEq(address, address) external;
-    function assertNotEq(bytes32, bytes32) external;
-    function assertNotEq(string calldata, string calldata) external;
-    function assertNotEq(bytes calldata, bytes calldata) external;
-    function assertLt(uint256, uint256) external;
-    function assertLt(int256, int256) external;
-    function assertLe(uint256, uint256) external;
-    function assertLe(int256, int256) external;
-    function assertGt(uint256, uint256) external;
-    function assertGt(int256, int256) external;
-    function assertGe(uint256, uint256) external;
-    function assertGe(int256, int256) external;
+    function ensure(bool, string calldata) external;
+    function deny(bool, string calldata) external;
+    function eq(bool, bool, string calldata) external;
+    function eq(uint256, uint256, string calldata) external;
+    function eq(int256, int256, string calldata) external;
+    function eq(address, address, string calldata) external;
+    function eq(bytes32, bytes32, string calldata) external;
+    function eq(string calldata, string calldata, string calldata) external;
+    function eq(bytes calldata, bytes calldata, string calldata) external;
+    function ne(bool, bool, string calldata) external;
+    function ne(uint256, uint256, string calldata) external;
+    function ne(int256, int256, string calldata) external;
+    function ne(address, address, string calldata) external;
+    function ne(bytes32, bytes32, string calldata) external;
+    function ne(string calldata, string calldata, string calldata) external;
+    function ne(bytes calldata, bytes calldata, string calldata) external;
+    function lt(uint256, uint256, string calldata) external;
+    function lt(int256, int256, string calldata) external;
+    function lte(uint256, uint256, string calldata) external;
+    function lte(int256, int256, string calldata) external;
+    function gt(uint256, uint256, string calldata) external;
+    function gt(int256, int256, string calldata) external;
+    function gte(uint256, uint256, string calldata) external;
+    function gte(int256, int256, string calldata) external;
 
     // String / Type conversion
     function toString(address) external pure returns (string memory);
