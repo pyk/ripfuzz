@@ -2,8 +2,6 @@
 
 use std::collections::HashMap;
 use std::fs::{create_dir_all, read, write};
-#[cfg(test)]
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
@@ -463,6 +461,8 @@ fn parse_hex_bytes(value: &serde_json::Value) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use super::*;
     use revm::Database;
     use revm::database::CacheDB;

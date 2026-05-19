@@ -41,5 +41,4 @@ pub mod state;
 #[allow(clippy::module_inception)]
 pub mod vm;
 
-#[cfg(test)]
 pub mod test_harness;

@@ -29,30 +29,6 @@ pub trait SequenceExecutor: Send + Sync {
     fn execute(&self, calls: &[Call]) -> Result<ExecutionOutput>;
 }
 
-#[cfg(test)]
-pub struct FakeSequenceExecutor {
-    outputs: Vec<ExecutionOutput>,
-    idx: std::sync::atomic::AtomicUsize,
-}
-
-#[cfg(test)]
-impl FakeSequenceExecutor {
-    pub fn new(outputs: Vec<ExecutionOutput>) -> Self {
-        Self {
-            outputs,
-            idx: std::sync::atomic::AtomicUsize::new(0),
-        }
-    }
-}
-
-#[cfg(test)]
-impl SequenceExecutor for FakeSequenceExecutor {
-    fn execute(&self, _calls: &[Call]) -> Result<ExecutionOutput> {
-        let i = self.idx.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Ok(self.outputs.get(i).cloned().unwrap_or_default())
-    }
-}
-
 /// Options controlling expensive execution features.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ExecutionOptions {

@@ -4,9 +4,6 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
-#[cfg(test)]
-use std::path::Path;
-
 use alloy_primitives::keccak256;
 
 use crate::contract::ContractId;
@@ -236,6 +233,8 @@ fn parse_jump(s: &str) -> JumpType {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     #[test]
