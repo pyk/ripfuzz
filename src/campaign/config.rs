@@ -1,6 +1,7 @@
 //! Campaign configuration.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use alloy_primitives::Address;
 use revm::primitives::U256;
@@ -26,7 +27,11 @@ pub struct CampaignConfig {
     pub deployer_address: Address,
     /// Optional fork configuration. When set, the campaign initializes
     /// the EVM database from a remote RPC node at the specified block.
+    /// This field now only stores `block_number`; transport details live in
+    /// `rpc`.
     pub fork_config: Option<crate::chain::fork::ForkConfig>,
+    /// Pre-built RPC client shared between the CLI and the fork backend.
+    pub rpc: Option<Arc<crate::rpc::Rpc>>,
 }
 
 impl Default for CampaignConfig {
@@ -46,6 +51,7 @@ impl Default for CampaignConfig {
             deploy_value: U256::ZERO,
             deployer_address: crate::chain::init::DEFAULT_DEPLOYER,
             fork_config: None,
+            rpc: None,
         }
     }
 }

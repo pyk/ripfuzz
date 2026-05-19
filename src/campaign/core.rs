@@ -137,6 +137,7 @@ impl Campaign {
             .with_vm(self.config.vm.clone())
             .with_deploy_value(self.config.deploy_value)
             .with_deployer(self.config.deployer_address)
+            .with_rpc(self.config.rpc.clone())
             .with_fork_config(self.config.fork_config.clone())
             .init()?
             .setup()?;

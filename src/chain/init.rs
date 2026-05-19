@@ -1,6 +1,7 @@
 //! Chain initialization: deployment of the target contract.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use revm::{
     Database, MainBuilder, MainContext,
@@ -82,13 +83,17 @@ pub fn initialize(
     ffi_enabled: bool,
     deploy_value: U256,
     deployer: Address,
+    rpc: Option<&Arc<crate::rpc::Rpc>>,
     fork_config: Option<&crate::chain::fork::ForkConfig>,
 ) -> Result<(Address, ChainState), ChainInitError> {
     let t0 = std::time::Instant::now();
-    let mut db = if let Some(config) = fork_config {
-        let backend = crate::chain::fork::ForkBackend::new(config, &project_root).map_err(|e| {
-            ChainInitError::Other(anyhow::anyhow!("fork initialization failed: {e}"))
-        })?;
+    let mut db = if let (Some(rpc), Some(config)) = (rpc, fork_config) {
+        let backend = crate::chain::fork::ForkBackend::new(
+            Arc::clone(rpc),
+            config.block_number,
+            &project_root,
+        )
+        .map_err(|e| ChainInitError::Other(anyhow::anyhow!("fork initialization failed: {e}")))?;
         crate::chain::fork::ForkDatabase::new(backend)
     } else {
         crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty())

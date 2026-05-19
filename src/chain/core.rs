@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use alloy_json_abi::JsonAbi;
 use revm::primitives::{Address, Bytes, U256};
@@ -39,6 +40,7 @@ pub struct ChainBuilder<'a> {
     vm: crate::vm::VmConfig,
     deploy_value: U256,
     deployer: Address,
+    rpc: Option<Arc<crate::rpc::Rpc>>,
     fork_config: Option<crate::chain::fork::ForkConfig>,
 }
 
@@ -74,6 +76,12 @@ impl<'a> ChainBuilder<'a> {
         self
     }
 
+    /// Set the pre-built RPC client (required when `fork_config` is set).
+    pub fn with_rpc(mut self, rpc: Option<Arc<crate::rpc::Rpc>>) -> Self {
+        self.rpc = rpc;
+        self
+    }
+
     /// Deploy the contract, verify deployment success, and return a [`Chain`].
     pub fn init(self) -> Result<Chain, ChainInitError> {
         let (contract_address, mut state) = initialize(
@@ -82,6 +90,7 @@ impl<'a> ChainBuilder<'a> {
             self.vm.ffi,
             self.deploy_value,
             self.deployer,
+            self.rpc.as_ref(),
             self.fork_config.as_ref(),
         )?;
         // Populate compiled-contract map for vm.getCode lookups.
@@ -126,6 +135,7 @@ impl Chain {
             vm: crate::vm::VmConfig::default(),
             deploy_value: U256::ZERO,
             deployer: crate::chain::init::DEFAULT_DEPLOYER,
+            rpc: None,
             fork_config: None,
         }
     }

@@ -44,12 +44,13 @@ impl From<anyhow::Error> for ForkError {
 impl DBErrorMarker for ForkError {}
 
 /// Configuration for a single fork.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// RPC transport details (URLs, retries, rate limits) live in
+/// [`crate::rpc::RpcConfig`]; this struct only stores the fork parameter
+/// that `ForkBackend` cannot infer.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ForkConfig {
-    pub rpc_url: String,
     pub block_number: u64,
-    /// Number of concurrent `ureq::Agent` instances in the RPC pool.
-    pub pool_size: u32,
 }
 
 /// The remote + cached backend that satisfies `DatabaseRef`.
@@ -63,12 +64,9 @@ pub struct ForkBackend {
 
 #[derive(Debug)]
 struct ForkBackendInner {
-    rpc_url: String,
+    /// The RPC client shared with all clones of this backend.
+    rpc: Arc<crate::rpc::Rpc>,
     block_number: u64,
-    /// Round-robin pool of `ureq::Agent` instances for concurrent requests.
-    clients: Vec<ureq::Agent>,
-    /// Current index for round-robin client selection.
-    client_idx: std::sync::atomic::AtomicUsize,
     /// Shared memory cache: account info keyed by address.
     account_cache: RwLock<HashMap<Address, CachedAccount>>,
     /// Shared memory cache: storage slots keyed by (address, slot).
@@ -118,12 +116,9 @@ impl ForkBackend {
     ///
     /// `project_root` is used to derive the disk cache directory:
     /// `{project_root}/raptor/cache/<hash>/<block>.json`
-    pub fn new(config: &ForkConfig, project_root: &Path) -> Result<Self> {
-        let pool_size = config.pool_size.max(1) as usize;
-        let clients: Vec<ureq::Agent> = (0..pool_size)
-            .map(|_| ureq::Agent::new_with_defaults())
-            .collect();
-        let cache_file = cache_path(project_root, &config.rpc_url, config.block_number);
+    pub fn new(rpc: Arc<crate::rpc::Rpc>, block_number: u64, project_root: &Path) -> Result<Self> {
+        let rpc_url = rpc.config().urls.first().cloned().unwrap_or_default();
+        let cache_file = cache_path(project_root, &rpc_url, block_number);
 
         let mut account_cache = HashMap::new();
         let mut slot_cache = HashMap::new();
@@ -166,10 +161,8 @@ impl ForkBackend {
 
         Ok(Self {
             inner: Arc::new(ForkBackendInner {
-                rpc_url: config.rpc_url.clone(),
-                block_number: config.block_number,
-                clients,
-                client_idx: std::sync::atomic::AtomicUsize::new(0),
+                rpc,
+                block_number,
                 account_cache: RwLock::new(account_cache),
                 slot_cache: RwLock::new(slot_cache),
                 block_hash_cache: RwLock::new(block_hash_cache),
@@ -188,10 +181,8 @@ impl ForkBackend {
     pub fn empty() -> Self {
         Self {
             inner: Arc::new(ForkBackendInner {
-                rpc_url: String::new(),
+                rpc: Arc::new(crate::rpc::Rpc::noop()),
                 block_number: 0,
-                clients: vec![ureq::Agent::new_with_defaults()],
-                client_idx: std::sync::atomic::AtomicUsize::new(0),
                 account_cache: RwLock::new(HashMap::new()),
                 slot_cache: RwLock::new(HashMap::new()),
                 block_hash_cache: RwLock::new(HashMap::new()),
@@ -429,91 +420,26 @@ impl DatabaseRef for ForkBackend {
 }
 
 impl ForkBackendInner {
-    fn next_client(&self) -> &ureq::Agent {
-        let idx = self
-            .client_idx
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            % self.clients.len();
-        &self.clients[idx]
-    }
-
-    #[instrument(skip(self, params), fields(method))]
-    fn rpc_call(&self, method: &str, params: &[serde_json::Value]) -> Result<serde_json::Value> {
-        let payload = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": method,
-            "params": params,
-        });
-        let body_bytes = serde_json::to_vec(&payload).context("serializing RPC payload")?;
-
-        let url = &self.rpc_url;
-        let mut last_err = None;
-
-        for attempt in 0..3 {
-            let client = self.next_client();
-            trace!(method, attempt, "sending RPC request");
-            let req = client
-                .post(url)
-                .header("Content-Type", "application/json")
-                .send(&body_bytes);
-
-            match req {
-                Ok(mut response) => {
-                    let body_str = response
-                        .body_mut()
-                        .read_to_string()
-                        .context("reading RPC response body")?;
-                    let body: serde_json::Value =
-                        serde_json::from_str(&body_str).context("json decode")?;
-                    if let Some(err) = body.get("error") {
-                        bail!("RPC error: {err}");
-                    }
-                    let result = body.get("result").cloned();
-                    if let Some(value) = result {
-                        trace!(method, "RPC request succeeded");
-                        return Ok(value);
-                    }
-                    bail!("missing result field in RPC response");
-                }
-                Err(e) => {
-                    warn!(method, attempt, %e, "RPC request failed");
-                    last_err = Some(e);
-                    std::thread::sleep(std::time::Duration::from_millis(
-                        100 * (attempt + 1) as u64,
-                    ));
-                }
-            }
-        }
-
-        bail!(
-            "RPC request failed after 3 attempts: {}",
-            last_err
-                .map(|e| e.to_string())
-                .unwrap_or_else(|| "unknown".into())
-        )
-    }
-
     #[instrument(skip(self), fields(%address))]
     fn fetch_account(&self, address: Address) -> Result<CachedAccount> {
         let addr_hex = format!("0x{address:x}");
         let block_hex = format!("0x{:x}", self.block_number);
 
-        let balance = self.rpc_call(
+        let balance = self.rpc.call(
             "eth_getBalance",
             &[
                 serde_json::Value::String(addr_hex.clone()),
                 serde_json::Value::String(block_hex.clone()),
             ],
         )?;
-        let nonce = self.rpc_call(
+        let nonce = self.rpc.call(
             "eth_getTransactionCount",
             &[
                 serde_json::Value::String(addr_hex.clone()),
                 serde_json::Value::String(block_hex.clone()),
             ],
         )?;
-        let code = self.rpc_call(
+        let code = self.rpc.call(
             "eth_getCode",
             &[
                 serde_json::Value::String(addr_hex),
@@ -554,7 +480,7 @@ impl ForkBackendInner {
         let slot_hex = format!("0x{slot:x}");
         let block_hex = format!("0x{:x}", self.block_number);
 
-        let result = self.rpc_call(
+        let result = self.rpc.call(
             "eth_getStorageAt",
             &[
                 serde_json::Value::String(addr_hex),
@@ -569,7 +495,7 @@ impl ForkBackendInner {
     #[instrument(skip(self), fields(number))]
     fn fetch_block_hash(&self, number: u64) -> Result<B256> {
         let block_hex = format!("0x{:x}", number);
-        let result = self.rpc_call(
+        let result = self.rpc.call(
             "eth_getBlockByNumber",
             &[
                 serde_json::Value::String(block_hex),
@@ -584,43 +510,6 @@ impl ForkBackendInner {
             .unwrap_or_default();
         Ok(hash)
     }
-}
-
-/// Query the remote node for its latest block number.
-#[instrument(fields(url))]
-pub fn fetch_latest_block_number(url: &str) -> Result<u64> {
-    let client = ureq::Agent::new_with_defaults();
-    let payload = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "eth_blockNumber",
-        "params": [],
-    });
-    let body_bytes = serde_json::to_vec(&payload).context("serializing RPC payload")?;
-
-    let mut response = client
-        .post(url)
-        .header("Content-Type", "application/json")
-        .send(&body_bytes)
-        .context("RPC request failed")?;
-
-    let body_str = response
-        .body_mut()
-        .read_to_string()
-        .context("reading RPC response body")?;
-    let body: serde_json::Value = serde_json::from_str(&body_str).context("json decode")?;
-
-    if let Some(err) = body.get("error") {
-        bail!("RPC error: {err}");
-    }
-
-    let result = body
-        .get("result")
-        .and_then(|v| v.as_str())
-        .context("missing result in RPC response")?;
-
-    let s = result.strip_prefix("0x").unwrap_or(result);
-    u64::from_str_radix(s, 16).context("invalid block number")
 }
 
 /// Convert a poisoned `RwLock` into an `anyhow::Error`.
@@ -764,12 +653,14 @@ mod tests {
         }
         write(&cache_file, serde_json::to_vec_pretty(&disk).unwrap()).unwrap();
 
-        let config = ForkConfig {
-            rpc_url: rpc_url.into(),
-            block_number: block,
-            pool_size: 1,
-        };
-        let backend = ForkBackend::new(&config, tmpdir.path()).unwrap();
+        let urls: Vec<String> = vec![rpc_url.into()];
+        let rpc = Arc::new(
+            crate::rpc::Rpc::with_urls(&urls)
+                .with_pool_size(1)
+                .build()
+                .unwrap(),
+        );
+        let backend = ForkBackend::new(rpc, block, tmpdir.path()).unwrap();
 
         // Wrap in CacheDB and insert an account so storage insertion works.
         let mut db = ForkDatabase::new(backend.clone());
@@ -826,12 +717,14 @@ mod tests {
         }
         write(&cache_file, serde_json::to_vec_pretty(&disk).unwrap()).unwrap();
 
-        let config = ForkConfig {
-            rpc_url: rpc_url.into(),
-            block_number: block,
-            pool_size: 1,
-        };
-        let backend = ForkBackend::new(&config, tmpdir.path()).unwrap();
+        let urls: Vec<String> = vec![rpc_url.into()];
+        let rpc = Arc::new(
+            crate::rpc::Rpc::with_urls(&urls)
+                .with_pool_size(1)
+                .build()
+                .unwrap(),
+        );
+        let backend = ForkBackend::new(rpc, block, tmpdir.path()).unwrap();
 
         // All queries should be satisfied from cache, never hitting the network.
         let info = backend.basic_ref(Address::ZERO).unwrap().unwrap();
@@ -852,10 +745,14 @@ mod tests {
         config.max_runs = 100;
         config.timeout_secs = Some(30);
         config.fork_config = Some(crate::chain::fork::ForkConfig {
-            rpc_url,
             block_number: 25_121_437,
-            pool_size: 1,
         });
+        config.rpc = Some(Arc::new(
+            crate::rpc::Rpc::with_urls(&[rpc_url])
+                .with_pool_size(1)
+                .build()
+                .unwrap(),
+        ));
 
         let campaign = crate::campaign::Campaign::for_target(Path::new("test/ForkTarget.sol"))
             .with_project(Path::new("fixtures/forks"))
