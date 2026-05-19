@@ -9,7 +9,7 @@ A raptor target contract is a normal Solidity contract with **three kinds of
 functions**:
 
 1. **Setup Functions**: initialize state before fuzzing begins
-2. **Fuzzed Functions**: function calls the fuzzer can make to mutate state
+2. **Target Functions**: function calls the fuzzer can make to mutate state
 3. **Invariant Functions**: invariants the fuzzer checks after every call
    sequence
 
@@ -34,10 +34,10 @@ contract CounterTarget {
     }
 
     // -------------------------------------------------
-    // 2. FUZZED FUNCTIONS (FUNCTION CALLS)
+    // 2. TARGET FUNCTIONS
     // -------------------------------------------------
     // Any external/public function that does NOT match
-    // an invariant prefix is a function call. Raptor will call
+    // an invariant prefix is a target function. Raptor will call
     // these with type-appropriate random inputs.
 
     function increment() external {
@@ -102,7 +102,7 @@ contract LendingTarget {
 }
 ```
 
-## 2. Fuzzed Functions (Function Calls)
+## 2. Target Functions
 
 These are the functions raptor calls with random inputs to explore state space.
 
@@ -176,7 +176,7 @@ Requirements:
   the fuzzer records a **crash** (objective)
 - Reverts caused by `require` or other reasons set `all_ok = false` but do
   **not** produce a crash
-- Invariants are **not** called as fuzzed function calls (they are appended,
+- Invariants are **not** called as target functions (they are appended,
   not randomly generated)
 
 ### Example invariants
@@ -198,7 +198,7 @@ For each fuzz input, raptor performs this exact sequence:
 ```
 1. CLONE the post-setup state
 2. BUILD the call sequence:
-   - fuzzed calls (randomly generated or mutated)
+   - target function calls (randomly generated or mutated)
    - invariant calls (appended automatically)
 3. EXECUTE every call in a single loop
 4. After each call:

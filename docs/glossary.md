@@ -28,14 +28,15 @@ A Solidity function that encodes an invariant. By default it must:
 
 Raptor appends every invariant to the end of each function call sequence and
 executes it in the same EVM loop. If an invariant reverts with a Solidity
-`assert` failure (`Panic(0x01)`), the fuzzer records a crash. The return
-value, if any, is ignored. Synonyms: **invariant**, **property test**.
+`assert` failure (`Panic(0x01)`), the fuzzer records a crash. The return value,
+if any, is ignored. Synonyms: **invariant**, **property test**.
 
-### Function Call (Fuzzed Function)
+### Target Function
 
 Any external or public function in the target contract that is _not_ a setup or
 invariant function. Raptor calls these with randomly-generated arguments to
 mutate contract state. A single fuzz input is a **sequence of function calls**.
+Synonyms: **function call**, **handler function** (Foundry).
 
 ### Setup Function
 
@@ -57,16 +58,16 @@ discovered.
 
 ### Crash
 
-A failure recorded when any call (fuzzed or invariant) reverts with a Solidity
-`assert` panic (`Panic(0x01)`). The fuzzer treats a crash as a bug and adds it
-to the set of objectives. Reverts caused by `require` or other reasons do
-not produce a crash. Synonyms: **objective**, **bug**.
+A failure recorded when any call (target function or invariant) reverts with a
+Solidity `assert` panic (`Panic(0x01)`). The fuzzer treats a crash as a bug and
+adds it to the set of objectives. Reverts caused by `require` or other reasons
+do not produce a crash. Synonyms: **objective**, **bug**.
 
 ## Correspondence with Other Fuzzers
 
-| Raptor        | Foundry (invariant) | Medusa        | Echidna       |
-| ------------- | ------------------- | ------------- | ------------- |
-| Target        | Handler             | Target        | Target        |
-| `invariant_`  | `invariant_`        | `property_`   | `echidna_`    |
-| Function Call | Handler function    | Function call | Function call |
-| Campaign      | Test run            | Fuzzing run   | Test run      |
+| Raptor          | Foundry (invariant) | Medusa        | Echidna       |
+| --------------- | ------------------- | ------------- | ------------- |
+| Target          | Handler             | Target        | Target        |
+| `invariant_`    | `invariant_`        | `property_`   | `echidna_`    |
+| Target Function | Handler function    | Function call | Function call |
+| Campaign        | Test run            | Fuzzing run   | Test run      |
