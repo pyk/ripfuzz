@@ -1,11 +1,5 @@
 //! Campaign configuration.
 
-use std::path::PathBuf;
-use std::sync::Arc;
-
-use alloy_primitives::Address;
-use revm::primitives::U256;
-
 /// Configuration for a fuzzing campaign.
 #[derive(Debug, Clone)]
 pub struct CampaignConfig {
@@ -16,22 +10,6 @@ pub struct CampaignConfig {
     pub seed: u64,
     pub max_block_number_delay: u64,
     pub max_block_timestamp_delay: u64,
-    /// Path to the corpus root directory. If set, coverage-guided
-    /// persistence is enabled.
-    pub corpus_dir: Option<PathBuf>,
-    /// VM configuration for cheatcode support.
-    pub vm: crate::vm::VmConfig,
-    /// Wei value sent with the target contract deployment transaction.
-    pub deploy_value: U256,
-    /// Account address used to deploy the target contract.
-    pub deployer_address: Address,
-    /// Optional fork configuration. When set, the campaign initializes
-    /// the EVM database from a remote RPC node at the specified block.
-    /// This field now only stores `block_number`; transport details live in
-    /// `rpc`.
-    pub fork_config: Option<crate::chain::fork::ForkConfig>,
-    /// Pre-built RPC client shared between the CLI and the fork backend.
-    pub rpc: Option<Arc<crate::rpc::Rpc>>,
 }
 
 impl Default for CampaignConfig {
@@ -46,12 +24,6 @@ impl Default for CampaignConfig {
             seed: 0,
             max_block_number_delay: 5,
             max_block_timestamp_delay: 5,
-            corpus_dir: None,
-            vm: crate::vm::VmConfig::default(),
-            deploy_value: U256::ZERO,
-            deployer_address: crate::chain::init::DEFAULT_DEPLOYER,
-            fork_config: None,
-            rpc: None,
         }
     }
 }

@@ -42,6 +42,26 @@ impl FakeRpc {
     }
 }
 
+impl crate::rpc::RpcClient for FakeRpc {
+    fn call(
+        &self,
+        method: &str,
+        params: &[serde_json::Value],
+    ) -> anyhow::Result<serde_json::Value> {
+        self.call(method, params)
+    }
+    fn latest_block_number(&self) -> anyhow::Result<u64> {
+        self.call("eth_blockNumber", &[]).and_then(|v| {
+            let s = v.as_str().context("missing result")?;
+            let s = s.strip_prefix("0x").unwrap_or(s);
+            u64::from_str_radix(s, 16).context("invalid block number")
+        })
+    }
+    fn cache_key(&self) -> String {
+        "fake".into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

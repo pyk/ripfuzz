@@ -1,10 +1,10 @@
 //! Execution output types for the chain abstraction.
 
 use crate::chain::inspectors::trace::TraceTree;
-use crate::corpus::LocalCoverage;
+use crate::coverage::LocalCoverage;
 
 /// Result of executing a call sequence against a chain.
-#[derive(Debug)]
+#[derive(Debug, Clone, Default)]
 pub struct ExecutionOutput {
     pub coverage: LocalCoverage,
     pub trace: Option<TraceTree>,

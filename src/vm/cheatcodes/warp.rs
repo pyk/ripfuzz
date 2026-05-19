@@ -23,13 +23,14 @@ impl Cheatcode for Warp {
 mod tests {
     use std::path::Path;
 
-    use revm::primitives::U256;
+    use revm::primitives::{Bytes, U256};
     use serial_test::serial;
 
     use super::*;
     use crate::chain::Chain;
     use crate::contract;
     use crate::corpus::Call;
+    use crate::vm::test_harness::run_cheatcode;
 
     #[test]
     fn warp_decode_and_effects() {
@@ -55,6 +56,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -82,6 +84,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -121,6 +124,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -150,6 +154,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -187,6 +192,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -256,6 +262,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -293,6 +300,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -320,6 +328,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -361,6 +370,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -388,6 +398,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -403,5 +414,22 @@ mod tests {
 
         let output = chain.execute(&calls).unwrap();
         assert!(output.all_ok, "call should succeed");
+    }
+
+    #[test]
+    fn warp_via_test_harness() {
+        let mut data = Warp::SELECTOR.to_vec();
+        data.extend_from_slice(&U256::from(1234567890u64).to_be_bytes_vec());
+
+        let vm_state = crate::vm::VmState::default();
+        let caller = revm::primitives::Address::new([0xde; 20]);
+        let (result, new_state) = run_cheatcode(caller, Bytes::from(data), vm_state).unwrap();
+
+        assert!(result.is_success(), "cheatcode should succeed");
+        assert_eq!(
+            new_state.block.timestamp,
+            Some(U256::from(1234567890u64)),
+            "timestamp should be updated"
+        );
     }
 }

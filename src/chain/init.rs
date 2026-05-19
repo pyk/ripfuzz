@@ -28,7 +28,7 @@ pub const DEFAULT_DEPLOYER: Address = Address::new([
 
 /// Insert a dummy VM contract into the database so Solidity's
 /// `extcodesize` check passes when a target calls raptor cheatcodes.
-pub(crate) fn insert_raptor_vm(db: &mut ChainDatabase) {
+pub fn insert_raptor_vm(db: &mut ChainDatabase) {
     let vm_code = revm::bytecode::Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x00]));
     db.insert_account_info(
         VM_ADDRESS,
@@ -43,7 +43,7 @@ pub(crate) fn insert_raptor_vm(db: &mut ChainDatabase) {
 }
 
 /// Extract a human-readable error message from a failed deployment result.
-pub(crate) fn extract_deployment_error(result: &revm::context::result::ExecutionResult) -> String {
+pub fn extract_deployment_error(result: &revm::context::result::ExecutionResult) -> String {
     match result {
         ExecutionResult::Success { .. } => "contract returned no address".into(),
         ExecutionResult::Revert { output, .. } => {
@@ -58,7 +58,7 @@ pub(crate) fn extract_deployment_error(result: &revm::context::result::Execution
 }
 
 /// Decode a Solidity `Error(string)` revert payload.
-pub(crate) fn decode_solidity_error(output: &Bytes) -> Option<String> {
+pub fn decode_solidity_error(output: &Bytes) -> Option<String> {
     if output.len() < 4 || output[..4] != ERROR_SELECTOR {
         return None;
     }
@@ -83,7 +83,7 @@ pub fn initialize(
     ffi_enabled: bool,
     deploy_value: U256,
     deployer: Address,
-    rpc: Option<&Arc<crate::rpc::Rpc>>,
+    rpc: Option<&Arc<dyn crate::rpc::RpcClient>>,
     fork_config: Option<&crate::chain::fork::ForkConfig>,
 ) -> Result<(Address, ChainState), ChainInitError> {
     let t0 = std::time::Instant::now();

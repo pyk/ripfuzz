@@ -55,14 +55,14 @@ enum TraceResult {
 }
 
 /// Node in a call trace tree.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CallNode {
     frame: TraceFrame,
     children: Vec<CallNode>,
 }
 
 /// Formatted trace tree produced by [`TraceInspector`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TraceTree {
     roots: Vec<CallNode>,
 }

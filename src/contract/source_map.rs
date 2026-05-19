@@ -9,8 +9,9 @@ use std::path::Path;
 
 use alloy_primitives::keccak256;
 
+use crate::contract::ContractId;
 use crate::contract::artifact::ContractArtifact;
-use crate::corpus::{ContractId, CoverageMap};
+use crate::coverage::CoverageMap;
 
 /// Parsed source map for a contract's bytecode.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,7 +128,7 @@ pub fn resolve_coverage_to_source(
 }
 
 fn resolve_contract_coverage(
-    contract_cov: &crate::corpus::ContractCoverage,
+    contract_cov: &crate::coverage::ContractCoverage,
     source_map: &SourceMap,
     report: &mut SourceCoverageReport,
     seen: &mut HashSet<SourceLocationKey>,
@@ -287,7 +288,7 @@ mod tests {
 
         let mut coverage = CoverageMap::default();
         let runtime_id = ContractId::from(artifact.runtime.hash_slow());
-        let mut contract_cov = crate::corpus::ContractCoverage::new(artifact.runtime.len());
+        let mut contract_cov = crate::coverage::ContractCoverage::new(artifact.runtime.len());
         contract_cov.edges[0] = 1;
         coverage.contracts.insert(runtime_id, contract_cov);
 

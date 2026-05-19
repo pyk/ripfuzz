@@ -10,7 +10,7 @@ use clap::Parser;
 use revm::primitives::U256;
 use tracing::{debug, info, instrument};
 
-use crate::campaign::{Campaign, CampaignConfig};
+use crate::campaign::CampaignConfig;
 use crate::contract::resolve_coverage_to_source;
 
 fn default_threads() -> usize {
@@ -240,23 +240,14 @@ impl Args {
     }
 }
 
-#[instrument(skip(args), fields(target = ?args.target_path, threads = args.threads, max_runs = args.max_runs))]
-pub fn run(args: Args) -> Result<()> {
-    let project_path = match args.project_path {
-        Some(p) => {
-            debug!(?p, "using explicit project path");
-            p
-        }
-        None => {
-            let cwd = env::current_dir()?;
-            debug!(?cwd, "using current directory as project path");
-            cwd
-        }
-    };
+type ForkSetup = (
+    Option<Arc<dyn crate::rpc::RpcClient>>,
+    Option<crate::chain::fork::ForkConfig>,
+);
 
-    let rpc: Option<Arc<crate::rpc::Rpc>>;
-    let fork_config: Option<crate::chain::fork::ForkConfig>;
+fn build_rpc(args: &Args) -> Result<ForkSetup> {
     match (args.fork_rpc_urls.is_empty(), args.fork_rpc_block) {
+        (true, None) => Ok((None, None)),
         (false, Some(block)) => {
             let rpc_instance = crate::rpc::Rpc::with_urls(&args.fork_rpc_urls)
                 .with_pool_size(args.fork_rpc_pool)
@@ -275,19 +266,55 @@ pub fn run(args: Args) -> Result<()> {
             if block > latest {
                 bail!("--fork-rpc-block ({block}) exceeds remote latest block ({latest})");
             }
-            rpc = Some(Arc::new(rpc_instance));
-            fork_config = Some(crate::chain::fork::ForkConfig {
+            let fork = crate::chain::fork::ForkConfig {
                 block_number: block,
-            });
+            };
+            info!(target: "raptor::user", urls = ?args.fork_rpc_urls, block = fork.block_number, "Forking");
+            Ok((Some(Arc::new(rpc_instance)), Some(fork)))
         }
-        (true, None) => {
-            rpc = None;
-            fork_config = None;
-        }
-        (false, None) | (true, Some(_)) => {
+        _ => {
             bail!("--fork-rpc-url and --fork-rpc-block must be provided together");
         }
     }
+}
+
+#[instrument(skip(args), fields(target = ?args.target_path, threads = args.threads, max_runs = args.max_runs))]
+pub fn run(args: Args) -> Result<()> {
+    // Resolve project path
+    let project_path = match args.project_path {
+        Some(ref p) => {
+            debug!(?p, "using explicit project path");
+            p.clone()
+        }
+        None => {
+            let cwd = env::current_dir()?;
+            debug!(?cwd, "using current directory as project path");
+            cwd
+        }
+    };
+
+    // Compile target
+    let t0 = std::time::Instant::now();
+    let artifact = crate::contract::ContractBuilder::build(&project_path, &args.target_path)?;
+    let compile_elapsed = t0.elapsed();
+    info!(target: "raptor::user", name = %artifact.contract_name, time_ms = compile_elapsed.as_millis(), "Finished compiling targets");
+
+    // Validate artifact
+    let fuzzed_names: Vec<&str> = artifact
+        .abi
+        .functions()
+        .filter(|f| !f.name.starts_with("invariant_"))
+        .map(|f| f.name.as_str())
+        .collect();
+    ensure!(
+        !fuzzed_names.is_empty(),
+        "No fuzzed functions found in target contract"
+    );
+    info!(target: "raptor::user", count = fuzzed_names.len(), names = ?fuzzed_names, "Found fuzzed functions");
+    info!(target: "raptor::user", count = artifact.invariants.len(), "Found invariants");
+
+    // Build RPC / Fork Config
+    let (rpc, fork_config) = build_rpc(&args)?;
 
     let config = CampaignConfig {
         threads: args.threads,
@@ -297,49 +324,57 @@ pub fn run(args: Args) -> Result<()> {
         seed: args.seed,
         max_block_number_delay: args.max_block_number_delay,
         max_block_timestamp_delay: args.max_block_timestamp_delay,
-        corpus_dir: args.corpus_dir,
-        vm: crate::vm::VmConfig::default().with_ffi(args.ffi),
-        deploy_value: args.deploy_value,
-        deployer_address: args.deployer_address,
-        fork_config: fork_config.clone(),
-        rpc: rpc.clone(),
     };
-    let fork_info = fork_config.clone();
 
-    let t0 = std::time::Instant::now();
-    let mut campaign = Campaign::for_target(&args.target_path)
-        .with_project(&project_path)
-        .with_config(config)
-        .build()?;
-    let load_elapsed = t0.elapsed();
-    let artifact = campaign.artifact().clone();
-
-    info!(target: "raptor::user", name = %artifact.contract_name, time_ms = load_elapsed.as_millis(), "Loaded target contract");
-    let fuzzed_names: Vec<&str> = artifact
-        .abi
-        .functions()
-        .filter(|f| !f.name.starts_with("invariant_"))
-        .map(|f| f.name.as_str())
-        .collect();
-    let invariant_names: Vec<&str> = artifact
-        .invariants
-        .iter()
-        .map(|(_, n)| n.as_str())
-        .collect();
-    ensure!(
-        !fuzzed_names.is_empty(),
-        "No fuzzed functions found in target contract"
-    );
-    info!(target: "raptor::user", count = fuzzed_names.len(), names = ?fuzzed_names, "Found fuzzed functions");
-    info!(target: "raptor::user", count = artifact.invariants.len(), names = ?invariant_names, "Found invariants");
-    if let (Some(fork), Some(rpc)) = (&fork_info, &rpc) {
-        info!(target: "raptor::user", urls = ?rpc.config().urls, block = fork.block_number, "Forking");
-    }
     info!(target: "raptor::user", threads = args.threads, seed = args.seed, max_runs = args.max_runs, seq_length = args.sequence_length, timeout_secs = args.timeout_secs.unwrap_or(0), "Fuzzing configuration");
 
-    campaign.deploy()?;
+    // Build chain
+    let vm = crate::vm::Vm::new(
+        crate::vm::VmConfig::default()
+            .with_ffi(args.ffi)
+            .with_project_root(&project_path),
+    );
+    let chain = crate::chain::Chain::for_artifact(&artifact)
+        .with_project(&project_path)
+        .with_vm(vm)
+        .with_deploy_value(args.deploy_value)
+        .with_deployer(args.deployer_address)
+        .with_rpc(rpc)
+        .with_fork_config(fork_config)
+        .init()?
+        .setup()?;
+
+    // Build campaign
+    let sequence_length = config.sequence_length;
+    let mut builder = crate::campaign::CampaignBuilder::new()
+        .with_chain(chain)
+        .with_config(config)
+        .with_fuzzer(crate::fuzzer::DefaultFuzzerFactory);
+
+    if let Some(ref dir) = args.corpus_dir {
+        let seeds = crate::campaign::build_seeds(&artifact, sequence_length);
+        let corpus = match crate::corpus::Corpus::load(dir) {
+            Ok(mut c) => {
+                c.set_storage_dir(dir);
+                c
+            }
+            Err(_) => {
+                let mut c = crate::corpus::Corpus::with_seeds(seeds);
+                c.set_storage_dir(dir);
+                c
+            }
+        };
+        builder = builder.with_corpus(std::sync::Arc::new(std::sync::RwLock::new(corpus)));
+    }
+
+    let campaign = builder.with_artifact(artifact).build()?;
+
+    // Run campaign
     let result = campaign.run()?;
 
+    let artifact = campaign.artifact();
+
+    // Aggregate results
     let elapsed_secs = result.elapsed_secs;
     let calls_per_sec = if elapsed_secs > 0.0 {
         result.total_calls as f64 / elapsed_secs
@@ -352,6 +387,7 @@ pub fn run(args: Args) -> Result<()> {
         0.0
     };
 
+    // Report campaign result
     info!(target: "raptor::user", runs = result.runs, calls = result.total_calls, "Fuzzing completed");
     info!(target: "raptor::user", calls_per_sec = calls_per_sec, "Throughput");
     info!(target: "raptor::user", avg_gas_per_call = avg_gas_per_call, "Average gas per call");
@@ -363,7 +399,7 @@ pub fn run(args: Args) -> Result<()> {
             info!(target: "raptor::user", contract = %artifact.contract_name, test = %failure.function_name, "[FAILED] Invariant Test");
             info!(target: "raptor::user", contract = %artifact.contract_name, test = %failure.function_name, "Test failed after the following call sequence");
             info!(target: "raptor::user", "[Call Sequence]");
-            info!(target: "raptor::user", "{}", crate::fuzzer::format_failure(&artifact, failure, result.deployer_address));
+            info!(target: "raptor::user", "{}", crate::fuzzer::format_failure(artifact, failure, args.deployer_address));
         }
         let total = artifact.invariants.len();
         let failed = result.failures.len();
@@ -372,8 +408,7 @@ pub fn run(args: Args) -> Result<()> {
         info!(target: "raptor::user", passed = passed, failed = failed, "Test summary");
     }
 
-    // Source-level coverage summary
-    let report = resolve_coverage_to_source(&result.coverage, &artifact);
+    let report = resolve_coverage_to_source(&result.coverage, artifact);
     if report.hit_count() > 0 {
         info!(target: "raptor::user", hits = report.hit_count(), "Coverage summary");
     } else {

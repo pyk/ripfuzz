@@ -7,8 +7,8 @@ use revm::{
     interpreter::{Interpreter, interpreter::EthInterpreter, interpreter_types::Jumps},
 };
 
-use crate::corpus::corpus::edge_marker;
-use crate::corpus::{ContractId, LocalContractCoverage, LocalCoverage};
+use crate::contract::ContractId;
+use crate::coverage::{LocalContractCoverage, LocalCoverage, edge_marker};
 
 /// Convert a U256 stack value to usize without using `ok()`.
 #[allow(clippy::manual_ok_err)]

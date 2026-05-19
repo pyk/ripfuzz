@@ -21,6 +21,15 @@ pub use outcome::{
 pub use state::{
     BlockCheatState, BlockOverrides, PrankCheatState, PrankState, StartPrankState, VmState,
 };
+pub use vm::Vm;
+
+/// Trait for VM factories that can produce fresh [`VmState`] snapshots.
+pub trait VmFactory: Send + Sync + std::fmt::Debug + 'static {
+    /// Access the VM configuration.
+    fn config(&self) -> &VmConfig;
+    /// Produce a fresh VmState for a new chain snapshot.
+    fn fresh_state(&self) -> VmState;
+}
 
 pub mod address;
 pub mod cheatcodes;
@@ -31,3 +40,8 @@ pub mod effect;
 pub mod inspector;
 pub mod outcome;
 pub mod state;
+#[allow(clippy::module_inception)]
+pub mod vm;
+
+#[cfg(test)]
+pub mod test_harness;

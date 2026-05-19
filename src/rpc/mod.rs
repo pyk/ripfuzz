@@ -6,6 +6,25 @@ use std::time::Duration;
 use anyhow::{Context, Result, ensure};
 use tracing::{instrument, trace};
 
+/// Trait for anything that can execute a JSON-RPC method call.
+pub trait RpcClient: Send + Sync + std::fmt::Debug {
+    fn call(&self, method: &str, params: &[serde_json::Value]) -> Result<serde_json::Value>;
+    fn latest_block_number(&self) -> Result<u64>;
+    fn cache_key(&self) -> String;
+}
+
+impl RpcClient for Rpc {
+    fn call(&self, method: &str, params: &[serde_json::Value]) -> Result<serde_json::Value> {
+        self.call(method, params)
+    }
+    fn latest_block_number(&self) -> Result<u64> {
+        self.latest_block_number()
+    }
+    fn cache_key(&self) -> String {
+        self.config().urls.first().cloned().unwrap_or_default()
+    }
+}
+
 use client::{AgentPool, UrlPool};
 use dedup::{DedupTable, RequestKey};
 use limiter::RateLimiter;

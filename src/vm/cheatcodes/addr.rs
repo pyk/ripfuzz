@@ -150,6 +150,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -167,6 +168,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -196,6 +198,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -226,6 +229,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -263,6 +267,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -290,6 +295,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -317,6 +323,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -344,6 +351,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -371,6 +379,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()
@@ -400,6 +409,7 @@ mod tests {
         .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
+            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
             .init()
             .unwrap()
             .setup()

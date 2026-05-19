@@ -2,15 +2,17 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use anyhow::Result;
 use tracing::{info, instrument};
 
-use crate::campaign::CampaignConfig;
 use crate::contract;
 use crate::corpus::{Call, Corpus, CorpusItem};
+use crate::fuzzer::config::FuzzerConfig;
 
+pub mod config;
 pub mod mutators;
 
 /// Result produced by a single fuzzer.
@@ -167,23 +169,69 @@ fn format_dyn_value(v: &alloy_dyn_abi::DynSolValue) -> String {
     }
 }
 
+/// Something that can execute a single fuzzer run and return the result.
+pub trait FuzzerEngine: Send {
+    /// Run the fuzzer against the shared corpus.
+    #[allow(clippy::too_many_arguments)]
+    fn run(
+        &self,
+        corpus: Arc<RwLock<Corpus>>,
+        max_runs: u64,
+        fuzzer_id: usize,
+        start: Instant,
+        timeout: Option<Duration>,
+        shared_runs: Arc<AtomicU64>,
+        shared_calls: Arc<AtomicU64>,
+        shared_gas: Arc<AtomicU64>,
+        shared_failures: Arc<AtomicU64>,
+    ) -> Result<FuzzerResult>;
+}
+
+/// Factory for constructing [`FuzzerEngine`] instances.
+pub trait FuzzerFactory: Send + Sync + std::fmt::Debug + 'static {
+    /// Create a new fuzzer engine for a given thread.
+    fn create(
+        &self,
+        artifact: Arc<contract::ContractArtifact>,
+        executor: Arc<dyn crate::chain::SequenceExecutor>,
+        config: FuzzerConfig,
+        fuzzed_selectors: Arc<Vec<[u8; 4]>>,
+    ) -> Box<dyn FuzzerEngine>;
+}
+
+/// The default fuzzer factory that produces [`Fuzzer`] instances.
+#[derive(Debug, Clone)]
+pub struct DefaultFuzzerFactory;
+
+impl FuzzerFactory for DefaultFuzzerFactory {
+    fn create(
+        &self,
+        artifact: Arc<contract::ContractArtifact>,
+        executor: Arc<dyn crate::chain::SequenceExecutor>,
+        config: FuzzerConfig,
+        fuzzed_selectors: Arc<Vec<[u8; 4]>>,
+    ) -> Box<dyn FuzzerEngine> {
+        Box::new(Fuzzer::new(artifact, executor, config, fuzzed_selectors))
+    }
+}
+
 pub struct Fuzzer {
     artifact: Arc<contract::ContractArtifact>,
-    chain: Arc<crate::chain::Chain>,
+    executor: Arc<dyn crate::chain::SequenceExecutor>,
     fuzzed_selectors: Arc<Vec<[u8; 4]>>,
-    config: Arc<CampaignConfig>,
+    config: FuzzerConfig,
 }
 
 impl Fuzzer {
     pub fn new(
         artifact: Arc<contract::ContractArtifact>,
-        chain: Arc<crate::chain::Chain>,
-        config: Arc<CampaignConfig>,
+        executor: Arc<dyn crate::chain::SequenceExecutor>,
+        config: FuzzerConfig,
         fuzzed_selectors: Arc<Vec<[u8; 4]>>,
     ) -> Self {
         Self {
             artifact,
-            chain,
+            executor,
             fuzzed_selectors,
             config,
         }
@@ -294,7 +342,7 @@ impl Fuzzer {
                 }
             };
 
-            let output = self.chain.execute(&calls)?;
+            let output = self.executor.execute(&calls)?;
             total_calls += output.total_calls;
             total_gas += output.total_gas;
             let all_ok = output.all_ok;
@@ -351,10 +399,38 @@ impl Fuzzer {
     }
 }
 
+impl FuzzerEngine for Fuzzer {
+    #[allow(clippy::too_many_arguments)]
+    fn run(
+        &self,
+        corpus: Arc<RwLock<Corpus>>,
+        max_runs: u64,
+        fuzzer_id: usize,
+        start: Instant,
+        timeout: Option<Duration>,
+        shared_runs: Arc<AtomicU64>,
+        shared_calls: Arc<AtomicU64>,
+        shared_gas: Arc<AtomicU64>,
+        shared_failures: Arc<AtomicU64>,
+    ) -> Result<FuzzerResult> {
+        self.run(
+            corpus,
+            max_runs,
+            fuzzer_id,
+            start,
+            timeout,
+            shared_runs,
+            shared_calls,
+            shared_gas,
+            shared_failures,
+        )
+    }
+}
+
 fn generate_random_sequence(
     selectors: &[[u8; 4]],
     rng: &mut fastrand::Rng,
-    config: &CampaignConfig,
+    config: &FuzzerConfig,
 ) -> Vec<Call> {
     let len = rng.usize(1..=config.sequence_length.max(1));
     let mut calls = Vec::with_capacity(len);

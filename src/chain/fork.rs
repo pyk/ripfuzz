@@ -65,7 +65,7 @@ pub struct ForkBackend {
 #[derive(Debug)]
 struct ForkBackendInner {
     /// The RPC client shared with all clones of this backend.
-    rpc: Arc<crate::rpc::Rpc>,
+    rpc: Arc<dyn crate::rpc::RpcClient>,
     block_number: u64,
     /// Shared memory cache: account info keyed by address.
     account_cache: RwLock<HashMap<Address, CachedAccount>>,
@@ -88,19 +88,19 @@ struct ForkBackendInner {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct CachedAccount {
-    pub(crate) balance: U256,
-    pub(crate) nonce: u64,
-    pub(crate) code_hash: B256,
-    pub(crate) code: Option<Vec<u8>>,
+pub struct CachedAccount {
+    pub balance: U256,
+    pub nonce: u64,
+    pub code_hash: B256,
+    pub code: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub(crate) struct DiskCache {
-    pub(crate) accounts: HashMap<Address, CachedAccount>,
-    pub(crate) slots: Vec<((Address, U256), U256)>,
-    pub(crate) block_hashes: HashMap<u64, B256>,
-    pub(crate) code: HashMap<B256, Vec<u8>>,
+pub struct DiskCache {
+    pub accounts: HashMap<Address, CachedAccount>,
+    pub slots: Vec<((Address, U256), U256)>,
+    pub block_hashes: HashMap<u64, B256>,
+    pub code: HashMap<B256, Vec<u8>>,
 }
 
 /// The database type used for all campaigns (forked and local).
@@ -116,8 +116,12 @@ impl ForkBackend {
     ///
     /// `project_root` is used to derive the disk cache directory:
     /// `{project_root}/raptor/cache/<hash>/<block>.json`
-    pub fn new(rpc: Arc<crate::rpc::Rpc>, block_number: u64, project_root: &Path) -> Result<Self> {
-        let rpc_url = rpc.config().urls.first().cloned().unwrap_or_default();
+    pub fn new(
+        rpc: Arc<dyn crate::rpc::RpcClient>,
+        block_number: u64,
+        project_root: &Path,
+    ) -> Result<Self> {
+        let rpc_url = rpc.cache_key();
         let cache_file = cache_path(project_root, &rpc_url, block_number);
 
         let mut account_cache = HashMap::new();
@@ -518,7 +522,7 @@ fn lock_poisoned<T>(_: std::sync::PoisonError<T>) -> anyhow::Error {
 }
 
 /// Derive the canonical cache path: `{project}/raptor/cache/{hash}/{block}.json`
-pub(crate) fn cache_path(project_root: &Path, rpc_url: &str, block_number: u64) -> PathBuf {
+pub fn cache_path(project_root: &Path, rpc_url: &str, block_number: u64) -> PathBuf {
     let mut hasher = DefaultHasher::new();
     rpc_url.hash(&mut hasher);
     let hash = hasher.finish();
@@ -740,23 +744,44 @@ mod tests {
         let rpc_url = std::env::var("RAPTOR_FORK_RPC_URL")
             .unwrap_or_else(|_| "https://eth.llamarpc.com".into());
 
-        let mut config = crate::campaign::CampaignConfig::default();
-        config.threads = 1;
-        config.max_runs = 100;
-        config.timeout_secs = Some(30);
-        config.fork_config = Some(crate::chain::fork::ForkConfig {
+        let fork_config = Some(crate::chain::fork::ForkConfig {
             block_number: 25_121_437,
         });
-        config.rpc = Some(Arc::new(
+        let rpc: Option<Arc<dyn crate::rpc::RpcClient>> = Some(Arc::new(
             crate::rpc::Rpc::with_urls(&[rpc_url])
                 .with_pool_size(1)
                 .build()
                 .unwrap(),
         ));
 
-        let campaign = crate::campaign::Campaign::for_target(Path::new("test/ForkTarget.sol"))
+        let mut config = crate::campaign::CampaignConfig::default();
+        config.threads = 1;
+        config.max_runs = 100;
+        config.timeout_secs = Some(30);
+
+        let artifact = crate::contract::ContractBuilder::build(
+            Path::new("fixtures/forks"),
+            Path::new("test/ForkTarget.sol"),
+        )
+        .unwrap();
+        let vm = crate::vm::Vm::new(crate::vm::VmConfig::default());
+        let chain = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/forks"))
+            .with_vm(vm)
+            .with_deploy_value(revm::primitives::U256::ZERO)
+            .with_deployer(crate::chain::init::DEFAULT_DEPLOYER)
+            .with_rpc(rpc.clone())
+            .with_fork_config(fork_config.clone())
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
+        let campaign = crate::campaign::CampaignBuilder::new()
+            .with_project(Path::new("fixtures/forks"))
+            .with_artifact(artifact)
+            .with_chain(chain)
             .with_config(config)
+            .with_fuzzer(crate::fuzzer::DefaultFuzzerFactory)
             .build()
             .unwrap();
         let result = campaign.run().unwrap();

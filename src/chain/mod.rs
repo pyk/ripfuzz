@@ -3,7 +3,7 @@
 //! Provides a single entry point for deployment, setup, and sequence execution.
 
 pub use core::{Chain, ChainBuilder, ChainConfig};
-pub use executor::ExecutionOptions;
+pub use executor::{ExecutionOptions, SequenceExecutor};
 pub use fork::{CacheStats, ForkConfig, ForkDatabase};
 
 pub mod core;
