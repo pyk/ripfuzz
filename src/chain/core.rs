@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use alloy_json_abi::JsonAbi;
+use anyhow::Result;
 use revm::primitives::{Address, Bytes, U256};
 
 use crate::chain::base_state::BaseState;
@@ -200,7 +201,7 @@ impl Chain {
 }
 
 impl crate::chain::SequenceExecutor for Chain {
-    fn execute(&self, calls: &[Call]) -> anyhow::Result<ExecutionOutput> {
+    fn execute(&self, calls: &[Call]) -> Result<ExecutionOutput> {
         self.execute_with_opts(calls, crate::chain::executor::ExecutionOptions::default())
             .map_err(Into::into)
     }

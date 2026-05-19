@@ -15,6 +15,7 @@ use anyhow::{Context, Result, bail};
 use revm::{
     DatabaseRef, bytecode::Bytecode, database_interface::DBErrorMarker, state::AccountInfo,
 };
+
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace, warn};
 
@@ -469,6 +470,7 @@ fn parse_hex_bytes(value: &serde_json::Value) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     use revm::Database;
+    use revm::database::CacheDB;
 
     #[test]
     fn cache_path_derived_correctly() {
@@ -580,7 +582,7 @@ mod tests {
         let backend = ForkBackend::new(rpc, block, tmpdir.path()).unwrap();
 
         // Wrap in CacheDB and insert an account so storage insertion works.
-        let mut db = revm::database::CacheDB::new(backend.clone());
+        let mut db = CacheDB::new(backend.clone());
         db.insert_account_info(Address::ZERO, AccountInfo::default());
 
         // Write a local slot value.

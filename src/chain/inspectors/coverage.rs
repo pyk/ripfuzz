@@ -176,6 +176,7 @@ mod tests {
     use revm::{
         MainBuilder, MainContext,
         context::{Context, TxEnv},
+        database::InMemoryDB,
         inspector::InspectCommitEvm,
         primitives::{KECCAK_EMPTY, TxKind, U256},
         state::AccountInfo,
@@ -194,7 +195,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut db = revm::database::InMemoryDB::default();
+        let mut db = InMemoryDB::default();
         db.insert_account_info(
             CALLER,
             AccountInfo {

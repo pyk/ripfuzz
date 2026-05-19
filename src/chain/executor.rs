@@ -11,6 +11,7 @@ use revm::{
     primitives::{Bytes, TxKind, U256},
 };
 
+use anyhow::Result;
 use tracing::trace;
 
 use crate::chain::{
@@ -25,7 +26,7 @@ use crate::corpus::Call;
 
 /// Something that can execute a sequence of calls and return the outcome.
 pub trait SequenceExecutor: Send + Sync {
-    fn execute(&self, calls: &[Call]) -> anyhow::Result<ExecutionOutput>;
+    fn execute(&self, calls: &[Call]) -> Result<ExecutionOutput>;
 }
 
 #[cfg(test)]
@@ -46,7 +47,7 @@ impl FakeSequenceExecutor {
 
 #[cfg(test)]
 impl SequenceExecutor for FakeSequenceExecutor {
-    fn execute(&self, _calls: &[Call]) -> anyhow::Result<ExecutionOutput> {
+    fn execute(&self, _calls: &[Call]) -> Result<ExecutionOutput> {
         let i = self.idx.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(self.outputs.get(i).cloned().unwrap_or_default())
     }

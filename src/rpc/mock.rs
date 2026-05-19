@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use anyhow::Context;
+use anyhow::{Context, Result};
 
 use crate::rpc::RpcClient;
 
@@ -20,7 +20,7 @@ impl FakeRpc {
         method: &str,
         params: &[serde_json::Value],
         response: serde_json::Value,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let params_json = serde_json::to_string(params).context("serialize params")?;
         let key = (method.into(), params_json);
         let mut guard = self.responses.lock().unwrap_or_else(|e| e.into_inner());
@@ -29,11 +29,7 @@ impl FakeRpc {
     }
 
     /// Call the mock, returning the pre-recorded response or an error.
-    pub fn call(
-        &self,
-        method: &str,
-        params: &[serde_json::Value],
-    ) -> anyhow::Result<serde_json::Value> {
+    pub fn call(&self, method: &str, params: &[serde_json::Value]) -> Result<serde_json::Value> {
         let params_json = serde_json::to_string(params).context("serialize params")?;
         let key = (method.into(), params_json);
         let guard = self.responses.lock().unwrap_or_else(|e| e.into_inner());
@@ -45,14 +41,10 @@ impl FakeRpc {
 }
 
 impl RpcClient for FakeRpc {
-    fn call(
-        &self,
-        method: &str,
-        params: &[serde_json::Value],
-    ) -> anyhow::Result<serde_json::Value> {
+    fn call(&self, method: &str, params: &[serde_json::Value]) -> Result<serde_json::Value> {
         self.call(method, params)
     }
-    fn latest_block_number(&self) -> anyhow::Result<u64> {
+    fn latest_block_number(&self) -> Result<u64> {
         self.call("eth_blockNumber", &[]).and_then(|v| {
             let s = v.as_str().context("missing result")?;
             let s = s.strip_prefix("0x").unwrap_or(s);

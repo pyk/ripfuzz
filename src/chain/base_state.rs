@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use alloy_json_abi::JsonAbi;
+use anyhow::Result;
 use revm::{
     Database as RevmDatabase,
     primitives::{Address, Bytes, U256},
@@ -53,7 +54,7 @@ impl BaseState {
     }
 
     /// Flush the underlying database cache to disk, if one exists.
-    pub fn flush_database_cache(&self) -> anyhow::Result<()> {
+    pub fn flush_database_cache(&self) -> Result<()> {
         self.db.flush_cache()
     }
 

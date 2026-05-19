@@ -59,7 +59,7 @@ mod tests {
     use std::path::Path;
     use std::sync::{Arc, RwLock};
 
-    use revm::{MainContext, primitives::Address};
+    use revm::{MainContext, database::InMemoryDB, primitives::Address};
     use serial_test::serial;
 
     use super::*;
@@ -116,8 +116,7 @@ mod tests {
         let input = label_calldata(addr, name);
         let args = Label::decode(&input).unwrap();
         let effects = Label::effects(args);
-        let mut ctx =
-            revm::context::Context::mainnet().with_db(revm::database::InMemoryDB::default());
+        let mut ctx = revm::context::Context::mainnet().with_db(InMemoryDB::default());
         for e in &effects {
             apply_effect(e, &mut ctx, &mut inspector.state).unwrap();
         }
@@ -128,8 +127,7 @@ mod tests {
     fn label_overwrites_existing() {
         let mut inspector = CheatcodeInspector::new();
         let addr = Address::new([0xab; 20]);
-        let mut ctx =
-            revm::context::Context::mainnet().with_db(revm::database::InMemoryDB::default());
+        let mut ctx = revm::context::Context::mainnet().with_db(InMemoryDB::default());
         apply_effect(
             &CheatcodeEffect::AddLabel(addr, "First".into()),
             &mut ctx,
@@ -164,8 +162,7 @@ mod tests {
         let input = get_label_calldata(addr);
         let args = GetLabel::decode(&input).unwrap();
         let effects = GetLabel::effects(args);
-        let mut ctx =
-            revm::context::Context::mainnet().with_db(revm::database::InMemoryDB::default());
+        let mut ctx = revm::context::Context::mainnet().with_db(InMemoryDB::default());
         let outcome = crate::vm::build_outcome(&effects, 1_000_000, &mut ctx, &inspector.state);
         let encoded = alloy_dyn_abi::DynSolValue::String("".into()).abi_encode();
         assert_eq!(outcome.result.output, Bytes::from(encoded));
@@ -179,8 +176,7 @@ mod tests {
         let input = get_label_calldata(addr);
         let args = GetLabel::decode(&input).unwrap();
         let effects = GetLabel::effects(args);
-        let mut ctx =
-            revm::context::Context::mainnet().with_db(revm::database::InMemoryDB::default());
+        let mut ctx = revm::context::Context::mainnet().with_db(InMemoryDB::default());
         let outcome = crate::vm::build_outcome(&effects, 1_000_000, &mut ctx, &inspector.state);
         let encoded = alloy_dyn_abi::DynSolValue::String("Roundtrip".into()).abi_encode();
         assert_eq!(outcome.result.output, Bytes::from(encoded));
@@ -195,8 +191,7 @@ mod tests {
         let input = label_calldata(addr, name);
         let args = Label::decode(&input).unwrap();
         let effects = Label::effects(args);
-        let mut ctx =
-            revm::context::Context::mainnet().with_db(revm::database::InMemoryDB::default());
+        let mut ctx = revm::context::Context::mainnet().with_db(InMemoryDB::default());
         for e in &effects {
             apply_effect(e, &mut ctx, &mut inspector.state).unwrap();
         }

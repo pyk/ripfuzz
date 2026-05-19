@@ -3,6 +3,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use anyhow::Result;
+
 use serde::{Deserialize, Serialize};
 
 use crate::corpus::Call;
@@ -73,7 +75,7 @@ impl Corpus {
     }
 
     /// Build a corpus from an optional on-disk directory.
-    pub fn load(dir: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub fn load(dir: impl AsRef<Path>) -> Result<Self> {
         let dir = dir.as_ref();
         let mut pending = Vec::new();
         if dir.exists() {
@@ -210,7 +212,7 @@ impl Corpus {
     }
 
     /// Persist all corpus items and failures to disk.
-    pub fn flush_to_disk(&self) -> anyhow::Result<()> {
+    pub fn flush_to_disk(&self) -> Result<()> {
         let Some(dir) = &self.storage_dir else {
             return Ok(());
         };

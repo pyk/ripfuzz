@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 
 use alloy_primitives::{Address, U256};
+use anyhow::Result;
+use revm::database::{CacheDB, InMemoryDB};
 use revm::state::AccountInfo;
 
 use crate::chain::fork::{ForkBackend, ForkError};
@@ -10,13 +12,13 @@ use crate::chain::fork::{ForkBackend, ForkError};
 /// EVM world state. Either an empty sandbox or a forked world.
 #[derive(Clone, Debug)]
 pub enum Database {
-    Sandbox(revm::database::InMemoryDB),
-    Fork(revm::database::CacheDB<ForkBackend>),
+    Sandbox(InMemoryDB),
+    Fork(CacheDB<ForkBackend>),
 }
 
 impl Default for Database {
     fn default() -> Self {
-        Self::Sandbox(revm::database::InMemoryDB::default())
+        Self::Sandbox(InMemoryDB::default())
     }
 }
 
@@ -28,7 +30,7 @@ impl Database {
         }
     }
 
-    pub fn flush_cache(&self) -> anyhow::Result<()> {
+    pub fn flush_cache(&self) -> Result<()> {
         match self {
             Self::Sandbox(_) => Ok(()),
             Self::Fork(db) => db.db.flush_cache(),

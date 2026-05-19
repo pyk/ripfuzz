@@ -3,7 +3,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::Context;
+use anyhow::{Context, Result};
+
+use revm::database::{CacheDB, InMemoryDB};
 
 use crate::chain::database::Database;
 use crate::rpc::RpcClient;
@@ -20,7 +22,7 @@ pub enum Environment {
         /// and cache.
         rpc: Arc<dyn RpcClient>,
         block_number: u64,
-        project_root: PathBuf,
+        project_path: PathBuf,
     },
 }
 
@@ -29,22 +31,26 @@ impl Environment {
         Self::Sandbox
     }
 
-    pub fn fork(rpc: Arc<dyn RpcClient>, block_number: u64, project_root: &Path) -> Self {
+    pub fn fork(
+        rpc: Arc<dyn RpcClient>,
+        block_number: u64,
+        project_path: impl AsRef<Path>,
+    ) -> Self {
         Self::Fork {
             rpc,
             block_number,
-            project_root: project_root.to_path_buf(),
+            project_path: project_path.as_ref().to_path_buf(),
         }
     }
 
     /// Build a [`Database`] from this environment.
-    pub fn create_database(&self) -> anyhow::Result<Database> {
+    pub fn create_database(&self) -> Result<Database> {
         match self {
-            Environment::Sandbox => Ok(Database::Sandbox(revm::database::InMemoryDB::default())),
+            Environment::Sandbox => Ok(Database::Sandbox(InMemoryDB::default())),
             Environment::Fork {
                 rpc,
                 block_number,
-                project_root,
+                project_path: project_root,
             } => {
                 let backend = crate::chain::fork::ForkBackend::new(
                     Arc::clone(rpc),
@@ -52,7 +58,7 @@ impl Environment {
                     project_root,
                 )
                 .context("fork initialization failed")?;
-                Ok(Database::Fork(revm::database::CacheDB::new(backend)))
+                Ok(Database::Fork(CacheDB::new(backend)))
             }
         }
     }

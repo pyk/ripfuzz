@@ -2,10 +2,11 @@
 //!
 //! Provides a minimal EVM builder that does not depend on `chain`.
 
-use anyhow::Context;
+use anyhow::{Context, Result};
 use revm::{
     MainBuilder, MainContext,
     context::TxEnv,
+    database::InMemoryDB,
     inspector::InspectCommitEvm,
     primitives::{Address, Bytes, TxKind, U256},
     state::AccountInfo,
@@ -21,8 +22,8 @@ pub fn run_cheatcode(
     caller: Address,
     input: Bytes,
     exec_state: ExecutionState,
-) -> anyhow::Result<(revm::context::result::ExecutionResult, ExecutionState)> {
-    let mut db = revm::database::InMemoryDB::default();
+) -> Result<(revm::context::result::ExecutionResult, ExecutionState)> {
+    let mut db = InMemoryDB::default();
     db.insert_account_info(
         caller,
         AccountInfo {

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
-use anyhow::anyhow;
+use anyhow::{Result, anyhow};
 use tracing::trace;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -31,11 +31,11 @@ impl std::fmt::Display for RequestKey {
 struct InflightHandle {
     done: Condvar,
     completed: AtomicBool,
-    result: Mutex<Option<anyhow::Result<serde_json::Value>>>,
+    result: Mutex<Option<Result<serde_json::Value>>>,
 }
 
 impl InflightHandle {
-    fn wait(&self) -> anyhow::Result<serde_json::Value> {
+    fn wait(&self) -> Result<serde_json::Value> {
         let mut guard = self.result.lock().unwrap_or_else(|e| e.into_inner());
         while !self.completed.load(Ordering::Relaxed) {
             guard = self.done.wait(guard).unwrap_or_else(|e| e.into_inner());
@@ -94,7 +94,7 @@ impl DedupTable {
     /// Returns `None` if this thread is the first to issue the request;
     /// the caller must later call `complete` (or use a [`DedupGuard`]).
     /// Returns `Some(handle)` if another thread is already handling it.
-    pub fn register(&self, key: &RequestKey) -> Option<anyhow::Result<serde_json::Value>> {
+    pub fn register(&self, key: &RequestKey) -> Option<Result<serde_json::Value>> {
         let mut map = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
         trace!(key = %key, table_size = map.len(), "dedup register");
         if let Some(handle) = map.get(key) {
@@ -113,7 +113,7 @@ impl DedupTable {
     }
 
     /// Complete an in-flight request and wake all waiters.
-    pub fn complete(&self, key: &RequestKey, result: anyhow::Result<serde_json::Value>) {
+    pub fn complete(&self, key: &RequestKey, result: Result<serde_json::Value>) {
         let mut map = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(handle) = map.remove(key) {
             let mut guard = handle.result.lock().unwrap_or_else(|e| e.into_inner());
