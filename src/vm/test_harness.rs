@@ -11,17 +11,17 @@ use revm::{
     state::AccountInfo,
 };
 
+use crate::vm::ExecutionState;
 use crate::vm::VM_ADDRESS;
-use crate::vm::VmState;
 use crate::vm::inspector::CheatcodeInspector;
 
 /// Run a single cheatcode call against the VM precompile and return the
-/// execution result plus the updated VmState.
+/// execution result plus the updated [`ExecutionState`].
 pub fn run_cheatcode(
     caller: Address,
     input: Bytes,
-    vm_state: VmState,
-) -> anyhow::Result<(revm::context::result::ExecutionResult, VmState)> {
+    exec_state: ExecutionState,
+) -> anyhow::Result<(revm::context::result::ExecutionResult, ExecutionState)> {
     let mut db = revm::database::InMemoryDB::default();
     db.insert_account_info(
         caller,
@@ -48,7 +48,7 @@ pub fn run_cheatcode(
     let mut ctx = revm::context::Context::mainnet().with_db(db);
     ctx.block.gas_limit = u64::MAX;
     ctx.cfg.tx_gas_limit_cap = Some(u64::MAX);
-    let inspector = CheatcodeInspector::from_state(vm_state);
+    let inspector = CheatcodeInspector::from_state(exec_state);
     let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
     let tx = TxEnv {

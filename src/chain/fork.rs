@@ -13,11 +13,12 @@ use std::sync::{Arc, RwLock};
 use alloy_primitives::{Address, B256, U256};
 use anyhow::{Context, Result, bail};
 use revm::{
-    DatabaseRef, bytecode::Bytecode, database::CacheDB, database_interface::DBErrorMarker,
-    state::AccountInfo,
+    DatabaseRef, bytecode::Bytecode, database_interface::DBErrorMarker, state::AccountInfo,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace, warn};
+
+use crate::chain::database::CacheStats;
 
 /// Thin newtype around `anyhow::Error` so we can implement `DBErrorMarker`.
 #[derive(Debug)]
@@ -43,16 +44,6 @@ impl From<anyhow::Error> for ForkError {
 
 impl DBErrorMarker for ForkError {}
 
-/// Configuration for a single fork.
-///
-/// RPC transport details (URLs, retries, rate limits) live in
-/// [`crate::rpc::RpcConfig`]; this struct only stores the fork parameter
-/// that `ForkBackend` cannot infer.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct ForkConfig {
-    pub block_number: u64,
-}
-
 /// The remote + cached backend that satisfies `DatabaseRef`.
 ///
 /// `ForkBackend` is cheaply cloneable (all state lives behind `Arc`).
@@ -77,10 +68,6 @@ struct ForkBackendInner {
     code_cache: RwLock<HashMap<B256, Bytecode>>,
     /// Path to the persistent cache file for this fork.
     cache_file: PathBuf,
-    /// When true, this backend returns defaults without ever touching the
-    /// network. Used for non-fork campaigns so `ForkDatabase` behaves like
-    /// `InMemoryDB`.
-    is_empty: bool,
     /// Total cache hits across all cache types.
     cache_hits: AtomicU64,
     /// Total cache misses that triggered an RPC fetch.
@@ -102,14 +89,6 @@ pub struct DiskCache {
     pub block_hashes: HashMap<u64, B256>,
     pub code: HashMap<B256, Vec<u8>>,
 }
-
-/// The database type used for all campaigns (forked and local).
-///
-/// When fork mode is enabled, the inner `DatabaseRef` is a `ForkBackend` that
-/// lazily fetches from RPC. When disabled, the inner backend is
-/// `ForkBackend::empty()`, which returns defaults and never touches the
-/// network. Both cases share the same `CacheDB` write-cache semantics.
-pub type ForkDatabase = CacheDB<ForkBackend>;
 
 impl ForkBackend {
     /// Create a new fork backend.
@@ -172,101 +151,10 @@ impl ForkBackend {
                 block_hash_cache: RwLock::new(block_hash_cache),
                 code_cache: RwLock::new(code_cache),
                 cache_file,
-                is_empty: false,
                 cache_hits: AtomicU64::new(0),
                 cache_misses: AtomicU64::new(0),
             }),
         })
-    }
-
-    /// A backend that returns default values for every query.
-    /// Used when fork mode is disabled so `ForkDatabase` behaves like
-    /// `InMemoryDB`.
-    pub fn empty() -> Self {
-        Self {
-            inner: Arc::new(ForkBackendInner {
-                rpc: Arc::new(crate::rpc::Rpc::noop()),
-                block_number: 0,
-                account_cache: RwLock::new(HashMap::new()),
-                slot_cache: RwLock::new(HashMap::new()),
-                block_hash_cache: RwLock::new(HashMap::new()),
-                code_cache: RwLock::new(HashMap::new()),
-                cache_file: PathBuf::new(),
-                is_empty: true,
-                cache_hits: AtomicU64::new(0),
-                cache_misses: AtomicU64::new(0),
-            }),
-        }
-    }
-
-    /// Persist the current memory cache to disk.
-    pub fn flush_cache(&self) -> Result<()> {
-        let inner = &self.inner;
-        if inner.is_empty {
-            trace!("skipping cache flush for empty backend");
-            return Ok(());
-        }
-        let accounts = match inner.account_cache.read() {
-            Ok(guard) => guard.clone(),
-            Err(_) => bail!("account_cache lock poisoned"),
-        };
-        let slots = match inner.slot_cache.read() {
-            Ok(guard) => guard.clone().into_iter().collect(),
-            Err(_) => bail!("slot_cache lock poisoned"),
-        };
-        let block_hashes = match inner.block_hash_cache.read() {
-            Ok(guard) => guard.clone(),
-            Err(_) => bail!("block_hash_cache lock poisoned"),
-        };
-        let code = match inner.code_cache.read() {
-            Ok(guard) => guard
-                .iter()
-                .map(|(h, b)| (*h, b.bytes().to_vec()))
-                .collect(),
-            Err(_) => bail!("code_cache lock poisoned"),
-        };
-
-        let disk = DiskCache {
-            accounts,
-            slots,
-            block_hashes,
-            code,
-        };
-
-        if let Some(parent) = inner.cache_file.parent() {
-            create_dir_all(parent).context("creating fork cache directory")?;
-        }
-        let data = serde_json::to_vec_pretty(&disk).context("serializing fork cache")?;
-        write(&inner.cache_file, data).context("writing fork cache file")?;
-        debug!(?inner.cache_file, "fork cache flushed to disk");
-        Ok(())
-    }
-}
-
-/// Snapshot of fork cache performance.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct CacheStats {
-    pub hits: u64,
-    pub misses: u64,
-}
-
-impl ForkBackend {
-    /// Return current cache hit/miss counters.
-    /// Returns `None` when the backend is empty (non-fork mode).
-    pub fn cache_stats(&self) -> Option<CacheStats> {
-        if self.inner.is_empty {
-            return None;
-        }
-        Some(CacheStats {
-            hits: self.inner.cache_hits.load(Ordering::Relaxed),
-            misses: self.inner.cache_misses.load(Ordering::Relaxed),
-        })
-    }
-}
-
-impl Default for ForkBackend {
-    fn default() -> Self {
-        Self::empty()
     }
 }
 
@@ -275,11 +163,6 @@ impl Default for ForkBackend {
 impl ForkBackend {
     #[instrument(skip(self), fields(%address))]
     fn basic_ref_impl(&self, address: Address) -> Result<Option<AccountInfo>> {
-        if self.inner.is_empty {
-            trace!(%address, "basic_ref on empty backend — returning default");
-            return Ok(Some(AccountInfo::default()));
-        }
-
         {
             let cache = self.inner.account_cache.read().map_err(lock_poisoned)?;
             if let Some(acc) = cache.get(&address) {
@@ -324,11 +207,6 @@ impl ForkBackend {
 
     #[instrument(skip(self), fields(%code_hash))]
     fn code_by_hash_ref_impl(&self, code_hash: B256) -> Result<Bytecode> {
-        if self.inner.is_empty {
-            trace!(%code_hash, "code_by_hash_ref on empty backend — returning default");
-            return Ok(Bytecode::default());
-        }
-
         {
             let cache = self.inner.code_cache.read().map_err(lock_poisoned)?;
             if let Some(code) = cache.get(&code_hash) {
@@ -345,11 +223,6 @@ impl ForkBackend {
 
     #[instrument(skip(self), fields(%address, %index))]
     fn storage_ref_impl(&self, address: Address, index: U256) -> Result<U256> {
-        if self.inner.is_empty {
-            trace!(%address, %index, "storage_ref on empty backend — returning zero");
-            return Ok(U256::ZERO);
-        }
-
         {
             let cache = self.inner.slot_cache.read().map_err(lock_poisoned)?;
             if let Some(val) = cache.get(&(address, index)) {
@@ -373,11 +246,6 @@ impl ForkBackend {
 
     #[instrument(skip(self), fields(number))]
     fn block_hash_ref_impl(&self, number: u64) -> Result<B256> {
-        if self.inner.is_empty {
-            trace!(number, "block_hash_ref on empty backend — returning zero");
-            return Ok(B256::ZERO);
-        }
-
         {
             let cache = self.inner.block_hash_cache.read().map_err(lock_poisoned)?;
             if let Some(hash) = cache.get(&number) {
@@ -398,6 +266,54 @@ impl ForkBackend {
             cache.insert(number, hash);
         }
         Ok(hash)
+    }
+}
+
+impl ForkBackend {
+    /// Return current cache hit/miss counters.
+    pub fn cache_stats(&self) -> CacheStats {
+        CacheStats {
+            hits: self.inner.cache_hits.load(Ordering::Relaxed),
+            misses: self.inner.cache_misses.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Persist the current memory cache to disk.
+    pub fn flush_cache(&self) -> Result<()> {
+        let accounts = match self.inner.account_cache.read() {
+            Ok(guard) => guard.clone(),
+            Err(_) => bail!("account_cache lock poisoned"),
+        };
+        let slots = match self.inner.slot_cache.read() {
+            Ok(guard) => guard.clone().into_iter().collect(),
+            Err(_) => bail!("slot_cache lock poisoned"),
+        };
+        let block_hashes = match self.inner.block_hash_cache.read() {
+            Ok(guard) => guard.clone(),
+            Err(_) => bail!("block_hash_cache lock poisoned"),
+        };
+        let code = match self.inner.code_cache.read() {
+            Ok(guard) => guard
+                .iter()
+                .map(|(h, b)| (*h, b.bytes().to_vec()))
+                .collect(),
+            Err(_) => bail!("code_cache lock poisoned"),
+        };
+
+        let disk = DiskCache {
+            accounts,
+            slots,
+            block_hashes,
+            code,
+        };
+
+        if let Some(parent) = self.inner.cache_file.parent() {
+            create_dir_all(parent).context("creating fork cache directory")?;
+        }
+        let data = serde_json::to_vec_pretty(&disk).context("serializing fork cache")?;
+        write(&self.inner.cache_file, data).context("writing fork cache file")?;
+        debug!(?self.inner.cache_file, "fork cache flushed to disk");
+        Ok(())
     }
 }
 
@@ -555,6 +471,7 @@ fn parse_hex_bytes(value: &serde_json::Value) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use revm::Database;
 
     #[test]
     fn cache_path_derived_correctly() {
@@ -625,16 +542,15 @@ mod tests {
     }
 
     #[test]
-    fn empty_backend_returns_defaults() {
-        let backend = ForkBackend::empty();
-        let info = backend.basic_ref(Address::ZERO).unwrap();
-        assert_eq!(info, Some(AccountInfo::default()));
-        assert_eq!(
-            backend.storage_ref(Address::ZERO, U256::ZERO).unwrap(),
-            U256::ZERO
-        );
-        assert_eq!(backend.block_hash_ref(0).unwrap(), B256::ZERO);
-        assert!(backend.code_by_hash_ref(B256::ZERO).unwrap().is_empty());
+    fn sandbox_database_returns_defaults() {
+        let mut db = crate::chain::database::Database::default();
+        let info = db.basic(Address::ZERO).unwrap();
+        assert_eq!(info, None);
+        assert_eq!(db.storage(Address::ZERO, U256::ZERO).unwrap(), U256::ZERO);
+        // InMemoryDB returns a non-zero placeholder for block_hash(0); just
+        // verify the call does not panic.
+        let _ = db.block_hash(0).unwrap();
+        assert!(db.code_by_hash(B256::ZERO).unwrap().is_empty());
     }
 
     #[test]
@@ -667,7 +583,7 @@ mod tests {
         let backend = ForkBackend::new(rpc, block, tmpdir.path()).unwrap();
 
         // Wrap in CacheDB and insert an account so storage insertion works.
-        let mut db = ForkDatabase::new(backend.clone());
+        let mut db = revm::database::CacheDB::new(backend.clone());
         db.insert_account_info(Address::ZERO, AccountInfo::default());
 
         // Write a local slot value.
@@ -744,15 +660,17 @@ mod tests {
         let rpc_url = std::env::var("RAPTOR_FORK_RPC_URL")
             .unwrap_or_else(|_| "https://eth.llamarpc.com".into());
 
-        let fork_config = Some(crate::chain::fork::ForkConfig {
-            block_number: 25_121_437,
-        });
-        let rpc: Option<Arc<dyn crate::rpc::RpcClient>> = Some(Arc::new(
+        let rpc = Arc::new(
             crate::rpc::Rpc::with_urls(&[rpc_url])
                 .with_pool_size(1)
                 .build()
                 .unwrap(),
-        ));
+        );
+        let env = crate::chain::environment::Environment::fork(
+            rpc,
+            25_121_437,
+            Path::new("fixtures/forks"),
+        );
 
         let mut config = crate::campaign::CampaignConfig::default();
         config.threads = 1;
@@ -769,8 +687,7 @@ mod tests {
             .with_vm(vm)
             .with_deploy_value(revm::primitives::U256::ZERO)
             .with_deployer(crate::chain::init::DEFAULT_DEPLOYER)
-            .with_rpc(rpc.clone())
-            .with_fork_config(fork_config.clone())
+            .with_environment(env)
             .init()
             .unwrap()
             .setup()

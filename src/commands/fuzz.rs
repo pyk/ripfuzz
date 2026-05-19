@@ -2,7 +2,6 @@
 
 use std::env;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use alloy_primitives::Address;
 use anyhow::{Context, Result, bail, ensure};
@@ -11,6 +10,7 @@ use revm::primitives::U256;
 use tracing::{debug, info, instrument};
 
 use crate::campaign::CampaignConfig;
+use crate::chain::Environment;
 use crate::contract::ContractBuilder;
 use crate::contract::resolve_coverage_to_source;
 
@@ -173,55 +173,9 @@ pub struct Args {
     #[arg(short = 'q', long = "quiet", action = clap::ArgAction::Count, help_heading = "Logging")]
     pub quiet: u8,
 
-    // Fork
-    /// JSON-RPC URL to fork from (e.g. https://eth.llamarpc.com).
-    /// Repeatable for multiple endpoints of the same chain.
-    #[arg(long = "fork-rpc-url", value_name = "URL", help_heading = "Fork", action = clap::ArgAction::Append)]
-    pub fork_rpc_urls: Vec<String>,
-
-    /// Block number to fork at. Must be <= the remote latest block.
-    #[arg(long = "fork-rpc-block", value_name = "N", help_heading = "Fork")]
-    pub fork_rpc_block: Option<u64>,
-
-    /// Number of concurrent RPC connections for fork mode.
-    #[arg(
-        long = "fork-rpc-pool",
-        default_value = "4",
-        value_name = "N",
-        help_heading = "Fork"
-    )]
-    pub fork_rpc_pool: u32,
-
-    /// Maximum retry attempts per RPC URL after transient failure.
-    #[arg(
-        long = "fork-rpc-retries",
-        default_value = "3",
-        value_name = "N",
-        help_heading = "Fork"
-    )]
-    pub fork_rpc_retries: u32,
-
-    /// Initial retry backoff in milliseconds (doubles each attempt).
-    #[arg(
-        long = "fork-rpc-backoff",
-        default_value = "100",
-        value_name = "MS",
-        help_heading = "Fork"
-    )]
-    pub fork_rpc_backoff: u64,
-
-    /// Optional rate limit: maximum requests per second across all URLs.
-    #[arg(long = "fork-rpc-rate-limit", value_name = "N", help_heading = "Fork")]
-    pub fork_rpc_rate_limit: Option<u64>,
-
-    /// Request timeout in milliseconds for each RPC call.
-    #[arg(
-        long = "fork-rpc-timeout",
-        default_value = "30000",
-        value_name = "MS",
-        help_heading = "Fork"
-    )]
-    pub fork_rpc_timeout: u64,
+    /// Fork mode configuration.
+    #[command(flatten)]
+    pub fork: ForkArgs,
 
     // Security
     /// Enable the `ffi` cheatcode (security-sensitive).
@@ -241,49 +195,87 @@ impl Args {
     }
 }
 
-type ForkSetup = (
-    Option<Arc<dyn crate::rpc::RpcClient>>,
-    Option<crate::chain::fork::ForkConfig>,
-);
+#[derive(Debug, Parser)]
+pub struct ForkArgs {
+    /// JSON-RPC URL to fork from (e.g. https://eth.llamarpc.com).
+    /// Repeatable for multiple endpoints of the same chain.
+    #[arg(long = "fork-rpc-url", value_name = "URL", help_heading = "Fork Mode", action = clap::ArgAction::Append)]
+    pub rpc_urls: Vec<String>,
 
-fn build_rpc(
-    urls: &[String],
-    block: Option<u64>,
-    pool: u32,
-    retries: u32,
-    backoff: u64,
-    rate_limit: Option<u64>,
-    timeout: u64,
-) -> Result<ForkSetup> {
-    match (urls.is_empty(), block) {
-        (true, None) => Ok((None, None)),
-        (false, Some(block)) => {
-            let rpc_instance = crate::rpc::Rpc::with_urls(urls)
-                .with_pool_size(pool)
-                .with_retries(retries)
-                .with_retry_backoff(std::time::Duration::from_millis(backoff))
-                .with_requests_per_second(rate_limit)
-                .with_timeout(std::time::Duration::from_millis(timeout))
-                .build()?;
-            info!(target: "raptor::user", urls = ?urls, "Fetching latest block");
-            let t0 = std::time::Instant::now();
-            let latest = rpc_instance
-                .latest_block_number()
-                .context("failed to query latest block")?;
-            let elapsed = t0.elapsed();
-            info!(target: "raptor::user", time_ms = elapsed.as_millis(), block = latest, "Finished fetching latest block");
-            if block > latest {
-                bail!("--fork-rpc-block ({block}) exceeds remote latest block ({latest})");
-            }
-            let fork = crate::chain::fork::ForkConfig {
-                block_number: block,
-            };
-            info!(target: "raptor::user", urls = ?urls, block = fork.block_number, "Forking");
-            Ok((Some(Arc::new(rpc_instance)), Some(fork)))
+    /// Block number to fork at. Must be <= the remote latest block.
+    #[arg(long = "fork-rpc-block", value_name = "N", help_heading = "Fork Mode")]
+    pub rpc_block: Option<u64>,
+
+    /// Number of concurrent RPC connections for fork mode.
+    #[arg(
+        long = "fork-rpc-pool",
+        default_value = "4",
+        value_name = "N",
+        help_heading = "Fork Mode"
+    )]
+    pub rpc_pool: u32,
+
+    /// Maximum retry attempts per RPC URL after transient failure.
+    #[arg(
+        long = "fork-rpc-retries",
+        default_value = "3",
+        value_name = "N",
+        help_heading = "Fork Mode"
+    )]
+    pub rpc_retries: u32,
+
+    /// Initial retry backoff in milliseconds (doubles each attempt).
+    #[arg(
+        long = "fork-rpc-backoff",
+        default_value = "100",
+        value_name = "MS",
+        help_heading = "Fork Mode"
+    )]
+    pub rpc_backoff: u64,
+
+    /// Optional rate limit: maximum requests per second across all URLs.
+    #[arg(
+        long = "fork-rpc-rate-limit",
+        value_name = "N",
+        help_heading = "Fork Mode"
+    )]
+    pub rpc_rate_limit: Option<u64>,
+
+    /// Request timeout in milliseconds for each RPC call.
+    #[arg(
+        long = "fork-rpc-timeout",
+        default_value = "30000",
+        value_name = "MS",
+        help_heading = "Fork Mode"
+    )]
+    pub rpc_timeout: u64,
+}
+
+impl ForkArgs {
+    /// Build the RPC client and validate the fork block.
+    pub fn build_rpc(&self) -> Result<(std::sync::Arc<dyn crate::rpc::RpcClient>, u64)> {
+        let block = self
+            .rpc_block
+            .context("--fork-rpc-block is required with --fork-rpc-url")?;
+        let rpc_instance = crate::rpc::Rpc::with_urls(&self.rpc_urls)
+            .with_pool_size(self.rpc_pool)
+            .with_retries(self.rpc_retries)
+            .with_retry_backoff(std::time::Duration::from_millis(self.rpc_backoff))
+            .with_requests_per_second(self.rpc_rate_limit)
+            .with_timeout(std::time::Duration::from_millis(self.rpc_timeout))
+            .build()?;
+        info!(target: "raptor::user", urls = ?self.rpc_urls, "Fetching latest block");
+        let t0 = std::time::Instant::now();
+        let latest = rpc_instance
+            .latest_block_number()
+            .context("failed to query latest block")?;
+        let elapsed = t0.elapsed();
+        info!(target: "raptor::user", time_ms = elapsed.as_millis(), block = latest, "Finished fetching latest block");
+        if block > latest {
+            bail!("--fork-rpc-block ({block}) exceeds remote latest block ({latest})");
         }
-        _ => {
-            bail!("--fork-rpc-url and --fork-rpc-block must be provided together");
-        }
+        info!(target: "raptor::user", urls = ?self.rpc_urls, block = block, "Forking");
+        Ok((std::sync::Arc::new(rpc_instance), block))
     }
 }
 
@@ -325,16 +317,13 @@ pub fn run(args: Args) -> Result<()> {
         .join("\n");
     info!(target: "raptor::user", "Found {} invariants\n{}", artifact.invariants.len(), invariant_list);
 
-    // Build RPC / Fork Config
-    let (rpc, fork_config) = build_rpc(
-        &args.fork_rpc_urls,
-        args.fork_rpc_block,
-        args.fork_rpc_pool,
-        args.fork_rpc_retries,
-        args.fork_rpc_backoff,
-        args.fork_rpc_rate_limit,
-        args.fork_rpc_timeout,
-    )?;
+    // Build environment
+    let env = if args.fork.rpc_urls.is_empty() {
+        Environment::sandbox()
+    } else {
+        let (rpc, block) = args.fork.build_rpc()?;
+        Environment::fork(rpc, block, &project_path)
+    };
 
     let config = CampaignConfig {
         threads: args.threads,
@@ -359,8 +348,7 @@ pub fn run(args: Args) -> Result<()> {
         .with_vm(vm)
         .with_deploy_value(args.deploy_value)
         .with_deployer(args.deployer_address)
-        .with_rpc(rpc)
-        .with_fork_config(fork_config)
+        .with_environment(env)
         .init()?
         .setup()?;
 

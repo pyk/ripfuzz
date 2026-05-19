@@ -11,7 +11,7 @@ use revm::{
     primitives::{Address, Bytes, U256},
 };
 
-use crate::vm::{DealRecord, PrankState, StartPrankState, VmState};
+use crate::vm::{DealRecord, ExecutionState, PrankState, StartPrankState};
 
 /// Minimal trait to mutate `chain_id` on generic EVM contexts.
 ///
@@ -86,7 +86,7 @@ pub enum CheatcodeEffect {
 pub fn apply_effect<CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut>(
     effect: &CheatcodeEffect,
     ctx: &mut CTX,
-    state: &mut VmState,
+    state: &mut ExecutionState,
 ) -> Result<(), String> {
     match effect {
         // --- EVM context mutations ---

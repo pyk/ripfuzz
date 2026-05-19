@@ -686,8 +686,7 @@ mod tests {
             .build()
             .unwrap_or_else(|e| panic!("failed to build {}: {}", name, e));
 
-        let mut db =
-            crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty());
+        let mut db = crate::chain::Database::default();
         db.insert_account_info(
             CALLER,
             AccountInfo {
@@ -758,8 +757,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut db =
-            crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty());
+        let mut db = crate::chain::Database::default();
         db.insert_account_info(
             CALLER,
             AccountInfo {
@@ -820,8 +818,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut db =
-            crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty());
+        let mut db = crate::chain::Database::default();
         db.insert_account_info(
             CALLER,
             AccountInfo {

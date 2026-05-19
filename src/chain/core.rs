@@ -2,17 +2,16 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use alloy_json_abi::JsonAbi;
 use revm::primitives::{Address, Bytes, U256};
 
+use crate::chain::base_state::BaseState;
 use crate::chain::error::{ChainExecutionError, ChainInitError, ChainSetupError};
 use crate::chain::executor::{ExecutionOptions, execute};
 use crate::chain::init::initialize;
 use crate::chain::output::ExecutionOutput;
 use crate::chain::setup::setup;
-use crate::chain::state::ChainState;
 use crate::contract::ContractArtifact;
 use crate::corpus::Call;
 
@@ -38,11 +37,9 @@ pub struct ChainBuilder<'a, V: crate::vm::VmFactory = crate::vm::Vm> {
     artifact: &'a ContractArtifact,
     project_root: PathBuf,
     vm: Option<V>,
-    vm_state: Option<crate::vm::VmState>,
     deploy_value: U256,
     deployer: Address,
-    rpc: Option<Arc<dyn crate::rpc::RpcClient>>,
-    fork_config: Option<crate::chain::fork::ForkConfig>,
+    environment: Option<crate::chain::Environment>,
 }
 
 impl<'a, V: crate::vm::VmFactory> ChainBuilder<'a, V> {
@@ -58,17 +55,15 @@ impl<'a, V: crate::vm::VmFactory> ChainBuilder<'a, V> {
             artifact: self.artifact,
             project_root: self.project_root,
             vm: Some(vm),
-            vm_state: self.vm_state,
             deploy_value: self.deploy_value,
             deployer: self.deployer,
-            rpc: self.rpc,
-            fork_config: self.fork_config,
+            environment: self.environment,
         }
     }
 
-    /// Inject a pre-built VmState (overrides the VM's fresh_state).
-    pub fn with_vm_state(mut self, state: crate::vm::VmState) -> Self {
-        self.vm_state = Some(state);
+    /// Set the execution environment (sandbox or fork).
+    pub fn with_environment(mut self, env: crate::chain::Environment) -> Self {
+        self.environment = Some(env);
         self
     }
 
@@ -84,44 +79,23 @@ impl<'a, V: crate::vm::VmFactory> ChainBuilder<'a, V> {
         self
     }
 
-    /// Set the optional fork configuration.
-    pub fn with_fork_config(mut self, config: Option<crate::chain::fork::ForkConfig>) -> Self {
-        self.fork_config = config;
-        self
-    }
-
-    /// Set the pre-built RPC client (required when `fork_config` is set).
-    pub fn with_rpc(mut self, rpc: Option<Arc<dyn crate::rpc::RpcClient>>) -> Self {
-        self.rpc = rpc;
-        self
-    }
-
     /// Deploy the contract, verify deployment success, and return a [`Chain`].
     pub fn init(self) -> Result<Chain, ChainInitError> {
         let vm = self.vm.ok_or_else(|| {
             ChainInitError::Other(anyhow::anyhow!("ChainBuilder::with_vm is required"))
         })?;
-        let (contract_address, mut state) = initialize(
-            self.artifact,
-            self.project_root.clone(),
-            vm.config().ffi,
-            self.deploy_value,
-            self.deployer,
-            self.rpc.as_ref(),
-            self.fork_config.as_ref(),
-        )?;
-        // Use injected VmState if provided, otherwise use fresh state from Vm.
-        if let Some(vm_state) = self.vm_state {
-            state.vm = vm_state;
-        } else {
-            state.vm = vm.fresh_state();
-        }
-        // Populate compiled-contract map for vm.getCode lookups.
+        let env = self
+            .environment
+            .unwrap_or_else(crate::chain::Environment::sandbox);
+        let (contract_address, mut state) =
+            initialize(self.artifact, &env, self.deploy_value, self.deployer)?;
+        // Populate persistent VM config fields from the VM and artifact.
+        state.project_root = vm.config().project_root.clone();
+        state.ffi_enabled = vm.config().ffi;
         let initcode_map = self.artifact.initcode_map.clone();
         for (initcode, (name, _abi)) in initcode_map {
-            state.vm.compiled_contracts.insert(name, initcode);
+            state.compiled_contracts.insert(name, initcode);
         }
-        state.vm.project_root = self.project_root;
         Ok(Chain {
             config: ChainConfig {
                 caller: self.deployer,
@@ -140,7 +114,7 @@ impl<'a, V: crate::vm::VmFactory> ChainBuilder<'a, V> {
 #[derive(Debug, Clone)]
 pub struct Chain {
     config: ChainConfig,
-    state: ChainState,
+    state: BaseState,
     contract_address: Address,
     invariants: Vec<([u8; 4], String)>,
     contract_abi: JsonAbi,
@@ -154,17 +128,15 @@ impl Chain {
             artifact,
             project_root: PathBuf::new(),
             vm: None,
-            vm_state: None,
             deploy_value: U256::ZERO,
             deployer: crate::chain::init::DEFAULT_DEPLOYER,
-            rpc: None,
-            fork_config: None,
+            environment: None,
         }
     }
 
     /// Create a Chain directly from a pre-built state and contract address.
     pub fn from_state(
-        state: ChainState,
+        state: BaseState,
         contract_address: Address,
         contract_abi: JsonAbi,
         invariants: Vec<([u8; 4], String)>,
@@ -235,16 +207,16 @@ impl crate::chain::SequenceExecutor for Chain {
 }
 
 impl Chain {
-    /// Flush the underlying fork cache to disk, if one exists.
-    pub fn flush_fork_cache(&self) {
-        if let Err(e) = self.state.flush_fork_cache() {
-            tracing::error!(%e, "failed to flush fork cache");
+    /// Flush the underlying database cache to disk, if one exists.
+    pub fn flush_database_cache(&self) {
+        if let Err(e) = self.state.flush_database_cache() {
+            tracing::error!(%e, "failed to flush database cache");
         }
     }
 
-    /// Return fork cache statistics, if a fork backend is present.
-    pub fn cache_stats(&self) -> Option<crate::chain::fork::CacheStats> {
-        self.state.db.db.cache_stats()
+    /// Return database cache statistics, if a fork backend is present.
+    pub fn database_cache_stats(&self) -> Option<crate::chain::CacheStats> {
+        self.state.db.cache_stats()
     }
 }
 
@@ -290,9 +262,7 @@ mod tests {
 
     #[test]
     fn chain_from_state_skips_init() {
-        let state = crate::chain::state::ChainState::new(crate::chain::fork::ForkDatabase::new(
-            crate::chain::fork::ForkBackend::empty(),
-        ));
+        let state = crate::chain::BaseState::new(crate::chain::Database::default());
         let contract_address = revm::primitives::Address::new([0xab; 20]);
         let abi = alloy_json_abi::JsonAbi::default();
         let chain = Chain::from_state(

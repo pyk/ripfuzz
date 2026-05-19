@@ -7,13 +7,13 @@ use revm::{
     primitives::{Bytes, U256},
 };
 
-use crate::vm::{CheatcodeEffect, VmState};
+use crate::vm::{CheatcodeEffect, ExecutionState};
 
 pub fn build_outcome<CTX: ContextTr>(
     effects: &[CheatcodeEffect],
     gas_limit: u64,
     ctx: &mut CTX,
-    state: &VmState,
+    state: &ExecutionState,
 ) -> CallOutcome {
     if let Some(outcome) = effects.iter().find_map(|effect| match effect {
         CheatcodeEffect::Revert(reason) => Some(revert_outcome(reason)),

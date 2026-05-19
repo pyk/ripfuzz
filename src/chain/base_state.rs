@@ -1,47 +1,60 @@
 //! Chain state management: encapsulates everything cloned per execution.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use alloy_json_abi::JsonAbi;
 use revm::{
-    Database,
+    Database as RevmDatabase,
     primitives::{Address, Bytes, U256},
     state::AccountInfo,
 };
 
-use crate::vm::VmState;
+use crate::chain::database::Database;
+use crate::vm::{BlockCheatState, PrankCheatState};
 
-/// The database type used for all campaigns (forked and local).
-pub type ChainDatabase = crate::chain::fork::ForkDatabase;
-
-/// Everything that must be cloned for each sequence execution.
+/// The committed snapshot after deployment and optional setUp.
+/// Cloned once per sequence execution.
 #[derive(Clone, Debug)]
-pub struct ChainState {
-    pub db: ChainDatabase,
+pub struct BaseState {
+    // --- EVM world state ---
+    pub db: Database,
     pub block_number: u64,
     pub block_timestamp: u64,
     pub caller_nonce: u64,
     pub known_contracts: HashMap<Address, (String, JsonAbi)>,
-    /// Foundry VM state owned by this chain snapshot.  Cloned per
-    /// sequence so cheatcode mutations are isolated.
-    pub vm: VmState,
+
+    // --- Persistent VM config (from VmConfig + artifact, never mutated) ---
+    pub project_root: PathBuf,
+    pub ffi_enabled: bool,
+    pub compiled_contracts: HashMap<String, Bytes>,
+
+    // --- Committed cheatcode state from setUp (base for each sequence) ---
+    pub labels: HashMap<Address, String>,
+    pub prank: PrankCheatState,
+    pub block_overrides: BlockCheatState,
 }
 
-impl ChainState {
-    pub fn new(db: ChainDatabase) -> Self {
+impl BaseState {
+    pub fn new(db: Database) -> Self {
         Self {
             db,
             block_number: 1,
             block_timestamp: 1,
             caller_nonce: 0,
             known_contracts: HashMap::new(),
-            vm: VmState::default(),
+            project_root: PathBuf::new(),
+            ffi_enabled: false,
+            compiled_contracts: HashMap::new(),
+            labels: HashMap::new(),
+            prank: PrankCheatState::default(),
+            block_overrides: BlockCheatState::default(),
         }
     }
 
-    /// Flush the fork cache to disk if a fork backend is present.
-    pub fn flush_fork_cache(&self) -> anyhow::Result<()> {
-        self.db.db.flush_cache()
+    /// Flush the underlying database cache to disk, if one exists.
+    pub fn flush_database_cache(&self) -> anyhow::Result<()> {
+        self.db.flush_cache()
     }
 
     /// Advance block context by the given delays.
@@ -66,7 +79,7 @@ impl ChainState {
         n
     }
 
-    // --- ChainState helpers for cheatcodes ---
+    // --- BaseState helpers for cheatcodes ---
 
     /// Set the balance of an address.
     pub fn set_balance(&mut self, addr: Address, value: U256) {
@@ -86,7 +99,6 @@ impl ChainState {
 
     /// Set a storage slot for an address.
     pub fn set_storage(&mut self, addr: Address, slot: U256, value: U256) {
-        // InMemoryDB exposes `insert_account_storage` via the Database trait.
         let _ = self.db.insert_account_storage(addr, slot, value);
     }
 

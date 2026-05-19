@@ -15,11 +15,11 @@ use tracing::trace;
 
 use crate::chain::{
     ChainConfig,
+    base_state::BaseState,
     error::ChainExecutionError,
     init::decode_solidity_error,
     inspectors::{InspectorTuple, MaybeTrace, coverage::CoverageInspector, trace::TraceInspector},
     output::{CallMeta, CrashInfo, ExecutionOutput},
-    state::ChainState,
 };
 use crate::corpus::Call;
 
@@ -70,7 +70,7 @@ fn is_assert_failure(output: &revm::primitives::Bytes) -> bool {
 /// Execute a call sequence (plus appended invariant calls) against a cloned post-setup state.
 #[allow(clippy::too_many_arguments)]
 pub fn execute(
-    state: &ChainState,
+    state: &BaseState,
     contract_address: revm::primitives::Address,
     invariants: &[([u8; 4], String)],
     contract_abi: &alloy_json_abi::JsonAbi,
@@ -87,14 +87,23 @@ pub fn execute(
     let mut trace_inspector = opts
         .trace
         .then(|| TraceInspector::new(initcode_map.clone()));
-    let shared_labels = Arc::new(RwLock::new(local_state.vm.labels.clone()));
+    let shared_labels = Arc::new(RwLock::new(local_state.labels.clone()));
     if let Some(ref mut t) = trace_inspector {
         t.set_shared_labels(Arc::clone(&shared_labels));
     }
 
-    let cheatcode_inspector =
-        crate::vm::inspector::CheatcodeInspector::from_state(local_state.vm.clone())
-            .with_shared_labels(shared_labels);
+    let exec_state = crate::vm::ExecutionState {
+        project_root: local_state.project_root.clone(),
+        ffi_enabled: local_state.ffi_enabled,
+        compiled_contracts: local_state.compiled_contracts.clone(),
+        labels: local_state.labels.clone(),
+        prank: local_state.prank.clone(),
+        block: local_state.block_overrides,
+        eth_deals: Vec::new(),
+        nonce_changes: Vec::new(),
+    };
+    let cheatcode_inspector = crate::vm::inspector::CheatcodeInspector::from_state(exec_state)
+        .with_shared_labels(shared_labels);
 
     let inspector = InspectorTuple::new(
         coverage_inspector,
@@ -231,12 +240,6 @@ pub fn execute(
             {
                 local_state.block_number = u64::try_from(num).unwrap_or(u64::MAX);
             }
-            local_state.vm.block = inspector.2.state.block;
-            local_state.vm.labels.clone_from(&inspector.2.state.labels);
-            local_state.vm.prank.start = inspector.2.state.prank.start;
-            local_state.vm.prank.original_origin = inspector.2.state.prank.original_origin;
-            inspector.2.state.eth_deals.clear();
-            inspector.2.state.nonce_changes.clear();
             trace!(idx, "call succeeded");
         } else {
             let inspector = &mut evm.inspector;
@@ -258,7 +261,6 @@ pub fn execute(
                 info.nonce = record.old_nonce;
                 db.insert_account_info(record.address, info);
             }
-            local_state.vm.labels.clone_from(&inspector.2.state.labels);
             if let Some(output) = result.output()
                 && is_assert_failure(output)
             {

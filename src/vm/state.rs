@@ -1,12 +1,8 @@
-//! Persistent VM state accumulated by cheatcodes during execution.
-
-use std::collections::HashMap;
-use std::path::PathBuf;
+//! Persistent cheatcode state types used by [`BaseState`](crate::chain::BaseState)
+//! and [`ExecutionState`](crate::vm::ExecutionState).
 
 use alloy_primitives::U256;
-use revm::primitives::{Address, Bytes};
-
-use crate::vm::{DealRecord, NonceRecord};
+use revm::primitives::Address;
 
 /// Persistent block-context overrides set by cheatcodes.
 #[derive(Clone, Copy, Debug, Default)]
@@ -25,7 +21,7 @@ pub struct PrankCheatState {
     pub active: Option<PrankState>,
     pub start: Option<StartPrankState>,
     /// The original `tx.origin` before any prank was applied.
-    /// Stored in `VmState` so it survives EVM rebuilds.
+    /// Stored in prank state so it survives EVM rebuilds.
     pub original_origin: Option<Address>,
 }
 
@@ -44,45 +40,7 @@ impl PrankCheatState {
     }
 }
 
-/// State accumulated by cheatcodes during execution.
-#[derive(Clone, Debug, Default)]
-pub struct VmState {
-    pub block: BlockCheatState,
-    pub prank: PrankCheatState,
-    pub labels: HashMap<Address, String>,
-    pub ffi_enabled: bool,
-    /// Foundry project root used as the working directory for `vm.ffi`.
-    pub project_root: PathBuf,
-    /// Contract name -> initcode bytes, populated from the artifact so
-    /// `vm.getCode` can resolve contracts by name.
-    pub compiled_contracts: HashMap<String, Bytes>,
-    /// Rollback records for `vm.deal` (Foundry semantics).
-    pub eth_deals: Vec<DealRecord>,
-    /// Rollback records for `vm.setNonce`.
-    pub nonce_changes: Vec<NonceRecord>,
-}
-
-impl VmState {
-    /// Return all block-context overrides that should be applied before a call.
-    pub fn block_overrides(&self) -> BlockOverrides {
-        BlockOverrides {
-            timestamp: self.block.timestamp,
-            number: self.block.number,
-            basefee: self.block.basefee.map(|f| u64::try_from(f).unwrap_or(0)),
-            beneficiary: self.block.beneficiary,
-            prevrandao: self
-                .block
-                .prevrandao
-                .map(revm::primitives::FixedBytes::from),
-            chain_id: self
-                .block
-                .chain_id
-                .map(|id| u64::try_from(id).unwrap_or(u64::MAX)),
-        }
-    }
-}
-
-/// Block-context overrides produced from `VmState`.
+/// Block-context overrides produced from [`BlockCheatState`].
 #[derive(Clone, Debug, Default)]
 pub struct BlockOverrides {
     pub timestamp: Option<U256>,

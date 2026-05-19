@@ -3,7 +3,7 @@
 //!
 //! Raptor follows the Foundry / Echidna persistent model: a `prevrandao`
 //! mutation committed during a call remains visible for the rest of the
-//! sequence (and for invariant checks) until the `ChainState` clone is
+//! sequence (and for invariant checks) until the `BaseState` clone is
 //! discarded.  This is consistent with how `warp`, `roll`, `fee`, and
 //! `coinbase` already behave in raptor.
 

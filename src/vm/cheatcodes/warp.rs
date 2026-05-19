@@ -411,9 +411,9 @@ mod tests {
         let mut data = Warp::SELECTOR.to_vec();
         data.extend_from_slice(&U256::from(1234567890u64).to_be_bytes_vec());
 
-        let vm_state = crate::vm::VmState::default();
+        let exec_state = crate::vm::ExecutionState::default();
         let caller = revm::primitives::Address::new([0xde; 20]);
-        let (result, new_state) = run_cheatcode(caller, Bytes::from(data), vm_state).unwrap();
+        let (result, new_state) = run_cheatcode(caller, Bytes::from(data), exec_state).unwrap();
 
         assert!(result.is_success(), "cheatcode should succeed");
         assert_eq!(

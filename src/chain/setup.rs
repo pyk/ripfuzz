@@ -13,32 +13,29 @@ use revm::{
 
 use tracing::{error, info, instrument, trace};
 
+use crate::chain::base_state::BaseState;
 use crate::chain::error::ChainSetupError;
 use crate::chain::inspectors::{
     InspectorTuple, MaybeTrace, coverage::CoverageInspector, trace::TraceInspector,
 };
-use crate::chain::state::ChainState;
 
 const SETUP_SELECTOR: [u8; 4] = [0x0a, 0x92, 0x54, 0xe4];
 
-/// Run `setUp()` if present and return the updated chain state.
+/// Run `setUp()` if present and return the updated base state.
 #[instrument(skip(state), fields(contract = %contract_address), err)]
 pub fn setup(
-    state: ChainState,
+    state: BaseState,
     contract_address: revm::primitives::Address,
     abi: &alloy_json_abi::JsonAbi,
     initcode_map: &HashMap<Bytes, (String, alloy_json_abi::JsonAbi)>,
     deployer: revm::primitives::Address,
-) -> Result<ChainState, ChainSetupError> {
+) -> Result<BaseState, ChainSetupError> {
     let t0 = std::time::Instant::now();
     let has_setup = abi.functions().any(|f| f.selector() == SETUP_SELECTOR);
     if !has_setup {
         trace!("no setUp function found");
         return Ok(state);
     }
-
-    // Preserve compiled-contract map so vm.getCode works across setUp.
-    let compiled_contracts = state.vm.compiled_contracts.clone();
 
     let mut db = state.db;
     let nonce = crate::result_to_option(db.basic(deployer))
@@ -51,9 +48,20 @@ pub fn setup(
         trace_inspector.register_contract(contract_address, name, contract_abi.clone());
     }
 
-    let shared_labels = Arc::new(RwLock::new(state.vm.labels.clone()));
+    let shared_labels = Arc::new(RwLock::new(state.labels.clone()));
     trace_inspector.set_shared_labels(Arc::clone(&shared_labels));
-    let cheatcode_inspector = crate::vm::inspector::CheatcodeInspector::from_state(state.vm)
+
+    let exec_state = crate::vm::ExecutionState {
+        project_root: state.project_root.clone(),
+        ffi_enabled: state.ffi_enabled,
+        compiled_contracts: state.compiled_contracts.clone(),
+        labels: state.labels.clone(),
+        prank: state.prank.clone(),
+        block: state.block_overrides,
+        eth_deals: Vec::new(),
+        nonce_changes: Vec::new(),
+    };
+    let cheatcode_inspector = crate::vm::inspector::CheatcodeInspector::from_state(exec_state)
         .with_shared_labels(shared_labels);
 
     let inspector = InspectorTuple::new(
@@ -92,29 +100,27 @@ pub fn setup(
     let elapsed = t0.elapsed();
     info!(target: "raptor::user", time_ms = elapsed.as_millis(), "Ran setUp");
 
-    let mut new_state = crate::chain::state::ChainState::new(evm.ctx.journaled_state.database);
+    let mut new_state = crate::chain::base_state::BaseState::new(evm.ctx.journaled_state.database);
     new_state.caller_nonce = new_state
         .db
         .basic(deployer)
         .unwrap_or_default()
         .unwrap_or_default()
         .nonce;
-    // Persist cheatcode state from setUp so it carries into each sequence.
-    let cheat_inspector = evm.inspector.2;
-    new_state.vm = cheat_inspector.state;
-    // setUp deals and nonce changes are committed to the base state; clear
-    // records so they are not rolled back on a later reverted call in a
-    // sequence.
-    new_state.vm.eth_deals.clear();
-    new_state.vm.nonce_changes.clear();
-    // Restore compiled-contract map so vm.getCode keeps working.
-    new_state.vm.compiled_contracts = compiled_contracts;
-    // Persist block context set during setUp so sequences start at the
-    // warped / rolled values.
-    if let Some(ts) = new_state.vm.block.timestamp {
+    // Persistent config copied straight through.
+    new_state.project_root = state.project_root;
+    new_state.ffi_enabled = state.ffi_enabled;
+    new_state.compiled_contracts = state.compiled_contracts;
+    // Committed cheatcode state extracted from inspector.
+    let inspector = evm.inspector.2;
+    new_state.labels = inspector.state.labels;
+    new_state.prank = inspector.state.prank;
+    new_state.block_overrides = inspector.state.block;
+    // eth_deals and nonce_changes are NOT copied (dropped with the inspector).
+    if let Some(ts) = new_state.block_overrides.timestamp {
         new_state.block_timestamp = u64::try_from(ts).unwrap_or(u64::MAX);
     }
-    if let Some(num) = new_state.vm.block.number {
+    if let Some(num) = new_state.block_overrides.number {
         new_state.block_number = u64::try_from(num).unwrap_or(u64::MAX);
     }
     Ok(new_state)

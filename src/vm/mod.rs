@@ -14,21 +14,18 @@ pub use decode::{
 };
 pub use dispatch::{Cheatcode, dispatch_effects};
 pub use effect::CheatcodeEffect;
+pub use execution_state::ExecutionState;
 pub use outcome::{
     build_outcome, dummy_success, panic_outcome, revert_outcome, success_bool_outcome,
     success_bytes_outcome, success_int256_outcome, success_u256_outcome,
 };
-pub use state::{
-    BlockCheatState, BlockOverrides, PrankCheatState, PrankState, StartPrankState, VmState,
-};
+pub use state::{BlockCheatState, BlockOverrides, PrankCheatState, PrankState, StartPrankState};
 pub use vm::Vm;
 
-/// Trait for VM factories that can produce fresh [`VmState`] snapshots.
+/// Trait for VM factories that expose configuration.
 pub trait VmFactory: Send + Sync + std::fmt::Debug + 'static {
     /// Access the VM configuration.
     fn config(&self) -> &VmConfig;
-    /// Produce a fresh VmState for a new chain snapshot.
-    fn fresh_state(&self) -> VmState;
 }
 
 pub mod address;
@@ -37,6 +34,7 @@ pub mod config;
 pub mod decode;
 pub mod dispatch;
 pub mod effect;
+pub mod execution_state;
 pub mod inspector;
 pub mod outcome;
 pub mod state;

@@ -237,7 +237,7 @@ impl Campaign {
                     let elapsed_str = format_duration(elapsed);
                     let calls_str = format!("{}({}/s)", total_calls, calls_per_sec);
 
-                    if let Some(stats) = chain.cache_stats() {
+                    if let Some(stats) = chain.database_cache_stats() {
                         info!(
                             target: "raptor::user",
                             elapsed = %elapsed_str,
@@ -347,7 +347,7 @@ impl Campaign {
 
         info!(target: "raptor::user", runs = total_runs, failures = all_failures.len(), "Campaign complete");
 
-        self.chain.flush_fork_cache();
+        self.chain.flush_database_cache();
 
         let elapsed_secs = start.elapsed().as_secs_f64();
 

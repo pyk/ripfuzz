@@ -1,10 +1,7 @@
 //! Chain initialization: deployment of the target contract.
 
-use std::path::PathBuf;
-use std::sync::Arc;
-
 use revm::{
-    Database, MainBuilder, MainContext,
+    Database as RevmDatabase, MainBuilder, MainContext,
     context::result::ExecutionResult,
     context::{Context, TxEnv},
     inspector::InspectCommitEvm,
@@ -14,8 +11,9 @@ use revm::{
 
 use tracing::{error, info, instrument};
 
+use crate::chain::base_state::BaseState;
+use crate::chain::database::Database;
 use crate::chain::error::ChainInitError;
-use crate::chain::state::{ChainDatabase, ChainState};
 use crate::contract::ContractArtifact;
 use crate::vm::VM_ADDRESS;
 
@@ -28,7 +26,7 @@ pub const DEFAULT_DEPLOYER: Address = Address::new([
 
 /// Insert a dummy VM contract into the database so Solidity's
 /// `extcodesize` check passes when a target calls raptor cheatcodes.
-pub fn insert_raptor_vm(db: &mut ChainDatabase) {
+pub fn insert_raptor_vm(db: &mut Database) {
     let vm_code = revm::bytecode::Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x00]));
     db.insert_account_info(
         VM_ADDRESS,
@@ -75,29 +73,18 @@ pub fn decode_solidity_error(output: &Bytes) -> Option<String> {
 /// Solidity `Error(string)` selector: `keccak256("Error(string)")[:4]`
 const ERROR_SELECTOR: [u8; 4] = [0x08, 0xc3, 0x79, 0xa0];
 
-/// Deploy a contract from an artifact and return the post-deployment chain state.
+/// Deploy a contract from an artifact and return the post-deployment base state.
 #[instrument(skip(target), fields(contract = %target.contract_name), err)]
 pub fn initialize(
     target: &ContractArtifact,
-    project_root: PathBuf,
-    ffi_enabled: bool,
+    env: &crate::chain::Environment,
     deploy_value: U256,
     deployer: Address,
-    rpc: Option<&Arc<dyn crate::rpc::RpcClient>>,
-    fork_config: Option<&crate::chain::fork::ForkConfig>,
-) -> Result<(Address, ChainState), ChainInitError> {
+) -> Result<(Address, BaseState), ChainInitError> {
     let t0 = std::time::Instant::now();
-    let mut db = if let (Some(rpc), Some(config)) = (rpc, fork_config) {
-        let backend = crate::chain::fork::ForkBackend::new(
-            Arc::clone(rpc),
-            config.block_number,
-            &project_root,
-        )
-        .map_err(|e| ChainInitError::Other(anyhow::anyhow!("fork initialization failed: {e}")))?;
-        crate::chain::fork::ForkDatabase::new(backend)
-    } else {
-        crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty())
-    };
+    let mut db = env
+        .create_database()
+        .map_err(|e| ChainInitError::Other(anyhow::anyhow!("database creation failed: {e}")))?;
 
     db.insert_account_info(
         deployer,
@@ -141,9 +128,7 @@ pub fn initialize(
     info!(target: "raptor::user", time_ms = elapsed.as_millis(), "Deployed target contract");
 
     let deployed_db = evm.ctx.journaled_state.database;
-    let mut state = ChainState::new(deployed_db);
-    state.vm.project_root = project_root;
-    state.vm.ffi_enabled = ffi_enabled;
+    let mut state = BaseState::new(deployed_db);
     state.caller_nonce = state
         .db
         .basic(deployer)

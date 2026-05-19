@@ -16,7 +16,7 @@ use revm::{
 };
 
 use crate::vm::{
-    VM_ADDRESS, VmState, build_outcome, dispatch_effects,
+    ExecutionState, VM_ADDRESS, build_outcome, dispatch_effects,
     effect::{CheatcodeEffect, apply_effect},
     revert_outcome,
 };
@@ -24,7 +24,7 @@ use crate::vm::{
 /// Inspector that intercepts Foundry-compatible cheatcodes.
 #[derive(Debug)]
 pub struct CheatcodeInspector {
-    pub state: VmState,
+    pub state: ExecutionState,
     pub shared_labels: Option<Arc<RwLock<HashMap<Address, String>>>>,
     /// Current EVM call depth (increments in `frame_start`, decrements in
     /// `call_end`/`create_end`).
@@ -34,13 +34,13 @@ pub struct CheatcodeInspector {
 impl CheatcodeInspector {
     pub fn new() -> Self {
         Self {
-            state: VmState::default(),
+            state: ExecutionState::default(),
             shared_labels: None,
             depth: 0,
         }
     }
 
-    pub fn from_state(state: VmState) -> Self {
+    pub fn from_state(state: ExecutionState) -> Self {
         Self {
             state,
             shared_labels: None,

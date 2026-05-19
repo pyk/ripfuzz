@@ -194,8 +194,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut db =
-            crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty());
+        let mut db = revm::database::InMemoryDB::default();
         db.insert_account_info(
             CALLER,
             AccountInfo {
