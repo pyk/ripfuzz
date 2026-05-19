@@ -246,18 +246,26 @@ type ForkSetup = (
     Option<crate::chain::fork::ForkConfig>,
 );
 
-fn build_rpc(args: &Args) -> Result<ForkSetup> {
-    match (args.fork_rpc_urls.is_empty(), args.fork_rpc_block) {
+fn build_rpc(
+    urls: &[String],
+    block: Option<u64>,
+    pool: u32,
+    retries: u32,
+    backoff: u64,
+    rate_limit: Option<u64>,
+    timeout: u64,
+) -> Result<ForkSetup> {
+    match (urls.is_empty(), block) {
         (true, None) => Ok((None, None)),
         (false, Some(block)) => {
-            let rpc_instance = crate::rpc::Rpc::with_urls(&args.fork_rpc_urls)
-                .with_pool_size(args.fork_rpc_pool)
-                .with_retries(args.fork_rpc_retries)
-                .with_retry_backoff(std::time::Duration::from_millis(args.fork_rpc_backoff))
-                .with_requests_per_second(args.fork_rpc_rate_limit)
-                .with_timeout(std::time::Duration::from_millis(args.fork_rpc_timeout))
+            let rpc_instance = crate::rpc::Rpc::with_urls(urls)
+                .with_pool_size(pool)
+                .with_retries(retries)
+                .with_retry_backoff(std::time::Duration::from_millis(backoff))
+                .with_requests_per_second(rate_limit)
+                .with_timeout(std::time::Duration::from_millis(timeout))
                 .build()?;
-            info!(target: "raptor::user", urls = ?args.fork_rpc_urls, "Fetching latest block");
+            info!(target: "raptor::user", urls = ?urls, "Fetching latest block");
             let t0 = std::time::Instant::now();
             let latest = rpc_instance
                 .latest_block_number()
@@ -270,7 +278,7 @@ fn build_rpc(args: &Args) -> Result<ForkSetup> {
             let fork = crate::chain::fork::ForkConfig {
                 block_number: block,
             };
-            info!(target: "raptor::user", urls = ?args.fork_rpc_urls, block = fork.block_number, "Forking");
+            info!(target: "raptor::user", urls = ?urls, block = fork.block_number, "Forking");
             Ok((Some(Arc::new(rpc_instance)), Some(fork)))
         }
         _ => {
@@ -282,25 +290,17 @@ fn build_rpc(args: &Args) -> Result<ForkSetup> {
 #[instrument(skip(args), fields(target = ?args.target_path, threads = args.threads, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
     // Resolve project path
-    let project_path = match args.project_path {
-        Some(ref p) => {
-            debug!(?p, "using explicit project path");
-            p.clone()
-        }
-        None => {
-            let cwd = env::current_dir()?;
-            debug!(?cwd, "using current directory as project path");
-            cwd
-        }
-    };
+    let project_path = args.project_path.map(Ok).unwrap_or_else(env::current_dir)?;
+    debug!(?project_path, "resolved project path");
 
     // Compile target
+    info!(target: "raptor::user", project = %project_path.display(), target = %args.target_path.display(), "Compiling");
     let t0 = std::time::Instant::now();
     let artifact = ContractBuilder::for_project(&project_path)
         .with_target_path(&args.target_path)
         .build()?;
     let compile_elapsed = t0.elapsed();
-    info!(target: "raptor::user", name = %artifact.contract_name, time_ms = compile_elapsed.as_millis(), "Finished compiling targets");
+    info!(target: "raptor::user", took = %format!("{}ms", compile_elapsed.as_millis()), "Finished compiling target");
 
     // Validate artifact
     let fuzzed_names: Vec<&str> = artifact
@@ -317,7 +317,15 @@ pub fn run(args: Args) -> Result<()> {
     info!(target: "raptor::user", count = artifact.invariants.len(), "Found invariants");
 
     // Build RPC / Fork Config
-    let (rpc, fork_config) = build_rpc(&args)?;
+    let (rpc, fork_config) = build_rpc(
+        &args.fork_rpc_urls,
+        args.fork_rpc_block,
+        args.fork_rpc_pool,
+        args.fork_rpc_retries,
+        args.fork_rpc_backoff,
+        args.fork_rpc_rate_limit,
+        args.fork_rpc_timeout,
+    )?;
 
     let config = CampaignConfig {
         threads: args.threads,
