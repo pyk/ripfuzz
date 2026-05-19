@@ -26,8 +26,8 @@ pub const DEFAULT_DEPLOYER: Address = Address::new([
 ]);
 
 /// Insert a dummy VM contract into the database so Solidity's
-/// `extcodesize` check passes when a target calls Foundry cheatcodes.
-pub(crate) fn insert_foundry_vm(db: &mut ChainDatabase) {
+/// `extcodesize` check passes when a target calls raptor cheatcodes.
+pub(crate) fn insert_raptor_vm(db: &mut ChainDatabase) {
     let vm_code = revm::bytecode::Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x00]));
     db.insert_account_info(
         VM_ADDRESS,
@@ -105,7 +105,7 @@ pub fn initialize(
             account_id: None,
         },
     );
-    insert_foundry_vm(&mut db);
+    insert_raptor_vm(&mut db);
 
     let inspector =
         crate::chain::inspectors::trace::TraceInspector::new(target.initcode_map.clone());

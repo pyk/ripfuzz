@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Vm} from "../src/Vm.sol";
 
 contract CheatcodeToString {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    Vm constant vm = Vm(address(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1));
 
     // --- Setup state ---
     string public setupUint;
@@ -38,7 +38,7 @@ contract CheatcodeToString {
     function setUp() external {
         setupUint = vm.toString(uint256(123));
         setupBool = vm.toString(true);
-        setupAddress = vm.toString(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+        setupAddress = vm.toString(address(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1));
         setupBytes32 = vm.toString(bytes32(uint256(0xdeadbeef)));
         setupInt = vm.toString(int256(-42));
         setupBytes = vm.toString(bytes(hex"01ab"));
@@ -56,7 +56,7 @@ contract CheatcodeToString {
 
     function check_setupAddress() external view returns (bool) {
         return keccak256(bytes(setupAddress))
-            == keccak256(bytes("0x7109709ECfa91a80626fF3989D68f67F5b1DD12D"));
+            == keccak256(bytes("0x263Af513A0435EBC9D5C362Cf76252F87173F8f1"));
     }
 
     function check_setupBytes32() external view returns (bool) {
@@ -123,7 +123,7 @@ contract CheatcodeToString {
 
     function check_rtAddress() external view returns (bool) {
         return keccak256(bytes(rtAddress))
-            == keccak256(bytes("0x7109709ECfa91a80626fF3989D68f67F5b1DD12D"));
+            == keccak256(bytes("0x263Af513A0435EBC9D5C362Cf76252F87173F8f1"));
     }
 
     function check_rtBool() external view returns (bool) {

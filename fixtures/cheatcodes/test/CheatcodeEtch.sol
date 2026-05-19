@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Vm} from "../src/Vm.sol";
 
 contract CheatcodeEtch {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    Vm constant vm = Vm(address(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1));
 
     // Runtime bytecode: PUSH1 0x01 PUSH1 0x00 MSTORE PUSH1 0x20 PUSH1 0x00 RETURN
     bytes constant RUNTIME_CODE = hex"6001600052602060006000f3";

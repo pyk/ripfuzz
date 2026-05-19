@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn to_string_address_decode_and_effects() {
         let addr =
-            Address::from_slice(&hex::decode("7109709ECfa91a80626fF3989D68f67F5b1DD12D").unwrap());
+            Address::from_slice(&hex::decode("263Af513A0435EBC9D5C362Cf76252F87173F8f1").unwrap());
         let encoded = DynSolValue::Address(addr).abi_encode();
         let args = ToStringAddress::decode(&call_data(ToStringAddress::SELECTOR, encoded)).unwrap();
         let effects = ToStringAddress::effects(args);
@@ -194,7 +194,7 @@ mod tests {
         let decoded = DynSolType::String.abi_decode_params(out).unwrap();
         assert_eq!(
             decoded,
-            DynSolValue::String("0x7109709ECfa91a80626fF3989D68f67F5b1DD12D".into())
+            DynSolValue::String("0x263Af513A0435EBC9D5C362Cf76252F87173F8f1".into())
         );
     }
 

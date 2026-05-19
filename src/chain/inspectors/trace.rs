@@ -697,7 +697,7 @@ mod tests {
                 account_id: None,
             },
         );
-        crate::chain::init::insert_foundry_vm(&mut db);
+        crate::chain::init::insert_raptor_vm(&mut db);
 
         let inspector = TraceInspector::new(artifact.initcode_map.clone());
         let ctx = Context::mainnet().with_db(db);
@@ -771,7 +771,7 @@ mod tests {
                 account_id: None,
             },
         );
-        crate::chain::init::insert_foundry_vm(&mut db);
+        crate::chain::init::insert_raptor_vm(&mut db);
 
         let external_addr = Address::new([0x11; 20]);
         db.insert_account_info(
@@ -835,7 +835,7 @@ mod tests {
                 account_id: None,
             },
         );
-        crate::chain::init::insert_foundry_vm(&mut db);
+        crate::chain::init::insert_raptor_vm(&mut db);
 
         let external_addr = Address::new([0x11; 20]);
         db.insert_account_info(

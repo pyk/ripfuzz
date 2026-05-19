@@ -23,13 +23,16 @@ pub mod cheatcodes;
 pub mod effect;
 pub mod inspector;
 
-/// Foundry cheatcode VM contract address.
+/// Raptor VM contract address.
 ///
-/// This is the canonical Foundry VM address used by `forge-std`.  All
-/// cheatcode interception logic keys off this constant.
+/// Derived from `address(uint160(uint256(keccak256("raptor vm"))))`.
+///
+/// NOTE: The raptor VM is **not** Foundry VM compatible.  It does not
+/// implement all Foundry cheatcodes — only the subset documented in the
+/// raptor cheatcode module.
 pub const VM_ADDRESS: Address = Address::new([
-    0x71, 0x09, 0x70, 0x9e, 0xcf, 0xa9, 0x1a, 0x80, 0x62, 0x6f, 0xf3, 0x98, 0x9d, 0x68, 0xf6, 0x7f,
-    0x5b, 0x1d, 0xd1, 0x2d,
+    0x26, 0x3a, 0xf5, 0x13, 0xa0, 0x43, 0x5e, 0xbc, 0x9d, 0x5c, 0x36, 0x2c, 0xf7, 0x62, 0x52, 0xf8,
+    0x71, 0x73, 0xf8, 0xf1,
 ]);
 
 /// User-facing configuration for the VM contract.
@@ -524,6 +527,7 @@ pub fn decode_address_bytes32_args(input: &Bytes) -> Option<(Address, [u8; 32])>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_primitives::utils::keccak256;
 
     #[test]
     fn assert_panic_encoding_matches_solidity() {
@@ -532,5 +536,12 @@ mod tests {
         assert_eq!(&out[..4], &[0x4e, 0x48, 0x7b, 0x71]); // Panic(uint256)
         assert_eq!(&out[4..35], &[0u8; 31]); // padded uint256(1)
         assert_eq!(out[35], 0x01);
+    }
+
+    #[test]
+    fn vm_address_matches_raptor_vm_string() {
+        let hash = keccak256(b"raptor vm");
+        let expected = Address::from_word(hash);
+        assert_eq!(expected, VM_ADDRESS);
     }
 }
