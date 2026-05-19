@@ -15,8 +15,8 @@ use revm::{
     primitives::Address,
 };
 
-use crate::chain::cheatcodes::{
-    CheatcodeState, VM_ADDRESS, build_outcome, dispatch_effects,
+use crate::vm::{
+    VM_ADDRESS, VmState, build_outcome, dispatch_effects,
     effect::{CheatcodeEffect, apply_effect},
     revert_outcome,
 };
@@ -24,7 +24,7 @@ use crate::chain::cheatcodes::{
 /// Inspector that intercepts Foundry-compatible cheatcodes.
 #[derive(Debug)]
 pub struct CheatcodeInspector {
-    pub state: CheatcodeState,
+    pub state: VmState,
     pub shared_labels: Option<Arc<RwLock<HashMap<Address, String>>>>,
     /// Current EVM call depth (increments in `frame_start`, decrements in
     /// `call_end`/`create_end`).
@@ -34,13 +34,13 @@ pub struct CheatcodeInspector {
 impl CheatcodeInspector {
     pub fn new() -> Self {
         Self {
-            state: CheatcodeState::default(),
+            state: VmState::default(),
             shared_labels: None,
             depth: 0,
         }
     }
 
-    pub fn from_state(state: CheatcodeState) -> Self {
+    pub fn from_state(state: VmState) -> Self {
         Self {
             state,
             shared_labels: None,
@@ -202,11 +202,8 @@ impl Default for CheatcodeInspector {
     }
 }
 
-impl<
-    CTX: ContextTr<Block = BlockEnv, Tx = TxEnv>
-        + ContextSetters
-        + crate::chain::cheatcodes::effect::CfgMut,
-> Inspector<CTX, EthInterpreter> for CheatcodeInspector
+impl<CTX: ContextTr<Block = BlockEnv, Tx = TxEnv> + ContextSetters + crate::vm::effect::CfgMut>
+    Inspector<CTX, EthInterpreter> for CheatcodeInspector
 {
     fn initialize_interp(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
     }

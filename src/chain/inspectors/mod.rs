@@ -8,7 +8,6 @@ use revm::{
     primitives::{Address, Log, U256},
 };
 
-pub mod cheatcode;
 pub mod coverage;
 pub mod trace;
 

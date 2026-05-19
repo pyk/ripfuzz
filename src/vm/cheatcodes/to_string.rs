@@ -3,7 +3,7 @@
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use revm::primitives::Bytes;
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect};
+use crate::vm::{Cheatcode, CheatcodeEffect};
 
 fn decode_single(input: &Bytes, t: DynSolType) -> Option<DynSolValue> {
     let tuple = DynSolType::Tuple(vec![t]);

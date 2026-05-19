@@ -3,7 +3,7 @@
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use revm::primitives::{Address, Bytes};
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect};
+use crate::vm::{Cheatcode, CheatcodeEffect};
 
 pub struct Etch;
 
@@ -52,10 +52,10 @@ mod tests {
 
     use super::*;
     use crate::chain::Chain;
-    use crate::chain::cheatcodes::effect::apply_effect;
-    use crate::chain::inspectors::cheatcode::CheatcodeInspector;
     use crate::contract;
     use crate::corpus::Call;
+    use crate::vm::effect::apply_effect;
+    use crate::vm::inspector::CheatcodeInspector;
 
     #[test]
     fn etch_effect_applies() {

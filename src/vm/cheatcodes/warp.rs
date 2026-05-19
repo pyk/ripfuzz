@@ -1,21 +1,21 @@
-//! `coinbase` cheatcode — set and persist `block.coinbase`.
+//! `warp` cheatcode — set and persist `block.timestamp`.
 
-use revm::primitives::{Address, Bytes};
+use revm::primitives::{Bytes, U256};
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_address_arg};
+use crate::vm::{Cheatcode, CheatcodeEffect, decode_u256_arg};
 
-pub struct Coinbase;
+pub struct Warp;
 
-impl Cheatcode for Coinbase {
-    type Args = Address;
-    const SELECTOR: [u8; 4] = [0xff, 0x48, 0x3c, 0x54];
+impl Cheatcode for Warp {
+    type Args = U256;
+    const SELECTOR: [u8; 4] = [0xe5, 0xd6, 0xbf, 0x02];
 
     fn decode(input: &Bytes) -> Option<Self::Args> {
-        decode_address_arg(input)
+        decode_u256_arg(input)
     }
 
     fn effects(value: Self::Args) -> Vec<CheatcodeEffect> {
-        vec![CheatcodeEffect::SetBeneficiary(value)]
+        vec![CheatcodeEffect::SetBlockTimestamp(value)]
     }
 }
 
@@ -23,7 +23,7 @@ impl Cheatcode for Coinbase {
 mod tests {
     use std::path::Path;
 
-    use revm::primitives::{Address, Bytes};
+    use revm::primitives::U256;
     use serial_test::serial;
 
     use super::*;
@@ -32,39 +32,25 @@ mod tests {
     use crate::corpus::Call;
 
     #[test]
-    fn coinbase_decode_and_effects() {
-        let addr = Address::new([0xca; 20]);
-        let mut data = Coinbase::SELECTOR.to_vec();
-        let mut padded = vec![0u8; 32];
-        padded[12..32].copy_from_slice(addr.as_slice());
-        data.extend_from_slice(&padded);
-        let args = Coinbase::decode(&Bytes::from(data)).unwrap();
+    fn warp_decode_and_effects() {
+        let mut data = Warp::SELECTOR.to_vec();
+        data.extend_from_slice(&U256::from(1234567890u64).to_be_bytes_vec());
+        let args = Warp::decode(&Bytes::from(data)).unwrap();
+        let effects = Warp::effects(args);
         assert_eq!(
-            Coinbase::effects(args),
-            vec![CheatcodeEffect::SetBeneficiary(addr)]
-        );
-    }
-
-    #[test]
-    fn coinbase_decode_zero_address() {
-        let addr = Address::ZERO;
-        let mut data = Coinbase::SELECTOR.to_vec();
-        let mut padded = vec![0u8; 32];
-        padded[12..32].copy_from_slice(addr.as_slice());
-        data.extend_from_slice(&padded);
-        let args = Coinbase::decode(&Bytes::from(data)).unwrap();
-        assert_eq!(
-            Coinbase::effects(args),
-            vec![CheatcodeEffect::SetBeneficiary(Address::ZERO)]
+            effects,
+            vec![CheatcodeEffect::SetBlockTimestamp(U256::from(
+                1234567890u64
+            ))]
         );
     }
 
     #[test]
     #[serial]
-    fn cheatcode_coinbase_setup_integration() {
+    fn cheatcode_warp_setup_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeCoinbase.sol"),
+            Path::new("test/CheatcodeWarp.sol"),
         )
         .unwrap();
 
@@ -73,7 +59,7 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_record: [u8; 4] = [0xe8, 0xc1, 0x48, 0xfb]; // call_record_coinbase()
+        let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55]; // call_record_timestamp()
         let calls = vec![Call {
             selector: call_record,
             args: vec![],
@@ -88,10 +74,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_coinbase_sequence_integration() {
+    fn cheatcode_warp_sequence_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeCoinbase.sol"),
+            Path::new("test/CheatcodeWarp.sol"),
         )
         .unwrap();
 
@@ -100,13 +86,13 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_coinbase: [u8; 4] = [0xa3, 0xd2, 0x69, 0x68]; // call_coinbase(address)
-        let call_record: [u8; 4] = [0xe8, 0xc1, 0x48, 0xfb]; // call_record_coinbase()
+        let call_warp: [u8; 4] = [0x5d, 0x57, 0xe2, 0x7f]; // call_warp(uint256)
+        let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55]; // call_record_timestamp()
         let mut args = vec![0u8; 32];
-        args[31] = 0xAB;
+        args[31] = 100; // U256(100)
         let calls = vec![
             Call {
-                selector: call_coinbase,
+                selector: call_warp,
                 args: args.clone(),
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -127,10 +113,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_coinbase_revert_integration() {
+    fn cheatcode_warp_revert_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeCoinbase.sol"),
+            Path::new("test/CheatcodeWarp.sol"),
         )
         .unwrap();
 
@@ -139,11 +125,11 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_revert: [u8; 4] = [0xd0, 0xec, 0x30, 0xf3]; // call_coinbase_and_revert(address)
+        let call_warp_revert: [u8; 4] = [0xc0, 0x7d, 0xae, 0xdf]; // call_warp_and_revert(uint256)
         let mut args = vec![0u8; 32];
-        args[28..32].copy_from_slice(&0xDEADu32.to_be_bytes());
+        args[28..32].copy_from_slice(&9999u32.to_be_bytes());
         let calls = vec![Call {
-            selector: call_revert,
+            selector: call_warp_revert,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -151,15 +137,15 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(!output.all_ok, "coinbase_and_revert should revert");
+        assert!(!output.all_ok, "warp_and_revert should revert");
     }
 
     #[test]
     #[serial]
-    fn cheatcode_coinbase_overwrite_integration() {
+    fn cheatcode_warp_delay_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeCoinbase.sol"),
+            Path::new("test/CheatcodeWarp.sol"),
         )
         .unwrap();
 
@@ -168,19 +154,117 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_a: [u8; 4] = [0x7a, 0xae, 0x30, 0x59]; // call_coinbase_A()
-        let call_b: [u8; 4] = [0x4a, 0x35, 0x3e, 0x4e]; // call_coinbase_B()
-        let call_record: [u8; 4] = [0xe8, 0xc1, 0x48, 0xfb]; // call_record_coinbase()
+        let call_warp_100: [u8; 4] = [0x14, 0x43, 0x9b, 0x94]; // call_warp_100()
+        let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55]; // call_record_timestamp()
         let calls = vec![
             Call {
-                selector: call_a,
+                selector: call_warp_100,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
                 ..Default::default()
             },
             Call {
-                selector: call_b,
+                selector: call_record,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 5,
+                ..Default::default()
+            },
+        ];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "calls should succeed");
+    }
+
+    #[test]
+    #[serial]
+    fn cheatcode_warp_overwrite_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeWarp.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
+        let call_warp_100: [u8; 4] = [0x14, 0x43, 0x9b, 0x94]; // call_warp_100()
+        let call_warp_200: [u8; 4] = [0x5c, 0xb1, 0xed, 0xfe]; // call_warp_200()
+        let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55]; // call_record_timestamp()
+        let calls = vec![
+            Call {
+                selector: call_warp_100,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            Call {
+                selector: call_warp_200,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+            Call {
+                selector: call_record,
+                args: vec![],
+                block_number_delay: 0,
+                block_timestamp_delay: 0,
+                ..Default::default()
+            },
+        ];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "calls should succeed");
+    }
+
+    #[test]
+    fn warp_decode_zero() {
+        let mut data = Warp::SELECTOR.to_vec();
+        data.extend_from_slice(&U256::ZERO.to_be_bytes_vec());
+        let args = Warp::decode(&Bytes::from(data)).unwrap();
+        let effects = Warp::effects(args);
+        assert_eq!(
+            effects,
+            vec![CheatcodeEffect::SetBlockTimestamp(U256::ZERO)]
+        );
+    }
+
+    #[test]
+    fn warp_decode_max_uint64() {
+        let mut data = Warp::SELECTOR.to_vec();
+        data.extend_from_slice(&U256::from(u64::MAX).to_be_bytes_vec());
+        let args = Warp::decode(&Bytes::from(data)).unwrap();
+        let effects = Warp::effects(args);
+        assert_eq!(
+            effects,
+            vec![CheatcodeEffect::SetBlockTimestamp(U256::from(u64::MAX))]
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn cheatcode_warp_zero_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodeWarp.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
+        let call_warp_zero: [u8; 4] = [0xb3, 0x97, 0xad, 0xb5];
+        let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55];
+        let calls = vec![
+            Call {
+                selector: call_warp_zero,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -201,10 +285,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_coinbase_zero_integration() {
+    fn cheatcode_warp_max_uint64_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeCoinbase.sol"),
+            Path::new("test/CheatcodeWarp.sol"),
         )
         .unwrap();
 
@@ -213,35 +297,25 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_zero: [u8; 4] = [0x3b, 0x34, 0x40, 0x8c]; // call_coinbase_zero()
-        let call_record: [u8; 4] = [0xe8, 0xc1, 0x48, 0xfb]; // call_record_coinbase()
-        let calls = vec![
-            Call {
-                selector: call_zero,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-            Call {
-                selector: call_record,
-                args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
-                ..Default::default()
-            },
-        ];
+        let call_warp_max: [u8; 4] = [0x94, 0x91, 0xec, 0x37];
+        let calls = vec![Call {
+            selector: call_warp_max,
+            args: vec![],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(output.all_ok, "calls should succeed");
+        assert!(output.all_ok, "call should succeed");
     }
 
     #[test]
     #[serial]
-    fn cheatcode_coinbase_corpus_isolation_integration() {
+    fn cheatcode_warp_corpus_isolation_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeCoinbase.sol"),
+            Path::new("test/CheatcodeWarp.sol"),
         )
         .unwrap();
 
@@ -250,12 +324,12 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_coinbase: [u8; 4] = [0xa3, 0xd2, 0x69, 0x68]; // call_coinbase(address)
-        let call_record: [u8; 4] = [0xe8, 0xc1, 0x48, 0xfb]; // call_record_coinbase()
+        let call_warp: [u8; 4] = [0x5d, 0x57, 0xe2, 0x7f];
+        let call_record: [u8; 4] = [0x4c, 0x8b, 0xbb, 0x55];
         let mut args = vec![0u8; 32];
-        args[28..32].copy_from_slice(&0xDEADu32.to_be_bytes());
+        args[28..32].copy_from_slice(&9999u32.to_be_bytes());
         let calls_a = vec![Call {
-            selector: call_coinbase,
+            selector: call_warp,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -279,10 +353,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_coinbase_invariant_final_integration() {
+    fn cheatcode_warp_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeCoinbase.sol"),
+            Path::new("test/CheatcodeWarp.sol"),
         )
         .unwrap();
 
@@ -291,9 +365,9 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_a: [u8; 4] = [0x7a, 0xae, 0x30, 0x59]; // call_coinbase_A()
+        let call_warp_100: [u8; 4] = [0x14, 0x43, 0x9b, 0x94];
         let calls = vec![Call {
-            selector: call_a,
+            selector: call_warp_100,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -306,10 +380,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_coinbase_roll_warp_fee_interaction_integration() {
+    fn cheatcode_warp_roll_interaction_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeCoinbase.sol"),
+            Path::new("test/CheatcodeWarp.sol"),
         )
         .unwrap();
 
@@ -318,9 +392,9 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_interaction: [u8; 4] = [0x55, 0x0b, 0x0c, 0xbe]; // call_coinbase_and_roll_warp_fee()
+        let call_warp_and_roll: [u8; 4] = [0xb0, 0xd9, 0xad, 0x03];
         let calls = vec![Call {
-            selector: call_interaction,
+            selector: call_warp_and_roll,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,

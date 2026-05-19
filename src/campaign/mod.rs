@@ -139,7 +139,7 @@ impl Campaign {
     pub fn deploy(&mut self) -> Result<()> {
         let chain = crate::chain::Chain::for_artifact(&self.artifact)
             .with_project(&self.project_path)
-            .with_ffi(self.config.ffi)
+            .with_vm(self.config.vm.clone())
             .with_deploy_value(self.config.deploy_value)
             .with_deployer(self.config.deployer_address)
             .with_fork_config(self.config.fork_config.clone())

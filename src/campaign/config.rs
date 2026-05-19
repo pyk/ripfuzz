@@ -18,8 +18,8 @@ pub struct CampaignConfig {
     /// Path to the corpus root directory. If set, coverage-guided
     /// persistence is enabled.
     pub corpus_dir: Option<PathBuf>,
-    /// Enable the `ffi` cheatcode (allows arbitrary host command execution).
-    pub ffi: bool,
+    /// VM configuration for cheatcode support.
+    pub vm: crate::vm::VmConfig,
     /// Wei value sent with the target contract deployment transaction.
     pub deploy_value: U256,
     /// Account address used to deploy the target contract.
@@ -42,7 +42,7 @@ impl Default for CampaignConfig {
             max_block_number_delay: 5,
             max_block_timestamp_delay: 5,
             corpus_dir: None,
-            ffi: false,
+            vm: crate::vm::VmConfig::default(),
             deploy_value: U256::ZERO,
             deployer_address: crate::chain::init::DEFAULT_DEPLOYER,
             fork_config: None,

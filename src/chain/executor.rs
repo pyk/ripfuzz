@@ -58,15 +58,14 @@ pub fn execute(
     let mut trace_inspector = opts
         .trace
         .then(|| TraceInspector::new(initcode_map.clone()));
-    let shared_labels = Arc::new(RwLock::new(local_state.cheatcodes.labels.clone()));
+    let shared_labels = Arc::new(RwLock::new(local_state.vm.labels.clone()));
     if let Some(ref mut t) = trace_inspector {
         t.set_shared_labels(Arc::clone(&shared_labels));
     }
 
-    let cheatcode_inspector = crate::chain::inspectors::cheatcode::CheatcodeInspector::from_state(
-        local_state.cheatcodes.clone(),
-    )
-    .with_shared_labels(shared_labels);
+    let cheatcode_inspector =
+        crate::vm::inspector::CheatcodeInspector::from_state(local_state.vm.clone())
+            .with_shared_labels(shared_labels);
 
     let inspector = InspectorTuple::new(
         coverage_inspector,
@@ -203,13 +202,10 @@ pub fn execute(
             {
                 local_state.block_number = u64::try_from(num).unwrap_or(u64::MAX);
             }
-            local_state.cheatcodes.block = inspector.2.state.block;
-            local_state
-                .cheatcodes
-                .labels
-                .clone_from(&inspector.2.state.labels);
-            local_state.cheatcodes.prank.start = inspector.2.state.prank.start;
-            local_state.cheatcodes.prank.original_origin = inspector.2.state.prank.original_origin;
+            local_state.vm.block = inspector.2.state.block;
+            local_state.vm.labels.clone_from(&inspector.2.state.labels);
+            local_state.vm.prank.start = inspector.2.state.prank.start;
+            local_state.vm.prank.original_origin = inspector.2.state.prank.original_origin;
             inspector.2.state.eth_deals.clear();
             inspector.2.state.nonce_changes.clear();
             trace!(idx, "call succeeded");
@@ -233,10 +229,7 @@ pub fn execute(
                 info.nonce = record.old_nonce;
                 db.insert_account_info(record.address, info);
             }
-            local_state
-                .cheatcodes
-                .labels
-                .clone_from(&inspector.2.state.labels);
+            local_state.vm.labels.clone_from(&inspector.2.state.labels);
             if let Some(output) = result.output()
                 && is_assert_failure(output)
             {

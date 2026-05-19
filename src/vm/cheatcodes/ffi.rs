@@ -5,7 +5,7 @@ use std::process::Command;
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use revm::primitives::Bytes;
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect};
+use crate::vm::{Cheatcode, CheatcodeEffect};
 
 pub struct Ffi;
 
@@ -163,7 +163,7 @@ mod tests {
 
         let chain = Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_ffi(true)
+            .with_vm(crate::vm::VmConfig::default().with_ffi(true))
             .init()
             .unwrap()
             .setup()
@@ -192,7 +192,7 @@ mod tests {
 
         let chain = Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_ffi(true)
+            .with_vm(crate::vm::VmConfig::default().with_ffi(true))
             .init()
             .unwrap()
             .setup()
@@ -239,7 +239,7 @@ mod tests {
 
         let chain = Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_ffi(true)
+            .with_vm(crate::vm::VmConfig::default().with_ffi(true))
             .init()
             .unwrap()
             .setup()
@@ -273,7 +273,7 @@ mod tests {
 
         let chain = Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_ffi(true)
+            .with_vm(crate::vm::VmConfig::default().with_ffi(true))
             .init()
             .unwrap()
             .setup()
@@ -302,7 +302,7 @@ mod tests {
 
         let chain = Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_ffi(true)
+            .with_vm(crate::vm::VmConfig::default().with_ffi(true))
             .init()
             .unwrap()
             .setup()
@@ -331,7 +331,7 @@ mod tests {
 
         let chain = Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_ffi(true)
+            .with_vm(crate::vm::VmConfig::default().with_ffi(true))
             .init()
             .unwrap()
             .setup()
@@ -360,7 +360,7 @@ mod tests {
 
         let chain = Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_ffi(true)
+            .with_vm(crate::vm::VmConfig::default().with_ffi(true))
             .init()
             .unwrap()
             .setup()
@@ -389,7 +389,7 @@ mod tests {
 
         let chain = Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_ffi(true)
+            .with_vm(crate::vm::VmConfig::default().with_ffi(true))
             .init()
             .unwrap()
             .setup()
@@ -435,7 +435,7 @@ mod tests {
 
         let chain = Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_ffi(true)
+            .with_vm(crate::vm::VmConfig::default().with_ffi(true))
             .init()
             .unwrap()
             .setup()
@@ -468,7 +468,7 @@ mod tests {
 
         let chain = Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_ffi(true)
+            .with_vm(crate::vm::VmConfig::default().with_ffi(true))
             .init()
             .unwrap()
             .setup()

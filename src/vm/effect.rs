@@ -11,7 +11,7 @@ use revm::{
     primitives::{Address, Bytes, U256},
 };
 
-use crate::chain::cheatcodes::{CheatcodeState, DealRecord, PrankState, StartPrankState};
+use crate::vm::{DealRecord, PrankState, StartPrankState, VmState};
 
 /// Minimal trait to mutate `chain_id` on generic EVM contexts.
 ///
@@ -86,7 +86,7 @@ pub enum CheatcodeEffect {
 pub fn apply_effect<CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut>(
     effect: &CheatcodeEffect,
     ctx: &mut CTX,
-    state: &mut CheatcodeState,
+    state: &mut VmState,
 ) -> Result<(), String> {
     match effect {
         // --- EVM context mutations ---
@@ -171,13 +171,11 @@ pub fn apply_effect<CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut>(
                 .map_err(|_| "account load failed")?
                 .data;
             acc.set_nonce(*nonce);
-            state
-                .nonce_changes
-                .push(crate::chain::cheatcodes::NonceRecord {
-                    address: *addr,
-                    old_nonce: current,
-                    new_nonce: *nonce,
-                });
+            state.nonce_changes.push(crate::vm::NonceRecord {
+                address: *addr,
+                old_nonce: current,
+                new_nonce: *nonce,
+            });
         }
         CheatcodeEffect::SetStorage(addr, slot, value) => {
             if ctx.journal().precompile_addresses().contains(addr) {

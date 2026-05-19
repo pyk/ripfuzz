@@ -253,7 +253,7 @@ pub fn run(args: Args) -> Result<()> {
         max_block_number_delay: args.max_block_number_delay,
         max_block_timestamp_delay: args.max_block_timestamp_delay,
         corpus_dir: args.corpus_dir,
-        ffi: args.ffi,
+        vm: crate::vm::VmConfig::default().with_ffi(args.ffi),
         deploy_value: args.deploy_value,
         deployer_address: args.deployer_address,
         fork_config,

@@ -9,7 +9,7 @@ use revm::{
     state::AccountInfo,
 };
 
-use crate::chain::cheatcodes::CheatcodeState;
+use crate::vm::VmState;
 
 /// The database type used for all campaigns (forked and local).
 pub type ChainDatabase = crate::chain::fork::ForkDatabase;
@@ -22,9 +22,9 @@ pub struct ChainState {
     pub block_timestamp: u64,
     pub caller_nonce: u64,
     pub known_contracts: HashMap<Address, (String, JsonAbi)>,
-    /// Cheatcode state accumulated during `setUp()` and carried into each
-    /// sequence execution.  Cloned per sequence so mutations are isolated.
-    pub cheatcodes: CheatcodeState,
+    /// Foundry VM state owned by this chain snapshot.  Cloned per
+    /// sequence so cheatcode mutations are isolated.
+    pub vm: VmState,
 }
 
 impl ChainState {
@@ -35,7 +35,7 @@ impl ChainState {
             block_timestamp: 1,
             caller_nonce: 0,
             known_contracts: HashMap::new(),
-            cheatcodes: CheatcodeState::default(),
+            vm: VmState::default(),
         }
     }
 

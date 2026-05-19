@@ -36,7 +36,7 @@ impl Default for ChainConfig {
 pub struct ChainBuilder<'a> {
     artifact: &'a ContractArtifact,
     project_root: PathBuf,
-    ffi_enabled: bool,
+    vm: crate::vm::VmConfig,
     deploy_value: U256,
     deployer: Address,
     fork_config: Option<crate::chain::fork::ForkConfig>,
@@ -46,12 +46,13 @@ impl<'a> ChainBuilder<'a> {
     /// Override the Foundry project root directory.
     pub fn with_project(mut self, path: impl AsRef<Path>) -> Self {
         self.project_root = path.as_ref().to_path_buf();
+        self.vm.project_root = path.as_ref().to_path_buf();
         self
     }
 
-    /// Enable the `ffi` cheatcode.
-    pub fn with_ffi(mut self, enabled: bool) -> Self {
-        self.ffi_enabled = enabled;
+    /// Set the VM configuration.
+    pub fn with_vm(mut self, vm: crate::vm::VmConfig) -> Self {
+        self.vm = vm;
         self
     }
 
@@ -77,8 +78,8 @@ impl<'a> ChainBuilder<'a> {
     pub fn init(self) -> Result<Chain, ChainInitError> {
         let (contract_address, mut state) = initialize(
             self.artifact,
-            self.project_root,
-            self.ffi_enabled,
+            self.project_root.clone(),
+            self.vm.ffi,
             self.deploy_value,
             self.deployer,
             self.fork_config.as_ref(),
@@ -86,8 +87,11 @@ impl<'a> ChainBuilder<'a> {
         // Populate compiled-contract map for vm.getCode lookups.
         let initcode_map = self.artifact.initcode_map.clone();
         for (initcode, (name, _abi)) in initcode_map {
-            state.cheatcodes.compiled_contracts.insert(name, initcode);
+            state.vm.compiled_contracts.insert(name, initcode);
         }
+        // Thread VmConfig into VmState.
+        state.vm.ffi_enabled = self.vm.ffi;
+        state.vm.project_root = self.project_root;
         Ok(Chain {
             config: ChainConfig {
                 caller: self.deployer,
@@ -119,7 +123,7 @@ impl Chain {
         ChainBuilder {
             artifact,
             project_root: PathBuf::new(),
-            ffi_enabled: false,
+            vm: crate::vm::VmConfig::default(),
             deploy_value: U256::ZERO,
             deployer: crate::chain::init::DEFAULT_DEPLOYER,
             fork_config: None,

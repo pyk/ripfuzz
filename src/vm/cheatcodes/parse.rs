@@ -4,7 +4,7 @@
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use revm::primitives::Bytes;
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect};
+use crate::vm::{Cheatcode, CheatcodeEffect};
 
 fn decode_single(input: &Bytes, t: DynSolType) -> Option<DynSolValue> {
     let tuple = DynSolType::Tuple(vec![t]);
@@ -184,9 +184,9 @@ mod tests {
 
     use super::*;
     use crate::chain::Chain;
-    use crate::chain::cheatcodes::CheatcodeEffect;
     use crate::contract;
     use crate::corpus::Call;
+    use crate::vm::CheatcodeEffect;
 
     fn call_data(selector: [u8; 4], encoded: Vec<u8>) -> Bytes {
         let mut data = selector.to_vec();

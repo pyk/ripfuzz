@@ -3,7 +3,7 @@
 use alloy_primitives::U256;
 use revm::primitives::Bytes;
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect};
+use crate::vm::{Cheatcode, CheatcodeEffect};
 
 /// secp256k1 curve order (n).
 const SECP256K1_ORDER: U256 = U256::from_be_bytes([
@@ -74,9 +74,9 @@ mod tests {
 
     use super::*;
     use crate::chain::Chain;
-    use crate::chain::cheatcodes::CheatcodeEffect;
     use crate::contract;
     use crate::corpus::Call;
+    use crate::vm::CheatcodeEffect;
 
     #[test]
     fn sign_decode_and_effects() {

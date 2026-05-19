@@ -3,7 +3,7 @@
 use alloy_primitives::{Address, U256};
 use revm::primitives::Bytes;
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_u256_arg};
+use crate::vm::{Cheatcode, CheatcodeEffect, decode_u256_arg};
 
 /// secp256k1 curve order (n).
 const SECP256K1_ORDER: U256 = U256::from_be_bytes([
@@ -62,9 +62,9 @@ mod tests {
 
     use super::*;
     use crate::chain::Chain;
-    use crate::chain::cheatcodes::CheatcodeEffect;
     use crate::contract;
     use crate::corpus::Call;
+    use crate::vm::CheatcodeEffect;
 
     #[test]
     fn addr_derivation_matches_expected() {

@@ -2,7 +2,7 @@
 
 use revm::primitives::{Address, Bytes, U256};
 
-use crate::chain::cheatcodes::{
+use crate::vm::{
     Cheatcode, CheatcodeEffect, decode_address_bytes32_args, decode_address_bytes32_bytes32_args,
 };
 
@@ -54,11 +54,11 @@ mod tests {
 
     use super::*;
     use crate::chain::Chain;
-    use crate::chain::cheatcodes::build_outcome;
-    use crate::chain::cheatcodes::effect::apply_effect;
-    use crate::chain::inspectors::cheatcode::CheatcodeInspector;
     use crate::contract;
     use crate::corpus::Call;
+    use crate::vm::build_outcome;
+    use crate::vm::effect::apply_effect;
+    use crate::vm::inspector::CheatcodeInspector;
 
     // ------------------------------------------------------------------
     //  Load unit tests

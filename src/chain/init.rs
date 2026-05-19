@@ -14,9 +14,9 @@ use revm::{
 use tracing::{error, info, instrument};
 
 use crate::chain::error::ChainInitError;
-use crate::chain::inspectors::trace::VM_ADDRESS;
 use crate::chain::state::{ChainDatabase, ChainState};
 use crate::contract::ContractArtifact;
+use crate::vm::VM_ADDRESS;
 
 pub const CALLER: Address = Address::new([0xde; 20]);
 // address(uint160(uint256(keccak256("raptor deployer"))))
@@ -137,8 +137,8 @@ pub fn initialize(
 
     let deployed_db = evm.ctx.journaled_state.database;
     let mut state = ChainState::new(deployed_db);
-    state.cheatcodes.project_root = project_root;
-    state.cheatcodes.ffi_enabled = ffi_enabled;
+    state.vm.project_root = project_root;
+    state.vm.ffi_enabled = ffi_enabled;
     state.caller_nonce = state
         .db
         .basic(deployer)

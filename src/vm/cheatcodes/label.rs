@@ -3,7 +3,7 @@
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use revm::primitives::{Address, Bytes};
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect};
+use crate::vm::{Cheatcode, CheatcodeEffect};
 
 pub struct Label;
 impl Cheatcode for Label {
@@ -64,10 +64,10 @@ mod tests {
 
     use super::*;
     use crate::chain::Chain;
-    use crate::chain::cheatcodes::effect::apply_effect;
-    use crate::chain::inspectors::cheatcode::CheatcodeInspector;
     use crate::contract;
     use crate::corpus::Call;
+    use crate::vm::effect::apply_effect;
+    use crate::vm::inspector::CheatcodeInspector;
 
     fn label_calldata(addr: Address, name: &str) -> Bytes {
         let mut data = Label::SELECTOR.to_vec();
@@ -166,12 +166,7 @@ mod tests {
         let effects = GetLabel::effects(args);
         let mut ctx =
             revm::context::Context::mainnet().with_db(revm::database::InMemoryDB::default());
-        let outcome = crate::chain::cheatcodes::build_outcome(
-            &effects,
-            1_000_000,
-            &mut ctx,
-            &inspector.state,
-        );
+        let outcome = crate::vm::build_outcome(&effects, 1_000_000, &mut ctx, &inspector.state);
         let encoded = alloy_dyn_abi::DynSolValue::String("".into()).abi_encode();
         assert_eq!(outcome.result.output, Bytes::from(encoded));
     }
@@ -186,12 +181,7 @@ mod tests {
         let effects = GetLabel::effects(args);
         let mut ctx =
             revm::context::Context::mainnet().with_db(revm::database::InMemoryDB::default());
-        let outcome = crate::chain::cheatcodes::build_outcome(
-            &effects,
-            1_000_000,
-            &mut ctx,
-            &inspector.state,
-        );
+        let outcome = crate::vm::build_outcome(&effects, 1_000_000, &mut ctx, &inspector.state);
         let encoded = alloy_dyn_abi::DynSolValue::String("Roundtrip".into()).abi_encode();
         assert_eq!(outcome.result.output, Bytes::from(encoded));
     }

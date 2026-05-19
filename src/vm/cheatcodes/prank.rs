@@ -2,9 +2,7 @@
 
 use revm::primitives::{Address, Bytes};
 
-use crate::chain::cheatcodes::{
-    Cheatcode, CheatcodeEffect, PrankState, StartPrankState, decode_address_arg,
-};
+use crate::vm::{Cheatcode, CheatcodeEffect, PrankState, StartPrankState, decode_address_arg};
 
 // ---------------------------------------------------------------------------
 // vm.prank(address)

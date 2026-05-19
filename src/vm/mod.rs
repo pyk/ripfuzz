@@ -1,11 +1,11 @@
-//! Cheatcode extension point for Foundry-compatible precompiles.
+//! Foundry-compatible VM contract: cheatcodes, state, and dispatch.
 //!
-//! Each cheatcode category lives in its own file and exports a struct
-//! implementing the [`Cheatcode`] trait.  The dispatch table in this module
-//! is the single place where new cheatcodes are registered.
+//! The public surface is intentionally small: [`VM_ADDRESS`] and [`VmConfig`].
+//! Everything else is `pub` so that `chain/` can access it, but the module
+//! structure makes the boundary clear.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use alloy_primitives::I256;
 use revm::{
@@ -14,37 +14,53 @@ use revm::{
     primitives::{Address, Bytes, U256},
 };
 
-pub use deal::DealRecord;
-pub use nonce::NonceRecord;
+pub use cheatcodes::deal::DealRecord;
+pub use cheatcodes::nonce::NonceRecord;
 
-use crate::chain::cheatcodes::effect::CheatcodeEffect;
+use crate::vm::effect::CheatcodeEffect;
 
-pub mod addr;
-pub mod chain_id;
-pub mod coinbase;
-pub mod deal;
-pub mod difficulty;
+pub mod cheatcodes;
 pub mod effect;
-pub mod etch;
-pub mod fee;
-pub mod ffi;
-pub mod get_code;
-pub mod label;
-pub mod nonce;
-pub mod parse;
-pub mod prank;
-pub mod prevrandao;
-pub mod roll;
-pub mod sign;
-pub mod storage;
-pub mod to_string;
-pub mod warp;
+pub mod inspector;
 
 /// Foundry cheatcode VM contract address.
+///
+/// This is the canonical Foundry VM address used by `forge-std`.  All
+/// cheatcode interception logic keys off this constant.
 pub const VM_ADDRESS: Address = Address::new([
     0x71, 0x09, 0x70, 0x9e, 0xcf, 0xa9, 0x1a, 0x80, 0x62, 0x6f, 0xf3, 0x98, 0x9d, 0x68, 0xf6, 0x7f,
     0x5b, 0x1d, 0xd1, 0x2d,
 ]);
+
+/// User-facing configuration for the VM contract.
+#[derive(Debug, Clone)]
+pub struct VmConfig {
+    /// Enable `vm.ffi` (allows arbitrary host command execution).
+    pub ffi: bool,
+    /// Foundry project root used by `vm.getCode` and `vm.ffi`.
+    pub project_root: PathBuf,
+}
+
+impl Default for VmConfig {
+    fn default() -> Self {
+        Self {
+            ffi: false,
+            project_root: PathBuf::new(),
+        }
+    }
+}
+
+impl VmConfig {
+    pub fn with_ffi(mut self, enabled: bool) -> Self {
+        self.ffi = enabled;
+        self
+    }
+
+    pub fn with_project_root(mut self, path: impl AsRef<Path>) -> Self {
+        self.project_root = path.as_ref().to_path_buf();
+        self
+    }
+}
 
 // ---------------------------------------------------------------------------
 //  Trait every cheatcode struct must implement.
@@ -63,57 +79,83 @@ fn dispatch<C: Cheatcode>(input: &Bytes) -> Option<Vec<CheatcodeEffect>> {
     Some(C::effects(args))
 }
 
-pub(crate) fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<CheatcodeEffect>> {
+pub fn dispatch_effects(sel: [u8; 4], input: &Bytes) -> Option<Vec<CheatcodeEffect>> {
     match sel {
         // Block / state manipulation
-        warp::Warp::SELECTOR => dispatch::<warp::Warp>(input),
-        roll::Roll::SELECTOR => dispatch::<roll::Roll>(input),
-        fee::Fee::SELECTOR => dispatch::<fee::Fee>(input),
-        coinbase::Coinbase::SELECTOR => dispatch::<coinbase::Coinbase>(input),
-        prevrandao::Prevrandao::SELECTOR => dispatch::<prevrandao::Prevrandao>(input),
-        chain_id::ChainId::SELECTOR => dispatch::<chain_id::ChainId>(input),
-        difficulty::Difficulty::SELECTOR => dispatch::<difficulty::Difficulty>(input),
+        cheatcodes::warp::Warp::SELECTOR => dispatch::<cheatcodes::warp::Warp>(input),
+        cheatcodes::roll::Roll::SELECTOR => dispatch::<cheatcodes::roll::Roll>(input),
+        cheatcodes::fee::Fee::SELECTOR => dispatch::<cheatcodes::fee::Fee>(input),
+        cheatcodes::coinbase::Coinbase::SELECTOR => {
+            dispatch::<cheatcodes::coinbase::Coinbase>(input)
+        }
+        cheatcodes::prevrandao::Prevrandao::SELECTOR => {
+            dispatch::<cheatcodes::prevrandao::Prevrandao>(input)
+        }
+        cheatcodes::chain_id::ChainId::SELECTOR => dispatch::<cheatcodes::chain_id::ChainId>(input),
+        cheatcodes::difficulty::Difficulty::SELECTOR => {
+            dispatch::<cheatcodes::difficulty::Difficulty>(input)
+        }
 
         // Account manipulation
-        deal::Deal::SELECTOR => dispatch::<deal::Deal>(input),
-        etch::Etch::SELECTOR => dispatch::<etch::Etch>(input),
-        nonce::SetNonce::SELECTOR => dispatch::<nonce::SetNonce>(input),
-        nonce::GetNonce::SELECTOR => dispatch::<nonce::GetNonce>(input),
-        storage::Load::SELECTOR => dispatch::<storage::Load>(input),
-        storage::Store::SELECTOR => dispatch::<storage::Store>(input),
+        cheatcodes::deal::Deal::SELECTOR => dispatch::<cheatcodes::deal::Deal>(input),
+        cheatcodes::etch::Etch::SELECTOR => dispatch::<cheatcodes::etch::Etch>(input),
+        cheatcodes::nonce::SetNonce::SELECTOR => dispatch::<cheatcodes::nonce::SetNonce>(input),
+        cheatcodes::nonce::GetNonce::SELECTOR => dispatch::<cheatcodes::nonce::GetNonce>(input),
+        cheatcodes::storage::Load::SELECTOR => dispatch::<cheatcodes::storage::Load>(input),
+        cheatcodes::storage::Store::SELECTOR => dispatch::<cheatcodes::storage::Store>(input),
 
         // Prank
-        prank::Prank::SELECTOR => dispatch::<prank::Prank>(input),
-        prank::PrankOrigin::SELECTOR => dispatch::<prank::PrankOrigin>(input),
-        prank::StartPrank::SELECTOR => dispatch::<prank::StartPrank>(input),
-        prank::StartPrankOrigin::SELECTOR => dispatch::<prank::StartPrankOrigin>(input),
-        prank::StopPrank::SELECTOR => dispatch::<prank::StopPrank>(input),
+        cheatcodes::prank::Prank::SELECTOR => dispatch::<cheatcodes::prank::Prank>(input),
+        cheatcodes::prank::PrankOrigin::SELECTOR => {
+            dispatch::<cheatcodes::prank::PrankOrigin>(input)
+        }
+        cheatcodes::prank::StartPrank::SELECTOR => dispatch::<cheatcodes::prank::StartPrank>(input),
+        cheatcodes::prank::StartPrankOrigin::SELECTOR => {
+            dispatch::<cheatcodes::prank::StartPrankOrigin>(input)
+        }
+        cheatcodes::prank::StopPrank::SELECTOR => dispatch::<cheatcodes::prank::StopPrank>(input),
 
         // Label
-        label::Label::SELECTOR => dispatch::<label::Label>(input),
-        label::GetLabel::SELECTOR => dispatch::<label::GetLabel>(input),
+        cheatcodes::label::Label::SELECTOR => dispatch::<cheatcodes::label::Label>(input),
+        cheatcodes::label::GetLabel::SELECTOR => dispatch::<cheatcodes::label::GetLabel>(input),
 
         // String / type conversion
-        to_string::ToStringAddress::SELECTOR => dispatch::<to_string::ToStringAddress>(input),
-        to_string::ToStringBool::SELECTOR => dispatch::<to_string::ToStringBool>(input),
-        to_string::ToStringUint::SELECTOR => dispatch::<to_string::ToStringUint>(input),
-        to_string::ToStringInt::SELECTOR => dispatch::<to_string::ToStringInt>(input),
-        to_string::ToStringBytes32::SELECTOR => dispatch::<to_string::ToStringBytes32>(input),
-        to_string::ToStringBytes::SELECTOR => dispatch::<to_string::ToStringBytes>(input),
-        parse::ParseUint::SELECTOR => dispatch::<parse::ParseUint>(input),
-        parse::ParseInt::SELECTOR => dispatch::<parse::ParseInt>(input),
-        parse::ParseBool::SELECTOR => dispatch::<parse::ParseBool>(input),
-        parse::ParseAddress::SELECTOR => dispatch::<parse::ParseAddress>(input),
-        parse::ParseBytes::SELECTOR => dispatch::<parse::ParseBytes>(input),
-        parse::ParseBytes32::SELECTOR => dispatch::<parse::ParseBytes32>(input),
-        get_code::GetCode::SELECTOR => dispatch::<get_code::GetCode>(input),
+        cheatcodes::to_string::ToStringAddress::SELECTOR => {
+            dispatch::<cheatcodes::to_string::ToStringAddress>(input)
+        }
+        cheatcodes::to_string::ToStringBool::SELECTOR => {
+            dispatch::<cheatcodes::to_string::ToStringBool>(input)
+        }
+        cheatcodes::to_string::ToStringUint::SELECTOR => {
+            dispatch::<cheatcodes::to_string::ToStringUint>(input)
+        }
+        cheatcodes::to_string::ToStringInt::SELECTOR => {
+            dispatch::<cheatcodes::to_string::ToStringInt>(input)
+        }
+        cheatcodes::to_string::ToStringBytes32::SELECTOR => {
+            dispatch::<cheatcodes::to_string::ToStringBytes32>(input)
+        }
+        cheatcodes::to_string::ToStringBytes::SELECTOR => {
+            dispatch::<cheatcodes::to_string::ToStringBytes>(input)
+        }
+        cheatcodes::parse::ParseUint::SELECTOR => dispatch::<cheatcodes::parse::ParseUint>(input),
+        cheatcodes::parse::ParseInt::SELECTOR => dispatch::<cheatcodes::parse::ParseInt>(input),
+        cheatcodes::parse::ParseBool::SELECTOR => dispatch::<cheatcodes::parse::ParseBool>(input),
+        cheatcodes::parse::ParseAddress::SELECTOR => {
+            dispatch::<cheatcodes::parse::ParseAddress>(input)
+        }
+        cheatcodes::parse::ParseBytes::SELECTOR => dispatch::<cheatcodes::parse::ParseBytes>(input),
+        cheatcodes::parse::ParseBytes32::SELECTOR => {
+            dispatch::<cheatcodes::parse::ParseBytes32>(input)
+        }
+        cheatcodes::get_code::GetCode::SELECTOR => dispatch::<cheatcodes::get_code::GetCode>(input),
 
         // Wallet / crypto
-        addr::Addr::SELECTOR => dispatch::<addr::Addr>(input),
-        sign::Sign::SELECTOR => dispatch::<sign::Sign>(input),
+        cheatcodes::addr::Addr::SELECTOR => dispatch::<cheatcodes::addr::Addr>(input),
+        cheatcodes::sign::Sign::SELECTOR => dispatch::<cheatcodes::sign::Sign>(input),
 
         // FFI
-        ffi::Ffi::SELECTOR => dispatch::<ffi::Ffi>(input),
+        cheatcodes::ffi::Ffi::SELECTOR => dispatch::<cheatcodes::ffi::Ffi>(input),
 
         // Unknown VM call: silently drop.
         _ => Some(vec![]),
@@ -141,7 +183,7 @@ pub struct PrankCheatState {
     pub active: Option<PrankState>,
     pub start: Option<StartPrankState>,
     /// The original `tx.origin` before any prank was applied.
-    /// Stored in `CheatcodeState` so it survives EVM rebuilds.
+    /// Stored in `VmState` so it survives EVM rebuilds.
     pub original_origin: Option<Address>,
 }
 
@@ -162,7 +204,7 @@ impl PrankCheatState {
 
 /// State accumulated by cheatcodes during execution.
 #[derive(Clone, Debug, Default)]
-pub struct CheatcodeState {
+pub struct VmState {
     pub block: BlockCheatState,
     pub prank: PrankCheatState,
     pub labels: HashMap<Address, String>,
@@ -178,7 +220,7 @@ pub struct CheatcodeState {
     pub nonce_changes: Vec<NonceRecord>,
 }
 
-impl CheatcodeState {
+impl VmState {
     /// Return all block-context overrides that should be applied before a call.
     pub fn block_overrides(&self) -> BlockOverrides {
         BlockOverrides {
@@ -198,7 +240,7 @@ impl CheatcodeState {
     }
 }
 
-/// Block-context overrides produced from `CheatcodeState`.
+/// Block-context overrides produced from `VmState`.
 #[derive(Clone, Debug, Default)]
 pub struct BlockOverrides {
     pub timestamp: Option<U256>,
@@ -238,11 +280,11 @@ pub struct StartPrankState {
 //  Outcome helpers
 // ---------------------------------------------------------------------------
 
-pub(crate) fn build_outcome<CTX: ContextTr>(
+pub fn build_outcome<CTX: ContextTr>(
     effects: &[CheatcodeEffect],
     gas_limit: u64,
     ctx: &mut CTX,
-    state: &CheatcodeState,
+    state: &VmState,
 ) -> CallOutcome {
     if let Some(outcome) = effects.iter().find_map(|effect| match effect {
         CheatcodeEffect::Revert(reason) => Some(revert_outcome(reason)),
@@ -314,11 +356,8 @@ pub(crate) fn build_outcome<CTX: ContextTr>(
             ))
         }
         CheatcodeEffect::FfiExec(args) => {
-            match crate::chain::cheatcodes::ffi::run_ffi(
-                args,
-                state.ffi_enabled,
-                &state.project_root,
-            ) {
+            match crate::vm::cheatcodes::ffi::run_ffi(args, state.ffi_enabled, &state.project_root)
+            {
                 Ok(encoded) => Some(success_bytes_outcome(encoded, gas_limit)),
                 Err(reason) => Some(revert_outcome(&reason)),
             }
@@ -333,7 +372,7 @@ pub(crate) fn build_outcome<CTX: ContextTr>(
     outcome
 }
 
-pub(crate) fn dummy_success() -> CallOutcome {
+pub fn dummy_success() -> CallOutcome {
     CallOutcome {
         result: InterpreterResult {
             result: InstructionResult::Stop,
@@ -346,7 +385,7 @@ pub(crate) fn dummy_success() -> CallOutcome {
     }
 }
 
-pub(crate) fn panic_outcome() -> CallOutcome {
+pub fn panic_outcome() -> CallOutcome {
     let mut encoded = vec![0x4e, 0x48, 0x7b, 0x71];
     encoded.extend_from_slice(&[0u8; 31]);
     encoded.push(0x01);
@@ -362,7 +401,7 @@ pub(crate) fn panic_outcome() -> CallOutcome {
     }
 }
 
-pub(crate) fn revert_outcome(reason: &str) -> CallOutcome {
+pub fn revert_outcome(reason: &str) -> CallOutcome {
     let mut encoded = vec![0x08, 0xc3, 0x79, 0xa0];
     encoded.extend_from_slice(&alloy_dyn_abi::DynSolValue::String(reason.into()).abi_encode());
     CallOutcome {
@@ -377,7 +416,7 @@ pub(crate) fn revert_outcome(reason: &str) -> CallOutcome {
     }
 }
 
-pub(crate) fn success_u256_outcome(value: U256, gas_limit: u64) -> CallOutcome {
+pub fn success_u256_outcome(value: U256, gas_limit: u64) -> CallOutcome {
     CallOutcome {
         result: InterpreterResult {
             result: InstructionResult::Return,
@@ -390,7 +429,7 @@ pub(crate) fn success_u256_outcome(value: U256, gas_limit: u64) -> CallOutcome {
     }
 }
 
-pub(crate) fn success_int256_outcome(value: I256, gas_limit: u64) -> CallOutcome {
+pub fn success_int256_outcome(value: I256, gas_limit: u64) -> CallOutcome {
     CallOutcome {
         result: InterpreterResult {
             result: InstructionResult::Return,
@@ -403,7 +442,7 @@ pub(crate) fn success_int256_outcome(value: I256, gas_limit: u64) -> CallOutcome
     }
 }
 
-pub(crate) fn success_bool_outcome(value: bool, gas_limit: u64) -> CallOutcome {
+pub fn success_bool_outcome(value: bool, gas_limit: u64) -> CallOutcome {
     let mut output = vec![0u8; 32];
     if value {
         output[31] = 1;
@@ -420,7 +459,7 @@ pub(crate) fn success_bool_outcome(value: bool, gas_limit: u64) -> CallOutcome {
     }
 }
 
-pub(crate) fn success_bytes_outcome(bytes: Vec<u8>, gas_limit: u64) -> CallOutcome {
+pub fn success_bytes_outcome(bytes: Vec<u8>, gas_limit: u64) -> CallOutcome {
     CallOutcome {
         result: InterpreterResult {
             result: InstructionResult::Return,
@@ -437,21 +476,21 @@ pub(crate) fn success_bytes_outcome(bytes: Vec<u8>, gas_limit: u64) -> CallOutco
 //  Calldata decoders
 // ---------------------------------------------------------------------------
 
-pub(crate) fn decode_u256_arg(input: &Bytes) -> Option<U256> {
+pub fn decode_u256_arg(input: &Bytes) -> Option<U256> {
     if input.len() < 4 + 32 {
         return None;
     }
     Some(U256::from_be_slice(&input[4..36]))
 }
 
-pub(crate) fn decode_address_arg(input: &Bytes) -> Option<Address> {
+pub fn decode_address_arg(input: &Bytes) -> Option<Address> {
     if input.len() < 4 + 32 {
         return None;
     }
     Some(Address::from_slice(&input[4 + 12..4 + 32]))
 }
 
-pub(crate) fn decode_address_u256_args(input: &Bytes) -> Option<(Address, U256)> {
+pub fn decode_address_u256_args(input: &Bytes) -> Option<(Address, U256)> {
     if input.len() < 4 + 64 {
         return None;
     }
@@ -460,9 +499,7 @@ pub(crate) fn decode_address_u256_args(input: &Bytes) -> Option<(Address, U256)>
     Some((addr, value))
 }
 
-pub(crate) fn decode_address_bytes32_bytes32_args(
-    input: &Bytes,
-) -> Option<(Address, [u8; 32], [u8; 32])> {
+pub fn decode_address_bytes32_bytes32_args(input: &Bytes) -> Option<(Address, [u8; 32], [u8; 32])> {
     if input.len() < 4 + 96 {
         return None;
     }
@@ -474,7 +511,7 @@ pub(crate) fn decode_address_bytes32_bytes32_args(
     Some((addr, slot, value))
 }
 
-pub(crate) fn decode_address_bytes32_args(input: &Bytes) -> Option<(Address, [u8; 32])> {
+pub fn decode_address_bytes32_args(input: &Bytes) -> Option<(Address, [u8; 32])> {
     if input.len() < 4 + 64 {
         return None;
     }

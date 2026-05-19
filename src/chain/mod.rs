@@ -6,7 +6,6 @@ pub use core::{Chain, ChainBuilder, ChainConfig};
 pub use executor::ExecutionOptions;
 pub use fork::{CacheStats, ForkConfig, ForkDatabase};
 
-pub mod cheatcodes;
 pub mod core;
 pub mod error;
 pub mod executor;

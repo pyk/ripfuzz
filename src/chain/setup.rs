@@ -38,7 +38,7 @@ pub fn setup(
     }
 
     // Preserve compiled-contract map so vm.getCode works across setUp.
-    let compiled_contracts = state.cheatcodes.compiled_contracts.clone();
+    let compiled_contracts = state.vm.compiled_contracts.clone();
 
     let mut db = state.db;
     let nonce = crate::result_to_option(db.basic(deployer))
@@ -51,11 +51,10 @@ pub fn setup(
         trace_inspector.register_contract(contract_address, name, contract_abi.clone());
     }
 
-    let shared_labels = Arc::new(RwLock::new(state.cheatcodes.labels.clone()));
+    let shared_labels = Arc::new(RwLock::new(state.vm.labels.clone()));
     trace_inspector.set_shared_labels(Arc::clone(&shared_labels));
-    let cheatcode_inspector =
-        crate::chain::inspectors::cheatcode::CheatcodeInspector::from_state(state.cheatcodes)
-            .with_shared_labels(shared_labels);
+    let cheatcode_inspector = crate::vm::inspector::CheatcodeInspector::from_state(state.vm)
+        .with_shared_labels(shared_labels);
 
     let inspector = InspectorTuple::new(
         CoverageInspector::new(),
@@ -102,20 +101,20 @@ pub fn setup(
         .nonce;
     // Persist cheatcode state from setUp so it carries into each sequence.
     let cheat_inspector = evm.inspector.2;
-    new_state.cheatcodes = cheat_inspector.state;
+    new_state.vm = cheat_inspector.state;
     // setUp deals and nonce changes are committed to the base state; clear
     // records so they are not rolled back on a later reverted call in a
     // sequence.
-    new_state.cheatcodes.eth_deals.clear();
-    new_state.cheatcodes.nonce_changes.clear();
+    new_state.vm.eth_deals.clear();
+    new_state.vm.nonce_changes.clear();
     // Restore compiled-contract map so vm.getCode keeps working.
-    new_state.cheatcodes.compiled_contracts = compiled_contracts;
+    new_state.vm.compiled_contracts = compiled_contracts;
     // Persist block context set during setUp so sequences start at the
     // warped / rolled values.
-    if let Some(ts) = new_state.cheatcodes.block.timestamp {
+    if let Some(ts) = new_state.vm.block.timestamp {
         new_state.block_timestamp = u64::try_from(ts).unwrap_or(u64::MAX);
     }
-    if let Some(num) = new_state.cheatcodes.block.number {
+    if let Some(num) = new_state.vm.block.number {
         new_state.block_number = u64::try_from(num).unwrap_or(u64::MAX);
     }
     Ok(new_state)

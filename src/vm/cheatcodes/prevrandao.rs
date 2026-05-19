@@ -1,27 +1,33 @@
-//! `fee` cheatcode — set and persist `block.basefee`.
+//! `prevrandao` cheatcode — set and persist `block.prevrandao` on a post-Paris
+//! chain.
+//!
+//! Raptor follows the Foundry / Echidna persistent model: a `prevrandao`
+//! mutation committed during a call remains visible for the rest of the
+//! sequence (and for invariant checks) until the `ChainState` clone is
+//! discarded.  This is consistent with how `warp`, `roll`, `fee`, and
+//! `coinbase` already behave in raptor.
 
-use revm::primitives::{Bytes, U256};
+use revm::primitives::Bytes;
 
-use crate::chain::cheatcodes::{Cheatcode, CheatcodeEffect, decode_u256_arg};
+use crate::vm::{Cheatcode, CheatcodeEffect};
 
-pub struct Fee;
+pub struct Prevrandao;
 
-impl Cheatcode for Fee {
-    type Args = U256;
-    const SELECTOR: [u8; 4] = [0x39, 0xb3, 0x7a, 0xb0];
+impl Cheatcode for Prevrandao {
+    type Args = [u8; 32];
+    const SELECTOR: [u8; 4] = [0x3b, 0x92, 0x55, 0x49];
 
     fn decode(input: &Bytes) -> Option<Self::Args> {
-        decode_u256_arg(input)
+        if input.len() < 4 + 32 {
+            return None;
+        }
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(&input[4..4 + 32]);
+        Some(bytes)
     }
 
     fn effects(value: Self::Args) -> Vec<CheatcodeEffect> {
-        // Match Foundry: reject values that do not fit in u64.
-        match u64::try_from(value) {
-            Ok(basefee) => vec![CheatcodeEffect::SetBaseFee(basefee)],
-            Err(_) => vec![CheatcodeEffect::Revert(
-                "fee: base fee exceeds u64::MAX".into(),
-            )],
-        }
+        vec![CheatcodeEffect::SetPrevrandao(value)]
     }
 }
 
@@ -29,7 +35,7 @@ impl Cheatcode for Fee {
 mod tests {
     use std::path::Path;
 
-    use revm::primitives::U256;
+    use revm::primitives::Bytes;
     use serial_test::serial;
 
     use super::*;
@@ -37,53 +43,71 @@ mod tests {
     use crate::contract;
     use crate::corpus::Call;
 
-    #[test]
-    fn fee_decode_and_effects() {
-        let mut data = Fee::SELECTOR.to_vec();
-        data.extend_from_slice(&U256::from(42u64).to_be_bytes_vec());
-        let args = Fee::decode(&Bytes::from(data)).unwrap();
-        let effects = Fee::effects(args);
-        assert_eq!(effects, vec![CheatcodeEffect::SetBaseFee(42)]);
-    }
+    // ------------------------------------------------------------------
+    // Unit tests
+    // ------------------------------------------------------------------
 
     #[test]
-    fn fee_decode_zero() {
-        let mut data = Fee::SELECTOR.to_vec();
-        data.extend_from_slice(&U256::ZERO.to_be_bytes_vec());
-        let args = Fee::decode(&Bytes::from(data)).unwrap();
-        let effects = Fee::effects(args);
-        assert_eq!(effects, vec![CheatcodeEffect::SetBaseFee(0)]);
-    }
-
-    #[test]
-    fn fee_decode_max_uint64() {
-        let mut data = Fee::SELECTOR.to_vec();
-        data.extend_from_slice(&U256::from(u64::MAX).to_be_bytes_vec());
-        let args = Fee::decode(&Bytes::from(data)).unwrap();
-        let effects = Fee::effects(args);
-        assert_eq!(effects, vec![CheatcodeEffect::SetBaseFee(u64::MAX)]);
-    }
-
-    #[test]
-    fn fee_decode_overflow_reverts() {
-        let mut data = Fee::SELECTOR.to_vec();
-        data.extend_from_slice(&(U256::from(u64::MAX) + U256::from(1)).to_be_bytes_vec());
-        let args = Fee::decode(&Bytes::from(data)).unwrap();
-        let effects = Fee::effects(args);
+    fn prevrandao_decode_and_effects() {
+        let mut data = Prevrandao::SELECTOR.to_vec();
+        let arg = [0xca; 32];
+        data.extend_from_slice(&arg);
+        let args = Prevrandao::decode(&Bytes::from(data)).unwrap();
         assert_eq!(
-            effects,
-            vec![CheatcodeEffect::Revert(
-                "fee: base fee exceeds u64::MAX".into(),
-            )]
+            Prevrandao::effects(args),
+            vec![CheatcodeEffect::SetPrevrandao(arg)]
         );
     }
 
     #[test]
+    fn prevrandao_decode_zero() {
+        let mut data = Prevrandao::SELECTOR.to_vec();
+        let arg = [0u8; 32];
+        data.extend_from_slice(&arg);
+        let args = Prevrandao::decode(&Bytes::from(data)).unwrap();
+        assert_eq!(
+            Prevrandao::effects(args),
+            vec![CheatcodeEffect::SetPrevrandao(arg)]
+        );
+    }
+
+    #[test]
+    fn prevrandao_decode_max() {
+        let mut data = Prevrandao::SELECTOR.to_vec();
+        let arg = [0xff; 32];
+        data.extend_from_slice(&arg);
+        let args = Prevrandao::decode(&Bytes::from(data)).unwrap();
+        assert_eq!(
+            Prevrandao::effects(args),
+            vec![CheatcodeEffect::SetPrevrandao(arg)]
+        );
+    }
+
+    #[test]
+    fn prevrandao_decode_too_short() {
+        let mut data = Prevrandao::SELECTOR.to_vec();
+        data.extend_from_slice(&[0u8; 31]); // one byte short
+        let args = Prevrandao::decode(&Bytes::from(data));
+        assert!(args.is_none());
+    }
+
+    #[test]
+    fn prevrandao_decode_selector_only() {
+        let data = Prevrandao::SELECTOR.to_vec();
+        let args = Prevrandao::decode(&Bytes::from(data));
+        assert!(args.is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // Integration tests
+    // ------------------------------------------------------------------
+
+    #[test]
     #[serial]
-    fn cheatcode_fee_setup_integration() {
+    fn cheatcode_prevrandao_setup_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodePrevrandao.sol"),
         )
         .unwrap();
 
@@ -92,7 +116,7 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
+        let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let calls = vec![Call {
             selector: call_record,
             args: vec![],
@@ -107,10 +131,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_fee_sequence_integration() {
+    fn cheatcode_prevrandao_sequence_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodePrevrandao.sol"),
         )
         .unwrap();
 
@@ -119,13 +143,13 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_fee: [u8; 4] = [0xa0, 0x67, 0x5b, 0x95]; // call_fee(uint256)
-        let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
+        let call_prevrandao: [u8; 4] = [0xfc, 0xfe, 0xad, 0xd3]; // call_prevrandao(bytes32)
+        let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let mut args = vec![0u8; 32];
-        args[31] = 100; // U256(100)
+        args[31] = 0xAB;
         let calls = vec![
             Call {
-                selector: call_fee,
+                selector: call_prevrandao,
                 args: args.clone(),
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -146,10 +170,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_fee_revert_integration() {
+    fn cheatcode_prevrandao_revert_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodePrevrandao.sol"),
         )
         .unwrap();
 
@@ -158,11 +182,11 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_fee_revert: [u8; 4] = [0x22, 0xfa, 0x48, 0x0c]; // call_fee_and_revert(uint256)
+        let call_revert: [u8; 4] = [0x60, 0xb1, 0x2d, 0x9d]; // call_prevrandao_and_revert(bytes32)
         let mut args = vec![0u8; 32];
-        args[28..32].copy_from_slice(&9999u32.to_be_bytes());
+        args[28..32].copy_from_slice(&0xDEADu32.to_be_bytes());
         let calls = vec![Call {
-            selector: call_fee_revert,
+            selector: call_revert,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -170,15 +194,15 @@ mod tests {
         }];
 
         let output = chain.execute(&calls).unwrap();
-        assert!(!output.all_ok, "fee_and_revert should revert");
+        assert!(!output.all_ok, "prevrandao_and_revert should revert");
     }
 
     #[test]
     #[serial]
-    fn cheatcode_fee_overwrite_integration() {
+    fn cheatcode_prevrandao_overwrite_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodePrevrandao.sol"),
         )
         .unwrap();
 
@@ -187,19 +211,19 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_fee_100: [u8; 4] = [0xf8, 0xf9, 0x27, 0xd6]; // call_fee_100()
-        let call_fee_200: [u8; 4] = [0x5d, 0x41, 0xb8, 0xfb]; // call_fee_200()
-        let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
+        let call_a: [u8; 4] = [0x05, 0xc3, 0xdb, 0x72]; // call_prevrandao_A()
+        let call_b: [u8; 4] = [0xb6, 0xb1, 0xa3, 0x32]; // call_prevrandao_B()
+        let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let calls = vec![
             Call {
-                selector: call_fee_100,
+                selector: call_a,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
                 ..Default::default()
             },
             Call {
-                selector: call_fee_200,
+                selector: call_b,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -220,10 +244,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_fee_zero_integration() {
+    fn cheatcode_prevrandao_zero_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodePrevrandao.sol"),
         )
         .unwrap();
 
@@ -232,11 +256,11 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_fee_zero: [u8; 4] = [0x99, 0xe5, 0x90, 0x06]; // call_fee_zero()
-        let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
+        let call_zero: [u8; 4] = [0x4e, 0x48, 0x69, 0xb8]; // call_prevrandao_zero()
+        let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let calls = vec![
             Call {
-                selector: call_fee_zero,
+                selector: call_zero,
                 args: vec![],
                 block_number_delay: 0,
                 block_timestamp_delay: 0,
@@ -257,10 +281,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_fee_max_uint64_integration() {
+    fn cheatcode_prevrandao_max_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodePrevrandao.sol"),
         )
         .unwrap();
 
@@ -269,9 +293,9 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_fee_max: [u8; 4] = [0x5b, 0xf7, 0xaa, 0x07]; // call_fee_max_uint64()
+        let call_max: [u8; 4] = [0x9f, 0x00, 0x89, 0xb9]; // call_prevrandao_max()
         let calls = vec![Call {
-            selector: call_fee_max,
+            selector: call_max,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -284,10 +308,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_fee_corpus_isolation_integration() {
+    fn cheatcode_prevrandao_corpus_isolation_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodePrevrandao.sol"),
         )
         .unwrap();
 
@@ -296,12 +320,12 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_fee: [u8; 4] = [0xa0, 0x67, 0x5b, 0x95]; // call_fee(uint256)
-        let call_record: [u8; 4] = [0xbc, 0xfa, 0x34, 0x3e]; // call_record_basefee()
+        let call_prevrandao: [u8; 4] = [0xfc, 0xfe, 0xad, 0xd3]; // call_prevrandao(bytes32)
+        let call_record: [u8; 4] = [0xdb, 0xf0, 0x3b, 0x83]; // call_record_prevrandao()
         let mut args = vec![0u8; 32];
-        args[28..32].copy_from_slice(&9999u32.to_be_bytes());
+        args[28..32].copy_from_slice(&0xDEADu32.to_be_bytes());
         let calls_a = vec![Call {
-            selector: call_fee,
+            selector: call_prevrandao,
             args,
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -325,10 +349,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_fee_invariant_final_integration() {
+    fn cheatcode_prevrandao_invariant_final_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodePrevrandao.sol"),
         )
         .unwrap();
 
@@ -337,9 +361,9 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_fee_100: [u8; 4] = [0xf8, 0xf9, 0x27, 0xd6]; // call_fee_100()
+        let call_a: [u8; 4] = [0x05, 0xc3, 0xdb, 0x72]; // call_prevrandao_A()
         let calls = vec![Call {
-            selector: call_fee_100,
+            selector: call_a,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
@@ -352,10 +376,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn cheatcode_fee_roll_warp_interaction_integration() {
+    fn cheatcode_prevrandao_roll_warp_fee_coinbase_interaction_integration() {
         let artifact = contract::ContractBuilder::build(
             Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeFee.sol"),
+            Path::new("test/CheatcodePrevrandao.sol"),
         )
         .unwrap();
 
@@ -364,9 +388,36 @@ mod tests {
             .unwrap()
             .setup()
             .unwrap();
-        let call_fee_and_roll_warp: [u8; 4] = [0x88, 0x02, 0x2d, 0xe1]; // call_fee_and_roll_warp()
+        let call_interaction: [u8; 4] = [0x24, 0xed, 0x68, 0x04]; // call_prevrandao_and_roll_warp_fee_coinbase()
         let calls = vec![Call {
-            selector: call_fee_and_roll_warp,
+            selector: call_interaction,
+            args: vec![],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        }];
+
+        let output = chain.execute(&calls).unwrap();
+        assert!(output.all_ok, "call should succeed");
+    }
+
+    #[test]
+    #[serial]
+    fn cheatcode_prevrandao_difficulty_interaction_integration() {
+        let artifact = contract::ContractBuilder::build(
+            Path::new("fixtures/cheatcodes"),
+            Path::new("test/CheatcodePrevrandao.sol"),
+        )
+        .unwrap();
+
+        let chain = Chain::for_artifact(&artifact)
+            .init()
+            .unwrap()
+            .setup()
+            .unwrap();
+        let call_interaction: [u8; 4] = [0x12, 0xd5, 0x74, 0x98]; // call_prevrandao_then_difficulty()
+        let calls = vec![Call {
+            selector: call_interaction,
             args: vec![],
             block_number_delay: 0,
             block_timestamp_delay: 0,
