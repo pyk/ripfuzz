@@ -5,6 +5,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 
+use crate::rpc::RpcClient;
+
 /// A mock RPC backend that returns pre-recorded responses.
 #[derive(Debug, Clone, Default)]
 pub struct FakeRpc {
@@ -42,7 +44,7 @@ impl FakeRpc {
     }
 }
 
-impl crate::rpc::RpcClient for FakeRpc {
+impl RpcClient for FakeRpc {
     fn call(
         &self,
         method: &str,

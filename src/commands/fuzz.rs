@@ -13,6 +13,7 @@ use crate::campaign::CampaignConfig;
 use crate::chain::Environment;
 use crate::contract::ContractBuilder;
 use crate::contract::resolve_coverage_to_source;
+use crate::rpc::RpcClient;
 
 fn default_threads() -> usize {
     std::thread::available_parallelism()
@@ -253,7 +254,7 @@ pub struct ForkArgs {
 
 impl ForkArgs {
     /// Build the RPC client and validate the fork block.
-    pub fn build_rpc(&self) -> Result<(std::sync::Arc<dyn crate::rpc::RpcClient>, u64)> {
+    pub fn build_rpc(&self) -> Result<(std::sync::Arc<dyn RpcClient>, u64)> {
         let block = self
             .rpc_block
             .context("--fork-rpc-block is required with --fork-rpc-url")?;

@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace, warn};
 
 use crate::chain::database::CacheStats;
+use crate::rpc::RpcClient;
 
 /// Thin newtype around `anyhow::Error` so we can implement `DBErrorMarker`.
 #[derive(Debug)]
@@ -56,7 +57,7 @@ pub struct ForkBackend {
 #[derive(Debug)]
 struct ForkBackendInner {
     /// The RPC client shared with all clones of this backend.
-    rpc: Arc<dyn crate::rpc::RpcClient>,
+    rpc: Arc<dyn RpcClient>,
     block_number: u64,
     /// Shared memory cache: account info keyed by address.
     account_cache: RwLock<HashMap<Address, CachedAccount>>,
@@ -95,11 +96,7 @@ impl ForkBackend {
     ///
     /// `project_root` is used to derive the disk cache directory:
     /// `{project_root}/raptor/cache/<hash>/<block>.json`
-    pub fn new(
-        rpc: Arc<dyn crate::rpc::RpcClient>,
-        block_number: u64,
-        project_root: &Path,
-    ) -> Result<Self> {
+    pub fn new(rpc: Arc<dyn RpcClient>, block_number: u64, project_root: &Path) -> Result<Self> {
         let rpc_url = rpc.cache_key();
         let cache_file = cache_path(project_root, &rpc_url, block_number);
 

@@ -1,4 +1,4 @@
-//! Execution environment: the researcher's choice of sandbox or fork.
+//! Execution environment.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -6,15 +6,19 @@ use std::sync::Arc;
 use anyhow::Context;
 
 use crate::chain::database::Database;
+use crate::rpc::RpcClient;
 
-/// The researcher's choice of execution world.
+/// Fuzzing environment
 #[derive(Debug)]
 pub enum Environment {
     /// Empty sandbox. No RPC. No remote state.
     Sandbox,
     /// Fork from a live network at a specific block.
     Fork {
-        rpc: Arc<dyn crate::rpc::RpcClient>,
+        /// We use `Arc` here because `rpc` is shared with `ForkBackend` and all
+        /// its clones, so every database operation sees the same connection pool
+        /// and cache.
+        rpc: Arc<dyn RpcClient>,
         block_number: u64,
         project_root: PathBuf,
     },
@@ -25,11 +29,7 @@ impl Environment {
         Self::Sandbox
     }
 
-    pub fn fork(
-        rpc: Arc<dyn crate::rpc::RpcClient>,
-        block_number: u64,
-        project_root: &Path,
-    ) -> Self {
+    pub fn fork(rpc: Arc<dyn RpcClient>, block_number: u64, project_root: &Path) -> Self {
         Self::Fork {
             rpc,
             block_number,
