@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use alloy_dyn_abi::DynSolValue;
-use alloy_json_abi::{JsonAbi, StateMutability};
+use alloy_json_abi::{Function, JsonAbi, StateMutability};
 use anyhow::{Result, ensure};
 use revm::bytecode::Bytecode;
 use revm::primitives::Bytes;
@@ -26,6 +26,16 @@ pub struct ContractArtifact {
     pub init_source_map: Option<SourceMap>,
     /// Parsed source map for runtime bytecode, if present in the artifact.
     pub runtime_source_map: Option<SourceMap>,
+}
+
+impl ContractArtifact {
+    /// ABI functions the fuzzer will call to mutate state (everything that is
+    /// not an invariant).
+    pub fn target_functions(&self) -> impl Iterator<Item = &Function> + '_ {
+        self.abi
+            .functions()
+            .filter(|f| !f.name.starts_with("invariant_"))
+    }
 }
 
 /// Scan the ABI for functions that start with `invariant_` and validate

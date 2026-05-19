@@ -303,18 +303,27 @@ pub fn run(args: Args) -> Result<()> {
     info!(target: "raptor::user", took = %format!("{}ms", compile_elapsed.as_millis()), "Finished compiling target");
 
     // Validate artifact
-    let fuzzed_names: Vec<&str> = artifact
-        .abi
-        .functions()
-        .filter(|f| !f.name.starts_with("invariant_"))
-        .map(|f| f.name.as_str())
-        .collect();
+    let targets: Vec<String> = artifact.target_functions().map(|f| f.signature()).collect();
     ensure!(
-        !fuzzed_names.is_empty(),
-        "No fuzzed functions found in target contract"
+        !targets.is_empty(),
+        "No target functions found in target contract"
     );
-    info!(target: "raptor::user", count = fuzzed_names.len(), names = ?fuzzed_names, "Found fuzzed functions");
-    info!(target: "raptor::user", count = artifact.invariants.len(), "Found invariants");
+    let target_list = targets
+        .iter()
+        .enumerate()
+        .map(|(i, s)| format!("         {}. {s}", i + 1))
+        .collect::<Vec<String>>()
+        .join("\n");
+    info!(target: "raptor::user", "Found {} target functions\n{}", targets.len(), target_list);
+
+    let invariant_list = artifact
+        .invariants
+        .iter()
+        .enumerate()
+        .map(|(i, (_, name))| format!("         {}. {name}()", i + 1))
+        .collect::<Vec<String>>()
+        .join("\n");
+    info!(target: "raptor::user", "Found {} invariants\n{}", artifact.invariants.len(), invariant_list);
 
     // Build RPC / Fork Config
     let (rpc, fork_config) = build_rpc(
