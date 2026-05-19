@@ -1,7 +1,8 @@
 //! `fuzz` CLI command implementation.
 
+use std::collections::HashSet;
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use alloy_primitives::Address;
 use anyhow::{Context, Result, bail, ensure};
@@ -252,9 +253,52 @@ pub struct ForkArgs {
     pub rpc_timeout: u64,
 }
 
+impl Default for ForkArgs {
+    fn default() -> Self {
+        Self {
+            rpc_urls: Vec::new(),
+            rpc_block: None,
+            rpc_pool: 4,
+            rpc_retries: 3,
+            rpc_backoff: 100,
+            rpc_rate_limit: None,
+            rpc_timeout: 30000,
+        }
+    }
+}
+
 impl ForkArgs {
+    /// Validate that every provided RPC URL returns the same chain_id.
+    pub fn validate_chain_id(&self, project_path: impl AsRef<Path>) -> Result<u64> {
+        let project_path = project_path.as_ref();
+        let mut ids: Vec<(&str, u64)> = Vec::new();
+
+        for url in self.rpc_urls.iter().collect::<HashSet<&String>>() {
+            info!(target: "raptor::user", %url, timeout = "5s", "Fetching chain_id");
+            let url_t0 = std::time::Instant::now();
+            let chain_id = crate::rpc::get_chain_id(project_path, url)?;
+            let url_elapsed = url_t0.elapsed();
+            info!(target: "raptor::user", %url, chain_id, took = %format!("{}ms", url_elapsed.as_millis()), "OK");
+            ids.push((url, chain_id));
+        }
+
+        ensure!(!ids.is_empty(), "no RPC URLs to validate");
+
+        let first = ids[0].1;
+        if ids.iter().all(|(_, id)| *id == first) {
+            Ok(first)
+        } else {
+            let details = ids
+                .iter()
+                .map(|(url, id)| format!("{} -> {}", url, id))
+                .collect::<Vec<String>>()
+                .join(", ");
+            bail!("chain ID mismatch: {}", details);
+        }
+    }
+
     /// Build the RPC client and validate the fork block.
-    pub fn build_rpc(&self) -> Result<(std::sync::Arc<dyn RpcClient>, u64)> {
+    pub fn build_rpc(&self, chain_id: u64) -> Result<(std::sync::Arc<dyn RpcClient>, u64)> {
         let block = self
             .rpc_block
             .context("--fork-rpc-block is required with --fork-rpc-url")?;
@@ -264,6 +308,7 @@ impl ForkArgs {
             .with_retry_backoff(std::time::Duration::from_millis(self.rpc_backoff))
             .with_requests_per_second(self.rpc_rate_limit)
             .with_timeout(std::time::Duration::from_millis(self.rpc_timeout))
+            .with_chain_id(chain_id)
             .build()?;
         info!(target: "raptor::user", urls = ?self.rpc_urls, "Fetching latest block");
         let t0 = std::time::Instant::now();
@@ -271,7 +316,7 @@ impl ForkArgs {
             .latest_block_number()
             .context("failed to query latest block")?;
         let elapsed = t0.elapsed();
-        info!(target: "raptor::user", time_ms = elapsed.as_millis(), block = latest, "Finished fetching latest block");
+        info!(target: "raptor::user", block = latest, took = %format!("{}ms", elapsed.as_millis()), "OK");
         if block > latest {
             bail!("--fork-rpc-block ({block}) exceeds remote latest block ({latest})");
         }
@@ -322,7 +367,8 @@ pub fn run(args: Args) -> Result<()> {
     let env = if args.fork.rpc_urls.is_empty() {
         Environment::sandbox()
     } else {
-        let (rpc, block) = args.fork.build_rpc()?;
+        let chain_id = args.fork.validate_chain_id(&project_path)?;
+        let (rpc, block) = args.fork.build_rpc(chain_id)?;
         Environment::fork(rpc, block, &project_path)
     };
 
@@ -429,9 +475,65 @@ pub fn run(args: Args) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_address, parse_balance};
+    use std::collections::hash_map::DefaultHasher;
+    use std::fs::{create_dir_all, write};
+    use std::hash::{Hash, Hasher};
+    use std::path::Path;
+
     use alloy_primitives::Address;
     use revm::primitives::U256;
+
+    use super::{ForkArgs, parse_address, parse_balance};
+
+    fn seed_chain_id_cache(project_path: impl AsRef<Path>, url: &str, chain_id: u64) {
+        let project_path = project_path.as_ref();
+        let mut hasher = DefaultHasher::new();
+        url.hash(&mut hasher);
+        let url_hash = format!("{:x}", hasher.finish());
+
+        let cache_dir = project_path.join("raptor").join("cache").join("chain_id");
+        create_dir_all(&cache_dir).unwrap();
+        write(cache_dir.join(&url_hash), format!("0x{:x}", chain_id)).unwrap();
+    }
+
+    #[test]
+    fn validate_chain_id_success_when_all_match() {
+        let tmp = tempfile::tempdir().unwrap();
+        let args = ForkArgs {
+            rpc_urls: vec!["http://a.com".into(), "http://b.com".into()],
+            rpc_block: Some(1),
+            ..ForkArgs::default()
+        };
+        seed_chain_id_cache(tmp.path(), "http://a.com", 1);
+        seed_chain_id_cache(tmp.path(), "http://b.com", 1);
+        assert_eq!(args.validate_chain_id(tmp.path()).unwrap(), 1);
+    }
+
+    #[test]
+    fn validate_chain_id_fails_on_mismatch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let args = ForkArgs {
+            rpc_urls: vec!["http://a.com".into(), "http://b.com".into()],
+            rpc_block: Some(1),
+            ..ForkArgs::default()
+        };
+        seed_chain_id_cache(tmp.path(), "http://a.com", 1);
+        seed_chain_id_cache(tmp.path(), "http://b.com", 56);
+        let err = args.validate_chain_id(tmp.path()).unwrap_err();
+        assert!(err.to_string().contains("chain ID mismatch"));
+    }
+
+    #[test]
+    fn validate_chain_id_dedups_duplicate_urls() {
+        let tmp = tempfile::tempdir().unwrap();
+        let args = ForkArgs {
+            rpc_urls: vec!["http://a.com".into(), "http://a.com".into()],
+            rpc_block: Some(1),
+            ..ForkArgs::default()
+        };
+        seed_chain_id_cache(tmp.path(), "http://a.com", 1);
+        assert_eq!(args.validate_chain_id(tmp.path()).unwrap(), 1);
+    }
 
     #[test]
     fn parse_balance_empty() {

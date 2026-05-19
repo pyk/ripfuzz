@@ -1,9 +1,7 @@
 //! Fork network support: lazy remote state via JSON-RPC.
 
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
 use std::fs::{create_dir_all, read, write};
-use std::hash::{Hash, Hasher};
 #[cfg(test)]
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -96,10 +94,11 @@ impl ForkDB {
     /// Create a new fork backend.
     ///
     /// `project_root` is used to derive the disk cache directory:
-    /// `{project_root}/raptor/cache/<hash>/<block>.json`
+    /// `{project_root}/raptor/cache/{chain_id}/{block}.json`
     pub fn new(rpc: Arc<dyn RpcClient>, block_number: u64, project_root: &Path) -> Result<Self> {
-        let rpc_url = rpc.cache_key();
-        let cache_file = cache_path(project_root, &rpc_url, block_number);
+        let cache_key = rpc.cache_key();
+        let chain_id = cache_key.parse::<u64>().unwrap_or(0);
+        let cache_file = cache_path(project_root, chain_id, block_number);
 
         let mut account_cache = HashMap::new();
         let mut slot_cache = HashMap::new();
@@ -435,16 +434,12 @@ fn lock_poisoned<T>(_: std::sync::PoisonError<T>) -> anyhow::Error {
     anyhow::Error::msg("lock poisoned")
 }
 
-/// Derive the canonical cache path: `{project}/raptor/cache/{hash}/{block}.json`
-pub fn cache_path(project_root: &Path, rpc_url: &str, block_number: u64) -> PathBuf {
-    let mut hasher = DefaultHasher::new();
-    rpc_url.hash(&mut hasher);
-    let hash = hasher.finish();
-
+/// Derive the canonical cache path: `{project}/raptor/cache/{chain_id}/{block}.json`
+pub fn cache_path(project_root: &Path, chain_id: u64, block_number: u64) -> PathBuf {
     project_root
         .join("raptor")
         .join("cache")
-        .join(format!("{:x}", hash))
+        .join(format!("{}", chain_id))
         .join(format!("{}.json", block_number))
 }
 
@@ -475,9 +470,8 @@ mod tests {
     #[test]
     fn cache_path_derived_correctly() {
         let root = Path::new("/tmp/proj");
-        let path = cache_path(root, "https://example.com/rpc", 123);
-        assert!(path.to_string_lossy().contains("raptor/cache/"));
-        assert!(path.to_string_lossy().ends_with("/123.json"));
+        let path = cache_path(root, 1, 123);
+        assert_eq!(path, PathBuf::from("/tmp/proj/raptor/cache/1/123.json"));
     }
 
     #[test]
@@ -566,7 +560,7 @@ mod tests {
             block_hashes: HashMap::new(),
             code: HashMap::new(),
         };
-        let cache_file = cache_path(tmpdir.path(), rpc_url, block);
+        let cache_file = cache_path(tmpdir.path(), 0, block);
         if let Some(parent) = cache_file.parent() {
             create_dir_all(parent).unwrap();
         }
@@ -576,6 +570,7 @@ mod tests {
         let rpc = Arc::new(
             crate::rpc::Rpc::with_urls(&urls)
                 .with_pool_size(1)
+                .with_chain_id(0)
                 .build()
                 .unwrap(),
         );
@@ -630,7 +625,7 @@ mod tests {
             block_hashes: HashMap::new(),
             code: HashMap::new(),
         };
-        let cache_file = cache_path(tmpdir.path(), rpc_url, block);
+        let cache_file = cache_path(tmpdir.path(), 0, block);
         if let Some(parent) = cache_file.parent() {
             create_dir_all(parent).unwrap();
         }
@@ -640,6 +635,7 @@ mod tests {
         let rpc = Arc::new(
             crate::rpc::Rpc::with_urls(&urls)
                 .with_pool_size(1)
+                .with_chain_id(0)
                 .build()
                 .unwrap(),
         );
@@ -662,6 +658,7 @@ mod tests {
         let rpc = Arc::new(
             crate::rpc::Rpc::with_urls(&[rpc_url])
                 .with_pool_size(1)
+                .with_chain_id(1)
                 .build()
                 .unwrap(),
         );

@@ -21,7 +21,7 @@ impl RpcClient for Rpc {
         self.latest_block_number()
     }
     fn cache_key(&self) -> String {
-        self.config().urls.first().cloned().unwrap_or_default()
+        format!("{}", self.chain_id)
     }
 }
 
@@ -30,8 +30,11 @@ use dedup::{DedupTable, RequestKey};
 use limiter::RateLimiter;
 pub use mock::FakeRpc;
 
+pub use helpers::get_chain_id;
+
 mod client;
 mod dedup;
+mod helpers;
 mod limiter;
 mod mock;
 mod request;
@@ -77,6 +80,7 @@ pub struct Rpc {
     pool: AgentPool,
     dedup: DedupTable,
     limiter: Option<RateLimiter>,
+    chain_id: u64,
 }
 
 impl Rpc {
@@ -84,6 +88,7 @@ impl Rpc {
     pub fn with_urls(urls: &[String]) -> RpcBuilder {
         RpcBuilder {
             config: RpcConfig::with_urls(urls.to_vec()),
+            chain_id: None,
         }
     }
 
@@ -99,6 +104,7 @@ impl Rpc {
             pool: AgentPool::new(vec![ureq::Agent::new_with_defaults()]),
             dedup: DedupTable::new(),
             limiter: None,
+            chain_id: 0,
         }
     }
 
@@ -224,6 +230,7 @@ impl Rpc {
 #[derive(Debug, Clone)]
 pub struct RpcBuilder {
     config: RpcConfig,
+    chain_id: Option<u64>,
 }
 
 impl RpcBuilder {
@@ -254,6 +261,12 @@ impl RpcBuilder {
     /// Set the optional rate limit in requests per second.
     pub fn with_requests_per_second(mut self, rate: Option<u64>) -> Self {
         self.config.requests_per_second = rate;
+        self
+    }
+
+    /// Set the chain ID used for cache key derivation.
+    pub fn with_chain_id(mut self, chain_id: u64) -> Self {
+        self.chain_id = Some(chain_id);
         self
     }
 
@@ -292,6 +305,22 @@ impl RpcBuilder {
             pool: AgentPool::new(agents),
             dedup: DedupTable::new(),
             limiter,
+            chain_id: self.chain_id.unwrap_or(0),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rpc_cache_key_returns_chain_id() {
+        let rpc = Rpc::with_urls(&["http://localhost:1".into()])
+            .with_pool_size(1)
+            .with_chain_id(8453)
+            .build()
+            .unwrap();
+        assert_eq!(rpc.cache_key(), "8453");
     }
 }
