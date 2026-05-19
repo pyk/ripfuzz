@@ -48,15 +48,15 @@ impl DBErrorMarker for ForkError {}
 
 /// The remote + cached backend that satisfies `DatabaseRef`.
 ///
-/// `ForkBackend` is cheaply cloneable (all state lives behind `Arc`).
+/// `ForkDB` is cheaply cloneable (all state lives behind `Arc`).
 /// It is intended to be wrapped by `CacheDB`.
 #[derive(Clone, Debug)]
-pub struct ForkBackend {
-    inner: Arc<ForkBackendInner>,
+pub struct ForkDB {
+    inner: Arc<ForkDBInner>,
 }
 
 #[derive(Debug)]
-struct ForkBackendInner {
+struct ForkDBInner {
     /// The RPC client shared with all clones of this backend.
     rpc: Arc<dyn RpcClient>,
     block_number: u64,
@@ -92,7 +92,7 @@ pub struct DiskCache {
     pub code: HashMap<B256, Vec<u8>>,
 }
 
-impl ForkBackend {
+impl ForkDB {
     /// Create a new fork backend.
     ///
     /// `project_root` is used to derive the disk cache directory:
@@ -141,7 +141,7 @@ impl ForkBackend {
         }
 
         Ok(Self {
-            inner: Arc::new(ForkBackendInner {
+            inner: Arc::new(ForkDBInner {
                 rpc,
                 block_number,
                 account_cache: RwLock::new(account_cache),
@@ -158,7 +158,7 @@ impl ForkBackend {
 
 // --- Private helpers that return anyhow::Error ---
 
-impl ForkBackend {
+impl ForkDB {
     #[instrument(skip(self), fields(%address))]
     fn basic_ref_impl(&self, address: Address) -> Result<Option<AccountInfo>> {
         {
@@ -267,7 +267,7 @@ impl ForkBackend {
     }
 }
 
-impl ForkBackend {
+impl ForkDB {
     /// Return current cache hit/miss counters.
     pub fn cache_stats(&self) -> CacheStats {
         CacheStats {
@@ -315,7 +315,7 @@ impl ForkBackend {
     }
 }
 
-impl DatabaseRef for ForkBackend {
+impl DatabaseRef for ForkDB {
     type Error = ForkError;
 
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
@@ -337,7 +337,7 @@ impl DatabaseRef for ForkBackend {
     }
 }
 
-impl ForkBackendInner {
+impl ForkDBInner {
     #[instrument(skip(self), fields(%address))]
     fn fetch_account(&self, address: Address) -> Result<CachedAccount> {
         let addr_hex = format!("0x{address:x}");
@@ -542,7 +542,7 @@ mod tests {
 
     #[test]
     fn sandbox_database_returns_defaults() {
-        let mut db = crate::chain::database::Database::default();
+        let mut db = crate::chain::Database::default();
         let info = db.basic(Address::ZERO).unwrap();
         assert_eq!(info, None);
         assert_eq!(db.storage(Address::ZERO, U256::ZERO).unwrap(), U256::ZERO);
@@ -579,7 +579,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let backend = ForkBackend::new(rpc, block, tmpdir.path()).unwrap();
+        let backend = ForkDB::new(rpc, block, tmpdir.path()).unwrap();
 
         // Wrap in CacheDB and insert an account so storage insertion works.
         let mut db = CacheDB::new(backend.clone());
@@ -643,7 +643,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let backend = ForkBackend::new(rpc, block, tmpdir.path()).unwrap();
+        let backend = ForkDB::new(rpc, block, tmpdir.path()).unwrap();
 
         // All queries should be satisfied from cache, never hitting the network.
         let info = backend.basic_ref(Address::ZERO).unwrap().unwrap();

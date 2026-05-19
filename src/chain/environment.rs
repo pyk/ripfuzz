@@ -7,7 +7,8 @@ use anyhow::{Context, Result};
 
 use revm::database::{CacheDB, InMemoryDB};
 
-use crate::chain::database::Database;
+use crate::chain::Database;
+use crate::chain::ForkDB;
 use crate::rpc::RpcClient;
 
 /// Fuzzing environment
@@ -17,7 +18,7 @@ pub enum Environment {
     Sandbox,
     /// Fork from a live network at a specific block.
     Fork {
-        /// We use `Arc` here because `rpc` is shared with `ForkBackend` and all
+        /// We use `Arc` here because `rpc` is shared with `ForkDB` and all
         /// its clones, so every database operation sees the same connection pool
         /// and cache.
         rpc: Arc<dyn RpcClient>,
@@ -50,15 +51,11 @@ impl Environment {
             Environment::Fork {
                 rpc,
                 block_number,
-                project_path: project_root,
+                project_path,
             } => {
-                let backend = crate::chain::fork::ForkBackend::new(
-                    Arc::clone(rpc),
-                    *block_number,
-                    project_root,
-                )
-                .context("fork initialization failed")?;
-                Ok(Database::Fork(CacheDB::new(backend)))
+                let db = ForkDB::new(Arc::clone(rpc), *block_number, project_path)
+                    .context("fork initialization failed")?;
+                Ok(Database::Fork(CacheDB::new(db)))
             }
         }
     }

@@ -7,13 +7,13 @@ use anyhow::Result;
 use revm::database::{CacheDB, InMemoryDB};
 use revm::state::AccountInfo;
 
-use crate::chain::fork::{ForkBackend, ForkError};
+use crate::chain::forkdb::{ForkDB, ForkError};
 
 /// EVM world state. Either an empty sandbox or a forked world.
 #[derive(Clone, Debug)]
 pub enum Database {
     Sandbox(InMemoryDB),
-    Fork(CacheDB<ForkBackend>),
+    Fork(CacheDB<ForkDB>),
 }
 
 impl Default for Database {

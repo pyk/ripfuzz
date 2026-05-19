@@ -11,8 +11,8 @@ use revm::{
 
 use tracing::{error, info, instrument};
 
+use crate::chain::Database;
 use crate::chain::base_state::BaseState;
-use crate::chain::database::Database;
 use crate::chain::error::ChainInitError;
 use crate::contract::ContractArtifact;
 use crate::vm::VM_ADDRESS;

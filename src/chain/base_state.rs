@@ -11,7 +11,7 @@ use revm::{
     state::AccountInfo,
 };
 
-use crate::chain::database::Database;
+use crate::chain::Database;
 use crate::vm::{BlockCheatState, PrankCheatState};
 
 /// The committed snapshot after deployment and optional setUp.

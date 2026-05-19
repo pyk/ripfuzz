@@ -89,7 +89,7 @@ impl Rpc {
 
     /// Create a no-op RPC instance for backends that never touch the network.
     ///
-    /// This is used by `ForkBackend::empty()`.  The returned `Rpc` has a
+    /// This is used by `ForkDB::empty()`.  The returned `Rpc` has a
     /// dummy URL and is never actually invoked because `is_empty == true`
     /// short-circuits every `DatabaseRef` method.
     pub fn noop() -> Self {
