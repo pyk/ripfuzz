@@ -88,15 +88,62 @@ pub struct DiskCache {
     pub code: HashMap<B256, Vec<u8>>,
 }
 
-impl ForkDB {
-    /// Create a new fork backend.
+/// Builder for [`ForkDB`].
+#[derive(Debug)]
+pub struct ForkDBBuilder {
+    rpc: Option<Arc<dyn RpcClient>>,
+    block_number: Option<u64>,
+    cache_dir: Option<PathBuf>,
+}
+
+impl Default for ForkDBBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ForkDBBuilder {
+    pub fn new() -> Self {
+        Self {
+            rpc: None,
+            block_number: None,
+            cache_dir: None,
+        }
+    }
+
+    pub fn with_rpc(mut self, rpc: Arc<dyn RpcClient>) -> Self {
+        self.rpc = Some(rpc);
+        self
+    }
+
+    pub fn with_block_number(mut self, block_number: u64) -> Self {
+        self.block_number = Some(block_number);
+        self
+    }
+
+    /// Set the directory where the on-disk cache file will be stored.
     ///
-    /// `project_root` is used to derive the disk cache directory:
-    /// `{project_root}/raptor/cache/{chain_id}/{block}.json`
-    pub fn new(rpc: Arc<dyn RpcClient>, block_number: u64, project_root: &Path) -> Result<Self> {
+    /// The caller is responsible for choosing this directory. The builder
+    /// internally derives the final file path as:
+    ///   `{cache_dir}/{chain_id}/{block_number}.json`
+    /// where `chain_id` comes from `rpc.cache_key()`.
+    pub fn with_cache_dir(mut self, dir: impl AsRef<Path>) -> Self {
+        self.cache_dir = Some(dir.as_ref().to_path_buf());
+        self
+    }
+
+    pub fn build(self) -> Result<ForkDB> {
+        let rpc = self.rpc.context("ForkDBBuilder::with_rpc is required")?;
+        let block_number = self
+            .block_number
+            .context("ForkDBBuilder::with_block_number is required")?;
+        let cache_dir = self
+            .cache_dir
+            .context("ForkDBBuilder::with_cache_dir is required")?;
+
         let cache_key = rpc.cache_key();
         let chain_id = cache_key.parse::<u64>().unwrap_or(0);
-        let cache_file = cache_path(project_root, chain_id, block_number);
+        let cache_file = cache_path(&cache_dir, chain_id, block_number);
 
         let mut account_cache = HashMap::new();
         let mut slot_cache = HashMap::new();
@@ -137,7 +184,7 @@ impl ForkDB {
             }
         }
 
-        Ok(Self {
+        Ok(ForkDB {
             inner: Arc::new(ForkDBInner {
                 rpc,
                 block_number,
@@ -432,11 +479,10 @@ fn lock_poisoned<T>(_: std::sync::PoisonError<T>) -> anyhow::Error {
     anyhow::Error::msg("lock poisoned")
 }
 
-/// Derive the canonical cache path: `{project}/raptor/cache/{chain_id}/{block}.json`
-pub fn cache_path(project_root: &Path, chain_id: u64, block_number: u64) -> PathBuf {
-    project_root
-        .join("raptor")
-        .join("cache")
+/// Derive the canonical cache path: `{cache_dir}/{chain_id}/{block}.json`
+pub fn cache_path(cache_dir: impl AsRef<Path>, chain_id: u64, block_number: u64) -> PathBuf {
+    cache_dir
+        .as_ref()
         .join(format!("{}", chain_id))
         .join(format!("{}.json", block_number))
 }
@@ -469,9 +515,9 @@ mod tests {
 
     #[test]
     fn cache_path_derived_correctly() {
-        let root = Path::new("/tmp/proj");
-        let path = cache_path(root, 1, 123);
-        assert_eq!(path, PathBuf::from("/tmp/proj/raptor/cache/1/123.json"));
+        let dir = Path::new("/tmp/proj/cache");
+        let path = cache_path(dir, 1, 123);
+        assert_eq!(path, PathBuf::from("/tmp/proj/cache/1/123.json"));
     }
 
     #[test]
@@ -574,7 +620,12 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let backend = ForkDB::new(rpc, block, tmpdir.path()).unwrap();
+        let backend = ForkDBBuilder::new()
+            .with_rpc(rpc)
+            .with_block_number(block)
+            .with_cache_dir(tmpdir.path())
+            .build()
+            .unwrap();
 
         // Wrap in CacheDB and insert an account so storage insertion works.
         let mut db = CacheDB::new(backend.clone());
@@ -639,7 +690,12 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let backend = ForkDB::new(rpc, block, tmpdir.path()).unwrap();
+        let backend = ForkDBBuilder::new()
+            .with_rpc(rpc)
+            .with_block_number(block)
+            .with_cache_dir(tmpdir.path())
+            .build()
+            .unwrap();
 
         // All queries should be satisfied from cache, never hitting the network.
         let info = backend.basic_ref(Address::ZERO).unwrap().unwrap();
@@ -662,11 +718,8 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let env = crate::chain::environment::Environment::fork(
-            rpc,
-            25_121_437,
-            Path::new("fixtures/forks"),
-        );
+        let cache_dir = Path::new("fixtures/forks").join("raptor").join("cache");
+        let env = crate::chain::environment::Environment::fork(rpc, 25_121_437, &cache_dir);
 
         let mut config = crate::campaign::CampaignConfig::default();
         config.threads = 1;
@@ -703,5 +756,39 @@ mod tests {
             "fork campaign should pass all invariants: {:?}",
             result.failures
         );
+    }
+
+    #[test]
+    fn builder_fails_without_rpc() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = ForkDBBuilder::new()
+            .with_block_number(1)
+            .with_cache_dir(tmp.path())
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("with_rpc is required"));
+    }
+
+    #[test]
+    fn builder_fails_without_block_number() {
+        let rpc = Arc::new(crate::rpc::FakeRpc::default());
+        let tmp = tempfile::tempdir().unwrap();
+        let err = ForkDBBuilder::new()
+            .with_rpc(rpc)
+            .with_cache_dir(tmp.path())
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("with_block_number is required"));
+    }
+
+    #[test]
+    fn builder_fails_without_cache_dir() {
+        let rpc = Arc::new(crate::rpc::FakeRpc::default());
+        let err = ForkDBBuilder::new()
+            .with_rpc(rpc)
+            .with_block_number(1)
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("with_cache_dir is required"));
     }
 }

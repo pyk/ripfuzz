@@ -92,11 +92,10 @@ impl Rpc {
         }
     }
 
-    /// Create a no-op RPC instance for backends that never touch the network.
+    /// Create a no-op RPC instance for situations where no network calls
+    /// should be made (e.g. tests or stub backends).
     ///
-    /// This is used by `ForkDB::empty()`.  The returned `Rpc` has a
-    /// dummy URL and is never actually invoked because `is_empty == true`
-    /// short-circuits every `DatabaseRef` method.
+    /// The returned `Rpc` has a dummy URL and is never actually invoked.
     pub fn noop() -> Self {
         Self {
             config: RpcConfig::with_urls(vec!["http://localhost:1".to_string()]),

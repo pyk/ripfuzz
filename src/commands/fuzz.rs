@@ -369,7 +369,8 @@ pub fn run(args: Args) -> Result<()> {
     } else {
         let chain_id = args.fork.validate_chain_id(&project_path)?;
         let (rpc, block) = args.fork.build_rpc(chain_id)?;
-        Environment::fork(rpc, block, &project_path)
+        let cache_dir = project_path.join("raptor").join("cache");
+        Environment::fork(rpc, block, &cache_dir)
     };
 
     let config = CampaignConfig {

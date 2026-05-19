@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use revm::database::{CacheDB, InMemoryDB};
 
 use crate::chain::Database;
-use crate::chain::ForkDB;
+use crate::chain::ForkDBBuilder;
 use crate::rpc::RpcClient;
 
 /// Fuzzing environment
@@ -23,7 +23,7 @@ pub enum Environment {
         /// and cache.
         rpc: Arc<dyn RpcClient>,
         block_number: u64,
-        project_path: PathBuf,
+        cache_dir: PathBuf,
     },
 }
 
@@ -32,15 +32,11 @@ impl Environment {
         Self::Sandbox
     }
 
-    pub fn fork(
-        rpc: Arc<dyn RpcClient>,
-        block_number: u64,
-        project_path: impl AsRef<Path>,
-    ) -> Self {
+    pub fn fork(rpc: Arc<dyn RpcClient>, block_number: u64, cache_dir: impl AsRef<Path>) -> Self {
         Self::Fork {
             rpc,
             block_number,
-            project_path: project_path.as_ref().to_path_buf(),
+            cache_dir: cache_dir.as_ref().to_path_buf(),
         }
     }
 
@@ -51,9 +47,13 @@ impl Environment {
             Environment::Fork {
                 rpc,
                 block_number,
-                project_path,
+                cache_dir,
             } => {
-                let db = ForkDB::new(Arc::clone(rpc), *block_number, project_path)
+                let db = ForkDBBuilder::new()
+                    .with_rpc(Arc::clone(rpc))
+                    .with_block_number(*block_number)
+                    .with_cache_dir(cache_dir)
+                    .build()
                     .context("fork initialization failed")?;
                 Ok(Database::Fork(CacheDB::new(db)))
             }

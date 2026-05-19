@@ -7,7 +7,7 @@ pub use core::{Chain, ChainBuilder, ChainConfig};
 pub use database::{CacheStats, Database};
 pub use environment::Environment;
 pub use executor::{ExecutionOptions, SequenceExecutor};
-pub use forkdb::ForkDB;
+pub use forkdb::{ForkDB, ForkDBBuilder};
 
 pub mod base_state;
 pub mod core;
