@@ -99,11 +99,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_etch_setup_persists() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeEtch.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeEtch.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -127,11 +126,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_etch_same_sequence_persists() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeEtch.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeEtch.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -164,11 +162,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_etch_corpus_isolation() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeEtch.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeEtch.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -205,11 +202,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_etch_revert_undoes() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeEtch.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeEtch.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -234,11 +230,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_etch_overwrite() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeEtch.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeEtch.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -262,11 +257,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_etch_new_account() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeEtch.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeEtch.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -318,11 +312,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_etch_precompile_reverts() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeEtch.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeEtch.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

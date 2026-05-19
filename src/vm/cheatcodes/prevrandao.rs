@@ -105,11 +105,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_prevrandao_setup_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodePrevrandao.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodePrevrandao.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -133,11 +132,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_prevrandao_sequence_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodePrevrandao.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodePrevrandao.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -173,11 +171,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_prevrandao_revert_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodePrevrandao.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodePrevrandao.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -203,11 +200,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_prevrandao_overwrite_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodePrevrandao.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodePrevrandao.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -249,11 +245,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_prevrandao_zero_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodePrevrandao.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodePrevrandao.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -287,11 +282,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_prevrandao_max_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodePrevrandao.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodePrevrandao.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -315,11 +309,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_prevrandao_corpus_isolation_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodePrevrandao.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodePrevrandao.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -357,11 +350,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_prevrandao_invariant_final_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodePrevrandao.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodePrevrandao.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -385,11 +377,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_prevrandao_roll_warp_fee_coinbase_interaction_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodePrevrandao.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodePrevrandao.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -413,11 +404,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_prevrandao_difficulty_interaction_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodePrevrandao.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodePrevrandao.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

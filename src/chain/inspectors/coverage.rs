@@ -189,11 +189,10 @@ mod tests {
 
     #[test]
     fn coverage_inspector_collects_hits_for_deployed_contract() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("src/NamedMismatch.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("src/NamedMismatch.sol"))
+            .build()
+            .unwrap();
 
         let mut db =
             crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty());

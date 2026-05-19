@@ -470,11 +470,10 @@ mod tests {
 
     #[test]
     fn format_failure_uses_block_number_and_timestamp_labels() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/challenges"),
-            Path::new("src/L1SimpleKnob.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/challenges"))
+            .with_target_path(Path::new("src/L1SimpleKnob.sol"))
+            .build()
+            .unwrap();
 
         let calls = vec![
             corpus::Call {

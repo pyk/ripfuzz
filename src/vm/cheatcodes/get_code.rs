@@ -207,11 +207,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_get_code_setup_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeGetCode.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeGetCode.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -226,11 +225,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_get_code_action_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeGetCode.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeGetCode.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -256,11 +254,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_get_code_multi_call_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeGetCode.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeGetCode.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -296,11 +293,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_get_code_error_case_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeGetCode.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeGetCode.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -329,11 +325,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_get_code_formats_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeGetCode.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeGetCode.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -377,11 +372,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_get_code_self_lookup_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeGetCode.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeGetCode.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

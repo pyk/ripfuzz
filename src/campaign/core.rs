@@ -376,11 +376,10 @@ mod tests {
         config.max_runs = max_runs;
         config.timeout_secs = Some(30);
 
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/ImpossibleBug.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("test/ImpossibleBug.sol"))
+            .build()
+            .unwrap();
         let chain = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/basic-target"))
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -402,11 +401,10 @@ mod tests {
 
     #[test]
     fn deployment_reports_constructor_revert_reason() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/ConstructorRevert.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("test/ConstructorRevert.sol"))
+            .build()
+            .unwrap();
 
         let err = crate::chain::Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -422,11 +420,10 @@ mod tests {
 
     #[test]
     fn deployment_reports_complex_constructor_trace() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/ComplexConstructorRevert.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("test/ComplexConstructorRevert.sol"))
+            .build()
+            .unwrap();
 
         let err = crate::chain::Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -442,11 +439,10 @@ mod tests {
 
     #[test]
     fn deployment_reports_set_up_revert_trace() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/SetupRevert.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("test/SetupRevert.sol"))
+            .build()
+            .unwrap();
 
         let err = crate::chain::Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -464,11 +460,10 @@ mod tests {
 
     #[test]
     fn catches_l1_simple_knob_dragon() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/challenges"),
-            Path::new("src/L1SimpleKnob.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/challenges"))
+            .with_target_path(Path::new("src/L1SimpleKnob.sol"))
+            .build()
+            .unwrap();
 
         assert!(
             !artifact.invariants.is_empty(),
@@ -534,11 +529,10 @@ mod tests {
         config.timeout_secs = Some(10);
         let deploy_value = revm::primitives::U256::from(12345);
 
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/PayableConstructor.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("test/PayableConstructor.sol"))
+            .build()
+            .unwrap();
         let chain = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/basic-target"))
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -568,11 +562,10 @@ mod tests {
     fn non_payable_constructor_rejects_deploy_value() {
         let deploy_value = revm::primitives::U256::from(1);
 
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/ImpossibleBug.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("test/ImpossibleBug.sol"))
+            .build()
+            .unwrap();
         let err = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/basic-target"))
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -589,11 +582,10 @@ mod tests {
 
     #[test]
     fn campaign_without_contract_builder() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/ImpossibleBug.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("test/ImpossibleBug.sol"))
+            .build()
+            .unwrap();
         let chain = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/basic-target"))
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

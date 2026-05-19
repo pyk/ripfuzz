@@ -259,11 +259,10 @@ mod tests {
 
     #[test]
     fn chain_execute_returns_coverage_and_all_ok() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("src/NamedMismatch.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("src/NamedMismatch.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

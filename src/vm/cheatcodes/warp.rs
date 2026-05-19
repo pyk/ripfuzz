@@ -49,11 +49,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_warp_setup_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeWarp.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeWarp.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -77,11 +76,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_warp_sequence_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeWarp.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeWarp.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -117,11 +115,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_warp_revert_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeWarp.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeWarp.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -147,11 +144,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_warp_delay_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeWarp.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeWarp.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -185,11 +181,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_warp_overwrite_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeWarp.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeWarp.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -255,11 +250,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_warp_zero_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeWarp.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeWarp.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -293,11 +287,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_warp_max_uint64_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeWarp.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeWarp.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -321,11 +314,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_warp_corpus_isolation_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeWarp.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeWarp.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -363,11 +355,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_warp_invariant_final_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeWarp.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeWarp.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -391,11 +382,10 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_warp_roll_interaction_integration() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/cheatcodes"),
-            Path::new("test/CheatcodeWarp.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
+            .with_target_path(Path::new("test/CheatcodeWarp.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use alloy_json_abi::JsonAbi;
 use anyhow::{Context, Result, bail, ensure};
@@ -66,35 +66,49 @@ fn source_contract_names(source: &str) -> Vec<String> {
 }
 
 /// Builder that resolves a Foundry project into a [`artifact::ContractArtifact`].
-pub struct ContractBuilder;
+pub struct ContractBuilder {
+    project_path: Option<PathBuf>,
+    target_path: Option<PathBuf>,
+}
 
 impl ContractBuilder {
+    /// Start a builder anchored to a Foundry project directory.
+    pub fn for_project(path: impl AsRef<Path>) -> Self {
+        Self {
+            project_path: Some(path.as_ref().to_path_buf()),
+            target_path: None,
+        }
+    }
+
+    /// Set the Solidity source file path relative to the project root.
+    pub fn with_target_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.target_path = Some(path.as_ref().to_path_buf());
+        self
+    }
+
     /// Build and load the contract artifact.
-    ///
-    /// `project_path` is the directory containing `foundry.toml`.
-    /// `contract_path` is the Solidity source file relative to the project root.
-    pub fn build(
-        project_path: impl AsRef<Path>,
-        contract_path: impl AsRef<Path>,
-    ) -> Result<artifact::ContractArtifact> {
-        let resolved = project_path.as_ref().join(contract_path.as_ref());
+    pub fn build(self) -> Result<artifact::ContractArtifact> {
+        let project_path = self.project_path.context("project path is required")?;
+        let contract_path = self.target_path.context("target path is required")?;
+
+        let resolved = project_path.join(&contract_path);
 
         ensure!(
             resolved.exists(),
             "File not found: {} (resolved from {})",
             resolved.display(),
-            contract_path.as_ref().display()
+            contract_path.display()
         );
 
         if resolved.extension() != Some("sol".as_ref()) {
             bail!(
                 "Expected a Solidity file (.sol), got: {}",
-                contract_path.as_ref().display()
+                contract_path.display()
             );
         }
 
         let contract_path = resolved.canonicalize()?;
-        let project_path = project_path.as_ref().canonicalize()?;
+        let project_path = project_path.canonicalize()?;
 
         forge::build(&project_path, &contract_path)?;
 
@@ -274,11 +288,10 @@ mod tests {
 
     #[test]
     fn build_succeeds_with_basic_target() {
-        let artifact = ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/Target.sol"),
-        )
-        .unwrap();
+        let artifact = ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("test/Target.sol"))
+            .build()
+            .unwrap();
         assert_eq!(artifact.contract_name, "Target");
         assert_eq!(artifact.abi.functions().count(), 3);
     }
@@ -287,11 +300,10 @@ mod tests {
     fn build_uses_contract_name_not_filename() {
         // Regression: NamedMismatch.sol contains `contract DifferentName`,
         // so the artifact name must be "DifferentName", not "NamedMismatch".
-        let artifact = ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("src/NamedMismatch.sol"),
-        )
-        .unwrap();
+        let artifact = ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("src/NamedMismatch.sol"))
+            .build()
+            .unwrap();
         assert_eq!(artifact.contract_name, "DifferentName");
         assert!(
             artifact.abi.functions().any(|f| f.name == "set"),
@@ -311,12 +323,18 @@ mod tests {
         // Step 1: build with name Original (stale artifact exists).
         let original_source = saved.replace("Renamed", "Original");
         fs::write(&source, &original_source).unwrap();
-        let artifact1 = ContractBuilder::build(project, Path::new("src/Renamed.sol")).unwrap();
+        let artifact1 = ContractBuilder::for_project(project)
+            .with_target_path(Path::new("src/Renamed.sol"))
+            .build()
+            .unwrap();
         assert_eq!(artifact1.contract_name, "Original");
 
         // Step 2: rename contract in source and rebuild.
         fs::write(&source, &saved).unwrap();
-        let artifact2 = ContractBuilder::build(project, Path::new("src/Renamed.sol")).unwrap();
+        let artifact2 = ContractBuilder::for_project(project)
+            .with_target_path(Path::new("src/Renamed.sol"))
+            .build()
+            .unwrap();
         assert_eq!(artifact2.contract_name, "Renamed");
 
         // Restore source.
@@ -325,11 +343,10 @@ mod tests {
 
     #[test]
     fn build_fails_when_multiple_contracts_in_file() {
-        let err = ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/MultiContract.sol"),
-        )
-        .unwrap_err();
+        let err = ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("test/MultiContract.sol"))
+            .build()
+            .unwrap_err();
         let msg = format!("{err}");
         assert!(
             msg.contains("multiple contracts found"),
@@ -339,11 +356,10 @@ mod tests {
 
     #[test]
     fn build_fails_on_invariant_not_view_pure() {
-        let err = ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/PropertiesDiscovery.sol"),
-        )
-        .unwrap_err();
+        let err = ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("test/PropertiesDiscovery.sol"))
+            .build()
+            .unwrap_err();
         let msg = format!("{err}");
         assert!(
             msg.contains("invariant_not_view"),
@@ -357,11 +373,10 @@ mod tests {
 
     #[test]
     fn build_discovers_invariants_with_correct_signature() {
-        let artifact = ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("src/NamedMismatch.sol"),
-        )
-        .unwrap();
+        let artifact = ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+            .with_target_path(Path::new("src/NamedMismatch.sol"))
+            .build()
+            .unwrap();
         assert_eq!(artifact.contract_name, "DifferentName");
 
         // NamedMismatch.sol has one valid invariant: invariant_is_set.
@@ -377,33 +392,30 @@ mod tests {
 
     #[test]
     fn build_fails_with_compiler_error() {
-        let err = ContractBuilder::build(
-            Path::new("fixtures/build-failed"),
-            Path::new("test/Broken.sol"),
-        )
-        .unwrap_err();
+        let err = ContractBuilder::for_project(Path::new("fixtures/build-failed"))
+            .with_target_path(Path::new("test/Broken.sol"))
+            .build()
+            .unwrap_err();
         let expected = "Error: Compiler run failed:\nError (2314): Expected ';' but got 'function'\n --> test/Broken.sol:7:5:\n  |\n7 |     function set(uint256 x) external {\n  |     ^^^^^^^^";
         assert_eq!(format!("{err}"), expected);
     }
 
     #[test]
     fn build_fails_when_file_not_found() {
-        let err = ContractBuilder::build(
-            Path::new("fixtures/build-failed"),
-            Path::new("test/Missing.sol"),
-        )
-        .unwrap_err();
+        let err = ContractBuilder::for_project(Path::new("fixtures/build-failed"))
+            .with_target_path(Path::new("test/Missing.sol"))
+            .build()
+            .unwrap_err();
         let expected = "File not found: fixtures/build-failed/test/Missing.sol (resolved from test/Missing.sol)";
         assert_eq!(format!("{err}"), expected);
     }
 
     #[test]
     fn build_fails_when_not_solidity() {
-        let err = ContractBuilder::build(
-            Path::new("fixtures/build-failed"),
-            Path::new("test/something.txt"),
-        )
-        .unwrap_err();
+        let err = ContractBuilder::for_project(Path::new("fixtures/build-failed"))
+            .with_target_path(Path::new("test/something.txt"))
+            .build()
+            .unwrap_err();
         let expected = "Expected a Solidity file (.sol), got: test/something.txt";
         assert_eq!(format!("{err}"), expected);
     }

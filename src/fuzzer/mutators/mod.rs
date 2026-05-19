@@ -86,11 +86,10 @@ mod tests {
 
     #[test]
     fn mutated_sequence_advances_blocks_when_zero_delay_follows_nonzero() {
-        let artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/challenges"),
-            Path::new("src/L1SimpleKnob.sol"),
-        )
-        .unwrap();
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/challenges"))
+            .with_target_path(Path::new("src/L1SimpleKnob.sol"))
+            .build()
+            .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

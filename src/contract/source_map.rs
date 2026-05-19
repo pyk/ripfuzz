@@ -266,11 +266,11 @@ mod tests {
 
     #[test]
     fn resolve_coverage_maps_pc_to_source_location() {
-        let artifact = crate::contract::ContractBuilder::build(
-            Path::new("fixtures/basic-target"),
-            Path::new("test/Target.sol"),
-        )
-        .unwrap();
+        let artifact =
+            crate::contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
+                .with_target_path(Path::new("test/Target.sol"))
+                .build()
+                .unwrap();
 
         assert!(
             artifact.runtime_source_map.is_some(),

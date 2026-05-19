@@ -681,9 +681,10 @@ mod tests {
 
     fn run_trace_case(name: &str, value: U256) -> String {
         let path = format!("src/{}.sol", name);
-        let artifact =
-            contract::ContractBuilder::build(Path::new("fixtures/traces"), Path::new(&path))
-                .unwrap_or_else(|e| panic!("failed to build {}: {}", name, e));
+        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/traces"))
+            .with_target_path(Path::new(&path))
+            .build()
+            .unwrap_or_else(|e| panic!("failed to build {}: {}", name, e));
 
         let mut db =
             crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty());
@@ -747,17 +748,15 @@ mod tests {
 
     #[test]
     fn label_call_trace() {
-        let target_artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/traces"),
-            Path::new("src/ExternalTarget.sol"),
-        )
-        .unwrap();
+        let target_artifact = contract::ContractBuilder::for_project(Path::new("fixtures/traces"))
+            .with_target_path(Path::new("src/ExternalTarget.sol"))
+            .build()
+            .unwrap();
 
-        let trace_artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/traces"),
-            Path::new("src/LabelCallTrace.sol"),
-        )
-        .unwrap();
+        let trace_artifact = contract::ContractBuilder::for_project(Path::new("fixtures/traces"))
+            .with_target_path(Path::new("src/LabelCallTrace.sol"))
+            .build()
+            .unwrap();
 
         let mut db =
             crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty());
@@ -811,17 +810,15 @@ mod tests {
 
     #[test]
     fn vm_label_trace() {
-        let target_artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/traces"),
-            Path::new("src/ExternalTarget.sol"),
-        )
-        .unwrap();
+        let target_artifact = contract::ContractBuilder::for_project(Path::new("fixtures/traces"))
+            .with_target_path(Path::new("src/ExternalTarget.sol"))
+            .build()
+            .unwrap();
 
-        let trace_artifact = contract::ContractBuilder::build(
-            Path::new("fixtures/traces"),
-            Path::new("src/VmLabelTrace.sol"),
-        )
-        .unwrap();
+        let trace_artifact = contract::ContractBuilder::for_project(Path::new("fixtures/traces"))
+            .with_target_path(Path::new("src/VmLabelTrace.sol"))
+            .build()
+            .unwrap();
 
         let mut db =
             crate::chain::fork::ForkDatabase::new(crate::chain::fork::ForkBackend::empty());

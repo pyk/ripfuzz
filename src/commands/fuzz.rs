@@ -11,6 +11,7 @@ use revm::primitives::U256;
 use tracing::{debug, info, instrument};
 
 use crate::campaign::CampaignConfig;
+use crate::contract::ContractBuilder;
 use crate::contract::resolve_coverage_to_source;
 
 fn default_threads() -> usize {
@@ -295,7 +296,9 @@ pub fn run(args: Args) -> Result<()> {
 
     // Compile target
     let t0 = std::time::Instant::now();
-    let artifact = crate::contract::ContractBuilder::build(&project_path, &args.target_path)?;
+    let artifact = ContractBuilder::for_project(&project_path)
+        .with_target_path(&args.target_path)
+        .build()?;
     let compile_elapsed = t0.elapsed();
     info!(target: "raptor::user", name = %artifact.contract_name, time_ms = compile_elapsed.as_millis(), "Finished compiling targets");
 
