@@ -14,6 +14,7 @@ use crate::campaign::CampaignConfig;
 use crate::chain::Environment;
 use crate::contract::ContractBuilder;
 use crate::contract::resolve_coverage_to_source;
+use crate::foundry;
 use crate::rpc::RpcClient;
 
 fn default_threads() -> usize {
@@ -72,9 +73,9 @@ fn parse_address(s: &str) -> Result<Address, String> {
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Path to the target contract (e.g. ./test/Contract.sol).
-    #[arg(value_name = "TARGET_PATH")]
-    pub target_path: PathBuf,
+    /// Target contract identifier (e.g. ./test/Contract.sol:Contract).
+    #[arg(value_name = "TARGET")]
+    pub target: foundry::BuildArtifactId,
 
     // Project & Deployment
     /// Path to the Foundry project root.
@@ -320,17 +321,17 @@ impl ForkModeArgs {
     }
 }
 
-#[instrument(skip(args), fields(target = ?args.target_path, threads = args.threads, max_runs = args.max_runs))]
+#[instrument(skip(args), fields(target = ?args.target, threads = args.threads, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
     // Resolve project path
     let project_path = args.project_path.map(Ok).unwrap_or_else(env::current_dir)?;
     debug!(?project_path, "resolved project path");
 
     // Compile target
-    info!(target: "raptor::user", project = %project_path.display(), target = %args.target_path.display(), "Compiling");
+    info!(target: "raptor::user", project = %project_path.display(), target = %args.target, "Compiling");
     let t0 = std::time::Instant::now();
     let artifact = ContractBuilder::for_project(&project_path)
-        .with_target_path(&args.target_path)
+        .with_target_path(&args.target.path)
         .build()?;
     let compile_elapsed = t0.elapsed();
     info!(target: "raptor::user", took = %format!("{}ms", compile_elapsed.as_millis()), "Finished compiling target");
