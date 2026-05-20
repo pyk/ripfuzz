@@ -7,6 +7,16 @@ check: ## Run code quality tools.
 	@echo "Run checkrs"
 	@checkrs run src/
 
+FIXTURE_DIRS := $(wildcard fixtures/*)
+
+.PHONY: build-fixtures
+build-fixtures: ## Force-rebuild all test fixtures with --ast
+	@echo "Building fixtures"
+	@for d in $(FIXTURE_DIRS); do \
+		echo "  $$d"; \
+		forge build --root "$$d" --ast --force || true; \
+	done
+
 .PHONY: bin
 bin: ## Install local binary
 	@echo "Installing local binary"
