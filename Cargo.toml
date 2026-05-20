@@ -58,6 +58,9 @@ solc = "0.0.9"
 # Parallel processing
 rayon = "1.12"
 
+# Path traversal
+walkdir = "2"
+
 [dev-dependencies]
 # Test utilities
 serial_test = "=3.4.0"
