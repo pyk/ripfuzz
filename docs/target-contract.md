@@ -226,7 +226,7 @@ For each fuzz input, raptor performs this exact sequence:
 
 ## Fork Mode
 
-When `--fork-rpc-url` and `--fork-rpc-block` are passed to `raptor fuzz`, the EVM
+When `--rpc-url` and `--rpc-block` are passed to `raptor fuzz`, the EVM
 initializes its database from a remote Ethereum node at the specified block.
 This lets target contracts reference live mainnet (or testnet) state — for
 example, querying the real USDC contract — while still fuzzing locally.
