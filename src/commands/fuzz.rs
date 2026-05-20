@@ -15,6 +15,7 @@ use crate::chain::Environment;
 use crate::contract::resolve_coverage_to_source;
 use crate::foundry;
 use crate::rpc::RpcClient;
+use crate::target;
 
 fn default_threads() -> usize {
     std::thread::available_parallelism()
@@ -172,7 +173,7 @@ pub struct Args {
 
     /// Fork mode configuration.
     #[command(flatten)]
-    pub fork: ForkModeArgs,
+    pub fork_mode: ForkModeArgs,
 
     // Security
     /// Enable the `ffi` cheatcode (security-sensitive).
@@ -315,9 +316,9 @@ pub fn run(args: Args) -> Result<()> {
     debug!(?project_path, "resolved project path");
 
     // Build project
-    info!(project = %project_path.display(), "building project");
+    info!("building project");
     let project = foundry::Project::builder()
-        .path(project_path.clone())
+        .path(project_path.clone()) // TODO(pyk): review this clone later
         .force(args.force)
         .build()?;
 
@@ -331,8 +332,25 @@ pub fn run(args: Args) -> Result<()> {
     );
 
     // Load target contract
+    info!("loading target contract");
+    let target_artifact = build_artifacts
+        .get(&args.target)
+        .context("target artifact missing")?
+        .clone();
+    let _target_contract = target::Contract::try_from(target_artifact.clone())?; // TODO(pyk): review this clone later
 
     // Resolve chain environment
+    info!("loading chain environment");
+    let env = if args.fork_mode.rpc_urls.is_empty() {
+        info!("sandbox environment resolved");
+        Environment::sandbox()
+    } else {
+        let chain_id = args.fork_mode.validate_chain_id(&project_path)?;
+        let (rpc, block) = args.fork_mode.build_rpc(chain_id)?;
+        let cache_dir = project_path.join("raptor").join("cache");
+        info!("fork environment resolved");
+        Environment::fork(rpc, block, &cache_dir)
+    };
 
     // Create chain based on the environment
 
@@ -346,13 +364,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Report results
 
-    // Convert target build artifact to deployable contract artifact.
-    info!(project = %project_path.display(), target = %args.target, "Compiling");
-    let t0 = std::time::Instant::now();
-    let target_build_artifact = build_artifacts
-        .get(&args.target)
-        .context("target artifact missing")?;
-    let crate::foundry::BuildArtifact::Contract(target) = target_build_artifact else {
+    let crate::foundry::BuildArtifact::Contract(target) = &target_artifact else {
         bail!("target `{}` is not a deployable contract", args.target);
     };
     let artifact = crate::contract::ContractArtifact::from_foundry_artifact(
@@ -360,8 +372,6 @@ pub fn run(args: Args) -> Result<()> {
         &build_artifacts,
         &project_path,
     )?;
-    let compile_elapsed = t0.elapsed();
-    info!(took = %format!("{}ms", compile_elapsed.as_millis()), "Finished compiling target");
 
     // Validate artifact
     let targets: Vec<String> = artifact.target_functions().map(|f| f.signature()).collect();
@@ -391,15 +401,6 @@ pub fn run(args: Args) -> Result<()> {
     );
 
     // Build environment
-    let env = if args.fork.rpc_urls.is_empty() {
-        Environment::sandbox()
-    } else {
-        let chain_id = args.fork.validate_chain_id(&project_path)?;
-        let (rpc, block) = args.fork.build_rpc(chain_id)?;
-        let cache_dir = project_path.join("raptor").join("cache");
-        Environment::fork(rpc, block, &cache_dir)
-    };
-
     let config = CampaignConfig {
         threads: args.threads,
         max_runs: args.max_runs,
