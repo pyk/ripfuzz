@@ -14,6 +14,9 @@ path = "src/lib.rs"
 # Error handling
 anyhow = "1.0.100"
 
+# Struct Builder
+bon = "3.9.1"
+
 # CLI
 clap = { version="4.5.54", features = ["derive"] }
 
@@ -48,6 +51,12 @@ uuid = { version = "1", features = ["v4"] }
 
 # HTTP client
 ureq = "3.3.0"
+
+# Solidity compiler bindings
+solc = "0.0.9"
+
+# Parallel processing
+rayon = "1.12"
 
 [dev-dependencies]
 # Test utilities
