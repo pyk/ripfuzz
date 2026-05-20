@@ -25,7 +25,7 @@ fn main() -> ExitCode {
 
     let result = match cli.command {
         Commands::Fuzz(args) => {
-            logger::init(Some(args.tracing_level()));
+            logger::init(args.verbosity.tracing_level());
             commands::fuzz::run(args)
         }
     };

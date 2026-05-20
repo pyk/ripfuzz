@@ -6,11 +6,13 @@ use std::process::Command;
 
 use anyhow::{Result, bail, ensure};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use tracing::{debug, instrument};
 use walkdir::WalkDir;
 
 use crate::foundry::build_artifact::{BuildArtifact, BuildArtifactId};
 
 /// A Foundry project located at a specific filesystem path.
+#[derive(Debug)]
 pub struct Project {
     /// Absolute or relative path to the project root.
     pub path: PathBuf,
@@ -50,6 +52,7 @@ impl Project {
     ///
     /// Artifact JSONs are discovered with `walkdir` (`out/*.sol/*.json`) and
     /// parsed in parallel with `rayon`.
+    #[instrument(fields(path = %self.path.display()))]
     pub fn load_build_artifacts(&self) -> Result<HashMap<BuildArtifactId, BuildArtifact>> {
         let out_dir = self.path.join("out");
         ensure!(
@@ -57,6 +60,8 @@ impl Project {
             "output directory does not exist: {}",
             out_dir.display()
         );
+
+        debug!(out_dir = %out_dir.display(), "discovering build artifacts");
 
         let paths: Vec<PathBuf> = WalkDir::new(&out_dir)
             .min_depth(1)
@@ -78,10 +83,13 @@ impl Project {
             })
             .collect();
 
+        debug!(count = paths.len(), "found artifact files");
+
         let parsed: Vec<Result<(BuildArtifactId, BuildArtifact)>> = paths
             .into_par_iter()
             // checkrs: allow(clone_in_iterator)
             .map(|path| {
+                debug!(path = %path.display(), "parsing artifact");
                 let artifact = BuildArtifact::from_json(&path)?;
                 let id = artifact.id().clone();
                 Ok((id, artifact))

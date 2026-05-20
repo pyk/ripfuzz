@@ -9,6 +9,7 @@ use std::str::FromStr;
 use alloy_json_abi::JsonAbi;
 use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
+use tracing::{debug, instrument};
 
 // ---------------------------------------------------------------------------
 // Foundry's Build Artifact ID
@@ -147,12 +148,18 @@ struct BuildArtifactSettings {
 
 impl BuildArtifact {
     /// Load a build artifact from a JSON file on disk.
+    #[instrument(err, fields(path = %path.as_ref().display()))]
     pub fn from_json(path: impl AsRef<Path>) -> Result<Self> {
-        let content = fs::read_to_string(path)?;
+        let path = path.as_ref();
+        debug!(path = %path.display(), "loading build artifact");
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("failed to read artifact: {}", path.display()))?;
         Self::from_json_str(&content)
+            .with_context(|| format!("failed to parse artifact: {}", path.display()))
     }
 
     /// Load a build artifact from a JSON string.
+    #[instrument(err)]
     pub fn from_json_str(content: &str) -> Result<Self> {
         let json: BuildArtifactJson = serde_json::from_str(content)?;
 

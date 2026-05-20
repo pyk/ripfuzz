@@ -168,13 +168,8 @@ pub struct Args {
     pub corpus_dir: Option<PathBuf>,
 
     // Logging
-    /// Increase logging verbosity.
-    #[arg(short = 'v', long = "verbose", action = clap::ArgAction::Count, help_heading = "Logging")]
-    pub verbose: u8,
-
-    /// Decrease logging verbosity.
-    #[arg(short = 'q', long = "quiet", action = clap::ArgAction::Count, help_heading = "Logging")]
-    pub quiet: u8,
+    #[command(flatten)]
+    pub verbosity: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
 
     /// Fork mode configuration.
     #[command(flatten)]
@@ -184,18 +179,6 @@ pub struct Args {
     /// Enable the `ffi` cheatcode (security-sensitive).
     #[arg(long = "ffi", help_heading = "Security")]
     pub ffi: bool,
-}
-
-impl Args {
-    pub fn tracing_level(&self) -> tracing::Level {
-        match self.verbose as i32 - self.quiet as i32 {
-            i32::MIN..=-2 => tracing::Level::ERROR,
-            -1 => tracing::Level::WARN,
-            0 => tracing::Level::INFO,
-            1 => tracing::Level::DEBUG,
-            2..=i32::MAX => tracing::Level::TRACE,
-        }
-    }
 }
 
 #[derive(Debug, Parser)]
@@ -327,10 +310,20 @@ pub fn run(args: Args) -> Result<()> {
     let project_path = args.project_path.map(Ok).unwrap_or_else(env::current_dir)?;
     debug!(?project_path, "resolved project path");
 
+    let project = foundry::Project::new(&project_path);
+
     // Build project
     info!(project = %project_path.display(), "building project");
-    let project = foundry::Project::new(&project_path);
     project.build()?;
+
+    // Load build artifacts
+    info!("loading build artifacts");
+    let build_artifacts = project.load_build_artifacts()?;
+    ensure!(
+        build_artifacts.contains_key(&args.target),
+        "target contract `{}` not found in build artifacts",
+        args.target
+    );
 
     // Compile target
     info!(project = %project_path.display(), target = %args.target, "Compiling");

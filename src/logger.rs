@@ -1,10 +1,8 @@
 //! Logging setup for the Raptor CLI.
 //!
-//! Provides a dual-layer [`tracing`] subscriber:
-//! - A **user-facing** layer (stdout) for clean, structured output with the
-//!   `[raptor]` prefix.
-//! - A **diagnostic** layer (stderr) for internal debug / lifecycle logs
-//!   gated by `-v` / `-vv`.
+//! Provides a [`tracing`] subscriber that writes clean, structured output
+//! to stdout with the log level as a prefix. Verbosity is controlled by
+//! the CLI `-v` / `-vv` flags.
 
 use std::io::IsTerminal;
 
@@ -62,7 +60,7 @@ impl Visit for MessageFirstVisitor {
 /// Custom event formatter that emits:
 ///
 /// ```text
-/// [raptor] Message text key=value key=value
+/// LEVEL Message text key=value key=value
 /// ```
 ///
 /// When the writer supports ANSI escapes, the prefix is bright green and
@@ -83,14 +81,15 @@ where
         let has_ansi = writer.has_ansi_escapes();
 
         // 1. Prefix — red for errors, green for everything else.
-        let prefix_color = match *event.metadata().level() {
+        let level = event.metadata().level();
+        let prefix_color = match *level {
             tracing::Level::ERROR => RED,
             _ => GREEN,
         };
         if has_ansi {
-            write!(writer, "{}[raptor]{} ", prefix_color, RESET)?;
+            write!(writer, "{}{level}{} ", prefix_color, RESET)?;
         } else {
-            write!(writer, "[raptor] ")?;
+            write!(writer, "{level} ")?;
         }
 
         // 2. Message + Data
@@ -123,32 +122,23 @@ where
 /// Initialize the global tracing subscriber.
 ///
 /// `level` is derived from the CLI verbosity flags (`-v`, `-vv`, etc.).
+/// `None` means the user requested complete silence.
 pub fn init(level: Option<tracing::Level>) {
-    let user_layer = fmt::layer()
-        .event_format(RaptorFormat)
-        .with_ansi(std::io::stdout().is_terminal())
-        .with_filter(EnvFilter::new("raptor=info"));
-
-    let diagnostic_layer = fmt::layer()
-        .with_writer(std::io::stderr)
-        .event_format(fmt::format().compact().without_time().with_target(false))
-        .with_filter(diagnostic_filter(level));
+    let filter = match level {
+        None => EnvFilter::new("off"),
+        Some(tracing::Level::ERROR) => EnvFilter::new("raptor=error"),
+        Some(tracing::Level::WARN) => EnvFilter::new("raptor=warn,revm=error"),
+        Some(tracing::Level::INFO) => EnvFilter::new("raptor=info,revm=error"),
+        Some(tracing::Level::DEBUG) => EnvFilter::new("raptor=debug,revm=warn"),
+        Some(tracing::Level::TRACE) => EnvFilter::new("trace"),
+    };
 
     tracing_subscriber::registry()
-        .with(user_layer)
-        .with(diagnostic_layer)
+        .with(
+            fmt::layer()
+                .event_format(RaptorFormat)
+                .with_ansi(std::io::stdout().is_terminal())
+                .with_filter(filter),
+        )
         .init();
-}
-
-/// Build the diagnostic [`EnvFilter`] from the CLI verbosity level.
-fn diagnostic_filter(level: Option<tracing::Level>) -> EnvFilter {
-    let directives = match level {
-        None => "off",
-        Some(tracing::Level::ERROR) => "error",
-        Some(tracing::Level::WARN) => "warn,revm=error",
-        Some(tracing::Level::INFO) => "raptor=warn,revm=error",
-        Some(tracing::Level::DEBUG) => "raptor=info,revm=warn",
-        Some(tracing::Level::TRACE) => "trace",
-    };
-    EnvFilter::new(directives)
 }
