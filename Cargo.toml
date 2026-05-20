@@ -54,7 +54,7 @@ uuid = { version = "1", features = ["v4"] }
 ureq = "3.3.0"
 
 # Solidity compiler bindings
-solc = "0.0.9"
+solc = "0.0.10"
 
 # Parallel processing
 rayon = "1.12"
