@@ -7,6 +7,5 @@ pub use build_artifact::{
 pub use project::Project;
 pub use toml::{FoundryProfile, FoundryToml};
 pub mod build_artifact;
-pub mod forge;
 pub mod project;
 pub mod toml;
