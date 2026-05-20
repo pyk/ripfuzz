@@ -460,7 +460,6 @@ fn generate_random_sequence(
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
 
     use crate::chain::output::CallMeta;
     use crate::contract;
@@ -470,10 +469,9 @@ mod tests {
 
     #[test]
     fn format_failure_uses_block_number_and_timestamp_labels() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/challenges"))
-            .with_target_path(Path::new("src/L1SimpleKnob.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/challenges", "src/L1SimpleKnob.sol")
+                .unwrap();
 
         let calls = vec![
             corpus::Call {

@@ -26,7 +26,6 @@ impl Cheatcode for ChainId {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
 
     use revm::primitives::{Bytes, U256};
     use serial_test::serial;
@@ -86,10 +85,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_chain_id_setup_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeChainId.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeChainId.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -113,10 +111,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_chain_id_sequence_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeChainId.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeChainId.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -152,10 +149,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_chain_id_revert_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeChainId.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeChainId.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -181,10 +177,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_chain_id_overwrite_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeChainId.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeChainId.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -226,10 +221,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_chain_id_zero_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeChainId.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeChainId.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -263,10 +257,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_chain_id_max_u64_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeChainId.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeChainId.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -300,10 +293,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_chain_id_too_large_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeChainId.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeChainId.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -327,10 +319,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_chain_id_corpus_isolation_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeChainId.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeChainId.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -368,10 +359,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_chain_id_invariant_final_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeChainId.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeChainId.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -395,10 +385,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_chain_id_warp_interaction_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeChainId.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeChainId.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

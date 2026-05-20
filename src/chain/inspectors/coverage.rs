@@ -171,7 +171,6 @@ impl<CTX> Inspector<CTX, EthInterpreter> for CoverageInspector {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
 
     use revm::{
         MainBuilder, MainContext,
@@ -190,10 +189,9 @@ mod tests {
 
     #[test]
     fn coverage_inspector_collects_hits_for_deployed_contract() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
-            .with_target_path(Path::new("src/NamedMismatch.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/basic-target", "src/NamedMismatch.sol")
+                .unwrap();
 
         let mut db = InMemoryDB::default();
         db.insert_account_info(

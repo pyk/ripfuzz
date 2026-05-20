@@ -41,7 +41,6 @@ impl Cheatcode for Store {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
 
     use revm::{
         MainContext,
@@ -162,10 +161,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_load_setup_persists_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLoad.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLoad.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -189,10 +187,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_load_same_sequence_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLoad.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLoad.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -218,10 +215,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_load_revert_safety_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLoad.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLoad.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -247,10 +243,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_load_overwrite_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLoad.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLoad.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -274,10 +269,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_load_empty_address_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLoad.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLoad.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -301,10 +295,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_load_corpus_isolation_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLoad.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLoad.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -342,10 +335,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_load_cross_cheatcode_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLoad.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLoad.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -369,10 +361,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_load_precompile_reverts_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLoad.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLoad.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -400,10 +391,9 @@ mod tests {
     #[test]
     #[serial]
     fn store_setup_persists_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeStore.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeStore.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -427,10 +417,9 @@ mod tests {
     #[test]
     #[serial]
     fn store_same_sequence_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeStore.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeStore.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -456,10 +445,9 @@ mod tests {
     #[test]
     #[serial]
     fn store_revert_safety_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeStore.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeStore.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -485,10 +473,9 @@ mod tests {
     #[test]
     #[serial]
     fn store_overwrite_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeStore.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeStore.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -512,10 +499,9 @@ mod tests {
     #[test]
     #[serial]
     fn store_zero_clear_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeStore.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeStore.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -539,10 +525,9 @@ mod tests {
     #[test]
     #[serial]
     fn store_empty_address_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeStore.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeStore.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -566,10 +551,9 @@ mod tests {
     #[test]
     #[serial]
     fn store_multi_call_final_state_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeStore.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeStore.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -603,10 +587,9 @@ mod tests {
     #[test]
     #[serial]
     fn store_corpus_isolation_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeStore.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeStore.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -644,10 +627,9 @@ mod tests {
     #[test]
     #[serial]
     fn store_precompile_reverts_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeStore.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeStore.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -671,10 +653,9 @@ mod tests {
     #[test]
     #[serial]
     fn store_cross_cheatcode_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeStore.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeStore.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

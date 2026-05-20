@@ -726,10 +726,9 @@ mod tests {
         config.max_runs = 100;
         config.timeout_secs = Some(30);
 
-        let artifact = crate::contract::ContractBuilder::for_project(Path::new("fixtures/forks"))
-            .with_target_path(Path::new("test/ForkTarget.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            crate::contract::tests::load_test_artifact("fixtures/forks", "test/ForkTarget.sol")
+                .unwrap();
         let vm = crate::vm::Vm::new(crate::vm::VmConfig::default());
         let chain = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/forks"))

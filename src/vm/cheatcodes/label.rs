@@ -56,7 +56,6 @@ impl Cheatcode for GetLabel {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::path::Path;
     use std::sync::{Arc, RwLock};
 
     use revm::{MainContext, database::InMemoryDB, primitives::Address};
@@ -214,10 +213,9 @@ mod tests {
     #[test]
     #[serial]
     fn label_setup_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLabel.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLabel.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -232,10 +230,9 @@ mod tests {
     #[test]
     #[serial]
     fn label_sequence_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLabel.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLabel.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -280,10 +277,9 @@ mod tests {
     #[test]
     #[serial]
     fn label_overwrite_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLabel.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLabel.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -307,10 +303,9 @@ mod tests {
     #[test]
     #[serial]
     fn label_revert_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLabel.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLabel.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -334,10 +329,9 @@ mod tests {
     #[test]
     #[serial]
     fn label_empty_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLabel.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLabel.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -361,10 +355,9 @@ mod tests {
     #[test]
     #[serial]
     fn label_zero_address_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLabel.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLabel.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -388,10 +381,9 @@ mod tests {
     #[test]
     #[serial]
     fn label_setup_override_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLabel.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLabel.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -415,10 +407,9 @@ mod tests {
     #[test]
     #[serial]
     fn label_cross_sequence_isolation() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeLabel.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeLabel.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

@@ -27,7 +27,6 @@ impl Cheatcode for Fee {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
 
     use revm::primitives::U256;
     use serial_test::serial;
@@ -81,10 +80,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_fee_setup_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeFee.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeFee.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -108,10 +106,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_fee_sequence_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeFee.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeFee.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -147,10 +144,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_fee_revert_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeFee.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeFee.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -176,10 +172,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_fee_overwrite_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeFee.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeFee.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -221,10 +216,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_fee_zero_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeFee.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeFee.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -258,10 +252,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_fee_max_uint64_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeFee.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeFee.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -285,10 +278,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_fee_corpus_isolation_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeFee.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeFee.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -326,10 +318,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_fee_invariant_final_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeFee.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeFee.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -353,10 +344,9 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_fee_roll_warp_interaction_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeFee.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/cheatcodes", "test/CheatcodeFee.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

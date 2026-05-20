@@ -224,7 +224,6 @@ impl Chain {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::path::Path;
 
     use crate::chain::Chain;
     use crate::contract;
@@ -232,10 +231,9 @@ mod tests {
 
     #[test]
     fn chain_execute_returns_coverage_and_all_ok() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
-            .with_target_path(Path::new("src/NamedMismatch.sol"))
-            .build()
-            .unwrap();
+        let artifact =
+            contract::tests::load_test_artifact("fixtures/basic-target", "src/NamedMismatch.sol")
+                .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

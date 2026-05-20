@@ -164,7 +164,6 @@ impl Cheatcode for ToStringBytes {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
 
     use serial_test::serial;
 
@@ -395,10 +394,11 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_to_string_setup_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeToString.sol"))
-            .build()
-            .unwrap();
+        let artifact = contract::tests::load_test_artifact(
+            "fixtures/cheatcodes",
+            "test/CheatcodeToString.sol",
+        )
+        .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -417,10 +417,11 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_to_string_edge_cases_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeToString.sol"))
-            .build()
-            .unwrap();
+        let artifact = contract::tests::load_test_artifact(
+            "fixtures/cheatcodes",
+            "test/CheatcodeToString.sol",
+        )
+        .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -500,10 +501,11 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_to_string_side_effect_isolation_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeToString.sol"))
-            .build()
-            .unwrap();
+        let artifact = contract::tests::load_test_artifact(
+            "fixtures/cheatcodes",
+            "test/CheatcodeToString.sol",
+        )
+        .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
@@ -547,10 +549,11 @@ mod tests {
     #[test]
     #[serial]
     fn cheatcode_to_string_round_trip_integration() {
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/cheatcodes"))
-            .with_target_path(Path::new("test/CheatcodeToString.sol"))
-            .build()
-            .unwrap();
+        let artifact = contract::tests::load_test_artifact(
+            "fixtures/cheatcodes",
+            "test/CheatcodeToString.sol",
+        )
+        .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
             .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))

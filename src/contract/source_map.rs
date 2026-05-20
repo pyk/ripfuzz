@@ -110,15 +110,15 @@ pub fn resolve_coverage_to_source(
     let init_id = ContractId::from(keccak256(&artifact.initcode));
 
     if let Some(contract_cov) = coverage.contracts.get(&runtime_id)
-        && let Some(source_map) = &artifact.runtime_source_map
+        && let Some(source_map) = artifact.runtime_source_map()
     {
-        resolve_contract_coverage(contract_cov, source_map, &mut report, &mut seen);
+        resolve_contract_coverage(contract_cov, &source_map, &mut report, &mut seen);
     }
 
     if let Some(contract_cov) = coverage.contracts.get(&init_id)
-        && let Some(source_map) = &artifact.init_source_map
+        && let Some(source_map) = artifact.init_source_map()
     {
-        resolve_contract_coverage(contract_cov, source_map, &mut report, &mut seen);
+        resolve_contract_coverage(contract_cov, &source_map, &mut report, &mut seen);
     }
 
     report
@@ -265,23 +265,19 @@ mod tests {
 
     #[test]
     fn resolve_coverage_maps_pc_to_source_location() {
-        let artifact =
-            crate::contract::ContractBuilder::for_project(Path::new("fixtures/basic-target"))
-                .with_target_path(Path::new("test/Target.sol"))
-                .build()
-                .unwrap();
+        let artifact = crate::contract::tests::load_test_artifact(
+            Path::new("fixtures/basic-target"),
+            Path::new("test/Target.sol"),
+        )
+        .unwrap();
 
+        let runtime_source_map = artifact.runtime_source_map();
         assert!(
-            artifact.runtime_source_map.is_some(),
+            runtime_source_map.is_some(),
             "runtime source map must be present"
         );
         assert!(
-            !artifact
-                .runtime_source_map
-                .as_ref()
-                .unwrap()
-                .entries
-                .is_empty(),
+            !runtime_source_map.as_ref().unwrap().entries.is_empty(),
             "runtime source map must have entries"
         );
 

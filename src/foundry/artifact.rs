@@ -1,16 +1,11 @@
 //! Foundry artifact JSON parsing and contract metadata extraction.
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_json_abi::JsonAbi;
-use revm::bytecode::Bytecode;
 use revm::primitives::Bytes;
 use serde::Deserialize;
-
-use crate::contract::artifact;
-use crate::contract::source_map::SourceMap;
 
 /// The subset of a Foundry artifact JSON that Raptor needs.
 #[derive(Debug, Clone, Deserialize)]
@@ -40,87 +35,6 @@ pub struct ArtifactBytecode {
     pub object: String,
     #[serde(default, rename = "sourceMap")]
     pub source_map: String,
-}
-
-impl ArtifactJson {
-    /// Build a [`artifact::ContractArtifact`] from this artifact.
-    pub fn into_artifact(
-        self,
-        contract_name: &str,
-        source_path: impl AsRef<Path>,
-    ) -> artifact::ContractArtifact {
-        let initcode = parse_hex(&self.bytecode.object).unwrap_or_default();
-        let runtime = parse_hex(&self.deployed_bytecode.object).unwrap_or_default();
-
-        let mut artifact = artifact::ContractArtifact {
-            contract_name: contract_name.to_owned(),
-            initcode,
-            runtime: Bytecode::new_raw(runtime),
-            abi: self.abi,
-            invariants: vec![],
-            initcode_map: HashMap::new(),
-            init_source_map: None,
-            runtime_source_map: None,
-        };
-
-        if !self.bytecode.source_map.is_empty() {
-            let mut map = SourceMap::parse(&self.bytecode.source_map);
-            map.contract_name = contract_name.to_owned();
-            map.source_path = source_path.as_ref().to_path_buf();
-            artifact.init_source_map = Some(map);
-        }
-
-        if !self.deployed_bytecode.source_map.is_empty() {
-            let mut map = SourceMap::parse(&self.deployed_bytecode.source_map);
-            map.contract_name = contract_name.to_owned();
-            map.source_path = source_path.as_ref().to_path_buf();
-            artifact.runtime_source_map = Some(map);
-        }
-
-        artifact
-    }
-
-    /// Build a [`artifact::ContractArtifact`] from this artifact with all project contracts.
-    pub fn into_artifact_with_all(
-        self,
-        contract_name: &str,
-        source_path: impl AsRef<Path>,
-        all_contracts: HashMap<String, (Bytes, JsonAbi)>,
-    ) -> crate::contract::artifact::ContractArtifact {
-        let initcode = parse_hex(&self.bytecode.object).unwrap_or_default();
-        let runtime = parse_hex(&self.deployed_bytecode.object).unwrap_or_default();
-        let initcode_map: HashMap<Bytes, (String, JsonAbi)> = all_contracts
-            .into_iter()
-            .map(|(name, (initcode, abi))| (initcode, (name, abi)))
-            .collect();
-
-        let mut artifact = crate::contract::artifact::ContractArtifact {
-            contract_name: contract_name.to_owned(),
-            initcode,
-            runtime: Bytecode::new_raw(runtime),
-            abi: self.abi,
-            invariants: vec![],
-            initcode_map,
-            init_source_map: None,
-            runtime_source_map: None,
-        };
-
-        if !self.bytecode.source_map.is_empty() {
-            let mut map = SourceMap::parse(&self.bytecode.source_map);
-            map.contract_name = contract_name.to_owned();
-            map.source_path = source_path.as_ref().to_path_buf();
-            artifact.init_source_map = Some(map);
-        }
-
-        if !self.deployed_bytecode.source_map.is_empty() {
-            let mut map = SourceMap::parse(&self.deployed_bytecode.source_map);
-            map.contract_name = contract_name.to_owned();
-            map.source_path = source_path.as_ref().to_path_buf();
-            artifact.runtime_source_map = Some(map);
-        }
-
-        artifact
-    }
 }
 
 pub fn parse_hex(s: &str) -> Option<Bytes> {

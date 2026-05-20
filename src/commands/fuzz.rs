@@ -12,7 +12,6 @@ use tracing::{debug, info, instrument};
 
 use crate::campaign::CampaignConfig;
 use crate::chain::Environment;
-use crate::contract::ContractBuilder;
 use crate::contract::resolve_coverage_to_source;
 use crate::foundry;
 use crate::rpc::RpcClient;
@@ -331,12 +330,20 @@ pub fn run(args: Args) -> Result<()> {
         args.target
     );
 
-    // Compile target
+    // Convert target build artifact to deployable contract artifact.
     info!(project = %project_path.display(), target = %args.target, "Compiling");
     let t0 = std::time::Instant::now();
-    let artifact = ContractBuilder::for_project(&project_path)
-        .with_target_path(&args.target.path)
-        .build()?;
+    let target_build_artifact = build_artifacts
+        .get(&args.target)
+        .context("target artifact missing")?;
+    let crate::foundry::BuildArtifact::Contract(target) = target_build_artifact else {
+        bail!("target `{}` is not a deployable contract", args.target);
+    };
+    let artifact = crate::contract::ContractArtifact::from_foundry_artifact(
+        target,
+        &build_artifacts,
+        &project_path,
+    )?;
     let compile_elapsed = t0.elapsed();
     info!(took = %format!("{}ms", compile_elapsed.as_millis()), "Finished compiling target");
 

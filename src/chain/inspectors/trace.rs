@@ -663,7 +663,6 @@ fn classify_result(
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
 
     use revm::{
         MainBuilder, MainContext,
@@ -681,9 +680,7 @@ mod tests {
 
     fn run_trace_case(name: &str, value: U256) -> String {
         let path = format!("src/{}.sol", name);
-        let artifact = contract::ContractBuilder::for_project(Path::new("fixtures/traces"))
-            .with_target_path(Path::new(&path))
-            .build()
+        let artifact = contract::tests::load_test_artifact("fixtures/traces", &path)
             .unwrap_or_else(|e| panic!("failed to build {}: {}", name, e));
 
         let mut db = crate::chain::Database::default();
@@ -747,15 +744,13 @@ mod tests {
 
     #[test]
     fn label_call_trace() {
-        let target_artifact = contract::ContractBuilder::for_project(Path::new("fixtures/traces"))
-            .with_target_path(Path::new("src/ExternalTarget.sol"))
-            .build()
-            .unwrap();
+        let target_artifact =
+            contract::tests::load_test_artifact("fixtures/traces", "src/ExternalTarget.sol")
+                .unwrap();
 
-        let trace_artifact = contract::ContractBuilder::for_project(Path::new("fixtures/traces"))
-            .with_target_path(Path::new("src/LabelCallTrace.sol"))
-            .build()
-            .unwrap();
+        let trace_artifact =
+            contract::tests::load_test_artifact("fixtures/traces", "src/LabelCallTrace.sol")
+                .unwrap();
 
         let mut db = crate::chain::Database::default();
         db.insert_account_info(
@@ -808,15 +803,12 @@ mod tests {
 
     #[test]
     fn vm_label_trace() {
-        let target_artifact = contract::ContractBuilder::for_project(Path::new("fixtures/traces"))
-            .with_target_path(Path::new("src/ExternalTarget.sol"))
-            .build()
-            .unwrap();
+        let target_artifact =
+            contract::tests::load_test_artifact("fixtures/traces", "src/ExternalTarget.sol")
+                .unwrap();
 
-        let trace_artifact = contract::ContractBuilder::for_project(Path::new("fixtures/traces"))
-            .with_target_path(Path::new("src/VmLabelTrace.sol"))
-            .build()
-            .unwrap();
+        let trace_artifact =
+            contract::tests::load_test_artifact("fixtures/traces", "src/VmLabelTrace.sol").unwrap();
 
         let mut db = crate::chain::Database::default();
         db.insert_account_info(
