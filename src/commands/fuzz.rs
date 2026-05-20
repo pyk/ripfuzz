@@ -270,11 +270,11 @@ impl ForkModeArgs {
         let mut ids: Vec<(&str, u64)> = Vec::new();
 
         for url in self.rpc_urls.iter().collect::<HashSet<&String>>() {
-            info!(target: "raptor::user", %url, timeout = "5s", "Fetching chain_id");
+            info!(%url, timeout = "5s", "Fetching chain_id");
             let url_t0 = std::time::Instant::now();
             let chain_id = crate::rpc::get_chain_id(project_path, url)?;
             let url_elapsed = url_t0.elapsed();
-            info!(target: "raptor::user", %url, chain_id, took = %format!("{}ms", url_elapsed.as_millis()), "OK");
+            info!(%url, chain_id, took = %format!("{}ms", url_elapsed.as_millis()), "OK");
             ids.push((url, chain_id));
         }
 
@@ -306,17 +306,17 @@ impl ForkModeArgs {
             .with_timeout(std::time::Duration::from_millis(self.rpc_timeout))
             .with_chain_id(chain_id)
             .build()?;
-        info!(target: "raptor::user", urls = ?self.rpc_urls, "Fetching latest block");
+        info!(urls = ?self.rpc_urls, "Fetching latest block");
         let t0 = std::time::Instant::now();
         let latest = rpc_instance
             .latest_block_number()
             .context("failed to query latest block")?;
         let elapsed = t0.elapsed();
-        info!(target: "raptor::user", block = latest, took = %format!("{}ms", elapsed.as_millis()), "OK");
+        info!(block = latest, took = %format!("{}ms", elapsed.as_millis()), "OK");
         if block > latest {
             bail!("--rpc-block ({block}) exceeds remote latest block ({latest})");
         }
-        info!(target: "raptor::user", urls = ?self.rpc_urls, block = block, "Forking");
+        info!(urls = ?self.rpc_urls, block = block, "Forking");
         Ok((std::sync::Arc::new(rpc_instance), block))
     }
 }
@@ -327,14 +327,19 @@ pub fn run(args: Args) -> Result<()> {
     let project_path = args.project_path.map(Ok).unwrap_or_else(env::current_dir)?;
     debug!(?project_path, "resolved project path");
 
+    // Build project
+    info!(project = %project_path.display(), "building project");
+    let project = foundry::Project::new(&project_path);
+    project.build()?;
+
     // Compile target
-    info!(target: "raptor::user", project = %project_path.display(), target = %args.target, "Compiling");
+    info!(project = %project_path.display(), target = %args.target, "Compiling");
     let t0 = std::time::Instant::now();
     let artifact = ContractBuilder::for_project(&project_path)
         .with_target_path(&args.target.path)
         .build()?;
     let compile_elapsed = t0.elapsed();
-    info!(target: "raptor::user", took = %format!("{}ms", compile_elapsed.as_millis()), "Finished compiling target");
+    info!(took = %format!("{}ms", compile_elapsed.as_millis()), "Finished compiling target");
 
     // Validate artifact
     let targets: Vec<String> = artifact.target_functions().map(|f| f.signature()).collect();
@@ -348,7 +353,7 @@ pub fn run(args: Args) -> Result<()> {
         .map(|(i, s)| format!("         {}. {s}", i + 1))
         .collect::<Vec<String>>()
         .join("\n");
-    info!(target: "raptor::user", "Found {} target functions\n{}", targets.len(), target_list);
+    info!("Found {} target functions\n{}", targets.len(), target_list);
 
     let invariant_list = artifact
         .invariants
@@ -357,7 +362,11 @@ pub fn run(args: Args) -> Result<()> {
         .map(|(i, (_, name))| format!("         {}. {name}()", i + 1))
         .collect::<Vec<String>>()
         .join("\n");
-    info!(target: "raptor::user", "Found {} invariants\n{}", artifact.invariants.len(), invariant_list);
+    info!(
+        "Found {} invariants\n{}",
+        artifact.invariants.len(),
+        invariant_list
+    );
 
     // Build environment
     let env = if args.fork.rpc_urls.is_empty() {
@@ -379,7 +388,14 @@ pub fn run(args: Args) -> Result<()> {
         max_block_timestamp_delay: args.max_block_timestamp_delay,
     };
 
-    info!(target: "raptor::user", threads = args.threads, seed = args.seed, max_runs = args.max_runs, seq_length = args.sequence_length, timeout_secs = args.timeout_secs.unwrap_or(0), "Fuzzing configuration");
+    info!(
+        threads = args.threads,
+        seed = args.seed,
+        max_runs = args.max_runs,
+        seq_length = args.sequence_length,
+        timeout_secs = args.timeout_secs.unwrap_or(0),
+        "Fuzzing configuration"
+    );
 
     // Build chain
     let vm = crate::vm::Vm::new(
@@ -440,31 +456,38 @@ pub fn run(args: Args) -> Result<()> {
     };
 
     // Report campaign result
-    info!(target: "raptor::user", runs = result.runs, calls = result.total_calls, "Fuzzing completed");
-    info!(target: "raptor::user", calls_per_sec = calls_per_sec, "Throughput");
-    info!(target: "raptor::user", avg_gas_per_call = avg_gas_per_call, "Average gas per call");
+    info!(
+        runs = result.runs,
+        calls = result.total_calls,
+        "Fuzzing completed"
+    );
+    info!(calls_per_sec = calls_per_sec, "Throughput");
+    info!(avg_gas_per_call = avg_gas_per_call, "Average gas per call");
     if result.failures.is_empty() {
-        info!(target: "raptor::user", "All invariants passed");
+        info!("All invariants passed");
     } else {
         for failure in &result.failures {
-            info!(target: "raptor::user", "");
-            info!(target: "raptor::user", contract = %artifact.contract_name, test = %failure.function_name, "[FAILED] Invariant Test");
-            info!(target: "raptor::user", contract = %artifact.contract_name, test = %failure.function_name, "Test failed after the following call sequence");
-            info!(target: "raptor::user", "[Call Sequence]");
-            info!(target: "raptor::user", "{}", crate::fuzzer::format_failure(artifact, failure, args.deployer_address));
+            info!("");
+            info!(contract = %artifact.contract_name, test = %failure.function_name, "[FAILED] Invariant Test");
+            info!(contract = %artifact.contract_name, test = %failure.function_name, "Test failed after the following call sequence");
+            info!("[Call Sequence]");
+            info!(
+                "{}",
+                crate::fuzzer::format_failure(artifact, failure, args.deployer_address)
+            );
         }
         let total = artifact.invariants.len();
         let failed = result.failures.len();
         let passed = total.saturating_sub(failed);
-        info!(target: "raptor::user", "");
-        info!(target: "raptor::user", passed = passed, failed = failed, "Test summary");
+        info!("");
+        info!(passed = passed, failed = failed, "Test summary");
     }
 
     let report = resolve_coverage_to_source(&result.coverage, artifact);
     if report.hit_count() > 0 {
-        info!(target: "raptor::user", hits = report.hit_count(), "Coverage summary");
+        info!(hits = report.hit_count(), "Coverage summary");
     } else {
-        info!(target: "raptor::user", hits = 0, "Coverage summary");
+        info!(hits = 0, "Coverage summary");
     }
 
     Ok(())

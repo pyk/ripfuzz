@@ -163,7 +163,7 @@ impl Campaign {
         let start = std::time::Instant::now();
         let timeout = self.config.timeout_secs.map(std::time::Duration::from_secs);
 
-        info!(target: "raptor::user", "Fuzzing campaign started");
+        info!("Fuzzing campaign started");
 
         let chain = Arc::new(self.chain.clone());
         let artifact = self.artifact.clone();
@@ -239,7 +239,6 @@ impl Campaign {
 
                     if let Some(stats) = chain.database_cache_stats() {
                         info!(
-                            target: "raptor::user",
                             elapsed = %elapsed_str,
                             runs = total_runs,
                             calls = %calls_str,
@@ -253,7 +252,6 @@ impl Campaign {
                         );
                     } else {
                         info!(
-                            target: "raptor::user",
                             elapsed = %elapsed_str,
                             runs = total_runs,
                             calls = %calls_str,
@@ -345,7 +343,11 @@ impl Campaign {
             CoverageMap::default()
         };
 
-        info!(target: "raptor::user", runs = total_runs, failures = all_failures.len(), "Campaign complete");
+        info!(
+            runs = total_runs,
+            failures = all_failures.len(),
+            "Campaign complete"
+        );
 
         self.chain.flush_database_cache();
 

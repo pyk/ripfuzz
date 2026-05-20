@@ -125,7 +125,7 @@ pub fn initialize(
         ChainInitError::DeploymentFailed { reason, trace }
     })?;
     let elapsed = t0.elapsed();
-    info!(target: "raptor::user", time_ms = elapsed.as_millis(), "Deployed target contract");
+    info!(time_ms = elapsed.as_millis(), "Deployed target contract");
 
     let deployed_db = evm.ctx.journaled_state.database;
     let mut state = BaseState::new(deployed_db);

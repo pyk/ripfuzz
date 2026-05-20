@@ -98,7 +98,7 @@ pub fn setup(
         return Err(ChainSetupError::SetupFailed { reason, trace });
     }
     let elapsed = t0.elapsed();
-    info!(target: "raptor::user", time_ms = elapsed.as_millis(), "Ran setUp");
+    info!(time_ms = elapsed.as_millis(), "Ran setUp");
 
     let mut new_state = crate::chain::base_state::BaseState::new(evm.ctx.journaled_state.database);
     new_state.caller_nonce = new_state

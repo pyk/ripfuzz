@@ -127,7 +127,7 @@ pub fn init(level: Option<tracing::Level>) {
     let user_layer = fmt::layer()
         .event_format(RaptorFormat)
         .with_ansi(std::io::stdout().is_terminal())
-        .with_filter(EnvFilter::new("raptor::user=info"));
+        .with_filter(EnvFilter::new("raptor=info"));
 
     let diagnostic_layer = fmt::layer()
         .with_writer(std::io::stderr)
@@ -144,11 +144,11 @@ pub fn init(level: Option<tracing::Level>) {
 fn diagnostic_filter(level: Option<tracing::Level>) -> EnvFilter {
     let directives = match level {
         None => "off",
-        Some(tracing::Level::ERROR) => "error,raptor::user=off",
-        Some(tracing::Level::WARN) => "warn,revm=error,raptor::user=off",
-        Some(tracing::Level::INFO) => "raptor=warn,revm=error,raptor::user=off",
-        Some(tracing::Level::DEBUG) => "raptor=info,revm=warn,raptor::user=off",
-        Some(tracing::Level::TRACE) => "trace,raptor::user=off",
+        Some(tracing::Level::ERROR) => "error",
+        Some(tracing::Level::WARN) => "warn,revm=error",
+        Some(tracing::Level::INFO) => "raptor=warn,revm=error",
+        Some(tracing::Level::DEBUG) => "raptor=info,revm=warn",
+        Some(tracing::Level::TRACE) => "trace",
     };
     EnvFilter::new(directives)
 }
