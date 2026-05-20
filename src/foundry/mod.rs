@@ -1,9 +1,14 @@
 //! Foundry integration utilities for reading project artifacts, profiles, and configuration.
 
 pub use artifact::ArtifactJson;
+pub use build_artifact::{
+    AbstractArtifact, BuildArtifact, BuildArtifactBytecode, BuildArtifactId, ContractArtifact,
+    InterfaceArtifact, LibraryArtifact,
+};
 pub use project::Project;
 pub use toml::{FoundryProfile, FoundryToml};
 pub mod artifact;
+pub mod build_artifact;
 pub mod forge;
 pub mod project;
 pub mod toml;
