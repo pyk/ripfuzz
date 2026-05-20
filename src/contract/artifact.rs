@@ -14,6 +14,13 @@ use crate::foundry::build_artifact::BuildArtifact;
 use crate::foundry::build_artifact::BuildArtifactId;
 use crate::foundry::build_artifact::ContractArtifact as FoundryContractArtifact;
 
+/// Parse a hex string (with optional `0x` prefix) into [`Bytes`].
+pub fn parse_hex(s: &str) -> Option<Bytes> {
+    let s = s.trim();
+    let s = s.strip_prefix("0x").unwrap_or(s);
+    hex::decode(s).map_or(None, |v| Some(v.into()))
+}
+
 /// A Foundry-compiled artifact loaded from disk.
 #[derive(Debug, Clone)]
 pub struct ContractArtifact {
@@ -74,10 +81,8 @@ impl ContractArtifact {
         all_artifacts: &HashMap<BuildArtifactId, BuildArtifact>,
         project_root: impl AsRef<std::path::Path>,
     ) -> Result<Self> {
-        let initcode =
-            crate::foundry::artifact::parse_hex(&target.bytecode.object).unwrap_or_default();
-        let runtime = crate::foundry::artifact::parse_hex(&target.deployed_bytecode.object)
-            .unwrap_or_default();
+        let initcode = parse_hex(&target.bytecode.object).unwrap_or_default();
+        let runtime = parse_hex(&target.deployed_bytecode.object).unwrap_or_default();
 
         let mut initcode_map = HashMap::new();
         let entries: Vec<(Bytes, (String, JsonAbi))> = all_artifacts
@@ -88,8 +93,7 @@ impl ContractArtifact {
                     BuildArtifact::Library(c) => (&c.bytecode, &c.id.name, &c.abi),
                     _ => return None,
                 };
-                let code =
-                    crate::foundry::artifact::parse_hex(&bytecode.object).unwrap_or_default();
+                let code = parse_hex(&bytecode.object).unwrap_or_default();
                 if code.is_empty() {
                     return None;
                 }
