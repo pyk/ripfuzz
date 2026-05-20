@@ -7,4 +7,8 @@ contract Counter {
     function increment() external {
         count++;
     }
+
+    function increment(uint256 amount) external {
+        count += amount;
+    }
 }

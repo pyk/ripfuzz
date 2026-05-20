@@ -25,6 +25,7 @@ impl Project {
     pub fn build(&self) -> Result<()> {
         let output = Command::new("forge")
             .arg("build")
+            .arg("--ast")
             .arg("--root")
             .arg(&self.path)
             .output()?;
