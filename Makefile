@@ -10,7 +10,7 @@ check: ## Run code quality tools.
 .PHONY: bin
 bin: ## Install local binary
 	@echo "Installing local binary"
-	@cargo install --path .
+	@cargo install --path . --locked
 
 .PHONY: test
 test: ## Run tests (120s suite timeout, single-threaded to avoid parallel LibAFL interference)
