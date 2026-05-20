@@ -177,7 +177,7 @@ pub struct Args {
 
     /// Fork mode configuration.
     #[command(flatten)]
-    pub fork: ForkArgs,
+    pub fork: ForkModeArgs,
 
     // Security
     /// Enable the `ffi` cheatcode (security-sensitive).
@@ -198,19 +198,18 @@ impl Args {
 }
 
 #[derive(Debug, Parser)]
-pub struct ForkArgs {
-    /// JSON-RPC URL to fork from (e.g. https://eth.llamarpc.com).
-    /// Repeatable for multiple endpoints of the same chain.
-    #[arg(long = "fork-rpc-url", value_name = "URL", help_heading = "Fork Mode", action = clap::ArgAction::Append)]
+pub struct ForkModeArgs {
+    /// JSON-RPC URL to fork from. Repeatable.
+    #[arg(long = "rpc-url", value_name = "URL", help_heading = "Fork Mode", action = clap::ArgAction::Append)]
     pub rpc_urls: Vec<String>,
 
     /// Block number to fork at. Must be <= the remote latest block.
-    #[arg(long = "fork-rpc-block", value_name = "N", help_heading = "Fork Mode")]
+    #[arg(long = "rpc-block", value_name = "N", help_heading = "Fork Mode")]
     pub rpc_block: Option<u64>,
 
     /// Number of concurrent RPC connections for fork mode.
     #[arg(
-        long = "fork-rpc-pool",
+        long = "rpc-pool",
         default_value = "4",
         value_name = "N",
         help_heading = "Fork Mode"
@@ -219,7 +218,7 @@ pub struct ForkArgs {
 
     /// Maximum retry attempts per RPC URL after transient failure.
     #[arg(
-        long = "fork-rpc-retries",
+        long = "rpc-retries",
         default_value = "3",
         value_name = "N",
         help_heading = "Fork Mode"
@@ -228,7 +227,7 @@ pub struct ForkArgs {
 
     /// Initial retry backoff in milliseconds (doubles each attempt).
     #[arg(
-        long = "fork-rpc-backoff",
+        long = "rpc-backoff",
         default_value = "100",
         value_name = "MS",
         help_heading = "Fork Mode"
@@ -236,16 +235,12 @@ pub struct ForkArgs {
     pub rpc_backoff: u64,
 
     /// Optional rate limit: maximum requests per second across all URLs.
-    #[arg(
-        long = "fork-rpc-rate-limit",
-        value_name = "N",
-        help_heading = "Fork Mode"
-    )]
+    #[arg(long = "rpc-rate-limit", value_name = "N", help_heading = "Fork Mode")]
     pub rpc_rate_limit: Option<u64>,
 
     /// Request timeout in milliseconds for each RPC call.
     #[arg(
-        long = "fork-rpc-timeout",
+        long = "rpc-timeout",
         default_value = "30000",
         value_name = "MS",
         help_heading = "Fork Mode"
@@ -253,7 +248,7 @@ pub struct ForkArgs {
     pub rpc_timeout: u64,
 }
 
-impl Default for ForkArgs {
+impl Default for ForkModeArgs {
     fn default() -> Self {
         Self {
             rpc_urls: Vec::new(),
@@ -267,7 +262,7 @@ impl Default for ForkArgs {
     }
 }
 
-impl ForkArgs {
+impl ForkModeArgs {
     /// Validate that every provided RPC URL returns the same chain_id.
     pub fn validate_chain_id(&self, project_path: impl AsRef<Path>) -> Result<u64> {
         let project_path = project_path.as_ref();
@@ -301,7 +296,7 @@ impl ForkArgs {
     pub fn build_rpc(&self, chain_id: u64) -> Result<(std::sync::Arc<dyn RpcClient>, u64)> {
         let block = self
             .rpc_block
-            .context("--fork-rpc-block is required with --fork-rpc-url")?;
+            .context("--rpc-block is required with --rpc-url")?;
         let rpc_instance = crate::rpc::Rpc::with_urls(&self.rpc_urls)
             .with_pool_size(self.rpc_pool)
             .with_retries(self.rpc_retries)
@@ -318,7 +313,7 @@ impl ForkArgs {
         let elapsed = t0.elapsed();
         info!(target: "raptor::user", block = latest, took = %format!("{}ms", elapsed.as_millis()), "OK");
         if block > latest {
-            bail!("--fork-rpc-block ({block}) exceeds remote latest block ({latest})");
+            bail!("--rpc-block ({block}) exceeds remote latest block ({latest})");
         }
         info!(target: "raptor::user", urls = ?self.rpc_urls, block = block, "Forking");
         Ok((std::sync::Arc::new(rpc_instance), block))
@@ -484,7 +479,7 @@ mod tests {
     use alloy_primitives::Address;
     use revm::primitives::U256;
 
-    use super::{ForkArgs, parse_address, parse_balance};
+    use super::{ForkModeArgs, parse_address, parse_balance};
 
     fn seed_chain_id_cache(project_path: impl AsRef<Path>, url: &str, chain_id: u64) {
         let project_path = project_path.as_ref();
@@ -500,10 +495,10 @@ mod tests {
     #[test]
     fn validate_chain_id_success_when_all_match() {
         let tmp = tempfile::tempdir().unwrap();
-        let args = ForkArgs {
+        let args = ForkModeArgs {
             rpc_urls: vec!["http://a.com".into(), "http://b.com".into()],
             rpc_block: Some(1),
-            ..ForkArgs::default()
+            ..ForkModeArgs::default()
         };
         seed_chain_id_cache(tmp.path(), "http://a.com", 1);
         seed_chain_id_cache(tmp.path(), "http://b.com", 1);
@@ -513,10 +508,10 @@ mod tests {
     #[test]
     fn validate_chain_id_fails_on_mismatch() {
         let tmp = tempfile::tempdir().unwrap();
-        let args = ForkArgs {
+        let args = ForkModeArgs {
             rpc_urls: vec!["http://a.com".into(), "http://b.com".into()],
             rpc_block: Some(1),
-            ..ForkArgs::default()
+            ..ForkModeArgs::default()
         };
         seed_chain_id_cache(tmp.path(), "http://a.com", 1);
         seed_chain_id_cache(tmp.path(), "http://b.com", 56);
@@ -527,10 +522,10 @@ mod tests {
     #[test]
     fn validate_chain_id_dedups_duplicate_urls() {
         let tmp = tempfile::tempdir().unwrap();
-        let args = ForkArgs {
+        let args = ForkModeArgs {
             rpc_urls: vec!["http://a.com".into(), "http://a.com".into()],
             rpc_block: Some(1),
-            ..ForkArgs::default()
+            ..ForkModeArgs::default()
         };
         seed_chain_id_cache(tmp.path(), "http://a.com", 1);
         assert_eq!(args.validate_chain_id(tmp.path()).unwrap(), 1);
