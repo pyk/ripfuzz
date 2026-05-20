@@ -326,9 +326,25 @@ pub fn run(args: Args) -> Result<()> {
     let build_artifacts = project.load_build_artifacts()?;
     ensure!(
         build_artifacts.contains_key(&args.target),
-        "target contract `{}` not found in build artifacts",
+        "target artifact `{}` not found in build artifacts",
         args.target
     );
+
+    // Load target contract
+
+    // Resolve chain environment
+
+    // Create chain based on the environment
+
+    // Deploy target contract
+
+    // Run setUp function
+
+    // Create Fuzzer
+
+    // Run campaign
+
+    // Report results
 
     // Convert target build artifact to deployable contract artifact.
     info!(project = %project_path.display(), target = %args.target, "Compiling");

@@ -10,6 +10,7 @@ pub mod foundry;
 pub mod fuzzer;
 pub mod logger;
 pub mod rpc;
+pub mod target;
 pub mod vm;
 
 /// Convert a [`Result`] into an [`Option`] without the `ok()` method call.
