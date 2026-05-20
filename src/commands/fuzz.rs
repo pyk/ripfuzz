@@ -179,6 +179,11 @@ pub struct Args {
     /// Enable the `ffi` cheatcode (security-sensitive).
     #[arg(long = "ffi", help_heading = "Security")]
     pub ffi: bool,
+
+    // Foundry
+    /// Skip cache and force recompilation.
+    #[arg(long = "force", help_heading = "Foundry")]
+    pub force: bool,
 }
 
 #[derive(Debug, Parser)]
@@ -310,11 +315,12 @@ pub fn run(args: Args) -> Result<()> {
     let project_path = args.project_path.map(Ok).unwrap_or_else(env::current_dir)?;
     debug!(?project_path, "resolved project path");
 
-    let project = foundry::Project::new(&project_path);
-
     // Build project
     info!(project = %project_path.display(), "building project");
-    project.build()?;
+    let project = foundry::Project::builder()
+        .path(project_path.clone())
+        .force(args.force)
+        .build()?;
 
     // Load build artifacts
     info!("loading build artifacts");

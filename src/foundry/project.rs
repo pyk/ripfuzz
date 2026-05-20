@@ -16,39 +16,40 @@ use crate::foundry::build_artifact::{BuildArtifact, BuildArtifactId};
 pub struct Project {
     /// Absolute or relative path to the project root.
     pub path: PathBuf,
+    /// Force recompilation, skipping the cache.
+    pub force: bool,
 }
 
+#[bon::bon]
 impl Project {
-    /// Create a new [`Project`] pointing to `path`.
-    pub fn new(path: impl AsRef<Path>) -> Self {
-        Self {
-            path: path.as_ref().to_path_buf(),
-        }
-    }
-
-    /// Run `forge build --root <project_path>`.
+    /// Create and compile a [`Project`].
     ///
-    /// Returns an error containing the `stderr` output when `forge build` fails.
-    pub fn build(&self) -> Result<()> {
-        let output = Command::new("forge")
-            .arg("build")
-            .arg("--ast")
-            .arg("--root")
-            .arg(&self.path)
-            .output()?;
+    /// Runs `forge build` before returning. Use [`Project::builder`] for a
+    /// named-argument builder interface.
+    #[builder]
+    pub fn new(path: impl AsRef<Path>, #[builder(default = false)] force: bool) -> Result<Self> {
+        let path = path.as_ref().to_path_buf();
+        let mut cmd = Command::new("forge");
+        cmd.arg("build").arg("--ast").arg("--root").arg(&path);
+
+        if force {
+            cmd.arg("--force");
+        }
+
+        let output = cmd.output()?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             bail!("{}", stderr.trim());
         }
 
-        Ok(())
+        Ok(Self { path, force })
     }
 
     /// Load all build artifacts from the project's `out/` directory.
     ///
     /// Returns a map keyed by [`BuildArtifactId`]. The `out/` directory must
-    /// already exist (call [`Self::build`] first if necessary).
+    /// already exist (compile first if necessary).
     ///
     /// Artifact JSONs are discovered with `walkdir` (`out/*.sol/*.json`) and
     /// parsed in parallel with `rayon`.
@@ -121,22 +122,23 @@ mod tests {
     #[test]
     #[serial]
     fn build_succeeds() {
-        let project = Project::new("fixtures/foundry-project");
-        assert!(project.build().is_ok());
+        let result = Project::builder().path("fixtures/foundry-project").build();
+        assert!(result.is_ok());
     }
 
     #[test]
     fn build_fails() {
-        let project = Project::new("fixtures/build-failed");
-        let result = project.build();
+        let result = Project::builder().path("fixtures/build-failed").build();
         assert!(result.is_err());
     }
 
     #[test]
     #[serial]
     fn load_build_artifacts_succeeds() {
-        let project = Project::new("fixtures/foundry-project");
-        project.build().unwrap();
+        let project = Project::builder()
+            .path("fixtures/foundry-project")
+            .build()
+            .unwrap();
 
         let artifacts = project.load_build_artifacts().unwrap();
         assert_eq!(artifacts.len(), 4);
@@ -167,8 +169,10 @@ mod tests {
     #[test]
     #[serial]
     fn parse_contract_artifact() {
-        let project = Project::new("fixtures/foundry-project");
-        project.build().unwrap();
+        let _project = Project::builder()
+            .path("fixtures/foundry-project")
+            .build()
+            .unwrap();
 
         let json =
             fs::read_to_string("fixtures/foundry-project/out/Counter.sol/Counter.json").unwrap();
@@ -190,8 +194,10 @@ mod tests {
     #[test]
     #[serial]
     fn parse_interface_artifact() {
-        let project = Project::new("fixtures/foundry-project");
-        project.build().unwrap();
+        let _project = Project::builder()
+            .path("fixtures/foundry-project")
+            .build()
+            .unwrap();
 
         let json =
             fs::read_to_string("fixtures/foundry-project/out/ICounter.sol/ICounter.json").unwrap();
@@ -206,8 +212,10 @@ mod tests {
     #[test]
     #[serial]
     fn parse_library_artifact() {
-        let project = Project::new("fixtures/foundry-project");
-        project.build().unwrap();
+        let _project = Project::builder()
+            .path("fixtures/foundry-project")
+            .build()
+            .unwrap();
 
         let json =
             fs::read_to_string("fixtures/foundry-project/out/CounterLib.sol/CounterLib.json")
@@ -229,8 +237,10 @@ mod tests {
     #[test]
     #[serial]
     fn parse_abstract_artifact() {
-        let project = Project::new("fixtures/foundry-project");
-        project.build().unwrap();
+        let _project = Project::builder()
+            .path("fixtures/foundry-project")
+            .build()
+            .unwrap();
 
         let json = fs::read_to_string(
             "fixtures/foundry-project/out/AbstractCounter.sol/AbstractCounter.json",
@@ -253,7 +263,10 @@ mod tests {
         fs::write(temp.path().join("foundry.toml"), "[profile.default]\n").unwrap();
         fs::create_dir(temp.path().join("src")).unwrap();
 
-        let project = Project::new(temp.path());
+        let project = Project {
+            path: temp.path().to_path_buf(),
+            force: false,
+        };
         let result = project.load_build_artifacts();
         assert!(result.is_err());
         assert!(
@@ -267,8 +280,10 @@ mod tests {
     #[test]
     #[serial]
     fn load_build_artifacts_skips_build_info() {
-        let project = Project::new("fixtures/foundry-project");
-        project.build().unwrap();
+        let project = Project::builder()
+            .path("fixtures/foundry-project")
+            .build()
+            .unwrap();
 
         let artifacts = project.load_build_artifacts().unwrap();
         // build-info JSONs should be skipped, so we only have contract artifacts
