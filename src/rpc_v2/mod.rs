@@ -12,12 +12,14 @@ use tracing::{instrument, trace};
 
 pub use cache::Cache;
 pub use client::{AgentPool, UrlPool};
+pub use config::Config;
 pub use dedup::{DedupTable, RequestKey};
 pub use limiter::RateLimiter;
 pub use transport::{HttpTransport, MockTransport, Transport};
 
 mod cache;
 mod client;
+mod config;
 mod dedup;
 mod limiter;
 mod request;

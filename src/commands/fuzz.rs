@@ -235,6 +235,15 @@ pub struct ForkModeArgs {
         help_heading = "Fork Mode"
     )]
     pub rpc_timeout: u64,
+
+    /// Chain ID to fork from. Defaults to 1.
+    #[arg(
+        long = "rpc-chain-id",
+        default_value = "1",
+        value_name = "N",
+        help_heading = "Fork Mode"
+    )]
+    pub rpc_chain_id: u64,
 }
 
 impl Default for ForkModeArgs {
@@ -247,6 +256,7 @@ impl Default for ForkModeArgs {
             rpc_backoff: 100,
             rpc_rate_limit: None,
             rpc_timeout: 30000,
+            rpc_chain_id: 1,
         }
     }
 }
@@ -334,7 +344,7 @@ pub fn run(args: Args) -> Result<()> {
     info!("loading target contract");
     let target_artifact = build_artifacts
         .get(&args.target)
-        .context("target artifact missing")?;
+        .context("target artifact not found")?;
     let _target_contract = target::Contract::try_from(target_artifact)?;
 
     // Resolve chain environment
