@@ -128,7 +128,7 @@ impl Client {
     /// Create a new client with a custom transport (e.g. for testing).
     pub fn new_with_transport(config: Config, transport: Arc<dyn Transport>) -> Self {
         let limiter = config.rate_limit.map(RateLimiter::new);
-        let cache = config.cache_dir.map(Cache::new);
+        let cache = config.cache_dir.map(|dir| Cache::new(dir, config.chain_id));
         Self {
             inner: Arc::new(ClientInner {
                 transport,
@@ -162,7 +162,7 @@ impl Client {
 
     /// Fetch a block header by number.
     pub fn get_block_by_number(&self, block: u64) -> Result<Block> {
-        let cache_key = format!("get_block_by_number_{block:x}");
+        let cache_key = format!("get_block_by_number_{block}");
         let payload = request::payload(
             "eth_getBlockByNumber",
             &[json!(format!("0x{block:x}")), json!(false)],
@@ -180,7 +180,7 @@ impl Client {
 
     /// Fetch an account balance at a specific block.
     pub fn get_balance(&self, address: Address, block: u64) -> Result<U256> {
-        let cache_key = format!("get_balance_{block:x}_{address:x}");
+        let cache_key = format!("get_balance_{block}_{address:x}");
         let payload = request::payload(
             "eth_getBalance",
             &[
@@ -199,7 +199,7 @@ impl Client {
 
     /// Fetch an account nonce at a specific block.
     pub fn get_transaction_count(&self, address: Address, block: u64) -> Result<u64> {
-        let cache_key = format!("get_transaction_count_{block:x}_{address:x}");
+        let cache_key = format!("get_transaction_count_{block}_{address:x}");
         let payload = request::payload(
             "eth_getTransactionCount",
             &[
@@ -219,7 +219,7 @@ impl Client {
 
     /// Fetch contract bytecode at a specific block.
     pub fn get_code(&self, address: Address, block: u64) -> Result<Bytes> {
-        let cache_key = format!("get_code_{block:x}_{address:x}");
+        let cache_key = format!("get_code_{block}_{address:x}");
         let payload = request::payload(
             "eth_getCode",
             &[
@@ -238,7 +238,7 @@ impl Client {
 
     /// Fetch a storage slot at a specific block.
     pub fn get_storage_at(&self, address: Address, slot: U256, block: u64) -> Result<U256> {
-        let cache_key = format!("get_storage_at_{block:x}_{slot:x}_{address:x}");
+        let cache_key = format!("get_storage_at_{block}_{slot:x}_{address:x}");
         let payload = request::payload(
             "eth_getStorageAt",
             &[
@@ -263,7 +263,7 @@ impl Client {
     pub fn get_account(&self, address: Address, block: u64) -> Result<(U256, u64, Bytes)> {
         let addr = json!(format!("0x{address:x}"));
         let block_tag = json!(format!("0x{block:x}"));
-        let cache_key = format!("get_account_{block:x}_{address:x}");
+        let cache_key = format!("get_account_{block}_{address:x}");
 
         let id_balance: u64 = 100;
         let id_nonce: u64 = 101;
@@ -1135,6 +1135,53 @@ mod tests {
                 "Expected deserialization to fail for {label}, but got: {result:?}"
             );
         }
+    }
+
+    /// Regression: cache files must be stored under `rpc/{chain_id}/` and
+    /// block numbers in the filename must be decimal, not hex.
+    #[test]
+    fn cache_path_uses_decimal_block_and_chain_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        transport.insert(
+            "eth_getBlockByNumber",
+            &[json!("0x4d2"), json!(false)],
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "number": "0x4d2",
+                    "timestamp": "0x0",
+                    "miner": "0x0000000000000000000000000000000000000000",
+                    "gasLimit": "0x0",
+                    "baseFeePerGas": "0x0"
+                }
+            }),
+        );
+
+        let config = Config::new()
+            .urls(vec!["mock://test".into()])
+            .chain_id(1)
+            .cache_dir(tmp.path());
+        let rpc = Client::new_with_transport(config, transport);
+
+        let block = rpc.get_block_by_number(1234).unwrap();
+        assert_eq!(block.number.to::<u64>(), 1234);
+
+        // Correct path: chain_id directory + decimal block number
+        let expected = tmp
+            .path()
+            .join("rpc")
+            .join("1")
+            .join("get_block_by_number_1234.json");
+        assert!(
+            expected.exists(),
+            "expected cache file at {expected:?}, but it was not found"
+        );
+
+        // Old buggy path must not exist
+        let buggy = tmp.path().join("rpc").join("get_block_by_number_4d2.json");
+        assert!(!buggy.exists(), "unexpected buggy cache file at {buggy:?}");
     }
 
     fn live_client() -> &'static Client {
