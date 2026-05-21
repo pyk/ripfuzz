@@ -11,6 +11,7 @@ pub mod foundry;
 pub mod fuzzer;
 pub mod logger;
 pub mod rpc;
+pub mod rpc_v2;
 pub mod target;
 pub mod vm;
 

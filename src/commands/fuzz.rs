@@ -338,6 +338,18 @@ pub fn run(args: Args) -> Result<()> {
     let _target_contract = target::Contract::try_from(target_artifact)?;
 
     // Resolve chain environment
+    info!("resolving chain environment");
+    // let env = if args.fork_mode.rpc_urls.is_empty() {
+    //     chain_v2::Environment::local()
+    // } else {
+    //     chain_v2::Environment::fork(rpc, block, &cache_dir)?
+    // };
+
+    // -----------------------------------------------------------------------
+    // NOTE: below is using old logic, not removed yet on purpose
+    // -----------------------------------------------------------------------
+
+    // Resolve chain environment
     info!("loading chain environment");
     let env = if args.fork_mode.rpc_urls.is_empty() {
         info!("sandbox environment resolved");
