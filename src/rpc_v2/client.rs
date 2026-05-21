@@ -67,13 +67,13 @@ impl UrlPool {
 /// Typed block header returned by `eth_getBlockByNumber`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Block {
-    #[serde(rename = "number", default)]
+    #[serde(rename = "number")]
     pub number: U64,
-    #[serde(rename = "timestamp", default)]
+    #[serde(rename = "timestamp")]
     pub timestamp: U64,
-    #[serde(rename = "miner", default)]
+    #[serde(rename = "miner")]
     pub coinbase: Address,
-    #[serde(rename = "gasLimit", default = "default_gas_limit")]
+    #[serde(rename = "gasLimit")]
     pub gas_limit: U64,
     #[serde(rename = "baseFeePerGas", default)]
     pub basefee: U64,
@@ -85,10 +85,6 @@ pub struct Block {
     pub excess_blob_gas: Option<U64>,
     #[serde(rename = "hash", default)]
     pub hash: Option<B256>,
-}
-
-fn default_gas_limit() -> U64 {
-    U64::from(30_000_000)
 }
 
 /// JSON-RPC client with two-layer caching, deduplication, rate limiting,
@@ -374,12 +370,12 @@ impl Client {
         }
 
         // 3. Rate limit gate
+        // A batch is dispatched as a single HTTP POST, so it consumes
+        // exactly one token regardless of how many JSON-RPC methods it
+        // contains (issue #2).
         if let Some(ref limiter) = self.inner.limiter {
-            let count = request_payload.as_array().map(|a| a.len()).unwrap_or(1);
-            trace!(%cache_key, count, "rate limit acquire");
-            for _ in 0..count {
-                limiter.acquire();
-            }
+            trace!(%cache_key, "rate limit acquire");
+            limiter.acquire();
         }
 
         // 4. Live network fetch
@@ -540,6 +536,60 @@ mod tests {
         assert!(
             elapsed.as_millis() >= 800,
             "rate limit did not throttle: {elapsed:?}"
+        );
+    }
+
+    /// Regression (issue #2): a JSON-RPC batch is dispatched as a single HTTP
+    /// POST, so it must consume exactly one rate-limit token.  Previously
+    /// `call()` acquired N tokens for N methods in the batch, causing
+    /// unnecessary throttling.
+    #[test]
+    fn rate_limit_batch_counts_as_single_request() {
+        let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        transport.insert(
+            "eth_getBalance",
+            &[
+                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 100, "result": "0x4ec7cefe1a0664fd"}),
+        );
+        transport.insert(
+            "eth_getTransactionCount",
+            &[
+                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 101, "result": "0x1707"}),
+        );
+        transport.insert(
+            "eth_getCode",
+            &[
+                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 102, "result": "0x6060604052"}),
+        );
+
+        let config = Config::new()
+            .urls(vec!["mock://test".into()])
+            .chain_id(1)
+            .rate_limit(Some(1)); // 1 req/sec
+        let rpc = Client::new_with_transport(config, transport.clone());
+
+        let addr: Address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+            .parse()
+            .unwrap();
+
+        let t0 = std::time::Instant::now();
+        let _ = rpc.get_account(addr, 1).unwrap();
+        let elapsed = t0.elapsed();
+
+        // A batch of 3 JSON-RPC methods must consume 1 token, not 3.
+        // If it consumed 3 tokens at 1 req/sec, we'd wait ~2 seconds.
+        assert!(
+            elapsed.as_millis() < 200,
+            "batch over-counted for rate limit, elapsed: {elapsed:?}"
         );
     }
 
@@ -1067,6 +1117,39 @@ mod tests {
 
         // The transport was called exactly twice.
         assert_eq!(transport.0.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    /// Regression (issue #4): Block must reject JSON missing critical fields.
+    /// Previously `serde(default)` silently filled in zeros, masking fatal
+    /// RPC configuration errors in a fork environment.
+    #[test]
+    fn block_deserialize_missing_required_fields() {
+        let cases: Vec<(&str, &str)> = vec![
+            (
+                "missing number",
+                r#"{"timestamp":"0x65f066f8","gasLimit":"0x1c9c380","miner":"0x1234567890123456789012345678901234567890"}"#,
+            ),
+            (
+                "missing timestamp",
+                r#"{"number":"0x1","gasLimit":"0x1c9c380","miner":"0x1234567890123456789012345678901234567890"}"#,
+            ),
+            (
+                "missing gasLimit",
+                r#"{"number":"0x1","timestamp":"0x65f066f8","miner":"0x1234567890123456789012345678901234567890"}"#,
+            ),
+            (
+                "missing miner (coinbase)",
+                r#"{"number":"0x1","timestamp":"0x65f066f8","gasLimit":"0x1c9c380"}"#,
+            ),
+        ];
+
+        for (label, json) in cases {
+            let result: Result<Block, serde_json::Error> = serde_json::from_str(json);
+            assert!(
+                result.is_err(),
+                "Expected deserialization to fail for {label}, but got: {result:?}"
+            );
+        }
     }
 
     fn live_client() -> &'static Client {

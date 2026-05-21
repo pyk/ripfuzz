@@ -49,6 +49,12 @@ impl HttpTransport {
             retry_backoff,
         }
     }
+
+    /// Compute the sleep duration for a given retry attempt (0-indexed).
+    fn backoff_duration(&self, attempt: u32) -> Duration {
+        let multiplier = 2_u64.pow(attempt);
+        self.retry_backoff * multiplier as u32
+    }
 }
 
 impl Transport for HttpTransport {
@@ -93,7 +99,7 @@ impl Transport for HttpTransport {
                 }
 
                 if attempt < self.retries {
-                    std::thread::sleep(self.retry_backoff * (attempt + 1));
+                    std::thread::sleep(self.backoff_duration(attempt));
                 }
             }
         }
@@ -142,7 +148,7 @@ impl Transport for HttpTransport {
                 }
 
                 if attempt < self.retries {
-                    std::thread::sleep(self.retry_backoff * (attempt + 1));
+                    std::thread::sleep(self.backoff_duration(attempt));
                 }
             }
         }
@@ -216,5 +222,28 @@ impl Transport for MockTransport {
         }
 
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    /// Regression for issue #3: backoff must double each attempt (exponential),
+    /// not multiply by (attempt + 1) (linear).
+    #[test]
+    fn backoff_is_exponential() {
+        let transport = HttpTransport::new(
+            vec!["http://a".into()],
+            vec![ureq::Agent::new_with_defaults()],
+            3,
+            Duration::from_millis(100),
+        );
+        assert_eq!(transport.backoff_duration(0), Duration::from_millis(100));
+        assert_eq!(transport.backoff_duration(1), Duration::from_millis(200));
+        assert_eq!(transport.backoff_duration(2), Duration::from_millis(400));
+        assert_eq!(transport.backoff_duration(3), Duration::from_millis(800));
     }
 }
