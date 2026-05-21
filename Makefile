@@ -1,3 +1,9 @@
+# Load .env
+ifneq (,$(wildcard ./.env))
+    include .env
+    export
+endif
+
 .PHONY: check
 check: ## Run code quality tools.
 	@echo "Run formatter"
@@ -23,9 +29,14 @@ bin: ## Install local binary
 	@cargo install --path . --locked
 
 .PHONY: test
-test: ## Run tests (120s suite timeout, single-threaded to avoid parallel LibAFL interference)
+test: ## Run tests
 	@echo "Running tests"
-	@cargo test --quiet
+	@cargo test --quiet -- --skip live
+
+.PHONY: test-live
+test-live: ## Run tests against live network
+	@echo "Running tests"
+	@cargo test live
 
 # Catch-all target to handle extra arguments passed to make
 %:
