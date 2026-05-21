@@ -13,7 +13,7 @@ use revm::{
 };
 use tracing::instrument;
 
-use crate::rpc_v2::Rpc;
+use crate::rpc_v2::Client;
 
 /// Unified EVM database.
 #[derive(Clone, Debug)]
@@ -163,12 +163,12 @@ impl From<anyhow::Error> for ForkDbError {
 /// revm database operations to typed RPC calls.
 #[derive(Clone, Debug)]
 pub struct ForkDb {
-    rpc: std::sync::Arc<Rpc>,
+    rpc: std::sync::Arc<Client>,
     block_number: u64,
 }
 
 impl ForkDb {
-    pub fn new(rpc: std::sync::Arc<Rpc>, block_number: u64) -> Self {
+    pub fn new(rpc: std::sync::Arc<Client>, block_number: u64) -> Self {
         Self { rpc, block_number }
     }
 }

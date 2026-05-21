@@ -9,7 +9,7 @@ use revm::database::{CacheDB, InMemoryDB};
 
 use crate::chain_v2::Database;
 use crate::chain_v2::database::ForkDb;
-use crate::rpc_v2::Rpc;
+use crate::rpc_v2::Client;
 
 /// Fuzzing environment.
 #[derive(Debug, Clone)]
@@ -18,7 +18,7 @@ pub enum Environment {
     Local,
     /// Fork from a live network at a specific block.
     Fork {
-        rpc: Arc<Rpc>,
+        rpc: Arc<Client>,
         block_number: u64,
         block_header: BlockHeader,
         chain_id: u64,
@@ -34,7 +34,7 @@ impl Environment {
     /// Fork environment pinned to a remote block.
     ///
     /// Fetches the block header from the RPC to initialise the block environment.
-    pub fn fork(rpc: Arc<Rpc>, block_number: u64) -> Result<Self> {
+    pub fn fork(rpc: Arc<Client>, block_number: u64) -> Result<Self> {
         let block = rpc
             .get_block_by_number(block_number)
             .context("fetching block header for fork environment")?;
