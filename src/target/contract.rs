@@ -4,16 +4,16 @@ use alloy_json_abi::{Function, StateMutability};
 use anyhow::{Result, bail, ensure};
 use revm::primitives::Bytes;
 
-use crate::foundry::{BuildArtifact, BuildArtifactId};
+use crate::foundry::{Artifact, ArtifactId};
 
 /// A validated target contract ready for fuzzing.
 ///
-/// Created from a Foundry [`BuildArtifact`] by validating that it represents a
+/// Created from a Foundry [`Artifact`] by validating that it represents a
 /// concrete contract and extracting the functions the fuzzer will exercise.
 #[derive(Debug, Clone)]
 pub struct Contract {
     /// The unique build artifact identifier.
-    pub artifact_id: BuildArtifactId,
+    pub artifact_id: ArtifactId,
     /// Functions the fuzzer will call to mutate state.
     pub target_functions: Vec<Function>,
     /// Invariant functions checked after every call sequence.
@@ -24,12 +24,12 @@ pub struct Contract {
     pub initcode: Bytes,
 }
 
-impl TryFrom<BuildArtifact> for Contract {
+impl TryFrom<Artifact> for Contract {
     type Error = anyhow::Error;
 
-    fn try_from(artifact: BuildArtifact) -> Result<Self> {
+    fn try_from(artifact: Artifact) -> Result<Self> {
         let contract = match artifact {
-            BuildArtifact::Contract(c) => c,
+            Artifact::Contract(c) => c,
             _ => bail!("target artifact must be a concrete contract"),
         };
 

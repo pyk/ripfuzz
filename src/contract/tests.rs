@@ -5,9 +5,9 @@ use std::path::Path;
 use anyhow::{Context, Result, bail, ensure};
 
 use crate::contract::ContractArtifact;
-use crate::foundry::BuildArtifactId;
+use crate::foundry::ArtifactId;
 
-/// Load a test artifact by its full [`BuildArtifactId`] string.
+/// Load a test artifact by its full [`ArtifactId`] string.
 ///
 /// Example: `load_test_artifact_by_id("fixtures/basic-target", "test/Target.sol:Target")`.
 ///
@@ -16,17 +16,14 @@ pub fn load_test_artifact_by_id(
     project_path: impl AsRef<Path>,
     id: impl AsRef<str>,
 ) -> Result<ContractArtifact> {
-    let project = crate::foundry::Project {
-        path: project_path.as_ref().to_path_buf(),
-        force: false,
-    };
-    let artifacts = project.load_build_artifacts()?;
-    let id = BuildArtifactId::try_from(id.as_ref())?;
+    let project = crate::foundry::Project::new(&project_path);
+    let artifacts = project.load_artifacts()?;
+    let id = ArtifactId::try_from(id.as_ref())?;
     let target = artifacts
         .get(&id)
         .context("target not found in build artifacts")?;
     match target {
-        crate::foundry::BuildArtifact::Contract(c) => {
+        crate::foundry::Artifact::Contract(c) => {
             ContractArtifact::from_foundry_artifact(c, &artifacts, &project_path)
         }
         _ => bail!("target must be a concrete contract"),
@@ -43,14 +40,11 @@ pub fn load_test_artifact(
     project_path: impl AsRef<Path>,
     target_path: impl AsRef<Path>,
 ) -> Result<ContractArtifact> {
-    let project = crate::foundry::Project {
-        path: project_path.as_ref().to_path_buf(),
-        force: false,
-    };
-    let artifacts = project.load_build_artifacts()?;
+    let project = crate::foundry::Project::new(&project_path);
+    let artifacts = project.load_artifacts()?;
     let target_path = target_path.as_ref();
 
-    let candidates: Vec<&crate::foundry::BuildArtifact> = artifacts
+    let candidates: Vec<&crate::foundry::Artifact> = artifacts
         .values()
         .filter(|a| a.id().path == target_path)
         .collect();
@@ -72,7 +66,7 @@ pub fn load_test_artifact(
 
     let target = candidates.into_iter().next().context("no candidate")?;
     match target {
-        crate::foundry::BuildArtifact::Contract(c) => {
+        crate::foundry::Artifact::Contract(c) => {
             ContractArtifact::from_foundry_artifact(c, &artifacts, &project_path)
         }
         _ => bail!("target must be a concrete contract"),

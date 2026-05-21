@@ -1,4 +1,4 @@
-//! Foundry build artifact types and parsing.
+//! Foundry artifact types and parsing.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -12,25 +12,25 @@ use serde::Deserialize;
 use tracing::{debug, instrument};
 
 // ---------------------------------------------------------------------------
-// Foundry's Build Artifact ID
+// Foundry's Artifact ID
 // ---------------------------------------------------------------------------
 
 /// Unique identifier for a compiled build artifact.
 ///
 /// Format: `path:name` (e.g. `src/Counter.sol:Counter`).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BuildArtifactId {
+pub struct ArtifactId {
     pub path: PathBuf,
     pub name: String,
 }
 
-impl fmt::Display for BuildArtifactId {
+impl fmt::Display for ArtifactId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.path.display(), self.name)
     }
 }
 
-impl TryFrom<String> for BuildArtifactId {
+impl TryFrom<String> for ArtifactId {
     type Error = anyhow::Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -50,7 +50,7 @@ impl TryFrom<String> for BuildArtifactId {
     }
 }
 
-impl TryFrom<&str> for BuildArtifactId {
+impl TryFrom<&str> for ArtifactId {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
@@ -58,7 +58,7 @@ impl TryFrom<&str> for BuildArtifactId {
     }
 }
 
-impl FromStr for BuildArtifactId {
+impl FromStr for ArtifactId {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -67,12 +67,12 @@ impl FromStr for BuildArtifactId {
 }
 
 // ---------------------------------------------------------------------------
-// Foundry's Build Artifact
+// Foundry's Artifact
 // ---------------------------------------------------------------------------
 
 /// A compiled Solidity artifact loaded from a Foundry project.
 #[derive(Clone, Debug, PartialEq)]
-pub enum BuildArtifact {
+pub enum Artifact {
     Contract(ContractArtifact),
     Interface(InterfaceArtifact),
     Library(LibraryArtifact),
@@ -82,17 +82,17 @@ pub enum BuildArtifact {
 /// A concrete contract artifact with all data required for fuzzing.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContractArtifact {
-    pub id: BuildArtifactId,
+    pub id: ArtifactId,
     pub ast: solc::ast::SourceUnit,
     pub abi: JsonAbi,
-    pub bytecode: BuildArtifactBytecode,
-    pub deployed_bytecode: BuildArtifactBytecode,
+    pub bytecode: ArtifactBytecode,
+    pub deployed_bytecode: ArtifactBytecode,
 }
 
 /// An interface artifact.
 #[derive(Clone, Debug, PartialEq)]
 pub struct InterfaceArtifact {
-    pub id: BuildArtifactId,
+    pub id: ArtifactId,
     pub ast: solc::ast::SourceUnit,
     pub abi: JsonAbi,
 }
@@ -100,33 +100,33 @@ pub struct InterfaceArtifact {
 /// A library artifact.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LibraryArtifact {
-    pub id: BuildArtifactId,
+    pub id: ArtifactId,
     pub ast: solc::ast::SourceUnit,
     pub abi: JsonAbi,
-    pub bytecode: BuildArtifactBytecode,
-    pub deployed_bytecode: BuildArtifactBytecode,
+    pub bytecode: ArtifactBytecode,
+    pub deployed_bytecode: ArtifactBytecode,
 }
 
 /// An abstract contract artifact.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AbstractArtifact {
-    pub id: BuildArtifactId,
+    pub id: ArtifactId,
     pub ast: solc::ast::SourceUnit,
     pub abi: JsonAbi,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct BuildArtifactJson {
+struct ArtifactJson {
     abi: JsonAbi,
-    bytecode: BuildArtifactBytecode,
+    bytecode: ArtifactBytecode,
     #[serde(rename = "deployedBytecode")]
-    deployed_bytecode: BuildArtifactBytecode,
+    deployed_bytecode: ArtifactBytecode,
     ast: solc::ast::SourceUnit,
-    metadata: Option<BuildArtifactMetadata>,
+    metadata: Option<ArtifactMetadata>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
-pub struct BuildArtifactBytecode {
+pub struct ArtifactBytecode {
     #[serde(default)]
     pub object: String,
     #[serde(default, rename = "sourceMap")]
@@ -136,17 +136,17 @@ pub struct BuildArtifactBytecode {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct BuildArtifactMetadata {
-    settings: Option<BuildArtifactSettings>,
+struct ArtifactMetadata {
+    settings: Option<ArtifactSettings>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct BuildArtifactSettings {
+struct ArtifactSettings {
     #[serde(rename = "compilationTarget")]
     compilation_target: Option<HashMap<String, String>>,
 }
 
-impl BuildArtifact {
+impl Artifact {
     /// Load a build artifact from a JSON file on disk.
     #[instrument(err, fields(path = %path.as_ref().display()))]
     pub fn from_json(path: impl AsRef<Path>) -> Result<Self> {
@@ -161,9 +161,9 @@ impl BuildArtifact {
     /// Load a build artifact from a JSON string.
     #[instrument(err)]
     pub fn from_json_str(content: &str) -> Result<Self> {
-        let json: BuildArtifactJson = serde_json::from_str(content)?;
+        let json: ArtifactJson = serde_json::from_str(content)?;
 
-        let id = get_build_artifact_id(&json)?;
+        let id = get_artifact_id(&json)?;
 
         let def = get_contract_definition(&json.ast, &id.name)?;
         Ok(match def.contract_kind {
@@ -197,7 +197,7 @@ impl BuildArtifact {
     }
 
     /// The unique identifier of this artifact.
-    pub fn id(&self) -> &BuildArtifactId {
+    pub fn id(&self) -> &ArtifactId {
         match self {
             Self::Contract(a) => &a.id,
             Self::Interface(a) => &a.id,
@@ -237,8 +237,8 @@ impl BuildArtifact {
     }
 }
 
-/// Extract `BuildArtifactId` from the artifact metadata.
-fn get_build_artifact_id(json: &BuildArtifactJson) -> Result<BuildArtifactId> {
+/// Extract `ArtifactId` from the artifact metadata.
+fn get_artifact_id(json: &ArtifactJson) -> Result<ArtifactId> {
     let target = json
         .metadata
         .as_ref()
@@ -262,7 +262,7 @@ fn get_build_artifact_id(json: &BuildArtifactJson) -> Result<BuildArtifactId> {
         "empty path or contract name in compilation target"
     );
 
-    Ok(BuildArtifactId {
+    Ok(ArtifactId {
         path: PathBuf::from(path),
         name: name.clone(),
     })
@@ -291,76 +291,76 @@ mod tests {
     use super::*;
 
     // -----------------------------------------------------------------------
-    // BuildArtifactId tests
+    // ArtifactId tests
     // -----------------------------------------------------------------------
 
     #[test]
-    fn build_artifact_id_from_valid_string() {
-        let id = BuildArtifactId::try_from("src/Counter.sol:Counter").unwrap();
+    fn artifact_id_from_valid_string() {
+        let id = ArtifactId::try_from("src/Counter.sol:Counter").unwrap();
         assert_eq!(id.path, PathBuf::from("src/Counter.sol"));
         assert_eq!(id.name, "Counter");
     }
 
     #[test]
-    fn build_artifact_id_from_string_owned() {
-        let id = BuildArtifactId::try_from("src/Counter.sol:Counter".to_owned()).unwrap();
+    fn artifact_id_from_string_owned() {
+        let id = ArtifactId::try_from("src/Counter.sol:Counter".to_owned()).unwrap();
         assert_eq!(id.path, PathBuf::from("src/Counter.sol"));
         assert_eq!(id.name, "Counter");
     }
 
     #[test]
-    fn build_artifact_id_from_str() {
-        let id = BuildArtifactId::try_from("src/Counter.sol:Counter").unwrap();
+    fn artifact_id_from_str() {
+        let id = ArtifactId::try_from("src/Counter.sol:Counter").unwrap();
         assert_eq!(id.path, PathBuf::from("src/Counter.sol"));
         assert_eq!(id.name, "Counter");
     }
 
     #[test]
-    fn build_artifact_id_display() {
-        let id = BuildArtifactId::try_from("src/Counter.sol:Counter").unwrap();
+    fn artifact_id_display() {
+        let id = ArtifactId::try_from("src/Counter.sol:Counter").unwrap();
         assert_eq!(id.to_string(), "src/Counter.sol:Counter");
     }
 
     #[test]
-    fn build_artifact_id_from_str_multiple_colons() {
+    fn artifact_id_from_str_multiple_colons() {
         // splitn(2, ':') uses the first colon as the separator
-        let id = BuildArtifactId::try_from("src/a:b/Counter.sol:Counter").unwrap();
+        let id = ArtifactId::try_from("src/a:b/Counter.sol:Counter").unwrap();
         assert_eq!(id.path, PathBuf::from("src/a"));
         assert_eq!(id.name, "b/Counter.sol:Counter");
     }
 
     #[test]
-    fn build_artifact_id_missing_colon_fails() {
-        let err = BuildArtifactId::try_from("src/Counter.sol").unwrap_err();
+    fn artifact_id_missing_colon_fails() {
+        let err = ArtifactId::try_from("src/Counter.sol").unwrap_err();
         assert!(err.to_string().contains("invalid build artifact id"));
     }
 
     #[test]
-    fn build_artifact_id_empty_path_fails() {
-        let err = BuildArtifactId::try_from(":Counter").unwrap_err();
+    fn artifact_id_empty_path_fails() {
+        let err = ArtifactId::try_from(":Counter").unwrap_err();
         assert!(err.to_string().contains("non-empty"));
     }
 
     #[test]
-    fn build_artifact_id_empty_name_fails() {
-        let err = BuildArtifactId::try_from("src/Counter.sol:").unwrap_err();
+    fn artifact_id_empty_name_fails() {
+        let err = ArtifactId::try_from("src/Counter.sol:").unwrap_err();
         assert!(err.to_string().contains("non-empty"));
     }
 
     #[test]
-    fn build_artifact_id_empty_string_fails() {
-        let err = BuildArtifactId::try_from("").unwrap_err();
+    fn artifact_id_empty_string_fails() {
+        let err = ArtifactId::try_from("").unwrap_err();
         assert!(err.to_string().contains("invalid build artifact id"));
     }
 
     // -----------------------------------------------------------------------
-    // BuildArtifact synthetic parsing tests
+    // Artifact synthetic parsing tests
     // -----------------------------------------------------------------------
 
     #[test]
     fn parse_artifact_missing_metadata_fails() {
         let json = r#"{"abi":[],"bytecode":{"object":"","sourceMap":""},"deployedBytecode":{"object":"","sourceMap":""},"ast":{"id":0,"absolutePath":"","exportedSymbols":{},"src":"0:0:0","nodes":[]}}"#;
-        let err = BuildArtifact::from_json_str(json).unwrap_err();
+        let err = Artifact::from_json_str(json).unwrap_err();
         assert!(err.to_string().contains("missing compilation target"));
     }
 
@@ -404,13 +404,13 @@ mod tests {
                 }
             }
         }"#;
-        let err = BuildArtifact::from_json_str(json).unwrap_err();
+        let err = Artifact::from_json_str(json).unwrap_err();
         assert!(err.to_string().contains("not found in AST"));
     }
 
     #[test]
     fn parse_artifact_invalid_json_fails() {
-        let err = BuildArtifact::from_json_str("not json").unwrap_err();
+        let err = Artifact::from_json_str("not json").unwrap_err();
         assert!(err.to_string().contains("expected ident"));
     }
 }

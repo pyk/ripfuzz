@@ -9,30 +9,35 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use tracing::{debug, instrument};
 use walkdir::WalkDir;
 
-use crate::foundry::build_artifact::{BuildArtifact, BuildArtifactId};
+use crate::foundry::artifact::{Artifact, ArtifactId};
+use crate::foundry::build_options::BuildOptions;
 
 /// A Foundry project located at a specific filesystem path.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Project {
     /// Absolute or relative path to the project root.
     pub path: PathBuf,
-    /// Force recompilation, skipping the cache.
-    pub force: bool,
 }
 
-#[bon::bon]
 impl Project {
-    /// Create and compile a [`Project`].
+    /// Create a [`Project`] without compiling.
     ///
-    /// Runs `forge build` before returning. Use [`Project::builder`] for a
-    /// named-argument builder interface.
-    #[builder]
-    pub fn new(path: impl AsRef<Path>, #[builder(default = false)] force: bool) -> Result<Self> {
-        let path = path.as_ref().to_path_buf();
-        let mut cmd = Command::new("forge");
-        cmd.arg("build").arg("--ast").arg("--root").arg(&path);
+    /// Construction is cheap and infallible. Call [`Self::build`] to compile
+    /// and [`Self::load_artifacts`] to read the compiled artifacts.
+    pub fn new(path: impl AsRef<Path>) -> Self {
+        Self {
+            path: path.as_ref().to_path_buf(),
+        }
+    }
 
-        if force {
+    /// Compile the project via `forge build`.
+    ///
+    /// The `out/` directory is created or refreshed as a side effect.
+    pub fn build(&self, opts: BuildOptions) -> Result<()> {
+        let mut cmd = Command::new("forge");
+        cmd.arg("build").arg("--ast").arg("--root").arg(&self.path);
+
+        if opts.is_force() {
             cmd.arg("--force");
         }
 
@@ -43,18 +48,18 @@ impl Project {
             bail!("{}", stderr.trim());
         }
 
-        Ok(Self { path, force })
+        Ok(())
     }
 
     /// Load all build artifacts from the project's `out/` directory.
     ///
-    /// Returns a map keyed by [`BuildArtifactId`]. The `out/` directory must
+    /// Returns a map keyed by [`ArtifactId`]. The `out/` directory must
     /// already exist (compile first if necessary).
     ///
     /// Artifact JSONs are discovered with `walkdir` (`out/*.sol/*.json`) and
     /// parsed in parallel with `rayon`.
     #[instrument(fields(path = %self.path.display()))]
-    pub fn load_build_artifacts(&self) -> Result<HashMap<BuildArtifactId, BuildArtifact>> {
+    pub fn load_artifacts(&self) -> Result<HashMap<ArtifactId, Artifact>> {
         let out_dir = self.path.join("out");
         ensure!(
             out_dir.exists(),
@@ -86,12 +91,12 @@ impl Project {
 
         debug!(count = paths.len(), "found artifact files");
 
-        let parsed: Vec<Result<(BuildArtifactId, BuildArtifact)>> = paths
+        let parsed: Vec<Result<(ArtifactId, Artifact)>> = paths
             .into_par_iter()
             // checkrs: allow(clone_in_iterator)
             .map(|path| {
                 debug!(path = %path.display(), "parsing artifact");
-                let artifact = BuildArtifact::from_json(&path)?;
+                let artifact = Artifact::from_json(&path)?;
                 let id = artifact.id().clone();
                 Ok((id, artifact))
             })
@@ -122,67 +127,59 @@ mod tests {
     #[test]
     #[serial]
     fn build_succeeds() {
-        let result = Project::builder().path("fixtures/foundry-project").build();
+        let project = Project::new("fixtures/foundry-project");
+        let result = project.build(BuildOptions::new());
         assert!(result.is_ok());
     }
 
     #[test]
     fn build_fails() {
-        let result = Project::builder().path("fixtures/build-failed").build();
+        let project = Project::new("fixtures/build-failed");
+        let result = project.build(BuildOptions::new());
         assert!(result.is_err());
     }
 
     #[test]
-    #[serial]
-    fn load_build_artifacts_succeeds() {
-        let project = Project::builder()
-            .path("fixtures/foundry-project")
-            .build()
-            .unwrap();
-
-        let artifacts = project.load_build_artifacts().unwrap();
+    fn load_artifacts_succeeds() {
+        let project = Project::new("fixtures/foundry-project");
+        let artifacts = project.load_artifacts().unwrap();
         assert_eq!(artifacts.len(), 4);
 
-        let counter_id = BuildArtifactId::try_from("src/Counter.sol:Counter").unwrap();
+        let counter_id = ArtifactId::try_from("src/Counter.sol:Counter").unwrap();
         let counter = artifacts
             .get(&counter_id)
             .expect("Counter artifact missing");
-        assert!(matches!(counter, BuildArtifact::Contract(_)));
+        assert!(matches!(counter, Artifact::Contract(_)));
 
-        let icounter_id = BuildArtifactId::try_from("src/ICounter.sol:ICounter").unwrap();
+        let icounter_id = ArtifactId::try_from("src/ICounter.sol:ICounter").unwrap();
         let icounter = artifacts
             .get(&icounter_id)
             .expect("ICounter artifact missing");
-        assert!(matches!(icounter, BuildArtifact::Interface(_)));
+        assert!(matches!(icounter, Artifact::Interface(_)));
 
-        let lib_id = BuildArtifactId::try_from("src/CounterLib.sol:CounterLib").unwrap();
+        let lib_id = ArtifactId::try_from("src/CounterLib.sol:CounterLib").unwrap();
         let lib = artifacts.get(&lib_id).expect("CounterLib artifact missing");
-        assert!(matches!(lib, BuildArtifact::Library(_)));
+        assert!(matches!(lib, Artifact::Library(_)));
 
-        let abs_id = BuildArtifactId::try_from("src/AbstractCounter.sol:AbstractCounter").unwrap();
+        let abs_id = ArtifactId::try_from("src/AbstractCounter.sol:AbstractCounter").unwrap();
         let abs = artifacts
             .get(&abs_id)
             .expect("AbstractCounter artifact missing");
-        assert!(matches!(abs, BuildArtifact::Abstract(_)));
+        assert!(matches!(abs, Artifact::Abstract(_)));
     }
 
     #[test]
-    #[serial]
     fn parse_contract_artifact() {
-        let _project = Project::builder()
-            .path("fixtures/foundry-project")
-            .build()
-            .unwrap();
-
+        // Fixture must be pre-built (run `make build-fixtures`).
         let json =
             fs::read_to_string("fixtures/foundry-project/out/Counter.sol/Counter.json").unwrap();
-        let artifact = BuildArtifact::from_json_str(&json).unwrap();
+        let artifact = Artifact::from_json_str(&json).unwrap();
         assert_eq!(artifact.name(), "Counter");
-        assert!(matches!(artifact, BuildArtifact::Contract(_)));
+        assert!(matches!(artifact, Artifact::Contract(_)));
         assert_eq!(artifact.id().to_string(), "src/Counter.sol:Counter");
         assert!(!artifact.abi().functions().next().is_none());
 
-        let BuildArtifact::Contract(contract) = &artifact else {
+        let Artifact::Contract(contract) = &artifact else {
             panic!("expected Contract artifact");
         };
         assert!(!contract.bytecode.object.is_empty());
@@ -192,40 +189,30 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn parse_interface_artifact() {
-        let _project = Project::builder()
-            .path("fixtures/foundry-project")
-            .build()
-            .unwrap();
-
+        // Fixture must be pre-built (run `make build-fixtures`).
         let json =
             fs::read_to_string("fixtures/foundry-project/out/ICounter.sol/ICounter.json").unwrap();
-        let artifact = BuildArtifact::from_json_str(&json).unwrap();
+        let artifact = Artifact::from_json_str(&json).unwrap();
         assert_eq!(artifact.name(), "ICounter");
-        assert!(matches!(artifact, BuildArtifact::Interface(_)));
+        assert!(matches!(artifact, Artifact::Interface(_)));
         assert_eq!(artifact.id().to_string(), "src/ICounter.sol:ICounter");
 
-        assert!(matches!(artifact, BuildArtifact::Interface(_)));
+        assert!(matches!(artifact, Artifact::Interface(_)));
     }
 
     #[test]
-    #[serial]
     fn parse_library_artifact() {
-        let _project = Project::builder()
-            .path("fixtures/foundry-project")
-            .build()
-            .unwrap();
-
+        // Fixture must be pre-built (run `make build-fixtures`).
         let json =
             fs::read_to_string("fixtures/foundry-project/out/CounterLib.sol/CounterLib.json")
                 .unwrap();
-        let artifact = BuildArtifact::from_json_str(&json).unwrap();
+        let artifact = Artifact::from_json_str(&json).unwrap();
         assert_eq!(artifact.name(), "CounterLib");
-        assert!(matches!(artifact, BuildArtifact::Library(_)));
+        assert!(matches!(artifact, Artifact::Library(_)));
         assert_eq!(artifact.id().to_string(), "src/CounterLib.sol:CounterLib");
 
-        let BuildArtifact::Library(lib) = &artifact else {
+        let Artifact::Library(lib) = &artifact else {
             panic!("expected Library artifact");
         };
         assert!(!lib.bytecode.object.is_empty());
@@ -235,39 +222,31 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn parse_abstract_artifact() {
-        let _project = Project::builder()
-            .path("fixtures/foundry-project")
-            .build()
-            .unwrap();
-
+        // Fixture must be pre-built (run `make build-fixtures`).
         let json = fs::read_to_string(
             "fixtures/foundry-project/out/AbstractCounter.sol/AbstractCounter.json",
         )
         .unwrap();
-        let artifact = BuildArtifact::from_json_str(&json).unwrap();
+        let artifact = Artifact::from_json_str(&json).unwrap();
         assert_eq!(artifact.name(), "AbstractCounter");
-        assert!(matches!(artifact, BuildArtifact::Abstract(_)));
+        assert!(matches!(artifact, Artifact::Abstract(_)));
         assert_eq!(
             artifact.id().to_string(),
             "src/AbstractCounter.sol:AbstractCounter"
         );
 
-        assert!(matches!(artifact, BuildArtifact::Abstract(_)));
+        assert!(matches!(artifact, Artifact::Abstract(_)));
     }
 
     #[test]
-    fn load_build_artifacts_fails_without_out_dir() {
+    fn load_artifacts_fails_without_out_dir() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("foundry.toml"), "[profile.default]\n").unwrap();
         fs::create_dir(temp.path().join("src")).unwrap();
 
-        let project = Project {
-            path: temp.path().to_path_buf(),
-            force: false,
-        };
-        let result = project.load_build_artifacts();
+        let project = Project::new(temp.path());
+        let result = project.load_artifacts();
         assert!(result.is_err());
         assert!(
             result
@@ -278,14 +257,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
-    fn load_build_artifacts_skips_build_info() {
-        let project = Project::builder()
-            .path("fixtures/foundry-project")
-            .build()
-            .unwrap();
-
-        let artifacts = project.load_build_artifacts().unwrap();
+    fn load_artifacts_skips_build_info() {
+        let project = Project::new("fixtures/foundry-project");
+        let artifacts = project.load_artifacts().unwrap();
         // build-info JSONs should be skipped, so we only have contract artifacts
         assert_eq!(artifacts.len(), 4);
         for (id, artifact) in &artifacts {

@@ -10,9 +10,9 @@ use revm::bytecode::Bytecode;
 use revm::primitives::Bytes;
 
 use crate::contract::source_map::SourceMap;
-use crate::foundry::build_artifact::BuildArtifact;
-use crate::foundry::build_artifact::BuildArtifactId;
-use crate::foundry::build_artifact::ContractArtifact as FoundryContractArtifact;
+use crate::foundry::artifact::Artifact;
+use crate::foundry::artifact::ArtifactId;
+use crate::foundry::artifact::ContractArtifact as FoundryContractArtifact;
 
 /// Parse a hex string (with optional `0x` prefix) into [`Bytes`].
 pub fn parse_hex(s: &str) -> Option<Bytes> {
@@ -78,7 +78,7 @@ impl ContractArtifact {
     /// demand via [`Self::init_source_map`] and [`Self::runtime_source_map`].
     pub fn from_foundry_artifact(
         target: &FoundryContractArtifact,
-        all_artifacts: &HashMap<BuildArtifactId, BuildArtifact>,
+        all_artifacts: &HashMap<ArtifactId, Artifact>,
         project_root: impl AsRef<std::path::Path>,
     ) -> Result<Self> {
         let initcode = parse_hex(&target.bytecode.object).unwrap_or_default();
@@ -89,8 +89,8 @@ impl ContractArtifact {
             .values()
             .filter_map(|artifact| {
                 let (bytecode, name, abi) = match artifact {
-                    BuildArtifact::Contract(c) => (&c.bytecode, &c.id.name, &c.abi),
-                    BuildArtifact::Library(c) => (&c.bytecode, &c.id.name, &c.abi),
+                    Artifact::Contract(c) => (&c.bytecode, &c.id.name, &c.abi),
+                    Artifact::Library(c) => (&c.bytecode, &c.id.name, &c.abi),
                     _ => return None,
                 };
                 let code = parse_hex(&bytecode.object).unwrap_or_default();

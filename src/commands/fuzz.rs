@@ -75,7 +75,7 @@ fn parse_address(s: &str) -> Result<Address, String> {
 pub struct Args {
     /// Target contract identifier (e.g. ./test/Contract.sol:Contract).
     #[arg(value_name = "TARGET")]
-    pub target: foundry::BuildArtifactId,
+    pub target: foundry::ArtifactId,
 
     // Project & Deployment
     /// Path to the Foundry project root.
@@ -317,14 +317,13 @@ pub fn run(args: Args) -> Result<()> {
 
     // Build project
     info!("building project");
-    let project = foundry::Project::builder()
-        .path(project_path.clone()) // TODO(pyk): review this clone later
-        .force(args.force)
-        .build()?;
+    let project = foundry::Project::new(&project_path);
+    let build_opts = foundry::BuildOptions::new().force(args.force);
+    project.build(build_opts)?;
 
     // Load build artifacts
     info!("loading build artifacts");
-    let build_artifacts = project.load_build_artifacts()?;
+    let build_artifacts = project.load_artifacts()?;
     ensure!(
         build_artifacts.contains_key(&args.target),
         "target artifact `{}` not found in build artifacts",
@@ -364,7 +363,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Report results
 
-    let crate::foundry::BuildArtifact::Contract(target) = &target_artifact else {
+    let crate::foundry::Artifact::Contract(target) = &target_artifact else {
         bail!("target `{}` is not a deployable contract", args.target);
     };
     let artifact = crate::contract::ContractArtifact::from_foundry_artifact(
