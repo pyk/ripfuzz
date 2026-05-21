@@ -14,9 +14,6 @@ path = "src/lib.rs"
 # Error handling
 anyhow = "1.0.100"
 
-# Struct Builder
-bon = "3.9.1"
-
 # CLI
 clap = { version="4.5.54", features = ["derive"] }
 clap-verbosity-flag = { version = "3.0.4", features = ["tracing"] }
