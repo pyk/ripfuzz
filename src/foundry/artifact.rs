@@ -46,6 +46,11 @@ impl TryFrom<String> for ArtifactId {
             !path.as_os_str().is_empty() && !name.is_empty(),
             "invalid build artifact id: path and name must be non-empty"
         );
+        ensure!(
+            path.extension().is_some_and(|ext| ext == "sol"),
+            "invalid build artifact id: path must end with `.sol`, got `{}`",
+            path.display()
+        );
         Ok(Self { path, name })
     }
 }
@@ -324,8 +329,8 @@ mod tests {
     #[test]
     fn artifact_id_from_str_multiple_colons() {
         // splitn(2, ':') uses the first colon as the separator
-        let id = ArtifactId::try_from("src/a:b/Counter.sol:Counter").unwrap();
-        assert_eq!(id.path, PathBuf::from("src/a"));
+        let id = ArtifactId::try_from("src/a.sol:b/Counter.sol:Counter").unwrap();
+        assert_eq!(id.path, PathBuf::from("src/a.sol"));
         assert_eq!(id.name, "b/Counter.sol:Counter");
     }
 
@@ -351,6 +356,12 @@ mod tests {
     fn artifact_id_empty_string_fails() {
         let err = ArtifactId::try_from("").unwrap_err();
         assert!(err.to_string().contains("invalid build artifact id"));
+    }
+
+    #[test]
+    fn artifact_id_path_without_sol_extension_fails() {
+        let err = ArtifactId::try_from("test/ImpossibleBug:ImpossibleBug").unwrap_err();
+        assert!(err.to_string().contains("must end with `.sol`"));
     }
 
     // -----------------------------------------------------------------------
