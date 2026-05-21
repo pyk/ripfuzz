@@ -153,12 +153,11 @@ impl Client {
 
     /// Query the remote node for its latest block number.
     pub fn latest_block_number(&self) -> Result<u64> {
-        let payload = request::payload("eth_getBlockByNumber", &[json!("latest"), json!(false)]);
+        let payload = request::payload("eth_blockNumber", &[]);
         let envelope = self.call("latest_block_number", payload)?;
-        let result = Self::extract_result(&envelope, "eth_getBlockByNumber")?;
+        let result = Self::extract_result(&envelope, "eth_blockNumber")?;
         let number = result
-            .get("number")
-            .and_then(|v| v.as_str())
+            .as_str()
             .context("missing block number in response")?;
         let hex = number.strip_prefix("0x").unwrap_or(number);
         u64::from_str_radix(hex, 16).context("invalid block number")
@@ -415,9 +414,9 @@ mod tests {
     fn mock_transport_roundtrip() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.insert(
-            "eth_getBlockByNumber",
-            &[json!("latest"), json!(false)],
-            json!({"jsonrpc": "2.0", "id": 1, "result": {"number": "0x1a2b"}}),
+            "eth_blockNumber",
+            &[],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
         );
 
         let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
@@ -432,9 +431,9 @@ mod tests {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.set_delay(Duration::from_millis(100));
         transport.insert(
-            "eth_getBlockByNumber",
-            &[json!("latest"), json!(false)],
-            json!({"jsonrpc": "2.0", "id": 1, "result": {"number": "0x1a2b"}}),
+            "eth_blockNumber",
+            &[],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
         );
 
         let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
@@ -448,19 +447,16 @@ mod tests {
         let r2 = t2.join().unwrap().unwrap();
         assert_eq!(r1, r2);
         assert_eq!(r1, 0x1a2b);
-        assert_eq!(
-            transport.call_count("eth_getBlockByNumber", &[json!("latest"), json!(false)]),
-            1
-        );
+        assert_eq!(transport.call_count("eth_blockNumber", &[]), 1);
     }
 
     #[test]
     fn rate_limit_throttles_without_network() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.insert(
-            "eth_getBlockByNumber",
-            &[json!("latest"), json!(false)],
-            json!({"jsonrpc": "2.0", "id": 1, "result": {"number": "0x1"}}),
+            "eth_blockNumber",
+            &[],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x1"}),
         );
 
         let config = Config::new()
@@ -488,9 +484,9 @@ mod tests {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.set_delay(Duration::from_millis(100));
         transport.insert(
-            "eth_getBlockByNumber",
-            &[json!("latest"), json!(false)],
-            json!({"jsonrpc": "2.0", "id": 1, "result": {"number": "0x1a2b"}}),
+            "eth_blockNumber",
+            &[],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
         );
 
         let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
@@ -508,10 +504,7 @@ mod tests {
             .collect();
 
         assert!(results.iter().all(|&r| r == 0x1a2b));
-        assert_eq!(
-            transport.call_count("eth_getBlockByNumber", &[json!("latest"), json!(false)]),
-            1
-        );
+        assert_eq!(transport.call_count("eth_blockNumber", &[]), 1);
     }
 
     /// Use a barrier to release all threads at the exact same instant,
@@ -521,9 +514,9 @@ mod tests {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.set_delay(Duration::from_millis(200));
         transport.insert(
-            "eth_getBlockByNumber",
-            &[json!("latest"), json!(false)],
-            json!({"jsonrpc": "2.0", "id": 1, "result": {"number": "0xdeadbeef"}}),
+            "eth_blockNumber",
+            &[],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0xdeadbeef"}),
         );
 
         let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
@@ -548,10 +541,7 @@ mod tests {
             .collect();
 
         assert!(results.iter().all(|&r| r == 0xdeadbeef));
-        assert_eq!(
-            transport.call_count("eth_getBlockByNumber", &[json!("latest"), json!(false)]),
-            1
-        );
+        assert_eq!(transport.call_count("eth_blockNumber", &[]), 1);
     }
 
     /// Verify that deduplication is keyed by (method, params).
@@ -648,9 +638,9 @@ mod tests {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.set_delay(Duration::from_millis(50));
         transport.insert(
-            "eth_getBlockByNumber",
-            &[json!("latest"), json!(false)],
-            json!({"jsonrpc": "2.0", "id": 1, "result": {"number": "0x1"}}),
+            "eth_blockNumber",
+            &[],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x1"}),
         );
 
         let config = Config::new()
@@ -696,10 +686,7 @@ mod tests {
             elapsed2.as_millis() >= 800,
             "second batch should be rate-limited: {elapsed2:?}"
         );
-        assert_eq!(
-            transport.call_count("eth_getBlockByNumber", &[json!("latest"), json!(false)]),
-            2
-        );
+        assert_eq!(transport.call_count("eth_blockNumber", &[]), 2);
     }
 
     /// Maximal contention: a barrier releases many threads at the exact same
@@ -710,9 +697,9 @@ mod tests {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.set_delay(Duration::from_millis(50));
         transport.insert(
-            "eth_getBlockByNumber",
-            &[json!("latest"), json!(false)],
-            json!({"jsonrpc": "2.0", "id": 1, "result": {"number": "0xcafe"}}),
+            "eth_blockNumber",
+            &[],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0xcafe"}),
         );
 
         let config = Config::new()
@@ -749,24 +736,20 @@ mod tests {
             elapsed.as_millis() >= 800,
             "rate limit did not throttle under contention: {elapsed:?}"
         );
-        assert_eq!(
-            transport.call_count("eth_getBlockByNumber", &[json!("latest"), json!(false)]),
-            2
-        );
+        assert_eq!(transport.call_count("eth_blockNumber", &[]), 2);
     }
 
-    /// Verify that `eth_getBlockByNumber("latest", ...)` bypasses the
-    /// cache while other methods are still cached. Sequential calls to
-    /// `latest_block_number` must hit the transport every time,
-    /// whereas `get_balance` should be served from cache on the
-    /// second call.
+    /// Verify that `eth_blockNumber` bypasses the cache while other
+    /// methods are still cached. Sequential calls to `latest_block_number`
+    /// must hit the transport every time, whereas `get_balance` should be
+    /// served from cache on the second call.
     #[test]
     fn eth_block_number_skips_cache_but_other_methods_are_cached() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.insert(
-            "eth_getBlockByNumber",
-            &[json!("latest"), json!(false)],
-            json!({"jsonrpc": "2.0", "id": 1, "result": {"number": "0x1a2b"}}),
+            "eth_blockNumber",
+            &[],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
         );
         transport.insert(
             "eth_getBalance",
@@ -792,16 +775,12 @@ mod tests {
         assert_eq!(rpc.latest_block_number().unwrap(), 0x1a2b);
         assert_eq!(rpc.get_balance(addr, 1).unwrap(), U256::from(0xc0ffee));
 
-        // Second call: eth_getBlockByNumber("latest", ...) should hit the
-        // transport again (not cached), while eth_getBalance should be
-        // served from cache.
+        // Second call: eth_blockNumber should hit the transport again (not
+        // cached), while eth_getBalance should be served from cache.
         assert_eq!(rpc.latest_block_number().unwrap(), 0x1a2b);
         assert_eq!(rpc.get_balance(addr, 1).unwrap(), U256::from(0xc0ffee));
 
-        assert_eq!(
-            transport.call_count("eth_getBlockByNumber", &[json!("latest"), json!(false)]),
-            2
-        );
+        assert_eq!(transport.call_count("eth_blockNumber", &[]), 2);
         assert_eq!(
             transport.call_count(
                 "eth_getBalance",
