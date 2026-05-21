@@ -383,8 +383,6 @@ pub fn run(args: Args) -> Result<()> {
         chain_v2::Environment::fork(rpc, block)?
     };
 
-    bail!("not implemented yet");
-
     // -----------------------------------------------------------------------
     // NOTE: old env below kept for downstream compatibility until full switch
     // -----------------------------------------------------------------------
