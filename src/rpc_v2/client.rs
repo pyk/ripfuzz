@@ -140,11 +140,6 @@ impl Client {
         }
     }
 
-    /// Cache key derived from the configured chain ID.
-    pub fn cache_key(&self) -> String {
-        format!("{}", self.inner.chain_id)
-    }
-
     /// Configured chain ID.
     pub fn chain_id(&self) -> u64 {
         self.inner.chain_id
@@ -461,16 +456,6 @@ mod tests {
         assert_eq!(pool.next(), "https://a.example.com");
         assert_eq!(pool.next(), "https://b.example.com");
         assert_eq!(pool.next(), "https://a.example.com");
-    }
-
-    #[test]
-    fn rpc_cache_key_returns_chain_id() {
-        let config = Config::new()
-            .urls(vec!["http://localhost:1".into()])
-            .pool_size(1)
-            .chain_id(8453);
-        let rpc = Client::new(config);
-        assert_eq!(rpc.cache_key(), "8453");
     }
 
     #[test]
