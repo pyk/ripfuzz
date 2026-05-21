@@ -70,14 +70,11 @@ impl Transport for HttpTransport {
                                 let err = &map["error"];
                                 last_err = Some(anyhow::anyhow!("RPC error: {err}"));
                             }
-                            serde_json::Value::Object(mut map) => {
-                                if let Some(result) = map.remove("result") {
-                                    return Ok(result);
-                                }
-                                last_err = Some(anyhow::anyhow!("missing result field"));
+                            serde_json::Value::Object(_) => {
+                                return Ok(value);
                             }
                             _ => {
-                                last_err = Some(anyhow::anyhow!("missing result field"));
+                                last_err = Some(anyhow::anyhow!("invalid RPC response"));
                             }
                         }
                     }
