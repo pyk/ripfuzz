@@ -35,9 +35,9 @@ impl Environment {
     ///
     /// Fetches the block header from the RPC to initialise the block environment.
     pub fn fork(rpc: Arc<Client>, block_number: u64) -> Result<Self> {
-        let block = rpc
-            .get_block_by_number(block_number)
-            .context("fetching block header for fork environment")?;
+        let block = rpc.get_block_by_number(block_number).with_context(|| {
+            format!("fetching block header for fork environment at block {block_number}")
+        })?;
         let chain_id = rpc.chain_id();
         Ok(Self::Fork {
             rpc,

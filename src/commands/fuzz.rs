@@ -353,10 +353,8 @@ pub fn run(args: Args) -> Result<()> {
     // Resolve chain environment
     info!("resolving chain environment");
     let _env = if args.fork_mode.rpc_urls.is_empty() {
-        info!("fork mode disabled");
         chain_v2::Environment::local()
     } else {
-        info!("fork mode enabled");
         let cache_dir = project_path.join("raptor").join("cache");
         let block = args
             .fork_mode
@@ -372,19 +370,20 @@ pub fn run(args: Args) -> Result<()> {
             .timeout_ms(args.fork_mode.rpc_timeout)
             .chain_id(args.fork_mode.rpc_chain_id)
             .cache_dir(&cache_dir);
+        info!(
+            chain_id = config.chain_id,
+            block = config.block,
+            "loading fork"
+        );
         info!("validating rpc configurations");
         config.validate()?;
         let client = rpc_v2::Client::new(config);
         let rpc = Arc::new(client);
-        let latest = rpc
-            .latest_block_number()
-            .context("failed to query latest block")?;
-        if block > latest {
-            bail!("--rpc-block ({block}) exceeds remote latest block ({latest})");
-        }
-        info!("fork environment resolved");
+        info!("creating fork environment");
         chain_v2::Environment::fork(rpc, block)?
     };
+
+    bail!("not implemented yet");
 
     // -----------------------------------------------------------------------
     // NOTE: old env below kept for downstream compatibility until full switch

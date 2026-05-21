@@ -31,7 +31,7 @@ fn main() -> ExitCode {
     };
 
     if let Err(e) = result {
-        error!("{e}");
+        error!("{e:#}");
         return ExitCode::FAILURE;
     }
 
