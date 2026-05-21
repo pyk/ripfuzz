@@ -181,11 +181,11 @@ impl DatabaseRef for ForkDb {
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
         let balance = self.rpc.get_balance(address, self.block_number)?;
         let nonce = self.rpc.get_transaction_count(address, self.block_number)?;
-        let code_bytes = self.rpc.get_code(address, self.block_number)?;
-        let bytecode = if code_bytes.is_empty() {
+        let code = self.rpc.get_code(address, self.block_number)?;
+        let bytecode = if code.is_empty() {
             Bytecode::default()
         } else {
-            Bytecode::new_raw(alloy_primitives::Bytes::from(code_bytes))
+            Bytecode::new_raw(code)
         };
         let code_hash = bytecode.hash_slow();
 

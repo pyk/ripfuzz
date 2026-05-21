@@ -5,8 +5,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, B256, Bytes, U64, U256};
 use anyhow::{Context, Result, bail};
+use serde::Deserialize;
 use serde_json::json;
 use tracing::{instrument, trace};
 use ureq::Agent;
@@ -63,16 +64,28 @@ impl UrlPool {
 }
 
 /// Typed block header returned by `eth_getBlockByNumber`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Block {
-    pub number: u64,
-    pub timestamp: u64,
+    #[serde(rename = "number", default)]
+    pub number: U64,
+    #[serde(rename = "timestamp", default)]
+    pub timestamp: U64,
+    #[serde(rename = "miner", default)]
     pub coinbase: Address,
-    pub gas_limit: u64,
-    pub basefee: u64,
+    #[serde(rename = "gasLimit", default = "default_gas_limit")]
+    pub gas_limit: U64,
+    #[serde(rename = "baseFeePerGas", default)]
+    pub basefee: U64,
+    #[serde(rename = "mixHash", default)]
     pub prevrandao: Option<B256>,
+    #[serde(rename = "difficulty", default)]
     pub difficulty: U256,
+    #[serde(rename = "hash", default)]
     pub hash: Option<B256>,
+}
+
+fn default_gas_limit() -> U64 {
+    U64::from(30_000_000)
 }
 
 /// JSON-RPC client with two-layer caching, deduplication, rate limiting,
@@ -153,7 +166,7 @@ impl Client {
         if result.is_null() {
             bail!("block {} not found", block);
         }
-        parse_block(&result)
+        serde_json::from_value(result).context("invalid block response")
     }
 
     /// Fetch an account balance at a specific block.
@@ -165,7 +178,8 @@ impl Client {
                 json!(format!("0x{:x}", block)),
             ],
         )?;
-        parse_u256(&result)
+        let s = result.as_str().context("expected hex string")?;
+        s.parse().context("invalid u256 hex")
     }
 
     /// Fetch an account nonce at a specific block.
@@ -177,11 +191,13 @@ impl Client {
                 json!(format!("0x{:x}", block)),
             ],
         )?;
-        parse_u64(&result)
+        let s = result.as_str().context("expected hex string")?;
+        let u: U64 = s.parse().context("invalid u64 hex")?;
+        Ok(u.to())
     }
 
     /// Fetch contract bytecode at a specific block.
-    pub fn get_code(&self, address: Address, block: u64) -> Result<Vec<u8>> {
+    pub fn get_code(&self, address: Address, block: u64) -> Result<Bytes> {
         let result = self.call(
             "eth_getCode",
             &[
@@ -189,7 +205,8 @@ impl Client {
                 json!(format!("0x{:x}", block)),
             ],
         )?;
-        parse_hex_bytes(&result)
+        let s = result.as_str().context("expected hex string")?;
+        s.parse().context("invalid hex bytes")
     }
 
     /// Fetch a storage slot at a specific block.
@@ -202,7 +219,8 @@ impl Client {
                 json!(format!("0x{:x}", block)),
             ],
         )?;
-        parse_u256(&result)
+        let s = result.as_str().context("expected hex string")?;
+        s.parse().context("invalid u256 hex")
     }
 
     // -----------------------------------------------------------------
@@ -254,88 +272,6 @@ impl Client {
         guard.deactivate();
         Ok(response)
     }
-}
-
-// -----------------------------------------------------------------
-// Parsers
-// -----------------------------------------------------------------
-
-fn parse_u256(value: &serde_json::Value) -> Result<U256> {
-    let s = value.as_str().context("expected hex string")?;
-    let s = s.strip_prefix("0x").unwrap_or(s);
-    U256::from_str_radix(s, 16).context("invalid u256 hex")
-}
-
-fn parse_u64(value: &serde_json::Value) -> Result<u64> {
-    let s = value.as_str().context("expected hex string")?;
-    let s = s.strip_prefix("0x").unwrap_or(s);
-    u64::from_str_radix(s, 16).context("invalid u64 hex")
-}
-
-fn parse_hex_bytes(value: &serde_json::Value) -> Result<Vec<u8>> {
-    let s = value.as_str().context("expected hex string")?;
-    let s = s.strip_prefix("0x").unwrap_or(s);
-    hex::decode(s).context("invalid hex bytes")
-}
-
-fn parse_block(value: &serde_json::Value) -> Result<Block> {
-    let number = parse_u64_field(value, "number")?.unwrap_or(0);
-    let timestamp = parse_u64_field(value, "timestamp")?.unwrap_or(0);
-    let coinbase = parse_address_field(value, "miner")?.unwrap_or(Address::ZERO);
-    let gas_limit = parse_u64_field(value, "gasLimit")?.unwrap_or(30_000_000);
-    let basefee = parse_u64_field(value, "baseFeePerGas")?.unwrap_or(0);
-    let difficulty = parse_u256_field(value, "difficulty")?.unwrap_or(U256::ZERO);
-    let prevrandao = parse_b256_field(value, "mixHash").ok();
-    let hash = parse_b256_field(value, "hash").ok();
-
-    Ok(Block {
-        number,
-        timestamp,
-        coinbase,
-        gas_limit,
-        basefee,
-        prevrandao,
-        difficulty,
-        hash,
-    })
-}
-
-fn parse_u64_field(value: &serde_json::Value, key: &str) -> Result<Option<u64>> {
-    value
-        .get(key)
-        .and_then(|v| v.as_str())
-        .map(|s| {
-            let s = s.strip_prefix("0x").unwrap_or(s);
-            u64::from_str_radix(s, 16).with_context(|| format!("invalid {key}"))
-        })
-        .transpose()
-}
-
-fn parse_u256_field(value: &serde_json::Value, key: &str) -> Result<Option<U256>> {
-    value
-        .get(key)
-        .and_then(|v| v.as_str())
-        .map(|s| {
-            let s = s.strip_prefix("0x").unwrap_or(s);
-            U256::from_str_radix(s, 16).with_context(|| format!("invalid {key}"))
-        })
-        .transpose()
-}
-
-fn parse_address_field(value: &serde_json::Value, key: &str) -> Result<Option<Address>> {
-    value
-        .get(key)
-        .and_then(|v| v.as_str())
-        .map(|s| s.parse().with_context(|| format!("invalid {key}")))
-        .transpose()
-}
-
-fn parse_b256_field(value: &serde_json::Value, key: &str) -> Result<B256> {
-    let s = value
-        .get(key)
-        .and_then(|v| v.as_str())
-        .with_context(|| format!("missing {key}"))?;
-    s.parse().with_context(|| format!("invalid {key}"))
 }
 
 #[cfg(test)]
@@ -435,24 +371,6 @@ mod tests {
             elapsed.as_millis() >= 800,
             "rate limit did not throttle: {elapsed:?}"
         );
-    }
-
-    #[test]
-    fn parse_u256_valid() {
-        let v = serde_json::Value::String("0x1a2b".into());
-        assert_eq!(parse_u256(&v).unwrap(), U256::from(0x1a2bu64));
-    }
-
-    #[test]
-    fn parse_u64_valid() {
-        let v = serde_json::Value::String("0x10".into());
-        assert_eq!(parse_u64(&v).unwrap(), 16u64);
-    }
-
-    #[test]
-    fn parse_hex_bytes_valid() {
-        let v = serde_json::Value::String("0xabcd".into());
-        assert_eq!(parse_hex_bytes(&v).unwrap(), vec![0xab, 0xcd]);
     }
 
     /// Stress-test deduplication with many threads hitting the same request.
