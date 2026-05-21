@@ -4,3 +4,6 @@ external
 # foundry
 out
 cache
+
+# Secrets
+.env
