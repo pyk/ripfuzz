@@ -1,4 +1,4 @@
-//! `roll` cheatcode — set and persist `block.number`.
+//! `roll` cheatcode - set and persist `block.number`.
 
 use revm::primitives::{Bytes, U256};
 

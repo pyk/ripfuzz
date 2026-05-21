@@ -12,7 +12,7 @@ use tracing_subscriber::fmt::{self, FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 
-/// ANSI escape sequences — no external color crate.
+/// ANSI escape sequences - no external color crate.
 const RED: &str = "\x1b[31m";
 const GREEN: &str = "\x1b[32m";
 const DIM: &str = "\x1b[2m";
@@ -80,7 +80,7 @@ where
     ) -> std::fmt::Result {
         let has_ansi = writer.has_ansi_escapes();
 
-        // 1. Prefix — red for errors, green for everything else.
+        // 1. Prefix - red for errors, green for everything else.
         let level = event.metadata().level();
         let prefix_color = match *level {
             tracing::Level::ERROR => RED,

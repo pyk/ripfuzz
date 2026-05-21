@@ -1,4 +1,4 @@
-//! FFI cheatcode — execute arbitrary host commands.
+//! FFI cheatcode - execute arbitrary host commands.
 
 use std::process::Command;
 

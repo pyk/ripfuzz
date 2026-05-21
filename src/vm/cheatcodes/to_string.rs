@@ -1,4 +1,4 @@
-//! `toString` cheatcodes — pure type-to-string conversion.
+//! `toString` cheatcodes - pure type-to-string conversion.
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use revm::primitives::Bytes;

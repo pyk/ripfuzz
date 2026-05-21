@@ -337,7 +337,7 @@ impl<CTX: revm::context_interface::ContextTr> Inspector<CTX> for TraceInspector 
             None => return,
         };
 
-        // Discard VM cheatcode calls — they never appear in the trace tree.
+        // Discard VM cheatcode calls - they never appear in the trace tree.
         if matches!(node.frame.kind, TraceKind::VmCall) {
             return;
         }

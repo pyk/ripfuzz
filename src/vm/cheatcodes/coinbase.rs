@@ -1,4 +1,4 @@
-//! `coinbase` cheatcode — set and persist `block.coinbase`.
+//! `coinbase` cheatcode - set and persist `block.coinbase`.
 
 use revm::primitives::{Address, Bytes};
 

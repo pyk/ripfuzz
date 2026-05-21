@@ -1,4 +1,4 @@
-//! `difficulty` cheatcode — no-op on raptor's post-Paris default chain.
+//! `difficulty` cheatcode - no-op on raptor's post-Paris default chain.
 //!
 //! After the Paris (Merge) hard fork, `block.difficulty` was deprecated and
 //! replaced by `block.prevrandao` (EIP-4399). On a post-Paris chain the

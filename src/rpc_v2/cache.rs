@@ -3,7 +3,7 @@
 //! no race between parallel threads, even when they target the same key.
 
 use std::collections::HashMap;
-use std::fs::{create_dir_all, read, write};
+use std::fs::{create_dir_all, read, rename, write};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
@@ -49,7 +49,7 @@ impl Cache {
         let data = serde_json::to_vec_pretty(value).context("serializing cache entry")?;
         let temp = path.with_extension("tmp");
         write(&temp, data).context("writing cache temp file")?;
-        std::fs::rename(&temp, &path).context("renaming cache temp file")?;
+        rename(&temp, &path).context("renaming cache temp file")?;
         Ok(())
     }
 
@@ -84,7 +84,6 @@ impl Cache {
         }
         let _ = self.write_to_disk(&key, &value);
     }
-
 }
 
 #[cfg(test)]

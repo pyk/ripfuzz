@@ -1,4 +1,4 @@
-//! `prevrandao` cheatcode — set and persist `block.prevrandao` on a post-Paris
+//! `prevrandao` cheatcode - set and persist `block.prevrandao` on a post-Paris
 //! chain.
 //!
 //! Raptor follows the Foundry / Echidna persistent model: a `prevrandao`

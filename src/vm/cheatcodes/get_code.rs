@@ -49,7 +49,7 @@ fn parse_contract_path(input: &str) -> Option<String> {
         }
     }
 
-    // No colon — treat the whole thing as the contract name, stripping `.sol`
+    // No colon - treat the whole thing as the contract name, stripping `.sol`
     // if present.
     let name = without_version.trim();
     let name = name.strip_suffix(".sol").unwrap_or(name).trim();

@@ -1,4 +1,4 @@
-//! `fee` cheatcode — set and persist `block.basefee`.
+//! `fee` cheatcode - set and persist `block.basefee`.
 
 use revm::primitives::{Bytes, U256};
 

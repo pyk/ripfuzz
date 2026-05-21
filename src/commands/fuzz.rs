@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use alloy_primitives::Address;
 use anyhow::{Context, Result, bail, ensure};
@@ -12,9 +13,11 @@ use tracing::{debug, info, instrument};
 
 use crate::campaign::CampaignConfig;
 use crate::chain::Environment;
+use crate::chain_v2;
 use crate::contract::resolve_coverage_to_source;
 use crate::foundry;
 use crate::rpc::RpcClient;
+use crate::rpc_v2;
 use crate::target;
 
 fn default_threads() -> usize {
@@ -292,7 +295,7 @@ impl ForkModeArgs {
     }
 
     /// Build the RPC client and validate the fork block.
-    pub fn build_rpc(&self, chain_id: u64) -> Result<(std::sync::Arc<dyn RpcClient>, u64)> {
+    pub fn build_rpc(&self, chain_id: u64) -> Result<(Arc<dyn RpcClient>, u64)> {
         let block = self
             .rpc_block
             .context("--rpc-block is required with --rpc-url")?;
@@ -315,7 +318,7 @@ impl ForkModeArgs {
             bail!("--rpc-block ({block}) exceeds remote latest block ({latest})");
         }
         info!(urls = ?self.rpc_urls, block = block, "Forking");
-        Ok((std::sync::Arc::new(rpc_instance), block))
+        Ok((Arc::new(rpc_instance), block))
     }
 }
 
@@ -349,18 +352,44 @@ pub fn run(args: Args) -> Result<()> {
 
     // Resolve chain environment
     info!("resolving chain environment");
-    // let env = if args.fork_mode.rpc_urls.is_empty() {
-    //     chain_v2::Environment::local()
-    // } else {
-    //     chain_v2::Environment::fork(rpc, block, &cache_dir)?
-    // };
+    let _env = if args.fork_mode.rpc_urls.is_empty() {
+        info!("fork mode disabled");
+        chain_v2::Environment::local()
+    } else {
+        info!("fork mode enabled");
+        let cache_dir = project_path.join("raptor").join("cache");
+        let block = args
+            .fork_mode
+            .rpc_block
+            .context("--rpc-block is required with --rpc-url")?;
+        let config = rpc_v2::Config::new()
+            .urls(args.fork_mode.rpc_urls.clone())
+            .block(block)
+            .pool_size(args.fork_mode.rpc_pool)
+            .retries(args.fork_mode.rpc_retries)
+            .backoff_ms(args.fork_mode.rpc_backoff)
+            .rate_limit(args.fork_mode.rpc_rate_limit)
+            .timeout_ms(args.fork_mode.rpc_timeout)
+            .chain_id(args.fork_mode.rpc_chain_id)
+            .cache_dir(&cache_dir);
+        info!("validating rpc configurations");
+        config.validate()?;
+        let client = rpc_v2::Client::new(config);
+        let rpc = Arc::new(client);
+        let latest = rpc
+            .latest_block_number()
+            .context("failed to query latest block")?;
+        if block > latest {
+            bail!("--rpc-block ({block}) exceeds remote latest block ({latest})");
+        }
+        info!("fork environment resolved");
+        chain_v2::Environment::fork(rpc, block)?
+    };
 
     // -----------------------------------------------------------------------
-    // NOTE: below is using old logic, not removed yet on purpose
+    // NOTE: old env below kept for downstream compatibility until full switch
     // -----------------------------------------------------------------------
 
-    // Resolve chain environment
-    info!("loading chain environment");
     let env = if args.fork_mode.rpc_urls.is_empty() {
         info!("sandbox environment resolved");
         Environment::sandbox()
@@ -475,7 +504,7 @@ pub fn run(args: Args) -> Result<()> {
                 c
             }
         };
-        builder = builder.with_corpus(std::sync::Arc::new(std::sync::RwLock::new(corpus)));
+        builder = builder.with_corpus(Arc::new(std::sync::RwLock::new(corpus)));
     }
 
     let campaign = builder.with_artifact(artifact).build()?;

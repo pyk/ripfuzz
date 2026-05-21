@@ -1,6 +1,7 @@
 //! Unified database and fork backend for chain_v2.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use alloy_primitives::{Address, B256, U256};
 use anyhow::Result;
@@ -163,12 +164,12 @@ impl From<anyhow::Error> for ForkDbError {
 /// revm database operations to typed RPC calls.
 #[derive(Clone, Debug)]
 pub struct ForkDb {
-    rpc: std::sync::Arc<Client>,
+    rpc: Arc<Client>,
     block_number: u64,
 }
 
 impl ForkDb {
-    pub fn new(rpc: std::sync::Arc<Client>, block_number: u64) -> Self {
+    pub fn new(rpc: Arc<Client>, block_number: u64) -> Self {
         Self { rpc, block_number }
     }
 }

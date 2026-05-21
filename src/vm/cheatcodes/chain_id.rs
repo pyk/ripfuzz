@@ -1,4 +1,4 @@
-//! `chainId` cheatcode — set and persist the EVM chain ID.
+//! `chainId` cheatcode - set and persist the EVM chain ID.
 
 use revm::primitives::{Bytes, U256};
 

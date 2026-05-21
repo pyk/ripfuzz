@@ -1,4 +1,4 @@
-//! `warp` cheatcode — set and persist `block.timestamp`.
+//! `warp` cheatcode - set and persist `block.timestamp`.
 
 use revm::primitives::{Bytes, U256};
 
