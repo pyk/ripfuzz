@@ -1,6 +1,8 @@
+//! EVM chain state and executor.
+
 use std::sync::Arc;
 
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, B256, U256, address};
 use anyhow::Context as _;
 use revm::{
     Database, DatabaseCommit, DatabaseRef, MainBuilder, MainContext,
@@ -18,10 +20,7 @@ use crate::evm::result::TransactionResult;
 use crate::rpc_v2::Client;
 
 /// Default deployer address: `address(uint160(uint256(keccak256("raptor deployer"))))`.
-pub const DEFAULT_DEPLOYER: Address = Address::new([
-    0xc3, 0x42, 0x96, 0x17, 0x5b, 0x9e, 0x78, 0xf6, 0x6e, 0xdb, 0xea, 0xeb, 0x7a, 0xce, 0xa4, 0xc6,
-    0x15, 0xc0, 0x92, 0xe1,
-]);
+pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1");
 
 // -----------------------------------------------------------------------------
 // ForkDb
@@ -168,6 +167,7 @@ where
     database: Option<D>,
     block_env: BlockEnv,
     cfg_env: CfgEnv,
+    deployer: Address,
 }
 
 impl Default for Chain<InMemoryDB> {
@@ -198,10 +198,21 @@ impl Chain<InMemoryDB> {
         cfg_env.disable_nonce_check = true;
         cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
 
+        let mut db = InMemoryDB::default();
+        let info = AccountInfo {
+            balance: U256::MAX,
+            nonce: 0,
+            code_hash: revm::primitives::KECCAK_EMPTY,
+            code: None,
+            account_id: None,
+        };
+        db.insert_account_info(DEFAULT_DEPLOYER, info);
+
         Self {
-            database: Some(InMemoryDB::default()),
+            database: Some(db),
             block_env,
             cfg_env,
+            deployer: DEFAULT_DEPLOYER,
         }
     }
 }
@@ -244,13 +255,14 @@ impl Chain<CacheDB<ForkDb>> {
             database: Some(database),
             block_env,
             cfg_env,
+            deployer: DEFAULT_DEPLOYER,
         })
     }
 }
 
 impl<Inner: DatabaseRef> Chain<CacheDB<Inner>> {
     /// Seed an account with balance and zero nonce.
-    pub fn seed_account(&mut self, address: Address, balance: U256) {
+    pub fn seed_account(&mut self, address: Address, balance: U256) -> Result<(), ChainError> {
         let info = AccountInfo {
             balance,
             nonce: 0,
@@ -260,8 +272,9 @@ impl<Inner: DatabaseRef> Chain<CacheDB<Inner>> {
         };
         self.database
             .as_mut()
-            .unwrap()
+            .ok_or_else(|| ChainError::from(anyhow::anyhow!("database unavailable")))?
             .insert_account_info(address, info);
+        Ok(())
     }
 }
 
@@ -289,23 +302,24 @@ where
         &self.cfg_env
     }
 
+    /// Immutable access to the deployer address.
+    pub fn deployer(&self) -> Address {
+        self.deployer
+    }
+
     /// Mutable access to the underlying database.
     ///
-    /// # Panics
-    ///
-    /// Panics if called while a transaction is in flight (the database is
-    /// temporarily moved into revm during execution).
-    pub fn database_mut(&mut self) -> &mut D {
-        self.database.as_mut().unwrap()
+    /// Returns `None` if called while a transaction is in flight (the database
+    /// is temporarily moved into revm during execution).
+    pub fn database_mut(&mut self) -> Option<&mut D> {
+        self.database.as_mut()
     }
 
     /// Immutable access to the underlying database.
     ///
-    /// # Panics
-    ///
-    /// Panics if called while a transaction is in flight.
-    pub fn database(&self) -> &D {
-        self.database.as_ref().unwrap()
+    /// Returns `None` if called while a transaction is in flight.
+    pub fn database(&self) -> Option<&D> {
+        self.database.as_ref()
     }
 
     /// Deploy a contract and return the deployed address + result.
@@ -351,7 +365,10 @@ where
 
     /// Execute a raw transaction and commit state changes.
     pub fn transact(&mut self, tx: TxEnv) -> Result<TransactionResult, ChainError> {
-        let db = self.database.take().unwrap();
+        let db = self
+            .database
+            .take()
+            .ok_or_else(|| ChainError::from(anyhow::anyhow!("database unavailable")))?;
         let mut ctx = Context::mainnet().with_db(db);
         ctx.block = self.block_env.clone();
         ctx.cfg = self.cfg_env.clone();
@@ -375,7 +392,10 @@ where
     where
         INSP: Inspector<Context<BlockEnv, TxEnv, CfgEnv, D, revm::Journal<D>>>,
     {
-        let db = self.database.take().unwrap();
+        let db = self
+            .database
+            .take()
+            .ok_or_else(|| ChainError::from(anyhow::anyhow!("database unavailable")))?;
         let mut ctx = Context::mainnet().with_db(db);
         ctx.block = self.block_env.clone();
         ctx.cfg = self.cfg_env.clone();
@@ -391,6 +411,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_primitives::utils::keccak256;
     use revm::primitives::hardfork::SpecId;
 
     #[test]
@@ -401,5 +422,33 @@ mod tests {
             SpecId::AMSTERDAM,
             "Chain::new should use latest spec (AMSTERDAM)"
         );
+    }
+
+    #[test]
+    fn default_deployer_matches_raptor_deployer_string() {
+        let hash = keccak256(b"raptor deployer");
+        let expected = revm::primitives::Address::from_word(hash);
+        assert_eq!(expected, DEFAULT_DEPLOYER);
+    }
+
+    #[test]
+    fn chain_new_seeds_deployer_with_max_balance() -> Result<(), ChainError> {
+        let chain = Chain::new();
+        assert_eq!(
+            chain.deployer(),
+            DEFAULT_DEPLOYER,
+            "deployer should default to DEFAULT_DEPLOYER"
+        );
+        let db = chain
+            .database()
+            .ok_or_else(|| ChainError::from(anyhow::anyhow!("database unavailable")))?;
+        let Ok(info) = db.basic_ref(DEFAULT_DEPLOYER);
+        let balance = info.map(|i| i.balance).unwrap_or_default();
+        assert_eq!(
+            balance,
+            U256::MAX,
+            "deployer must be seeded with U256::MAX in Chain::new"
+        );
+        Ok(())
     }
 }

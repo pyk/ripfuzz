@@ -1,3 +1,5 @@
+//! Transaction result types for the EVM chain.
+
 use revm::context_interface::result::{ExecutionResult, Output};
 use revm::inspector::Inspector;
 use revm::interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome};
