@@ -179,9 +179,7 @@ impl DatabaseRef for ForkDb {
 
     #[instrument(skip(self), fields(%address))]
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        let balance = self.rpc.get_balance(address, self.block_number)?;
-        let nonce = self.rpc.get_transaction_count(address, self.block_number)?;
-        let code = self.rpc.get_code(address, self.block_number)?;
+        let (balance, nonce, code) = self.rpc.get_account(address, self.block_number)?;
         let bytecode = if code.is_empty() {
             Bytecode::default()
         } else {

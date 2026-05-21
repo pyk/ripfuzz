@@ -10,8 +10,17 @@ use crate::rpc_v2::client::{AgentPool, UrlPool};
 
 /// Trait for anything that can execute a JSON-RPC request.
 pub trait Transport: Send + Sync + std::fmt::Debug {
-    /// Send a JSON-RPC request and return the `result` field.
+    /// Send a JSON-RPC request and return the full response envelope.
     fn send(&self, payload: serde_json::Value) -> Result<serde_json::Value>;
+
+    /// Send a JSON-RPC batch request and return the full response envelopes.
+    ///
+    /// The default implementation loops over [`Self::send`] one request at a
+    /// time.  Concrete transports that support true HTTP batching should
+    /// override this.
+    fn send_batch(&self, payloads: Vec<serde_json::Value>) -> Result<Vec<serde_json::Value>> {
+        payloads.into_iter().map(|p| self.send(p)).collect()
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -90,6 +99,55 @@ impl Transport for HttpTransport {
         }
 
         Err(last_err.unwrap_or_else(|| anyhow::anyhow!("RPC request failed on all URLs")))
+    }
+
+    fn send_batch(&self, payloads: Vec<serde_json::Value>) -> Result<Vec<serde_json::Value>> {
+        let body = serde_json::to_vec(&payloads).context("serializing RPC batch payload")?;
+        let url_count = self.urls.urls().len();
+        let mut last_err: Option<anyhow::Error> = None;
+
+        for _url_idx in 0..url_count {
+            let url = self.urls.next();
+            for attempt in 0..=self.retries {
+                let agent = self.agents.next();
+                match agent
+                    .post(url)
+                    .header("Content-Type", "application/json")
+                    .send(&body)
+                {
+                    Ok(mut response) => {
+                        let text = response
+                            .body_mut()
+                            .read_to_string()
+                            .context("reading RPC batch response body")?;
+                        let value: serde_json::Value =
+                            serde_json::from_str(&text).context("json decode")?;
+
+                        match value {
+                            serde_json::Value::Array(arr) => {
+                                return Ok(arr);
+                            }
+                            serde_json::Value::Object(ref map) if map.get("error").is_some() => {
+                                let err = &map["error"];
+                                last_err = Some(anyhow::anyhow!("RPC batch error: {err}"));
+                            }
+                            _ => {
+                                last_err = Some(anyhow::anyhow!("invalid RPC batch response"));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        last_err = Some(anyhow::Error::new(e));
+                    }
+                }
+
+                if attempt < self.retries {
+                    std::thread::sleep(self.retry_backoff * (attempt + 1));
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("RPC batch request failed on all URLs")))
     }
 }
 

@@ -15,7 +15,7 @@ use ureq::Agent;
 use crate::rpc_v2::config::Config;
 use crate::rpc_v2::request;
 use crate::rpc_v2::transport::{HttpTransport, Transport};
-use crate::rpc_v2::{Cache, DedupTable, RateLimiter, RequestKey};
+use crate::rpc_v2::{Cache, DedupTable, RateLimiter};
 
 /// Round-robin pool of `ureq::Agent` instances.
 #[derive(Debug)]
@@ -129,7 +129,7 @@ impl Client {
     /// Create a new client with a custom transport (e.g. for testing).
     pub fn new_with_transport(config: Config, transport: Arc<dyn Transport>) -> Self {
         let limiter = config.rate_limit.map(RateLimiter::new);
-        let cache = config.cache_dir.map(|dir| Cache::new(dir, config.chain_id));
+        let cache = config.cache_dir.map(Cache::new);
         Self {
             inner: Arc::new(ClientInner {
                 transport,
@@ -153,7 +153,9 @@ impl Client {
 
     /// Query the remote node for its latest block number.
     pub fn latest_block_number(&self) -> Result<u64> {
-        let result = self.call("eth_getBlockByNumber", &[json!("latest"), json!(false)])?;
+        let payload = request::payload("eth_getBlockByNumber", &[json!("latest"), json!(false)]);
+        let envelope = self.call("latest_block_number", payload)?;
+        let result = Self::extract_result(&envelope, "eth_getBlockByNumber")?;
         let number = result
             .get("number")
             .and_then(|v| v.as_str())
@@ -164,8 +166,13 @@ impl Client {
 
     /// Fetch a block header by number.
     pub fn get_block_by_number(&self, block: u64) -> Result<Block> {
-        let block_hex = format!("0x{:x}", block);
-        let result = self.call("eth_getBlockByNumber", &[json!(block_hex), json!(false)])?;
+        let cache_key = format!("get_block_by_number_{block:x}");
+        let payload = request::payload(
+            "eth_getBlockByNumber",
+            &[json!(format!("0x{block:x}")), json!(false)],
+        );
+        let envelope = self.call(&cache_key, payload)?;
+        let result = Self::extract_result(&envelope, "eth_getBlockByNumber")?;
         if result.is_null() {
             bail!("block {} not found", block);
         }
@@ -174,26 +181,32 @@ impl Client {
 
     /// Fetch an account balance at a specific block.
     pub fn get_balance(&self, address: Address, block: u64) -> Result<U256> {
-        let result = self.call(
+        let cache_key = format!("get_balance_{block:x}_{address:x}");
+        let payload = request::payload(
             "eth_getBalance",
             &[
                 json!(format!("0x{address:x}")),
-                json!(format!("0x{:x}", block)),
+                json!(format!("0x{block:x}")),
             ],
-        )?;
+        );
+        let envelope = self.call(&cache_key, payload)?;
+        let result = Self::extract_result(&envelope, "eth_getBalance")?;
         let s = result.as_str().context("expected hex string")?;
         s.parse().context("invalid u256 hex")
     }
 
     /// Fetch an account nonce at a specific block.
     pub fn get_transaction_count(&self, address: Address, block: u64) -> Result<u64> {
-        let result = self.call(
+        let cache_key = format!("get_transaction_count_{block:x}_{address:x}");
+        let payload = request::payload(
             "eth_getTransactionCount",
             &[
                 json!(format!("0x{address:x}")),
-                json!(format!("0x{:x}", block)),
+                json!(format!("0x{block:x}")),
             ],
-        )?;
+        );
+        let envelope = self.call(&cache_key, payload)?;
+        let result = Self::extract_result(&envelope, "eth_getTransactionCount")?;
         let s = result.as_str().context("expected hex string")?;
         let u: U64 = s.parse().context("invalid u64 hex")?;
         Ok(u.to())
@@ -201,29 +214,78 @@ impl Client {
 
     /// Fetch contract bytecode at a specific block.
     pub fn get_code(&self, address: Address, block: u64) -> Result<Bytes> {
-        let result = self.call(
+        let cache_key = format!("get_code_{block:x}_{address:x}");
+        let payload = request::payload(
             "eth_getCode",
             &[
                 json!(format!("0x{address:x}")),
-                json!(format!("0x{:x}", block)),
+                json!(format!("0x{block:x}")),
             ],
-        )?;
+        );
+        let envelope = self.call(&cache_key, payload)?;
+        let result = Self::extract_result(&envelope, "eth_getCode")?;
         let s = result.as_str().context("expected hex string")?;
         s.parse().context("invalid hex bytes")
     }
 
     /// Fetch a storage slot at a specific block.
     pub fn get_storage_at(&self, address: Address, slot: U256, block: u64) -> Result<U256> {
-        let result = self.call(
+        let cache_key = format!("get_storage_at_{block:x}_{slot:x}_{address:x}");
+        let payload = request::payload(
             "eth_getStorageAt",
             &[
                 json!(format!("0x{address:x}")),
                 json!(format!("0x{slot:x}")),
-                json!(format!("0x{:x}", block)),
+                json!(format!("0x{block:x}")),
             ],
-        )?;
+        );
+        let envelope = self.call(&cache_key, payload)?;
+        let result = Self::extract_result(&envelope, "eth_getStorageAt")?;
         let s = result.as_str().context("expected hex string")?;
         s.parse().context("invalid u256 hex")
+    }
+
+    /// Fetch balance, nonce, and code for an address in a single batch request.
+    pub fn get_account(&self, address: Address, block: u64) -> Result<(U256, u64, Bytes)> {
+        let addr = json!(format!("0x{address:x}"));
+        let block_tag = json!(format!("0x{block:x}"));
+        let cache_key = format!("get_account_{block:x}_{address:x}");
+
+        let payload = serde_json::Value::Array(vec![
+            request::payload("eth_getBalance", &[addr.clone(), block_tag.clone()]),
+            request::payload(
+                "eth_getTransactionCount",
+                &[addr.clone(), block_tag.clone()],
+            ),
+            request::payload("eth_getCode", &[addr, block_tag]),
+        ]);
+
+        let envelope = self.call(&cache_key, payload)?;
+        let results = envelope
+            .as_array()
+            .context("batch response should be an array")?;
+
+        let balance_result = Self::extract_result(&results[0], "eth_getBalance")?;
+        let balance: U256 = balance_result
+            .as_str()
+            .context("expected hex string for balance")?
+            .parse()
+            .context("invalid u256 hex for balance")?;
+        let nonce_result = Self::extract_result(&results[1], "eth_getTransactionCount")?;
+        let nonce_str = nonce_result
+            .as_str()
+            .context("expected hex string for nonce")?;
+        let nonce: u64 = U64::from_str_radix(nonce_str.strip_prefix("0x").unwrap_or(nonce_str), 16)
+            .context("invalid u64 hex for nonce")?
+            .to();
+        let code_result = Self::extract_result(&results[2], "eth_getCode")?;
+        let code: Bytes = code_result
+            .as_str()
+            .context("expected hex string for code")?
+            .parse()
+            .context("invalid hex bytes for code")?;
+
+        Ok((balance, nonce, code))
     }
 
     // -----------------------------------------------------------------
@@ -238,65 +300,69 @@ impl Client {
             .with_context(|| format!("missing result field in {method} response"))
     }
 
-    #[instrument(skip(self, params), fields(method))]
-    fn call(&self, method: &str, params: &[serde_json::Value]) -> Result<serde_json::Value> {
-        let key = RequestKey::new(method, params);
-
+    /// Unified internal call that handles deduplication, caching, rate
+    /// limiting, and transport for both single requests and batches.
+    ///
+    /// The caller builds the JSON-RPC `request_payload` (a single object or an
+    /// array for batching) and is responsible for extracting `result` fields
+    /// from the returned envelope.
+    #[instrument(skip(self, request_payload), fields(cache_key))]
+    fn call(
+        &self,
+        cache_key: &str,
+        request_payload: serde_json::Value,
+    ) -> Result<serde_json::Value> {
         // 1. Deduplication
-        if let Some(result) = self.inner.dedup.register(&key) {
-            trace!(%key, "dedup hit");
+        if let Some(result) = self.inner.dedup.register(cache_key) {
+            trace!(%cache_key, "dedup hit");
             return result;
         }
-        let guard = self.inner.dedup.guard(&key);
+        let guard = self.inner.dedup.guard(cache_key);
 
-        // 2. Memory cache (seeded from disk at construction)
-        //    eth_getBlockByNumber("latest", ...) is intentionally never
-        //    cached so the latest block number is always fresh, while still
-        //    deduped and rate-limited.
-        let is_latest_block = method == "eth_getBlockByNumber"
-            && params.first().and_then(|p| p.as_str()) == Some("latest");
-        if !is_latest_block
+        // 2. Memory cache
+        let skip_cache = cache_key == "latest_block_number";
+        if !skip_cache
             && let Some(ref cache) = self.inner.cache
-            && let Some(envelope) = cache.get(&key)
+            && let Some(envelope) = cache.get(cache_key)
         {
-            trace!(%key, "cache hit");
-            let value = Self::extract_result(&envelope, method)?;
-            self.inner.dedup.complete(&key, Ok(value.clone()));
+            trace!(%cache_key, "cache hit");
+            self.inner.dedup.complete(cache_key, Ok(envelope.clone()));
             guard.deactivate();
-            return Ok(value);
+            return Ok(envelope);
         }
 
         // 3. Rate limit gate
         if let Some(ref limiter) = self.inner.limiter {
-            trace!(%key, "rate limit acquire");
-            limiter.acquire();
+            let count = request_payload.as_array().map(|a| a.len()).unwrap_or(1);
+            trace!(%cache_key, count, "rate limit acquire");
+            for _ in 0..count {
+                limiter.acquire();
+            }
         }
 
         // 4. Live network fetch
-        let payload = request::payload(method, params);
-        let result = self
-            .inner
-            .transport
-            .send(payload)
-            .with_context(|| format!("RPC {method} failed"));
+        let result = if let Some(items) = request_payload.as_array() {
+            let items = items.to_vec();
+            serde_json::Value::Array(
+                self.inner
+                    .transport
+                    .send_batch(items)
+                    .with_context(|| format!("RPC batch {cache_key} failed"))?,
+            )
+        } else {
+            self.inner
+                .transport
+                .send(request_payload)
+                .with_context(|| format!("RPC {cache_key} failed"))?
+        };
 
-        // 5. Extract result, update cache, and complete dedup
-        match result {
-            Ok(ref envelope) => {
-                let value = Self::extract_result(envelope, method)?;
-                if !is_latest_block && let Some(ref cache) = self.inner.cache {
-                    cache.insert(key.clone(), envelope.clone());
-                }
-                self.inner.dedup.complete(&key, Ok(value.clone()));
-                guard.deactivate();
-                Ok(value)
-            }
-            Err(ref e) => {
-                self.inner.dedup.complete(&key, Err(anyhow::anyhow!("{e}")));
-                guard.deactivate();
-                Err(anyhow::anyhow!("{e}"))
-            }
+        // 5. Update cache and complete dedup
+        if !skip_cache && let Some(ref cache) = self.inner.cache {
+            cache.insert(cache_key, result.clone());
         }
+        self.inner.dedup.complete(cache_key, Ok(result.clone()));
+        guard.deactivate();
+        Ok(result)
     }
 }
 
@@ -748,6 +814,80 @@ mod tests {
         );
     }
 
+    #[test]
+    fn mock_get_account_roundtrip() {
+        let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        transport.insert(
+            "eth_getBalance",
+            &[
+                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+                json!("0x17fa30b"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x4ec7cefe1a0664fd"}),
+        );
+        transport.insert(
+            "eth_getTransactionCount",
+            &[
+                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+                json!("0x17fa30b"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 2, "result": "0x1707"}),
+        );
+        transport.insert(
+            "eth_getCode",
+            &[
+                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+                json!("0x17fa30b"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 3, "result": "0x6060604052"}),
+        );
+
+        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let rpc = Client::new_with_transport(config, transport.clone());
+
+        let weth: Address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+            .parse()
+            .unwrap();
+        let (balance, nonce, code) = rpc.get_account(weth, 0x17fa30b).unwrap();
+
+        assert_eq!(
+            balance,
+            U256::from_str_radix("4ec7cefe1a0664fd", 16).unwrap()
+        );
+        assert_eq!(nonce, 0x1707);
+        assert!(!code.is_empty());
+        assert_eq!(
+            transport.call_count(
+                "eth_getBalance",
+                &[
+                    json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+                    json!("0x17fa30b"),
+                ]
+            ),
+            1
+        );
+        assert_eq!(
+            transport.call_count(
+                "eth_getTransactionCount",
+                &[
+                    json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+                    json!("0x17fa30b"),
+                ]
+            ),
+            1
+        );
+        assert_eq!(
+            transport.call_count(
+                "eth_getCode",
+                &[
+                    json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+                    json!("0x17fa30b"),
+                ]
+            ),
+            1
+        );
+    }
+
     fn live_client() -> &'static Client {
         static LIVE_CLIENT: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
         LIVE_CLIENT.get_or_init(|| {
@@ -816,5 +956,20 @@ mod tests {
         let slot = client.get_storage_at(weth, U256::ZERO, latest).unwrap();
         // We only assert the call succeeds; the exact value is not stable.
         let _ = slot;
+    }
+
+    #[test]
+    fn live_eth_get_account_returns_account_info() {
+        let client = live_client();
+        let latest = client.latest_block_number().unwrap();
+        let weth: Address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+            .parse()
+            .unwrap();
+
+        let (balance, nonce, code) = client.get_account(weth, latest).unwrap();
+
+        assert!(balance > U256::ZERO);
+        assert_eq!(nonce, 1); // WETH deploy nonce
+        assert!(!code.is_empty());
     }
 }

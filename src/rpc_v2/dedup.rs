@@ -1,37 +1,11 @@
-//! In-flight request deduplication.
+//! In-flight request deduplication keyed by a caller-provided string.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use anyhow::{Result, anyhow};
-use serde::{Deserialize, Serialize};
 use tracing::trace;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct RequestKey {
-    method: String,
-    args_json: String,
-}
-
-impl RequestKey {
-    pub fn new(method: &str, params: &[serde_json::Value]) -> Self {
-        Self {
-            method: method.into(),
-            args_json: serde_json::to_string(params).unwrap_or_default(),
-        }
-    }
-
-    pub fn method(&self) -> &str {
-        &self.method
-    }
-}
-
-impl std::fmt::Display for RequestKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.method, self.args_json)
-    }
-}
 
 struct InflightHandle {
     done: Condvar,
@@ -56,7 +30,7 @@ impl InflightHandle {
 /// Ensures `complete` is called even if the caller panics.
 pub struct DedupGuard<'a> {
     table: &'a DedupTable,
-    key: &'a RequestKey,
+    key: &'a str,
     active: bool,
 }
 
@@ -77,7 +51,7 @@ impl Drop for DedupGuard<'_> {
 }
 
 pub struct DedupTable {
-    inflight: Mutex<HashMap<RequestKey, Arc<InflightHandle>>>,
+    inflight: Mutex<HashMap<String, Arc<InflightHandle>>>,
 }
 
 impl std::fmt::Debug for DedupTable {
@@ -107,7 +81,7 @@ impl DedupTable {
     /// Returns `None` if this thread is the first to issue the request;
     /// the caller must later call `complete` (or use a [`DedupGuard`]).
     /// Returns `Some(handle)` if another thread is already handling it.
-    pub fn register(&self, key: &RequestKey) -> Option<Result<serde_json::Value>> {
+    pub fn register(&self, key: &str) -> Option<Result<serde_json::Value>> {
         let mut map = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
         trace!(key = %key, table_size = map.len(), "dedup register");
         if let Some(handle) = map.get(key) {
@@ -121,12 +95,12 @@ impl DedupTable {
             completed: AtomicBool::new(false),
             result: Mutex::new(None),
         });
-        map.insert(key.clone(), handle);
+        map.insert(key.into(), handle);
         None
     }
 
     /// Complete an in-flight request and wake all waiters.
-    pub fn complete(&self, key: &RequestKey, result: Result<serde_json::Value>) {
+    pub fn complete(&self, key: &str, result: Result<serde_json::Value>) {
         let mut map = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(handle) = map.remove(key) {
             let mut guard = handle.result.lock().unwrap_or_else(|e| e.into_inner());
@@ -138,7 +112,7 @@ impl DedupTable {
     }
 
     /// Create a guard that auto-completes with error on panic.
-    pub fn guard<'a>(&'a self, key: &'a RequestKey) -> DedupGuard<'a> {
+    pub fn guard<'a>(&'a self, key: &'a str) -> DedupGuard<'a> {
         DedupGuard {
             table: self,
             key,
@@ -156,16 +130,15 @@ mod tests {
     #[test]
     fn dedup_first_caller_wins() {
         let table = Arc::new(DedupTable::new());
-        let key = RequestKey::new("eth_blockNumber", &[]);
+        let key = "eth_blockNumber";
 
-        assert!(table.register(&key).is_none());
+        assert!(table.register(key).is_none());
 
         let table2 = Arc::clone(&table);
-        let key2 = key.clone();
-        let waiter = std::thread::spawn(move || table2.register(&key2));
+        let waiter = std::thread::spawn(move || table2.register(key));
 
         std::thread::sleep(std::time::Duration::from_millis(10));
-        table.complete(&key, Ok("0x1a2b".into()));
+        table.complete(key, Ok("0x1a2b".into()));
 
         let result = waiter.join().unwrap().unwrap().unwrap();
         assert_eq!(result, "0x1a2b");
@@ -174,16 +147,15 @@ mod tests {
     #[test]
     fn dedup_error_propagation() {
         let table = Arc::new(DedupTable::new());
-        let key = RequestKey::new("eth_blockNumber", &[]);
+        let key = "eth_blockNumber";
 
-        assert!(table.register(&key).is_none());
+        assert!(table.register(key).is_none());
 
         let table2 = Arc::clone(&table);
-        let key2 = key.clone();
-        let waiter = std::thread::spawn(move || table2.register(&key2));
+        let waiter = std::thread::spawn(move || table2.register(key));
 
         std::thread::sleep(std::time::Duration::from_millis(10));
-        table.complete(&key, Err(anyhow::anyhow!("network down")));
+        table.complete(key, Err(anyhow::anyhow!("network down")));
 
         let err = waiter.join().unwrap().unwrap().unwrap_err();
         assert!(format!("{err}").contains("network down"));

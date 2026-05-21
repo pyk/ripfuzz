@@ -4,7 +4,7 @@
 pub use cache::Cache;
 pub use client::{AgentPool, Block, Client, UrlPool};
 pub use config::Config;
-pub use dedup::{DedupTable, RequestKey};
+pub use dedup::DedupTable;
 pub use limiter::RateLimiter;
 pub use transport::{HttpTransport, MockTransport, Transport};
 

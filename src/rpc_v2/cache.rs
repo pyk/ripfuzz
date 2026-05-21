@@ -1,47 +1,39 @@
 //! Two-layer cache: in-memory hashmap backed by individual JSON files per
 //! request. Each entry is written atomically (temp file + rename) so there is
 //! no race between parallel threads, even when they target the same key.
+//!
+//! Files are stored directly under `{base_dir}/rpc/` using the caller-provided
+//! cache key as the filename, e.g. `{base_dir}/rpc/get_balance_1_0xabc.json`.
 
 use std::collections::HashMap;
 use std::fs;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use crate::rpc_v2::RequestKey;
-
 #[derive(Debug)]
 pub struct Cache {
     base_dir: PathBuf,
-    chain_id: u64,
-    memory: RwLock<HashMap<RequestKey, Value>>,
+    memory: RwLock<HashMap<String, Value>>,
 }
 
 impl Cache {
-    pub fn new(base_dir: impl AsRef<Path>, chain_id: u64) -> Self {
+    pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
-            chain_id,
             memory: RwLock::new(HashMap::new()),
         }
     }
 
     /// Compute the on-disk path for a single request entry.
-    fn cache_file_path(&self, key: &RequestKey) -> PathBuf {
-        let mut hasher = DefaultHasher::new();
-        key.hash(&mut hasher);
-        let hash = format!("{:x}", hasher.finish());
-        self.base_dir
-            .join("rpc")
-            .join(key.method())
-            .join(format!("{}_{hash}.json", self.chain_id))
+    fn cache_file_path(&self, key: &str) -> PathBuf {
+        self.base_dir.join("rpc").join(format!("{key}.json"))
     }
 
     /// Atomically write one entry to its per-request file.
-    fn write_to_disk(&self, key: &RequestKey, value: &Value) -> Result<()> {
+    fn write_to_disk(&self, key: &str, value: &Value) -> Result<()> {
         let path = self.cache_file_path(key);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).context("creating cache directory")?;
@@ -54,7 +46,7 @@ impl Cache {
     }
 
     /// Lookup in the in-memory cache first, then fall back to a lazy disk load.
-    pub fn get(&self, key: &RequestKey) -> Option<Value> {
+    pub fn get(&self, key: &str) -> Option<Value> {
         {
             let guard = self.memory.read().unwrap_or_else(|e| e.into_inner());
             if let Some(v) = guard.get(key) {
@@ -71,18 +63,18 @@ impl Cache {
         let value: Value = serde_json::from_slice(&data).ok()?;
 
         let mut guard = self.memory.write().unwrap_or_else(|e| e.into_inner());
-        guard.insert(key.clone(), value.clone());
+        guard.insert(key.into(), value.clone());
 
         Some(value)
     }
 
     /// Insert into memory and persist atomically to disk.
-    pub fn insert(&self, key: RequestKey, value: Value) {
+    pub fn insert(&self, key: &str, value: Value) {
         {
             let mut guard = self.memory.write().unwrap_or_else(|e| e.into_inner());
-            guard.insert(key.clone(), value.clone());
+            guard.insert(key.into(), value.clone());
         }
-        let _ = self.write_to_disk(&key, &value);
+        let _ = self.write_to_disk(key, &value);
     }
 }
 
@@ -97,45 +89,32 @@ mod tests {
     #[test]
     fn cache_roundtrip() {
         let tmp = tempfile::tempdir().unwrap();
-        let cache = Cache::new(tmp.path(), 1);
+        let cache = Cache::new(tmp.path());
 
-        let key = RequestKey::new("eth_getBlockByNumber", &[json!("latest"), json!(false)]);
-        assert!(cache.get(&key).is_none());
+        let key = "get_block_by_number_1_latest";
+        assert!(cache.get(key).is_none());
 
-        cache.insert(key.clone(), json!({"number": "0x1a2b"}));
-        assert_eq!(cache.get(&key).unwrap(), json!({"number": "0x1a2b"}));
+        cache.insert(key, json!({"number": "0x1a2b"}));
+        assert_eq!(cache.get(key).unwrap(), json!({"number": "0x1a2b"}));
 
         // New instance should read from disk
-        let cache2 = Cache::new(tmp.path(), 1);
-        assert_eq!(cache2.get(&key).unwrap(), json!({"number": "0x1a2b"}));
+        let cache2 = Cache::new(tmp.path());
+        assert_eq!(cache2.get(key).unwrap(), json!({"number": "0x1a2b"}));
     }
 
     #[test]
-    fn cache_isolated_by_method() {
+    fn cache_isolated_by_key() {
         let tmp = tempfile::tempdir().unwrap();
-        let cache = Cache::new(tmp.path(), 1);
+        let cache = Cache::new(tmp.path());
 
-        let key_a = RequestKey::new("eth_getBlockByNumber", &[json!("latest"), json!(false)]);
-        let key_b = RequestKey::new("eth_getBalance", &[]);
+        let key_a = "get_block_by_number_1_latest";
+        let key_b = "get_balance_1_0x0";
 
-        cache.insert(key_a.clone(), "0x1".into());
-        cache.insert(key_b.clone(), "0x2".into());
+        cache.insert(key_a, "0x1".into());
+        cache.insert(key_b, "0x2".into());
 
-        assert_eq!(cache.get(&key_a).unwrap(), "0x1");
-        assert_eq!(cache.get(&key_b).unwrap(), "0x2");
-    }
-
-    #[test]
-    fn cache_isolated_by_chain_id() {
-        let tmp = tempfile::tempdir().unwrap();
-        let cache1 = Cache::new(tmp.path(), 1);
-        let cache2 = Cache::new(tmp.path(), 56);
-
-        let key = RequestKey::new("eth_getBlockByNumber", &[json!("latest"), json!(false)]);
-        cache1.insert(key.clone(), "0x1".into());
-
-        // Same key, different chain_id => different file => miss
-        assert!(cache2.get(&key).is_none());
+        assert_eq!(cache.get(key_a).unwrap(), "0x1");
+        assert_eq!(cache.get(key_b).unwrap(), "0x2");
     }
 
     // -----------------------------------------------------------------
@@ -145,7 +124,7 @@ mod tests {
     /// Helper: copy a fixture file (full JSON-RPC response envelope)
     /// directly into the cache directory so `Cache::get` reads the exact
     /// wire-format response from disk.
-    fn seed_fixture(cache: &Cache, key: &RequestKey, fixture_path: impl AsRef<Path>) {
+    fn seed_fixture(cache: &Cache, key: &str, fixture_path: impl AsRef<Path>) {
         let path = cache.cache_file_path(key);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).unwrap();
@@ -161,34 +140,28 @@ mod tests {
     #[test]
     fn cache_reads_fixture_eth_chainid() {
         let tmp = tempfile::tempdir().unwrap();
-        let cache = Cache::new(tmp.path(), 1);
-        let key = RequestKey::new("eth_chainId", &[]);
+        let cache = Cache::new(tmp.path());
+        let key = "eth_chainId";
 
-        seed_fixture(&cache, &key, "fixtures/json-rpc-response/eth_chainId.json");
+        seed_fixture(&cache, key, "fixtures/json-rpc-response/eth_chainId.json");
 
-        assert_eq!(extract_result(&cache.get(&key).unwrap()), "0x1");
+        assert_eq!(extract_result(&cache.get(key).unwrap()), "0x1");
     }
 
     #[test]
     fn cache_reads_fixture_eth_getbalance() {
         let tmp = tempfile::tempdir().unwrap();
-        let cache = Cache::new(tmp.path(), 1);
-        let key = RequestKey::new(
-            "eth_getBalance",
-            &[
-                json!("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"),
-                json!("0x17fa30b"),
-            ],
-        );
+        let cache = Cache::new(tmp.path());
+        let key = "eth_getBalance";
 
         seed_fixture(
             &cache,
-            &key,
+            key,
             "fixtures/json-rpc-response/eth_getBalance.json",
         );
 
         assert_eq!(
-            extract_result(&cache.get(&key).unwrap()),
+            extract_result(&cache.get(key).unwrap()),
             "0x4ec7cefe1a0664fd"
         );
     }
@@ -196,39 +169,27 @@ mod tests {
     #[test]
     fn cache_reads_fixture_eth_gettransactioncount() {
         let tmp = tempfile::tempdir().unwrap();
-        let cache = Cache::new(tmp.path(), 1);
-        let key = RequestKey::new(
-            "eth_getTransactionCount",
-            &[
-                json!("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"),
-                json!("0x17fa30b"),
-            ],
-        );
+        let cache = Cache::new(tmp.path());
+        let key = "eth_getTransactionCount";
 
         seed_fixture(
             &cache,
-            &key,
+            key,
             "fixtures/json-rpc-response/eth_getTransactionCount.json",
         );
 
-        assert_eq!(extract_result(&cache.get(&key).unwrap()), "0x1707");
+        assert_eq!(extract_result(&cache.get(key).unwrap()), "0x1707");
     }
 
     #[test]
     fn cache_reads_fixture_eth_getcode() {
         let tmp = tempfile::tempdir().unwrap();
-        let cache = Cache::new(tmp.path(), 1);
-        let key = RequestKey::new(
-            "eth_getCode",
-            &[
-                json!("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"),
-                json!("0x17fa30b"),
-            ],
-        );
+        let cache = Cache::new(tmp.path());
+        let key = "eth_getCode";
 
-        seed_fixture(&cache, &key, "fixtures/json-rpc-response/eth_getCode.json");
+        seed_fixture(&cache, key, "fixtures/json-rpc-response/eth_getCode.json");
 
-        let result = extract_result(&cache.get(&key).unwrap());
+        let result = extract_result(&cache.get(key).unwrap());
         let s = result.as_str().unwrap();
         assert!(s.starts_with("0x60606040"));
         assert!(s.len() > 100);
@@ -237,24 +198,17 @@ mod tests {
     #[test]
     fn cache_reads_fixture_eth_getstorageat() {
         let tmp = tempfile::tempdir().unwrap();
-        let cache = Cache::new(tmp.path(), 1);
-        let key = RequestKey::new(
-            "eth_getStorageAt",
-            &[
-                json!("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"),
-                json!("0x0"),
-                json!("0x17fa30b"),
-            ],
-        );
+        let cache = Cache::new(tmp.path());
+        let key = "eth_getStorageAt";
 
         seed_fixture(
             &cache,
-            &key,
+            key,
             "fixtures/json-rpc-response/eth_getStorageAt.json",
         );
 
         assert_eq!(
-            extract_result(&cache.get(&key).unwrap()),
+            extract_result(&cache.get(key).unwrap()),
             "0x577261707065642045746865720000000000000000000000000000000000001a"
         );
     }
@@ -262,16 +216,16 @@ mod tests {
     #[test]
     fn cache_reads_fixture_eth_getblockbynumber_latest() {
         let tmp = tempfile::tempdir().unwrap();
-        let cache = Cache::new(tmp.path(), 1);
-        let key = RequestKey::new("eth_getBlockByNumber", &[json!("latest"), json!(false)]);
+        let cache = Cache::new(tmp.path());
+        let key = "eth_getBlockByNumber_latest";
 
         seed_fixture(
             &cache,
-            &key,
+            key,
             "fixtures/json-rpc-response/eth_getBlockByNumber_latest_false.json",
         );
 
-        let result = extract_result(&cache.get(&key).unwrap());
+        let result = extract_result(&cache.get(key).unwrap());
         let block = result.as_object().unwrap();
         assert_eq!(block.get("number").unwrap(), "0x17fa30c");
         assert_eq!(block.get("difficulty").unwrap(), "0x0");
@@ -288,16 +242,16 @@ mod tests {
     #[test]
     fn cache_reads_fixture_eth_getblockbynumber_concrete() {
         let tmp = tempfile::tempdir().unwrap();
-        let cache = Cache::new(tmp.path(), 1);
-        let key = RequestKey::new("eth_getBlockByNumber", &[json!("0x17fa30b"), json!(false)]);
+        let cache = Cache::new(tmp.path());
+        let key = "eth_getBlockByNumber_0x17fa30b";
 
         seed_fixture(
             &cache,
-            &key,
+            key,
             "fixtures/json-rpc-response/eth_getBlockByNumber_block_false.json",
         );
 
-        let result = extract_result(&cache.get(&key).unwrap());
+        let result = extract_result(&cache.get(key).unwrap());
         let block = result.as_object().unwrap();
         assert_eq!(block.get("number").unwrap(), "0x17fa30b");
         assert_eq!(block.get("difficulty").unwrap(), "0x0");
