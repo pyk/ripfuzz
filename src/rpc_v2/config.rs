@@ -31,6 +31,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
+use tracing::debug;
 
 /// Configuration for RPC fork mode.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,6 +143,7 @@ impl Config {
     /// - a fork block number is set,
     /// - every URL reports the same `chain_id` as the configured one.
     pub fn validate(&self) -> Result<()> {
+        debug!(url_count = self.urls.len(), "validating RPC config");
         ensure!(!self.urls.is_empty(), "at least one RPC URL is required");
         ensure!(self.block.is_some(), "fork block number is required");
 
@@ -149,6 +151,7 @@ impl Config {
 
         let mut ids: Vec<(&str, u64)> = Vec::new();
         for url in self.urls.iter().collect::<HashSet<&String>>() {
+            debug!(%url, "fetching chain_id from URL");
             let id = self.get_chain_id(url)?;
             ids.push((url, id));
         }
@@ -162,6 +165,7 @@ impl Config {
             );
         }
 
+        debug!(chain_id = expected, "RPC config validated successfully");
         Ok(())
     }
 
