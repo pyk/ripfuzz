@@ -364,6 +364,8 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use serde_json::json;
+
     use super::*;
 
     #[test]
@@ -472,5 +474,147 @@ mod tests {
     fn parse_hex_bytes_valid() {
         let v = serde_json::Value::String("0xabcd".into());
         assert_eq!(parse_hex_bytes(&v).unwrap(), vec![0xab, 0xcd]);
+    }
+
+    /// Stress-test deduplication with many threads hitting the same request.
+    /// We assert deduplication via [`MockTransport::call_count`]:
+    /// if N parallel threads coalesce, the transport sees exactly 1 dispatch.
+    #[test]
+    fn dedup_coalesces_many_parallel_requests() {
+        let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        transport.set_delay(Duration::from_millis(100));
+        transport.insert("eth_blockNumber", &[], "0x1a2b".into());
+
+        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let rpc = Client::new_with_transport(config, transport.clone());
+
+        let mut handles = Vec::new();
+        for _ in 0..10 {
+            let rpc_clone = rpc.clone();
+            handles.push(std::thread::spawn(move || rpc_clone.latest_block_number()));
+        }
+
+        let results: Vec<u64> = handles
+            .into_iter()
+            .map(|h| h.join().unwrap().unwrap())
+            .collect();
+
+        assert!(results.iter().all(|&r| r == 0x1a2b));
+        assert_eq!(transport.call_count("eth_blockNumber", &[]), 1);
+    }
+
+    /// Use a barrier to release all threads at the exact same instant,
+    /// maximizing the race window and proving the dedup table is sound.
+    #[test]
+    fn dedup_with_barrier_maximizes_contention() {
+        let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        transport.set_delay(Duration::from_millis(200));
+        transport.insert("eth_blockNumber", &[], "0xdeadbeef".into());
+
+        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let rpc = Client::new_with_transport(config, transport.clone());
+
+        let thread_count = 20;
+        let barrier = Arc::new(std::sync::Barrier::new(thread_count));
+        let mut handles = Vec::with_capacity(thread_count);
+
+        for _ in 0..thread_count {
+            let rpc_clone = rpc.clone();
+            let barrier_clone = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                barrier_clone.wait();
+                rpc_clone.latest_block_number()
+            }));
+        }
+
+        let results: Vec<u64> = handles
+            .into_iter()
+            .map(|h| h.join().unwrap().unwrap())
+            .collect();
+
+        assert!(results.iter().all(|&r| r == 0xdeadbeef));
+        assert_eq!(transport.call_count("eth_blockNumber", &[]), 1);
+    }
+
+    /// Verify that deduplication is keyed by (method, params).
+    /// Two distinct requests issued from parallel threads must each
+    /// be dispatched exactly once.
+    #[test]
+    fn dedup_only_coalesces_identical_requests() {
+        let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        transport.set_delay(Duration::from_millis(50));
+        transport.insert(
+            "eth_getBalance",
+            &[
+                json!("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                json!("0x112233"),
+            ],
+            "0x1".into(),
+        );
+        transport.insert(
+            "eth_getBalance",
+            &[
+                json!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                json!("0x112233"),
+            ],
+            "0x2".into(),
+        );
+
+        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let rpc = Client::new_with_transport(config, transport.clone());
+
+        let addr_a: Address = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            .parse()
+            .unwrap();
+        let addr_b: Address = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            .parse()
+            .unwrap();
+
+        let mut handles = Vec::new();
+        for _ in 0..5 {
+            let rpc_clone = rpc.clone();
+            handles.push(std::thread::spawn(move || {
+                rpc_clone.get_balance(addr_a, 0x112233)
+            }));
+        }
+        for _ in 0..5 {
+            let rpc_clone = rpc.clone();
+            handles.push(std::thread::spawn(move || {
+                rpc_clone.get_balance(addr_b, 0x112233)
+            }));
+        }
+
+        let results: Vec<U256> = handles
+            .into_iter()
+            .map(|h| h.join().unwrap().unwrap())
+            .collect();
+
+        for r in &results[..5] {
+            assert_eq!(*r, U256::from(1));
+        }
+        for r in &results[5..] {
+            assert_eq!(*r, U256::from(2));
+        }
+
+        assert_eq!(
+            transport.call_count(
+                "eth_getBalance",
+                &[
+                    json!("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                    json!("0x112233")
+                ]
+            ),
+            1
+        );
+        assert_eq!(
+            transport.call_count(
+                "eth_getBalance",
+                &[
+                    json!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                    json!("0x112233")
+                ]
+            ),
+            1
+        );
     }
 }

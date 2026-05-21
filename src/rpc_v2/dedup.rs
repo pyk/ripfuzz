@@ -41,9 +41,11 @@ impl InflightHandle {
         while !self.completed.load(Ordering::Relaxed) {
             guard = self.done.wait(guard).unwrap_or_else(|e| e.into_inner());
         }
-        guard
-            .take()
-            .unwrap_or_else(|| Err(anyhow!("dedup waiter woken with no result")))
+        match guard.as_ref() {
+            Some(Ok(v)) => Ok(v.clone()),
+            Some(Err(e)) => Err(anyhow!("{e}")),
+            None => Err(anyhow!("dedup waiter woken with no result")),
+        }
     }
 }
 
