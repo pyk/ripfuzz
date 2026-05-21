@@ -2,6 +2,7 @@
 
 pub mod campaign;
 pub mod chain;
+pub mod chain_v2;
 pub mod commands;
 pub mod contract;
 pub mod corpus;
