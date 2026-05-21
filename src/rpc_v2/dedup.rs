@@ -21,6 +21,10 @@ impl RequestKey {
             args_json: serde_json::to_string(params).unwrap_or_default(),
         }
     }
+
+    pub fn method(&self) -> &str {
+        &self.method
+    }
 }
 
 impl std::fmt::Display for RequestKey {

@@ -116,12 +116,7 @@ impl Client {
     /// Create a new client with a custom transport (e.g. for testing).
     pub fn new_with_transport(config: Config, transport: Arc<dyn Transport>) -> Self {
         let limiter = config.rate_limit.map(RateLimiter::new);
-        let cache = config.cache_dir.map(|dir| {
-            let path = dir
-                .join(format!("{}", config.chain_id))
-                .join("rpc_cache.json");
-            Cache::new(path)
-        });
+        let cache = config.cache_dir.map(|dir| Cache::new(dir, config.chain_id));
         Self {
             inner: Arc::new(ClientInner {
                 transport,
@@ -210,14 +205,6 @@ impl Client {
         parse_u256(&result)
     }
 
-    /// Explicitly flush the in-memory cache to disk.
-    pub fn flush_cache(&self) -> Result<()> {
-        if let Some(ref cache) = self.inner.cache {
-            cache.flush()?;
-        }
-        Ok(())
-    }
-
     // -----------------------------------------------------------------
     // Internal call pipeline
     // -----------------------------------------------------------------
@@ -266,14 +253,6 @@ impl Client {
         self.inner.dedup.complete(&key, Ok(response.clone()));
         guard.deactivate();
         Ok(response)
-    }
-}
-
-impl Drop for ClientInner {
-    fn drop(&mut self) {
-        if let Some(ref cache) = self.cache {
-            let _ = cache.flush();
-        }
     }
 }
 
@@ -616,5 +595,110 @@ mod tests {
             ),
             1
         );
+    }
+
+    /// Rate limit + dedup interaction: the first batch consumes the initial
+    /// token bucket. A second parallel batch for the *same* request must still
+    /// wait for the rate-limit refill before the leader can dispatch.
+    ///
+    /// Asserted via [`MockTransport`]:
+    /// - `call_count == 2` (one dispatch per batch, dedup coalesces each batch).
+    /// - second-batch elapsed >= 800 ms (proves the leader was throttled).
+    #[test]
+    fn rate_limit_throttles_parallel_deduped_requests() {
+        let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        transport.set_delay(Duration::from_millis(50));
+        transport.insert("eth_blockNumber", &[], "0x1".into());
+
+        let config = Config::new()
+            .urls(vec!["mock://test".into()])
+            .chain_id(1)
+            .rate_limit(Some(1)); // 1 req/sec; no cache_dir => no cache layer
+        let rpc = Client::new_with_transport(config, transport.clone());
+
+        // Batch 1 – token available, should complete immediately.
+        let mut handles = Vec::new();
+        let t0 = std::time::Instant::now();
+        for _ in 0..5 {
+            let rpc_clone = rpc.clone();
+            handles.push(std::thread::spawn(move || rpc_clone.latest_block_number()));
+        }
+        let results1: Vec<u64> = handles
+            .into_iter()
+            .map(|h| h.join().unwrap().unwrap())
+            .collect();
+        let elapsed1 = t0.elapsed();
+
+        assert!(results1.iter().all(|&r| r == 1));
+        assert!(
+            elapsed1.as_millis() < 200,
+            "first batch should not be throttled: {elapsed1:?}"
+        );
+
+        // Batch 2 – token exhausted. Leader must wait ~1000 ms for refill.
+        let mut handles = Vec::new();
+        let t0 = std::time::Instant::now();
+        for _ in 0..5 {
+            let rpc_clone = rpc.clone();
+            handles.push(std::thread::spawn(move || rpc_clone.latest_block_number()));
+        }
+        let results2: Vec<u64> = handles
+            .into_iter()
+            .map(|h| h.join().unwrap().unwrap())
+            .collect();
+        let elapsed2 = t0.elapsed();
+
+        assert!(results2.iter().all(|&r| r == 1));
+        assert!(
+            elapsed2.as_millis() >= 800,
+            "second batch should be rate-limited: {elapsed2:?}"
+        );
+        assert_eq!(transport.call_count("eth_blockNumber", &[]), 2);
+    }
+
+    /// Maximal contention: a barrier releases many threads at the exact same
+    /// instant *after* the token bucket is empty. Only one dispatch happens,
+    /// but that dispatch is delayed by the rate limiter.
+    #[test]
+    fn rate_limit_with_barrier_and_dedup() {
+        let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        transport.set_delay(Duration::from_millis(50));
+        transport.insert("eth_blockNumber", &[], "0xcafe".into());
+
+        let config = Config::new()
+            .urls(vec!["mock://test".into()])
+            .chain_id(1)
+            .rate_limit(Some(1));
+        let rpc = Client::new_with_transport(config, transport.clone());
+
+        // Burn the single initial token.
+        let _ = rpc.latest_block_number().unwrap();
+
+        let thread_count = 20;
+        let barrier = Arc::new(std::sync::Barrier::new(thread_count));
+        let mut handles = Vec::with_capacity(thread_count);
+
+        let t0 = std::time::Instant::now();
+        for _ in 0..thread_count {
+            let rpc_clone = rpc.clone();
+            let barrier_clone = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                barrier_clone.wait();
+                rpc_clone.latest_block_number()
+            }));
+        }
+
+        let results: Vec<u64> = handles
+            .into_iter()
+            .map(|h| h.join().unwrap().unwrap())
+            .collect();
+        let elapsed = t0.elapsed();
+
+        assert!(results.iter().all(|&r| r == 0xcafe));
+        assert!(
+            elapsed.as_millis() >= 800,
+            "rate limit did not throttle under contention: {elapsed:?}"
+        );
+        assert_eq!(transport.call_count("eth_blockNumber", &[]), 2);
     }
 }
