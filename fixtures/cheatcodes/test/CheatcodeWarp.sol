@@ -8,9 +8,9 @@ contract CheatcodeWarp {
     uint256 public recordedTimestamp;
     uint256 public recordedBlockNumber;
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         vm.warp(1234567890);
     }
 

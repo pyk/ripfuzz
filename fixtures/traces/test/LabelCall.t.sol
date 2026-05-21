@@ -9,7 +9,7 @@ contract LabelCallTest {
     LabelCallTrace public trace;
     ExternalTarget public target;
 
-    function setUp() public {
+    function setup() public {
         target = new ExternalTarget();
         // Pre-deploy ExternalTarget bytecode at the hard-coded address
         // that LabelCallTrace calls.
@@ -20,7 +20,7 @@ contract LabelCallTest {
     }
 
     function testLabelCall() public view {
-        // If setUp completed, LabelCallTrace successfully called
+        // If setup completed, LabelCallTrace successfully called
         // 0x1111... which was pre-populated with ExternalTarget code.
         require(address(trace) != address(0), "trace not deployed");
     }

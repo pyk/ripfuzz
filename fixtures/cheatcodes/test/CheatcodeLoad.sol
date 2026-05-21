@@ -13,9 +13,9 @@ contract CheatcodeLoad {
 
     bytes32 public recordedValue;
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         vm.store(address(this), SLOT_A, bytes32(uint256(0xCAFE)));
         vm.store(TARGET, SLOT_A, bytes32(uint256(0xBABE)));
     }
@@ -56,7 +56,7 @@ contract CheatcodeLoad {
     }
 
     function revert_undoes_store() external view returns (bool) {
-        // setUp stored 0xBABE in SLOT_A of TARGET; SLOT_B was never touched.
+        // setup stored 0xBABE in SLOT_A of TARGET; SLOT_B was never touched.
         // If vm.store is rolled back on revert, SLOT_B must be zero.
         return vm.load(TARGET, SLOT_B) == bytes32(0);
     }

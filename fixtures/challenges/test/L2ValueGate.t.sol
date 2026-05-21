@@ -6,7 +6,7 @@ import {ValueGate} from "../src/L2ValueGate.sol";
 contract L2ValueGateTest {
     ValueGate public gate;
 
-    function setUp() public {
+    function setup() public {
         gate = new ValueGate();
     }
 

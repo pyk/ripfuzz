@@ -8,7 +8,7 @@ contract VmLabelTest {
     VmLabelTrace public trace;
     ExternalTarget public target;
 
-    function setUp() public {
+    function setup() public {
         target = new ExternalTarget();
         trace = new VmLabelTrace();
     }

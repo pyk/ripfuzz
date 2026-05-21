@@ -9,9 +9,9 @@ contract CheatcodeLabel {
     address public constant TARGET = address(0xBEEF);
     address public constant OTHER  = address(0xCAFE);
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         vm.label(TARGET, "TargetFromSetup");
     }
 
@@ -80,7 +80,7 @@ contract CheatcodeLabel {
         return keccak256(bytes(vm.getLabel(address(0)))) == keccak256(bytes("ZeroAddress"));
     }
 
-    // --- setUp + sequence label interaction ---
+    // --- setup + sequence label interaction ---
 
     function call_label_overrides_setup() external {
         vm.label(TARGET, "Overridden");

@@ -18,9 +18,9 @@ contract CheatcodeSign {
     bytes32 public storedS;
     address public recoveredAddr;
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(PK_1, DIGEST);
         storedV = v;
         storedR = r;
@@ -33,7 +33,7 @@ contract CheatcodeSign {
     }
 
     function setup_only() external view returns (bool) {
-        // After setUp, the signature should already be stored.
+        // After setup, the signature should already be stored.
         return recoveredAddr == ADDR_PK_1;
     }
 
@@ -64,7 +64,7 @@ contract CheatcodeSign {
     }
 
     function revert_undoes_storage() external view returns (bool) {
-        // If call_sign_and_revert reverted, all storage must be back to setUp values.
+        // If call_sign_and_revert reverted, all storage must be back to setup values.
         return recoveredAddr == ADDR_PK_1;
     }
 
@@ -101,7 +101,7 @@ contract CheatcodeSign {
     }
 
     function sign_zero_reverts() external view returns (bool) {
-        // If the call reverted correctly, storage must still hold setUp values.
+        // If the call reverted correctly, storage must still hold setup values.
         return recoveredAddr == ADDR_PK_1;
     }
 

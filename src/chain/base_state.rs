@@ -14,7 +14,7 @@ use revm::{
 use crate::chain::Database;
 use crate::vm::{BlockCheatState, PrankCheatState};
 
-/// The committed snapshot after deployment and optional setUp.
+/// The committed snapshot after deployment and optional setup.
 /// Cloned once per sequence execution.
 #[derive(Clone, Debug)]
 pub struct BaseState {
@@ -30,7 +30,7 @@ pub struct BaseState {
     pub ffi_enabled: bool,
     pub compiled_contracts: HashMap<String, Bytes>,
 
-    // --- Committed cheatcode state from setUp (base for each sequence) ---
+    // --- Committed cheatcode state from setup (base for each sequence) ---
     pub labels: HashMap<Address, String>,
     pub prank: PrankCheatState,
     pub block_overrides: BlockCheatState,

@@ -6,7 +6,7 @@ import {ComboLock} from "../src/L5ComboLock.sol";
 contract L5ComboLockTest {
     ComboLock public lock;
 
-    function setUp() public {
+    function setup() public {
         lock = new ComboLock();
     }
 

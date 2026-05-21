@@ -630,7 +630,7 @@ mod tests {
             .unwrap();
         assert!(!output.all_ok);
 
-        // A fresh sequence must still see the setUp startPrank (0x888), not
+        // A fresh sequence must still see the setup startPrank (0x888), not
         // the discarded 0x999.
         let call_expect: [u8; 4] = [0x3e, 0xa0, 0x27, 0xaf]; // call_expect_persisted()
         let output2 = chain

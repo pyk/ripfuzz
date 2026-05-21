@@ -16,7 +16,7 @@ contract CheatcodeGetCode {
     bytes public fullCode;
     bool public missingReverted;
 
-    function setUp() external {
+    function setup() external {
         bytes memory code = vm.getCode("Helper");
         assembly {
             sstore(setupAddr.slot, create(0, add(code, 0x20), mload(code)))

@@ -12,9 +12,9 @@ contract CheatcodePrevrandao {
     address public recordedCoinbase;
     uint256 public recordedDifficulty;
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         vm.prevrandao(bytes32(uint256(0xCA11BA5E)));
     }
 

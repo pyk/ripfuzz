@@ -6,7 +6,7 @@ import {SimpleKnob} from "../src/L1SimpleKnob.sol";
 contract L1SimpleKnobTest {
     SimpleKnob public knob;
 
-    function setUp() public {
+    function setup() public {
         knob = new SimpleKnob();
     }
 

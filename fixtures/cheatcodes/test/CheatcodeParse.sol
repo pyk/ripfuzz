@@ -14,9 +14,9 @@ contract CheatcodeParse {
     bytes public storedBytes;
     bytes32 public storedBytes32;
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         storedUint = vm.parseUint("999");
         storedInt = vm.parseInt("-999");
         storedBool = vm.parseBool("true");
@@ -73,7 +73,7 @@ contract CheatcodeParse {
 
     function pure_isolation() external view returns (bool) {
         // After call_parse_no_side_effect, nothing should have changed
-        return storedUint == 999; // setUp value intact
+        return storedUint == 999; // setup value intact
     }
 
     // --- Revert safety ---
@@ -84,7 +84,7 @@ contract CheatcodeParse {
     }
 
     function revert_on_malformed() external view returns (bool) {
-        // setUp value should still be intact because the call reverted
+        // setup value should still be intact because the call reverted
         return storedUint == 999;
     }
 

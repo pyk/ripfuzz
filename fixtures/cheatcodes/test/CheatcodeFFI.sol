@@ -9,9 +9,9 @@ contract CheatcodeFFI {
     bytes32 public recordedHash;
     uint256 public recordedTimestamp;
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         string[] memory inputs = new string[](2);
         inputs[0] = "echo";
         inputs[1] = "setup";

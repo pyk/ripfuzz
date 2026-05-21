@@ -10,9 +10,9 @@ contract CheatcodeDeal {
     address public constant TARGET = address(0xBEEF);
     address public constant EMPTY_ADDR = address(0xDEAD);
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         vm.deal(address(this), 5 ether);
         vm.deal(TARGET, 3 ether);
     }
@@ -49,7 +49,7 @@ contract CheatcodeDeal {
     }
 
     function revert_undoes_deal() external view returns (bool) {
-        // setUp dealt 3 ether; if call_deal_and_revert reverted, balance must be 3 ether
+        // setup dealt 3 ether; if call_deal_and_revert reverted, balance must be 3 ether
         return TARGET.balance == 3 ether;
     }
 
@@ -125,7 +125,7 @@ contract CheatcodeDeal {
     }
 
     function self_deal_overwrites_setup() external view returns (bool) {
-        // setUp dealt 5 ether, then call_self_deal(1 ether) should overwrite
+        // setup dealt 5 ether, then call_self_deal(1 ether) should overwrite
         return address(this).balance == 1 ether;
     }
 }

@@ -11,8 +11,8 @@ contract CheatcodeEtch {
     // Empty runtime code
     bytes constant EMPTY_CODE = hex"";
 
-    // --- setUp interaction ---
-    function setUp() external {
+    // --- setup interaction ---
+    function setup() external {
         vm.etch(address(0xCAFE), RUNTIME_CODE);
     }
 

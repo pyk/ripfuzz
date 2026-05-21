@@ -10,9 +10,9 @@ contract CheatcodeCoinbase {
     uint256 public recordedTimestamp;
     uint256 public recordedBaseFee;
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         vm.coinbase(address(0xCA11BA5E));
     }
 

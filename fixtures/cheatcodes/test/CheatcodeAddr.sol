@@ -13,9 +13,9 @@ contract CheatcodeAddr {
     // Known test vectors
     address public constant ADDR_PK_1 = address(0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf);
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         derivedFromSetup = vm.addr(1);
     }
 

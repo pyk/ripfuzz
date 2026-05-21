@@ -35,7 +35,7 @@ impl From<anyhow::Error> for ChainInitError {
     }
 }
 
-/// Error during chain setup (`setUp()` call).
+/// Error during chain setup (`setup()` call).
 #[derive(Debug)]
 pub enum ChainSetupError {
     SetupFailed { reason: String, trace: String },
@@ -46,7 +46,7 @@ impl fmt::Display for ChainSetupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::SetupFailed { reason, trace } => {
-                write!(f, "setUp failed: {reason}\n\nTrace:\n{trace}")
+                write!(f, "setup failed: {reason}\n\nTrace:\n{trace}")
             }
             Self::Other(e) => write!(f, "{e}"),
         }

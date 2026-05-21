@@ -1,4 +1,4 @@
-//! Chain setup: optional `setUp()` call after deployment.
+//! Chain setup: optional `setup()` call after deployment.
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -19,9 +19,9 @@ use crate::chain::inspectors::{
     InspectorTuple, MaybeTrace, coverage::CoverageInspector, trace::TraceInspector,
 };
 
-const SETUP_SELECTOR: [u8; 4] = [0x0a, 0x92, 0x54, 0xe4];
+const SETUP_SELECTOR: [u8; 4] = [0xba, 0x0b, 0xba, 0x40];
 
-/// Run `setUp()` if present and return the updated base state.
+/// Run `setup()` if present and return the updated base state.
 #[instrument(skip(state), fields(contract = %contract_address), err)]
 pub fn setup(
     state: BaseState,
@@ -33,7 +33,7 @@ pub fn setup(
     let t0 = std::time::Instant::now();
     let has_setup = abi.functions().any(|f| f.selector() == SETUP_SELECTOR);
     if !has_setup {
-        trace!("no setUp function found");
+        trace!("no setup function found");
         return Ok(state);
     }
 
@@ -94,11 +94,11 @@ pub fn setup(
             .context("trace inspector missing")?
             .into_trace_tree()
             .format();
-        error!(%reason, "setUp failed");
+        error!(%reason, "setup failed");
         return Err(ChainSetupError::SetupFailed { reason, trace });
     }
     let elapsed = t0.elapsed();
-    info!(time_ms = elapsed.as_millis(), "Ran setUp");
+    info!(time_ms = elapsed.as_millis(), "Ran setup");
 
     let mut new_state = crate::chain::base_state::BaseState::new(evm.ctx.journaled_state.database);
     new_state.caller_nonce = new_state

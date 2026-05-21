@@ -6,7 +6,7 @@ import {StateMachine} from "../src/L4StateMachine.sol";
 contract L4StateMachineTest {
     StateMachine public machine;
 
-    function setUp() public {
+    function setup() public {
         machine = new StateMachine();
     }
 

@@ -183,7 +183,7 @@ mod tests {
         let output_a = chain.execute(&calls_a).unwrap();
         assert!(output_a.all_ok, "sequence A should succeed");
 
-        // Sequence B: should NOT see BEEF etch, but should still see CAFE from setUp
+        // Sequence B: should NOT see BEEF etch, but should still see CAFE from setup
         let calls_b = vec![Call {
             selector: call_record,
             args: vec![],

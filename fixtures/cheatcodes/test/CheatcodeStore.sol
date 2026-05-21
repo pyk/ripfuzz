@@ -13,9 +13,9 @@ contract CheatcodeStore {
 
     bytes32 public recordedValue;
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         vm.store(address(this), SLOT_A, bytes32(uint256(0xCAFE)));
         vm.store(TARGET, SLOT_A, bytes32(uint256(0xBABE)));
     }

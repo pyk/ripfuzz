@@ -334,9 +334,8 @@ pub fn run(args: Args) -> Result<()> {
     info!("loading target contract");
     let target_artifact = build_artifacts
         .get(&args.target)
-        .context("target artifact missing")?
-        .clone();
-    let _target_contract = target::Contract::try_from(target_artifact.clone())?; // TODO(pyk): review this clone later
+        .context("target artifact missing")?;
+    let _target_contract = target::Contract::try_from(target_artifact)?;
 
     // Resolve chain environment
     info!("loading chain environment");
@@ -355,7 +354,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Deploy target contract
 
-    // Run setUp function
+    // Run setup function
 
     // Create Fuzzer
 

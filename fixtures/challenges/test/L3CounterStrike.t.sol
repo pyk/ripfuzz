@@ -6,7 +6,7 @@ import {CounterStrike} from "../src/L3CounterStrike.sol";
 contract L3CounterStrikeTest {
     CounterStrike public strike;
 
-    function setUp() public {
+    function setup() public {
         strike = new CounterStrike();
     }
 

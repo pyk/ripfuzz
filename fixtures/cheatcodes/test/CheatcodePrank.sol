@@ -11,7 +11,7 @@ contract CheatcodePrank {
     address[] public actors;
     address public currentActor;
 
-    function setUp() external {
+    function setup() external {
         victim = new PrankVictim();
         inner = new PrankVictim();
         actors = [address(0x1234), address(0x5678), address(0x9abc)];

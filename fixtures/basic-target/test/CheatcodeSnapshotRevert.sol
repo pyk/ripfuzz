@@ -7,7 +7,7 @@ contract CheatcodeSnapshotRevert {
     Vm constant vm = Vm(address(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1));
     uint256 public counter;
 
-    function setUp() external {
+    function setup() external {
         counter = 0;
     }
 

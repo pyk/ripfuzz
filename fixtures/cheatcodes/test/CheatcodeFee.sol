@@ -9,9 +9,9 @@ contract CheatcodeFee {
     uint256 public recordedBlockNumber;
     uint256 public recordedTimestamp;
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         vm.fee(12345);
     }
 

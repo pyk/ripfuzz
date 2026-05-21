@@ -42,7 +42,7 @@ Synonyms: **function call**, **handler function** (Foundry).
 
 A function that establishes the initial state cloned for every fuzz input. The
 contract **constructor** always runs once at deployment. If a function named
-`setUp()` exists, raptor calls it once after deployment.
+`setup()` exists, raptor calls it once after deployment.
 
 ### Fuzzer
 

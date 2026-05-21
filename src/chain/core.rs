@@ -153,7 +153,7 @@ impl Chain {
         }
     }
 
-    /// 2. Run `setUp()` if present, snapshot the resulting state.
+    /// 2. Run `setup()` if present, snapshot the resulting state.
     pub fn setup(mut self) -> Result<Self, ChainSetupError> {
         let new_state = setup(
             self.state,

@@ -7,9 +7,9 @@ contract CheatcodeDifficulty {
     Vm constant vm = Vm(address(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1));
     uint256 public recordedDifficulty;
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         vm.difficulty(9999);
     }
 
@@ -18,7 +18,7 @@ contract CheatcodeDifficulty {
     }
 
     function setup_difficulty_unchanged() external view returns (bool) {
-        // setUp() called vm.difficulty(9999) but it must be a no-op.
+        // setup() called vm.difficulty(9999) but it must be a no-op.
         // On post-Paris, block.difficulty reads prevrandao, which defaults to 0.
         return recordedDifficulty == 0;
     }

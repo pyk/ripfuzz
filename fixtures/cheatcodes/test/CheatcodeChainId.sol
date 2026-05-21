@@ -8,9 +8,9 @@ contract CheatcodeChainId {
     uint256 public recordedChainId;
     uint256 public recordedTimestamp;
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         vm.chainId(1337);
     }
 

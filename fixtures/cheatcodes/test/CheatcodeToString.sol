@@ -35,7 +35,7 @@ contract CheatcodeToString {
     uint256 public warpTs;
     uint256 public rollNum;
 
-    function setUp() external {
+    function setup() external {
         setupUint = vm.toString(uint256(123));
         setupBool = vm.toString(true);
         setupAddress = vm.toString(address(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1));

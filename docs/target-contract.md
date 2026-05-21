@@ -25,11 +25,11 @@ contract CounterTarget {
     // -------------------------------------------------
     // 1. SETUP
     // -------------------------------------------------
-    // The constructor (or a setUp() call) establishes
+    // The constructor (or a setup() call) establishes
     // the initial world state. Raptor deploys the
     // contract once and then clones that state for
     // every fuzz input.
-    function setUp() external {
+    function setup() external {
         count = 0;
     }
 
@@ -78,7 +78,7 @@ Setup establishes the **base state** that every fuzz input starts from.
 ### What counts as setup
 
 - The contract **constructor** — always runs once at deployment
-- A function named **`setUp()`** — raptor calls this automatically after
+- A function named **`setup()`** — raptor calls this automatically after
   deployment if it exists
 
 ### Rules
@@ -87,14 +87,14 @@ Setup establishes the **base state** that every fuzz input starts from.
 - The resulting state is **cloned** for every fuzz input
 - Setup functions should not be called by the fuzzer as regular function calls
 
-### Example with setUp()
+### Example with setup()
 
 ```solidity
 contract LendingTarget {
     Token public token;
     LendingPool public pool;
 
-    function setUp() external {
+    function setup() external {
         token = new Token();
         pool = new LendingPool(address(token));
         token.mint(address(pool), 1_000_000 ether);
@@ -111,7 +111,7 @@ These are the functions raptor calls with random inputs to explore state space.
 A function is treated as a function call if **all** of these are true:
 
 - It is `external` or `public`
-- It is **not** a setup function (`setUp`)
+- It is **not** a setup function (`setup`)
 - It does **not** match an invariant prefix (see below)
 
 ### Input generation
@@ -216,7 +216,7 @@ For each fuzz input, raptor performs this exact sequence:
 
 | Feature          | Raptor                  | Foundry (invariant) | Medusa                 | Echidna                 |
 | ---------------- | ----------------------- | ------------------- | ---------------------- | ----------------------- |
-| Setup            | `constructor`/`setUp()` | `setUp()`           | Deployment + `setUp()` | `constructor`/`setUp()` |
+| Setup            | `constructor`/`setup()` | `setup()`           | Deployment + `setup()` | `constructor`/`setup()` |
 | Function Calls   | All external/public     | Handlers            | All external/public    | All external/public     |
 | Invariant prefix | `invariant_`            | `invariant_`        | `property_`            | `echidna_`              |
 | Invariant args   | None                    | None                | None                   | None                    |

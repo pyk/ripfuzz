@@ -11,9 +11,9 @@ contract CheatcodeNonce {
     address public constant EMPTY_ADDR = address(0xDEAD);
     address public constant EOA = address(0xCAFE);
 
-    // --- setUp interaction ---
+    // --- setup interaction ---
 
-    function setUp() external {
+    function setup() external {
         vm.setNonce(address(this), 7);
         vm.setNonce(TARGET, 5);
     }
@@ -140,7 +140,7 @@ contract CheatcodeNonce {
             && block.number == 67890;
     }
 
-    // --- Self-setNonce overwrites setUp ---
+    // --- Self-setNonce overwrites setup ---
 
     function call_self_set_nonce(uint64 nonce) external {
         vm.setNonce(address(this), nonce);
