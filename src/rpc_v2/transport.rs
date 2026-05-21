@@ -203,9 +203,18 @@ impl Transport for MockTransport {
         }
 
         let guard = self.responses.lock().unwrap_or_else(|e| e.into_inner());
-        guard
+        let mut response = guard
             .get(&key)
             .cloned()
-            .with_context(|| format!("MockTransport: no response for {method} with {params:?}"))
+            .with_context(|| format!("MockTransport: no response for {method} with {params:?}"))?;
+
+        // Echo back the request id so batch matching works correctly.
+        if let Some(id) = payload.get("id")
+            && let Some(obj) = response.as_object_mut()
+        {
+            obj.insert("id".into(), id.clone());
+        }
+
+        Ok(response)
     }
 }

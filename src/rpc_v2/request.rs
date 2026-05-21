@@ -4,9 +4,18 @@ use serde_json::json;
 
 /// Build a standard JSON-RPC 2.0 request payload.
 pub fn payload(method: &str, params: &[serde_json::Value]) -> serde_json::Value {
+    payload_with_id(method, params, 1)
+}
+
+/// Build a JSON-RPC 2.0 request payload with a custom request id.
+pub fn payload_with_id(
+    method: &str,
+    params: &[serde_json::Value],
+    id: impl Into<serde_json::Value>,
+) -> serde_json::Value {
     json!({
         "jsonrpc": "2.0",
-        "id": 1,
+        "id": id.into(),
         "method": method,
         "params": params,
     })

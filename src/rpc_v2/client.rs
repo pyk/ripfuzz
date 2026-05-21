@@ -1,6 +1,7 @@
 //! HTTP agent pool, URL pool, and JSON-RPC client with caching, deduplication,
 //! rate limiting, retries, and failover.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -80,6 +81,8 @@ pub struct Block {
     pub prevrandao: Option<B256>,
     #[serde(rename = "difficulty", default)]
     pub difficulty: U256,
+    #[serde(rename = "excessBlobGas", default)]
+    pub excess_blob_gas: Option<U64>,
     #[serde(rename = "hash", default)]
     pub hash: Option<B256>,
 }
@@ -263,18 +266,30 @@ impl Client {
     }
 
     /// Fetch balance, nonce, and code for an address in a single batch request.
+    ///
+    /// Responses are matched by their JSON-RPC `id`, not by array position,
+    /// and any RPC error inside the batch aborts the whole call.
     pub fn get_account(&self, address: Address, block: u64) -> Result<(U256, u64, Bytes)> {
         let addr = json!(format!("0x{address:x}"));
         let block_tag = json!(format!("0x{block:x}"));
         let cache_key = format!("get_account_{block:x}_{address:x}");
 
+        let id_balance: u64 = 100;
+        let id_nonce: u64 = 101;
+        let id_code: u64 = 102;
+
         let payload = serde_json::Value::Array(vec![
-            request::payload("eth_getBalance", &[addr.clone(), block_tag.clone()]),
-            request::payload(
+            request::payload_with_id(
+                "eth_getBalance",
+                &[addr.clone(), block_tag.clone()],
+                id_balance,
+            ),
+            request::payload_with_id(
                 "eth_getTransactionCount",
                 &[addr.clone(), block_tag.clone()],
+                id_nonce,
             ),
-            request::payload("eth_getCode", &[addr, block_tag]),
+            request::payload_with_id("eth_getCode", &[addr, block_tag], id_code),
         ]);
 
         let envelope = self.call(&cache_key, payload)?;
@@ -282,31 +297,40 @@ impl Client {
             .as_array()
             .context("batch response should be an array")?;
 
-        let balance_result = results[0]
+        let mut by_id = HashMap::new();
+        for item in results {
+            if let Some(id) = item.get("id").and_then(|v| v.as_u64()) {
+                by_id.insert(id, item);
+            }
+        }
+
+        let balance_item = by_id
+            .get(&id_balance)
+            .with_context(|| "missing eth_getBalance response in batch")?;
+        let balance: U256 = balance_item
             .get("result")
-            .cloned()
-            .with_context(|| "missing result field in eth_getBalance response")?;
-        let balance: U256 = balance_result
-            .as_str()
+            .and_then(|v| v.as_str())
             .context("expected hex string for balance")?
             .parse()
             .context("invalid u256 hex for balance")?;
-        let nonce_result = results[1]
+
+        let nonce_item = by_id
+            .get(&id_nonce)
+            .with_context(|| "missing eth_getTransactionCount response in batch")?;
+        let nonce_str = nonce_item
             .get("result")
-            .cloned()
-            .with_context(|| "missing result field in eth_getTransactionCount response")?;
-        let nonce_str = nonce_result
-            .as_str()
+            .and_then(|v| v.as_str())
             .context("expected hex string for nonce")?;
         let nonce: u64 = U64::from_str_radix(nonce_str.strip_prefix("0x").unwrap_or(nonce_str), 16)
             .context("invalid u64 hex for nonce")?
             .to();
-        let code_result = results[2]
+
+        let code_item = by_id
+            .get(&id_code)
+            .with_context(|| "missing eth_getCode response in batch")?;
+        let code: Bytes = code_item
             .get("result")
-            .cloned()
-            .with_context(|| "missing result field in eth_getCode response")?;
-        let code: Bytes = code_result
-            .as_str()
+            .and_then(|v| v.as_str())
             .context("expected hex string for code")?
             .parse()
             .context("invalid hex bytes for code")?;
@@ -359,20 +383,44 @@ impl Client {
         }
 
         // 4. Live network fetch
-        let result = if let Some(items) = request_payload.as_array() {
-            let items = items.to_vec();
-            serde_json::Value::Array(
-                self.inner
-                    .transport
-                    .send_batch(items)
-                    .with_context(|| format!("RPC batch {cache_key} failed"))?,
-            )
+        let transport_result = if let Some(items) = request_payload.as_array() {
+            self.inner
+                .transport
+                .send_batch(items.to_vec())
+                .map(serde_json::Value::Array)
+                .with_context(|| format!("RPC batch {cache_key} failed"))
         } else {
             self.inner
                 .transport
                 .send(request_payload)
-                .with_context(|| format!("RPC {cache_key} failed"))?
+                .with_context(|| format!("RPC {cache_key} failed"))
         };
+
+        let result = match transport_result {
+            Ok(r) => r,
+            Err(e) => {
+                self.inner
+                    .dedup
+                    .complete(cache_key, Err(anyhow::anyhow!("{e}")));
+                guard.deactivate();
+                return Err(e);
+            }
+        };
+
+        // 4b. Reject batch responses that contain any RPC error.
+        // We must not cache an errored batch because a retry might succeed.
+        if let Some(arr) = result.as_array() {
+            for item in arr {
+                if let Some(error) = item.get("error") {
+                    let err = anyhow::anyhow!("RPC error in batch response: {error}");
+                    self.inner
+                        .dedup
+                        .complete(cache_key, Err(anyhow::anyhow!("{err}")));
+                    guard.deactivate();
+                    return Err(err);
+                }
+            }
+        }
 
         // 5. Update cache and complete dedup
         if !skip_cache && let Some(ref cache) = self.inner.cache {
@@ -884,6 +932,141 @@ mod tests {
             ),
             1
         );
+    }
+
+    // -----------------------------------------------------------------
+    // Issue #1 reproduction: batch response ordering & error caching
+    // -----------------------------------------------------------------
+
+    /// Transport that returns batch responses in *reverse* order,
+    /// echoing back the request `id` like a real JSON-RPC node.
+    #[derive(Debug)]
+    struct ReversedBatchTransport;
+
+    impl crate::rpc_v2::transport::Transport for ReversedBatchTransport {
+        fn send(&self, _payload: serde_json::Value) -> Result<serde_json::Value> {
+            unimplemented!("use send_batch")
+        }
+
+        fn send_batch(&self, payloads: Vec<serde_json::Value>) -> Result<Vec<serde_json::Value>> {
+            let mut responses = Vec::with_capacity(payloads.len());
+            for payload in &payloads {
+                let method = payload.get("method").and_then(|v| v.as_str()).unwrap_or("");
+                let id = payload.get("id").cloned().unwrap_or(json!(0));
+                let resp = match method {
+                    "eth_getBalance" => {
+                        json!({"jsonrpc":"2.0","id":id,"result":"0x00000000000000000000000000000000000000000000000000000000DEADBEEF"})
+                    }
+                    "eth_getTransactionCount" => {
+                        json!({"jsonrpc":"2.0","id":id,"result":"0x2"})
+                    }
+                    "eth_getCode" => {
+                        json!({"jsonrpc":"2.0","id":id,"result":"0xCAFEBABE"})
+                    }
+                    _ => json!({"jsonrpc":"2.0","id":id,"result":null}),
+                };
+                responses.push(resp);
+            }
+            // Reverse the order: JSON-RPC spec does not guarantee ordering.
+            responses.reverse();
+            Ok(responses)
+        }
+    }
+
+    // Regression test: batch responses may arrive out-of-order.
+    // `get_account` must match by `id`, not by array position.
+    #[test]
+    fn get_account_matches_responses_by_id() {
+        let transport = Arc::new(ReversedBatchTransport);
+        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let rpc = Client::new_with_transport(config, transport);
+
+        let addr: Address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+            .parse()
+            .unwrap();
+        let (balance, nonce, code) = rpc.get_account(addr, 1).unwrap();
+
+        // Even though the transport reversed the order, the correct values
+        // must be extracted by matching the `id` field in each response.
+        assert_eq!(
+            balance,
+            "0x00000000000000000000000000000000000000000000000000000000DEADBEEF"
+                .parse::<U256>()
+                .unwrap()
+        );
+        assert_eq!(nonce, 2);
+        assert_eq!(code, "0xCAFEBABE".parse::<Bytes>().unwrap());
+    }
+
+    /// Transport that returns a batch containing one error on the first call,
+    /// and a clean batch on the second call. Echoes back request `id`s.
+    #[derive(Debug)]
+    struct ErrorThenSuccessTransport(std::sync::atomic::AtomicUsize);
+
+    impl crate::rpc_v2::transport::Transport for ErrorThenSuccessTransport {
+        fn send(&self, _payload: serde_json::Value) -> Result<serde_json::Value> {
+            unimplemented!("use send_batch")
+        }
+
+        fn send_batch(&self, payloads: Vec<serde_json::Value>) -> Result<Vec<serde_json::Value>> {
+            let count = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let ids: Vec<serde_json::Value> = payloads
+                .iter()
+                .map(|p| p.get("id").cloned().unwrap_or(json!(0)))
+                .collect();
+            if count == 0 {
+                // First call: balance item is an RPC error.
+                Ok(vec![
+                    json!({"jsonrpc":"2.0","id":ids[0],"error":{"code":-32000,"message":"rate limited"}}),
+                    json!({"jsonrpc":"2.0","id":ids[1],"result":"0x1"}),
+                    json!({"jsonrpc":"2.0","id":ids[2],"result":"0x6000"}),
+                ])
+            } else {
+                // Second call: clean data.
+                Ok(vec![
+                    json!({"jsonrpc":"2.0","id":ids[0],"result":"0xDEADBEEF"}),
+                    json!({"jsonrpc":"2.0","id":ids[1],"result":"0x1"}),
+                    json!({"jsonrpc":"2.0","id":ids[2],"result":"0x6000"}),
+                ])
+            }
+        }
+    }
+
+    // Regression test: a batch containing an RPC error must NOT be cached.
+    // The second call should trigger a fresh request and succeed.
+    #[test]
+    fn get_account_batch_error_is_not_cached() {
+        let transport = Arc::new(ErrorThenSuccessTransport(
+            std::sync::atomic::AtomicUsize::new(0),
+        ));
+        let tmp = tempfile::tempdir().unwrap();
+        let config = Config::new()
+            .urls(vec!["mock://test".into()])
+            .chain_id(1)
+            .cache_dir(tmp.path());
+        let rpc = Client::new_with_transport(config, transport.clone());
+
+        let addr: Address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+            .parse()
+            .unwrap();
+
+        // First call fails because the balance item carries an RPC error.
+        let err = rpc.get_account(addr, 1).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("rate limited"),
+            "first call should fail with the RPC error message: {msg}"
+        );
+
+        // Second call must NOT hit the cache. It should issue a fresh request
+        // and receive the clean data from the transport.
+        let (balance, nonce, code) = rpc.get_account(addr, 1).unwrap();
+        assert_eq!(balance, U256::from(0xDEADBEEFu64));
+        assert_eq!(nonce, 1);
+        assert_eq!(code, "0x6000".parse::<Bytes>().unwrap());
+
+        // The transport was called exactly twice.
+        assert_eq!(transport.0.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     fn live_client() -> &'static Client {

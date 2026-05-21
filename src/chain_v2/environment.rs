@@ -50,6 +50,7 @@ impl Environment {
                 basefee: block.basefee.to(),
                 prevrandao: block.prevrandao,
                 difficulty: block.difficulty,
+                excess_blob_gas: block.excess_blob_gas.map(|v| v.to()),
             },
             chain_id,
         })
@@ -106,6 +107,7 @@ pub struct BlockHeader {
     pub gas_limit: u64,
     pub prevrandao: Option<B256>,
     pub difficulty: U256,
+    pub excess_blob_gas: Option<u64>,
 }
 
 impl BlockHeader {
@@ -122,8 +124,10 @@ impl BlockHeader {
             blob_excess_gas_and_price: None,
             slot_num: 0,
         };
-        // Cancun requires excess_blob_gas to be set. Use mainnet default.
-        env.set_blob_excess_gas_and_price(0, 3338477);
+        // Cancun requires excess_blob_gas to be set.
+        if let Some(excess) = self.excess_blob_gas {
+            env.set_blob_excess_gas_and_price(excess, 3338477);
+        }
         env
     }
 }
