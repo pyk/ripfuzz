@@ -197,6 +197,7 @@ impl Chain<InMemoryDB> {
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);
         cfg_env.disable_nonce_check = true;
         cfg_env.disable_eip3607 = true;
+        cfg_env.limit_contract_code_size = Some(usize::MAX);
         cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
 
         let mut db = InMemoryDB::default();
@@ -251,6 +252,7 @@ impl Chain<CacheDB<ForkDb>> {
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);
         cfg_env.disable_nonce_check = true;
         cfg_env.disable_eip3607 = true;
+        cfg_env.limit_contract_code_size = Some(usize::MAX);
         cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
 
         Ok(Self {
@@ -414,7 +416,7 @@ where
 mod tests {
     use super::*;
     use alloy_primitives::utils::keccak256;
-    use revm::bytecode::opcode::{MSTORE, PUSH1, RETURN};
+    use revm::bytecode::opcode::{CODECOPY, MSTORE, PUSH1, PUSH2, RETURN};
     use revm::primitives::hardfork::SpecId;
 
     #[test]
@@ -479,5 +481,58 @@ mod tests {
             "EIP-3607 must be disabled so a contract can act as caller"
         );
         Ok(())
+    }
+
+    /// Chain::new must disable the contract code size limit so
+    /// that large factory contracts or inlined targets can deploy.
+    #[test]
+    fn chain_new_allows_unlimited_contract_size() {
+        let mut chain = Chain::new();
+
+        // Build initcode that returns 0x8001 bytes (32769) of runtime code,
+        // which is one byte larger than the EIP-7954 limit of 0x8000 (32768)
+        // enforced for the AMSTERDAM spec.
+        //
+        // Initcode:
+        //   PUSH2 0x8001       // size to copy
+        //   PUSH1 0x0e         // offset in this initcode to padding
+        //   PUSH1 0x00         // dest offset in memory
+        //   CODECOPY           // copy padding into memory
+        //   PUSH2 0x8001       // size to return
+        //   PUSH1 0x00         // mem offset
+        //   RETURN             // return memory as runtime code
+        let mut initcode = vec![
+            PUSH2, 0x80, 0x01, // PUSH2 0x8001
+            PUSH1, 0x0e, // PUSH1 0x0e
+            PUSH1, 0x00,     // PUSH1 0x00
+            CODECOPY, // CODECOPY
+            PUSH2, 0x80, 0x01, // PUSH2 0x8001
+            PUSH1, 0x00,   // PUSH1 0x00
+            RETURN, // RETURN
+        ];
+        initcode.extend(std::iter::repeat(0x00).take(0x8001));
+
+        let result = chain.deploy(DEFAULT_DEPLOYER, U256::ZERO, Bytes::from(initcode));
+        assert!(
+            result.is_ok(),
+            "Chain::new must disable code size limit so contracts > 32 KB can deploy"
+        );
+
+        let (address, tx_result) = result.unwrap();
+        assert!(tx_result.success, "large deployment must succeed");
+        assert_ne!(
+            address,
+            Address::ZERO,
+            "must return a valid deployed address"
+        );
+
+        // Verify the deployed bytecode is actually 32769 bytes.
+        let db = chain.database().expect("database should be available");
+        let info = db
+            .basic_ref(address)
+            .unwrap()
+            .expect("account should exist");
+        let code_len = info.code.map(|c| c.len()).unwrap_or(0);
+        assert_eq!(code_len, 0x8001, "deployed code must be 32769 bytes");
     }
 }
