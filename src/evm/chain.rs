@@ -196,6 +196,7 @@ impl Chain<InMemoryDB> {
         cfg_env.chain_id = 1;
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);
         cfg_env.disable_nonce_check = true;
+        cfg_env.disable_eip3607 = true;
         cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
 
         let mut db = InMemoryDB::default();
@@ -249,6 +250,7 @@ impl Chain<CacheDB<ForkDb>> {
         cfg_env.chain_id = chain_id;
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);
         cfg_env.disable_nonce_check = true;
+        cfg_env.disable_eip3607 = true;
         cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
 
         Ok(Self {
@@ -412,6 +414,7 @@ where
 mod tests {
     use super::*;
     use alloy_primitives::utils::keccak256;
+    use revm::bytecode::opcode::{MSTORE, PUSH1, RETURN};
     use revm::primitives::hardfork::SpecId;
 
     #[test]
@@ -448,6 +451,32 @@ mod tests {
             balance,
             U256::MAX,
             "deployer must be seeded with U256::MAX in Chain::new"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn chain_new_allows_contract_as_caller() -> Result<(), ChainError> {
+        let mut chain = Chain::new();
+
+        // Initcode that returns 1 byte of runtime code (0x00 STOP) so the
+        // deployed address has non-empty code.
+        let initcode = Bytes::from_static(&[
+            PUSH1, 0x01, // PUSH1 1
+            PUSH1, 0x00,   // PUSH1 0
+            MSTORE, // MSTORE
+            PUSH1, 0x01, // PUSH1 1
+            PUSH1, 0x00,   // PUSH1 0
+            RETURN, // RETURN
+        ]);
+
+        let (deployed_address, _) = chain.deploy(DEFAULT_DEPLOYER, U256::ZERO, initcode)?;
+
+        // Calling from a contract address should succeed when EIP-3607 is disabled.
+        let result = chain.call(deployed_address, Address::ZERO, U256::ZERO, Bytes::new());
+        assert!(
+            result.is_ok(),
+            "EIP-3607 must be disabled so a contract can act as caller"
         );
         Ok(())
     }
