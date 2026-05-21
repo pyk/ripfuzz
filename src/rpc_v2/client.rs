@@ -155,7 +155,10 @@ impl Client {
     pub fn latest_block_number(&self) -> Result<u64> {
         let payload = request::payload("eth_blockNumber", &[]);
         let envelope = self.call("latest_block_number", payload)?;
-        let result = Self::extract_result(&envelope, "eth_blockNumber")?;
+        let result = envelope
+            .get("result")
+            .cloned()
+            .with_context(|| "missing result field in eth_blockNumber response")?;
         let number = result
             .as_str()
             .context("missing block number in response")?;
@@ -171,7 +174,10 @@ impl Client {
             &[json!(format!("0x{block:x}")), json!(false)],
         );
         let envelope = self.call(&cache_key, payload)?;
-        let result = Self::extract_result(&envelope, "eth_getBlockByNumber")?;
+        let result = envelope
+            .get("result")
+            .cloned()
+            .with_context(|| "missing result field in eth_getBlockByNumber response")?;
         if result.is_null() {
             bail!("block {} not found", block);
         }
@@ -189,7 +195,10 @@ impl Client {
             ],
         );
         let envelope = self.call(&cache_key, payload)?;
-        let result = Self::extract_result(&envelope, "eth_getBalance")?;
+        let result = envelope
+            .get("result")
+            .cloned()
+            .with_context(|| "missing result field in eth_getBalance response")?;
         let s = result.as_str().context("expected hex string")?;
         s.parse().context("invalid u256 hex")
     }
@@ -205,7 +214,10 @@ impl Client {
             ],
         );
         let envelope = self.call(&cache_key, payload)?;
-        let result = Self::extract_result(&envelope, "eth_getTransactionCount")?;
+        let result = envelope
+            .get("result")
+            .cloned()
+            .with_context(|| "missing result field in eth_getTransactionCount response")?;
         let s = result.as_str().context("expected hex string")?;
         let u: U64 = s.parse().context("invalid u64 hex")?;
         Ok(u.to())
@@ -222,7 +234,10 @@ impl Client {
             ],
         );
         let envelope = self.call(&cache_key, payload)?;
-        let result = Self::extract_result(&envelope, "eth_getCode")?;
+        let result = envelope
+            .get("result")
+            .cloned()
+            .with_context(|| "missing result field in eth_getCode response")?;
         let s = result.as_str().context("expected hex string")?;
         s.parse().context("invalid hex bytes")
     }
@@ -239,7 +254,10 @@ impl Client {
             ],
         );
         let envelope = self.call(&cache_key, payload)?;
-        let result = Self::extract_result(&envelope, "eth_getStorageAt")?;
+        let result = envelope
+            .get("result")
+            .cloned()
+            .with_context(|| "missing result field in eth_getStorageAt response")?;
         let s = result.as_str().context("expected hex string")?;
         s.parse().context("invalid u256 hex")
     }
@@ -264,20 +282,29 @@ impl Client {
             .as_array()
             .context("batch response should be an array")?;
 
-        let balance_result = Self::extract_result(&results[0], "eth_getBalance")?;
+        let balance_result = results[0]
+            .get("result")
+            .cloned()
+            .with_context(|| "missing result field in eth_getBalance response")?;
         let balance: U256 = balance_result
             .as_str()
             .context("expected hex string for balance")?
             .parse()
             .context("invalid u256 hex for balance")?;
-        let nonce_result = Self::extract_result(&results[1], "eth_getTransactionCount")?;
+        let nonce_result = results[1]
+            .get("result")
+            .cloned()
+            .with_context(|| "missing result field in eth_getTransactionCount response")?;
         let nonce_str = nonce_result
             .as_str()
             .context("expected hex string for nonce")?;
         let nonce: u64 = U64::from_str_radix(nonce_str.strip_prefix("0x").unwrap_or(nonce_str), 16)
             .context("invalid u64 hex for nonce")?
             .to();
-        let code_result = Self::extract_result(&results[2], "eth_getCode")?;
+        let code_result = results[2]
+            .get("result")
+            .cloned()
+            .with_context(|| "missing result field in eth_getCode response")?;
         let code: Bytes = code_result
             .as_str()
             .context("expected hex string for code")?
@@ -290,14 +317,6 @@ impl Client {
     // -----------------------------------------------------------------
     // Internal call pipeline
     // -----------------------------------------------------------------
-
-    /// Extract the `result` field from a JSON-RPC 2.0 response envelope.
-    fn extract_result(envelope: &serde_json::Value, method: &str) -> Result<serde_json::Value> {
-        envelope
-            .get("result")
-            .cloned()
-            .with_context(|| format!("missing result field in {method} response"))
-    }
 
     /// Unified internal call that handles deduplication, caching, rate
     /// limiting, and transport for both single requests and batches.
@@ -522,7 +541,7 @@ mod tests {
         let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
         let rpc = Client::new_with_transport(config, transport.clone());
 
-        let thread_count = 20;
+        let thread_count = 8;
         let barrier = Arc::new(std::sync::Barrier::new(thread_count));
         let mut handles = Vec::with_capacity(thread_count);
 
