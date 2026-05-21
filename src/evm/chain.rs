@@ -9,8 +9,8 @@ use revm::{
     database_interface::DBErrorMarker,
     handler::ExecuteCommitEvm,
     inspector::{InspectCommitEvm, Inspector},
-    primitives::{Bytes, TxKind},
     primitives::hardfork::SpecId,
+    primitives::{Bytes, TxKind},
     state::AccountInfo,
 };
 
@@ -395,8 +395,11 @@ mod tests {
 
     #[test]
     fn chain_new_uses_latest_spec() {
-        let chain = Chain::<InMemoryDB>::new();
-        assert_eq!(chain.cfg_env().spec, SpecId::AMSTERDAM, "Chain::new should use latest spec (AMSTERDAM)");
+        let chain = Chain::new();
+        assert_eq!(
+            chain.cfg_env().spec,
+            SpecId::AMSTERDAM,
+            "Chain::new should use latest spec (AMSTERDAM)"
+        );
     }
 }
-
