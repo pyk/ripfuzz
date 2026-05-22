@@ -210,6 +210,21 @@ impl Chain<InMemoryDB> {
         };
         db.insert_account_info(DEFAULT_DEPLOYER, info);
 
+        // Insert a dummy VM contract so Solidity's `extcodesize` check passes
+        // when a target calls raptor cheatcodes during deployment or setup.
+        let vm_code =
+            revm::bytecode::Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x00]));
+        db.insert_account_info(
+            crate::vm::VM_ADDRESS,
+            AccountInfo {
+                balance: U256::ZERO,
+                nonce: 0,
+                code_hash: vm_code.hash_slow(),
+                code: Some(vm_code),
+                account_id: None,
+            },
+        );
+
         Self {
             database: Some(db),
             block_env,
@@ -419,6 +434,8 @@ mod tests {
     use revm::bytecode::opcode::{CODECOPY, MSTORE, PUSH1, PUSH2, RETURN};
     use revm::primitives::hardfork::SpecId;
 
+    use crate::vm::VM_ADDRESS;
+
     #[test]
     fn chain_new_uses_latest_spec() {
         let chain = Chain::new();
@@ -479,6 +496,29 @@ mod tests {
         assert!(
             result.is_ok(),
             "EIP-3607 must be disabled so a contract can act as caller"
+        );
+        Ok(())
+    }
+
+    /// Chain::new must inject a dummy contract at the raptor VM address so
+    /// that Solidity `extcodesize` checks do not revert when a target contract
+    /// calls cheatcodes during deployment or setup.
+    #[test]
+    fn chain_new_injects_vm_address() -> Result<(), ChainError> {
+        let chain = Chain::new();
+        let db = chain
+            .database()
+            .ok_or_else(|| ChainError::from(anyhow::anyhow!("database unavailable")))?;
+        let Ok(info) = db.basic_ref(VM_ADDRESS);
+        let info =
+            info.ok_or_else(|| ChainError::from(anyhow::anyhow!("VM_ADDRESS account missing")))?;
+        let code = info
+            .code
+            .as_ref()
+            .ok_or_else(|| ChainError::from(anyhow::anyhow!("VM_ADDRESS code missing")))?;
+        assert!(
+            !code.is_empty(),
+            "Chain::new must inject non-empty code at VM_ADDRESS so extcodesize checks pass"
         );
         Ok(())
     }
