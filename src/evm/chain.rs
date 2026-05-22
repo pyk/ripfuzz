@@ -297,6 +297,20 @@ impl Chain<CacheDB<ForkDB>> {
         };
         database.insert_account_info(DEFAULT_DEPLOYER, info);
 
+        // Insert a dummy VM contract so Solidity's `extcodesize` check passes
+        // when a target calls raptor cheatcodes during deployment or setup.
+        let vm_code = Bytecode::new_raw(Bytes::from_static(&[0x00]));
+        database.insert_account_info(
+            crate::vm::VM_ADDRESS,
+            AccountInfo {
+                balance: U256::ZERO,
+                nonce: 0,
+                code_hash: vm_code.hash_slow(),
+                code: Some(vm_code),
+                account_id: None,
+            },
+        );
+
         Ok(Self {
             database: Some(database),
             block_env,
@@ -693,6 +707,107 @@ mod tests {
             info.balance,
             U256::MAX,
             "deployer must be seeded with U256::MAX in Chain::fork"
+        );
+        Ok(())
+    }
+
+    /// Chain::fork must inject a dummy contract at the raptor VM address so
+    /// that Solidity `extcodesize` checks do not revert when a target contract
+    /// calls cheatcodes during deployment or setup.
+    #[test]
+    fn chain_fork_injects_vm_address() -> Result<()> {
+        let transport = Arc::new(MockTransport::default());
+
+        // Minimal block header for eth_getBlockByNumber.
+        transport.insert(
+            "eth_getBlockByNumber",
+            &[json!("0x1"), json!(false)],
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "number": "0x1",
+                    "timestamp": "0x1",
+                    "miner": "0x0000000000000000000000000000000000000000",
+                    "gasLimit": "0xffffffffffffffff",
+                    "baseFeePerGas": "0x0",
+                    "difficulty": "0x0",
+                    "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                }
+            }),
+        );
+
+        // Remote state for the deployer.
+        transport.insert(
+            "eth_getBalance",
+            &[
+                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x0"}),
+        );
+        transport.insert(
+            "eth_getTransactionCount",
+            &[
+                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 2, "result": "0x0"}),
+        );
+        transport.insert(
+            "eth_getCode",
+            &[
+                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 3, "result": "0x"}),
+        );
+
+        // Remote state for VM_ADDRESS: empty code so the test fails if
+        // Chain::fork forgets to override it locally.
+        transport.insert(
+            "eth_getBalance",
+            &[
+                json!("0x263af513a0435ebc9d5c362cf76252f87173f8f1"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x0"}),
+        );
+        transport.insert(
+            "eth_getTransactionCount",
+            &[
+                json!("0x263af513a0435ebc9d5c362cf76252f87173f8f1"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 2, "result": "0x0"}),
+        );
+        transport.insert(
+            "eth_getCode",
+            &[
+                json!("0x263af513a0435ebc9d5c362cf76252f87173f8f1"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 3, "result": "0x"}),
+        );
+
+        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let client = Client::new_with_transport(config, transport);
+        let fork_config = ForkConfig {
+            client: Arc::new(client),
+            block_number: 1,
+        };
+
+        let chain = Chain::fork(fork_config)?;
+        let db = chain.database().context("database unavailable")?;
+        let info = db
+            .basic_ref(VM_ADDRESS)
+            .context("revm transaction failed")?
+            .context("VM_ADDRESS account missing")?;
+        let code = info.code.as_ref().context("VM_ADDRESS code missing")?;
+        assert!(
+            !code.is_empty(),
+            "Chain::fork must inject non-empty code at VM_ADDRESS so extcodesize checks pass"
         );
         Ok(())
     }
