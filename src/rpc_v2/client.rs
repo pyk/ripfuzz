@@ -380,12 +380,13 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::rpc_v2::transport::MockTransport;
 
     #[test]
     fn backoff_is_exponential() {
         let client = Client::new_with_transport(
             Config::new("mock://test").backoff_ms(100),
-            crate::rpc_v2::transport::MockTransport::default(),
+            MockTransport::default(),
         );
         assert_eq!(client.backoff_duration(0), Duration::from_millis(100));
         assert_eq!(client.backoff_duration(1), Duration::from_millis(200));
@@ -395,7 +396,7 @@ mod tests {
 
     #[test]
     fn mock_transport_roundtrip() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         let payload = request::payload("eth_blockNumber", &[]);
         transport.mock_response(
             "mock://test",
@@ -412,7 +413,7 @@ mod tests {
 
     #[test]
     fn dedup_coalesces_parallel_requests() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         transport.set_delay(Duration::from_millis(100));
         let payload = request::payload("eth_blockNumber", &[]);
         transport.mock_response(
@@ -437,7 +438,7 @@ mod tests {
 
     #[test]
     fn rate_limit_throttles_without_network() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         let payload = request::payload("eth_blockNumber", &[]);
         transport.mock_response(
             "mock://test",
@@ -459,11 +460,11 @@ mod tests {
         );
     }
 
-    /// Regression (issue #2): a JSON-RPC batch is dispatched as a single HTTP
+    /// Regression test: a JSON-RPC batch is dispatched as a single HTTP
     /// POST, so it must consume exactly one rate-limit token.
     #[test]
     fn rate_limit_batch_counts_as_single_request() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         let addr = json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2");
         let block_tag = json!("0x1");
         let batch = json!([
@@ -501,7 +502,7 @@ mod tests {
     /// Stress-test deduplication with many threads hitting the same request.
     #[test]
     fn dedup_coalesces_many_parallel_requests() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         transport.set_delay(Duration::from_millis(100));
         let payload = request::payload("eth_blockNumber", &[]);
         transport.mock_response(
@@ -532,7 +533,7 @@ mod tests {
     /// maximizing the race window and proving the dedup table is sound.
     #[test]
     fn dedup_with_barrier_maximizes_contention() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         transport.set_delay(Duration::from_millis(200));
         let payload = request::payload("eth_blockNumber", &[]);
         transport.mock_response(
@@ -571,7 +572,7 @@ mod tests {
     /// be dispatched exactly once.
     #[test]
     fn dedup_only_coalesces_identical_requests() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         transport.set_delay(Duration::from_millis(50));
         let payload_a = request::payload(
             "eth_getBalance",
@@ -643,7 +644,7 @@ mod tests {
     /// wait for the rate-limit refill before the leader can dispatch.
     #[test]
     fn rate_limit_throttles_parallel_deduped_requests() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         transport.set_delay(Duration::from_millis(50));
         let payload = request::payload("eth_blockNumber", &[]);
         transport.mock_response(
@@ -700,7 +701,7 @@ mod tests {
     /// but that dispatch is delayed by the rate limiter.
     #[test]
     fn rate_limit_with_barrier_and_dedup() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         transport.set_delay(Duration::from_millis(50));
         let payload = request::payload("eth_blockNumber", &[]);
         transport.mock_response(
@@ -749,7 +750,7 @@ mod tests {
     /// served from cache on the second call.
     #[test]
     fn eth_block_number_skips_cache_but_other_methods_are_cached() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         let payload_bn = request::payload("eth_blockNumber", &[]);
         let payload_bal = request::payload(
             "eth_getBalance",
@@ -792,7 +793,7 @@ mod tests {
 
     #[test]
     fn mock_get_account_roundtrip() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         let addr = json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2");
         let block_tag = json!("0x17fa30b");
         let batch = json!([
@@ -829,17 +830,11 @@ mod tests {
         assert_eq!(transport.call_count("mock://test", &batch), 1);
     }
 
-    // -----------------------------------------------------------------
-    // Issue #1 reproduction: batch response ordering & error caching
-    // -----------------------------------------------------------------
-
-    /// Transport that returns batch responses in *reverse* order,
-    /// echoing back the request `id` like a real JSON-RPC node.
     // Regression test: batch responses may arrive out-of-order.
     // `get_account` must match by `id`, not by array position.
     #[test]
     fn get_account_matches_responses_by_id() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         let addr = json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2");
         let block_tag = json!("0x1");
         let batch = json!([
@@ -881,7 +876,7 @@ mod tests {
     // cached. A subsequent call must be served from cache.
     #[test]
     fn get_account_batch_error_retries_and_caches() {
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         let addr = json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2");
         let block_tag = json!("0x1");
         let batch = json!([
@@ -933,7 +928,7 @@ mod tests {
         assert_eq!(transport.call_count("mock://test", &batch), 2);
     }
 
-    /// Regression (issue #4): Block must reject JSON missing critical fields.
+    /// Regression test: Block must reject JSON missing critical fields.
     #[test]
     fn block_deserialize_missing_required_fields() {
         let cases: Vec<(&str, &str)> = vec![
@@ -964,12 +959,12 @@ mod tests {
         }
     }
 
-    /// Regression: cache files must be stored under `rpc/` and block
+    /// Regression test: cache files must be stored under `rpc/` and block
     /// numbers in the filename must be decimal, not hex.
     #[test]
     fn cache_path_uses_decimal_block_and_chain_id() {
         let tmp = tempfile::tempdir().unwrap();
-        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let transport = MockTransport::default();
         let payload = request::payload("eth_getBlockByNumber", &[json!("0x4d2"), json!(false)]);
         transport.mock_response(
             "mock://test",
