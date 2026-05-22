@@ -36,6 +36,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "alloy-chains"
+version = "0.2.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84e0378e959aa6a885897522080a990e80eb317f1e9a222a604492ea50e13096"
+dependencies = [
+ "alloy-primitives",
+ "num_enum",
+ "serde",
+ "strum",
+]
+
+[[package]]
 name = "alloy-dyn-abi"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -128,6 +140,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloy-hardforks"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83ba208044232d14d4adbfa77e57d6329f51bc1acc21f5667bb7db72d88a0831"
+dependencies = [
+ "alloy-chains",
+ "alloy-eip2124",
+ "alloy-primitives",
+ "auto_impl",
+ "dyn-clone",
+]
+
+[[package]]
 name = "alloy-json-abi"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -137,6 +162,18 @@ dependencies = [
  "alloy-sol-type-parser",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "alloy-op-hardforks"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e67c7461389613edc74c15edc7f0ca293f6bfdd51efb0685ab51212404b0eef2"
+dependencies = [
+ "alloy-chains",
+ "alloy-hardforks",
+ "alloy-primitives",
+ "auto_impl",
 ]
 
 [[package]]
@@ -2346,8 +2383,11 @@ dependencies = [
 name = "raptor"
 version = "0.1.0"
 dependencies = [
+ "alloy-chains",
  "alloy-dyn-abi",
+ "alloy-hardforks",
  "alloy-json-abi",
+ "alloy-op-hardforks",
  "alloy-primitives",
  "anyhow",
  "clap",
@@ -3136,6 +3176,27 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "strum"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
 
 [[package]]
 name = "subtle"

@@ -37,6 +37,9 @@ revm = { version = "38.0.0", features = ["optional_balance_check", "optional_eip
 hex = "0.4.3"
 
 # ABI & Foundry integration
+alloy-chains = "0.2"
+alloy-hardforks = "0.4"
+alloy-op-hardforks = "0.5"
 alloy-json-abi = "1.6.0"
 alloy-dyn-abi = "1.6.0"
 alloy-primitives = "1.6.0"

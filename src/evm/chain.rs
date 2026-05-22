@@ -183,7 +183,6 @@ impl DatabaseRef for ForkDB {
 pub struct ForkConfig {
     pub client: Arc<Client>,
     pub block_number: u64,
-    pub chain_id: u64,
 }
 
 // ----------------------------------------------------------------------------
@@ -277,18 +276,20 @@ impl Chain<CacheDB<LocalDB>> {
 impl Chain<CacheDB<ForkDB>> {
     /// Create a new forked EVM pinned to a remote block.
     pub fn fork(config: ForkConfig) -> Result<Self> {
+        let (chain_id, block) = config
+            .client
+            .get_fork_info(config.block_number)
+            .with_context(|| format!("fetching fork info for block {}", config.block_number))?;
+
+        let spec_id = crate::evm::specs::get_spec_id(chain_id, block.timestamp.to());
+
         let mut cfg_env = CfgEnv::default();
-        cfg_env.chain_id = config.chain_id;
+        cfg_env.chain_id = chain_id;
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);
         cfg_env.disable_nonce_check = true;
         cfg_env.disable_eip3607 = true;
         cfg_env.limit_contract_code_size = Some(usize::MAX);
-        cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
-
-        let block = config
-            .client
-            .get_block_by_number(config.block_number)
-            .with_context(|| format!("fetching block {}", config.block_number))?;
+        cfg_env.set_spec_and_mainnet_gas_params(spec_id);
 
         let client = Arc::clone(&config.client);
         let fork_db = ForkDB::new(client, config.block_number);
@@ -663,30 +664,26 @@ mod tests {
     fn chain_fork_seeds_deployer_with_max_balance() -> Result<()> {
         let transport = MockTransport::default();
 
-        // Minimal block header for eth_getBlockByNumber.
-        let payload = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "eth_getBlockByNumber",
-            "params": [json!("0x1"), json!(false)],
-        });
+        let batch_payload = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
+        ]);
         transport.mock_response(
             "mock://test",
-            &payload,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {
-                    "number": "0x1",
-                    "timestamp": "0x1",
-                    "miner": "0x0000000000000000000000000000000000000000",
-                    "gasLimit": "0xffffffffffffffff",
-                    "baseFeePerGas": "0x0",
-                    "difficulty": "0x0",
-                    "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-                }
-            }),
+            &batch_payload,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x1"},
+                {"jsonrpc":"2.0","id":101,"result":{
+                    "number":"0x1",
+                    "timestamp":"0x1",
+                    "miner":"0x0000000000000000000000000000000000000000",
+                    "gasLimit":"0xffffffffffffffff",
+                    "baseFeePerGas":"0x0",
+                    "difficulty":"0x0",
+                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+                }},
+            ]),
         );
 
         let config = Config::new("mock://test");
@@ -694,18 +691,17 @@ mod tests {
         let fork_config = ForkConfig {
             client: Arc::new(client),
             block_number: 1,
-            chain_id: 1,
         };
 
         let chain = Chain::fork(fork_config)?;
         assert_eq!(chain.deployer(), DEFAULT_DEPLOYER);
 
-        // Chain::fork seeds the deployer locally, so only the block header
-        // should have been fetched over RPC.
+        // Chain::fork seeds the deployer locally, so only the batch should
+        // have been fetched over RPC.
         assert_eq!(
-            transport.call_count("mock://test", &payload),
+            transport.call_count("mock://test", &batch_payload),
             1,
-            "Chain::fork must fetch exactly one block header"
+            "Chain::fork must fetch exactly one batch request"
         );
 
         let db = chain.database().context("database unavailable")?;
@@ -728,30 +724,26 @@ mod tests {
     fn chain_fork_injects_vm_address() -> Result<()> {
         let transport = MockTransport::default();
 
-        // Minimal block header for eth_getBlockByNumber.
-        let payload = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "eth_getBlockByNumber",
-            "params": [json!("0x1"), json!(false)],
-        });
+        let batch_payload = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
+        ]);
         transport.mock_response(
             "mock://test",
-            &payload,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {
-                    "number": "0x1",
-                    "timestamp": "0x1",
-                    "miner": "0x0000000000000000000000000000000000000000",
-                    "gasLimit": "0xffffffffffffffff",
-                    "baseFeePerGas": "0x0",
-                    "difficulty": "0x0",
-                    "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-                }
-            }),
+            &batch_payload,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x1"},
+                {"jsonrpc":"2.0","id":101,"result":{
+                    "number":"0x1",
+                    "timestamp":"0x1",
+                    "miner":"0x0000000000000000000000000000000000000000",
+                    "gasLimit":"0xffffffffffffffff",
+                    "baseFeePerGas":"0x0",
+                    "difficulty":"0x0",
+                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+                }},
+            ]),
         );
 
         let config = Config::new("mock://test");
@@ -759,17 +751,16 @@ mod tests {
         let fork_config = ForkConfig {
             client: Arc::new(client),
             block_number: 1,
-            chain_id: 1,
         };
 
         let chain = Chain::fork(fork_config)?;
 
         // Chain::fork injects both deployer and VM_ADDRESS locally, so only
-        // the block header should have been fetched over RPC.
+        // the batch should have been fetched over RPC.
         assert_eq!(
-            transport.call_count("mock://test", &payload),
+            transport.call_count("mock://test", &batch_payload),
             1,
-            "Chain::fork must fetch exactly one block header"
+            "Chain::fork must fetch exactly one batch request"
         );
 
         let db = chain.database().context("database unavailable")?;
@@ -781,6 +772,96 @@ mod tests {
         assert!(
             !code.is_empty(),
             "Chain::fork must inject non-empty code at VM_ADDRESS so extcodesize checks pass"
+        );
+        Ok(())
+    }
+
+    /// Regression: Chain::fork must derive the EVM spec from the forked
+    /// block number and timestamp instead of hardcoding AMSTERDAM.  A
+    /// mainnet block past Cancun activation must use SpecId::CANCUN.
+    #[test]
+    fn chain_fork_uses_correct_spec_for_mainnet_cancun() -> Result<()> {
+        let transport = MockTransport::default();
+
+        let batch_payload = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getBlockByNumber","params":[json!("0x1312d00"), json!(false)]},
+        ]);
+        transport.mock_response(
+            "mock://test",
+            &batch_payload,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x1"},
+                {"jsonrpc":"2.0","id":101,"result":{
+                    "number":"0x1312d00",
+                    "timestamp":"0x65f5e100",
+                    "miner":"0x0000000000000000000000000000000000000000",
+                    "gasLimit":"0xffffffffffffffff",
+                    "baseFeePerGas":"0x0",
+                    "difficulty":"0x0",
+                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+                }},
+            ]),
+        );
+
+        let config = Config::new("mock://test");
+        let client = Client::new_with_transport(config, transport.clone());
+        let fork_config = ForkConfig {
+            client: Arc::new(client),
+            block_number: 20_000_000,
+        };
+
+        let chain = Chain::fork(fork_config)?;
+        assert_eq!(
+            chain.cfg_env().spec,
+            SpecId::CANCUN,
+            "fork at mainnet block 20_000_000 must use Cancun spec"
+        );
+        Ok(())
+    }
+
+    /// Chain::fork must resolve the correct spec for an OP-stack chain.
+    /// Base mainnet (chain_id 8453) at the Ecotone timestamp must use
+    /// the bundled Cancun spec.
+    #[test]
+    fn chain_fork_uses_correct_spec_for_base_mainnet() -> Result<()> {
+        let transport = MockTransport::default();
+
+        let batch_payload = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getBlockByNumber","params":[json!("0x895440"), json!(false)]},
+        ]);
+        transport.mock_response(
+            "mock://test",
+            &batch_payload,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x2105"},
+                {"jsonrpc":"2.0","id":101,"result":{
+                    "number":"0x895440",
+                    "timestamp":"0x665fd100",
+                    "miner":"0x0000000000000000000000000000000000000000",
+                    "gasLimit":"0xffffffffffffffff",
+                    "baseFeePerGas":"0x0",
+                    "difficulty":"0x0",
+                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+                }},
+            ]),
+        );
+
+        let config = Config::new("mock://test");
+        let client = Client::new_with_transport(config, transport.clone());
+        let fork_config = ForkConfig {
+            client: Arc::new(client),
+            block_number: 9_000_000,
+        };
+
+        let chain = Chain::fork(fork_config)?;
+        assert_eq!(
+            chain.cfg_env().spec,
+            SpecId::CANCUN,
+            "fork at Base mainnet post-Ecotone must use Cancun spec"
         );
         Ok(())
     }

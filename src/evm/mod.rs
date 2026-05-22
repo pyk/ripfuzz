@@ -13,6 +13,8 @@
 
 pub use chain::{Chain, DEFAULT_DEPLOYER, ForkConfig};
 pub use result::{CallFrame, Trace, TraceInspector, TransactionResult};
+pub use specs::get_spec_id;
 
 mod chain;
 mod result;
+mod specs;

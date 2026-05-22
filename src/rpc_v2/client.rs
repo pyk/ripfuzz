@@ -202,6 +202,64 @@ impl Client {
         s.parse().context("invalid u256 hex")
     }
 
+    /// Fetch the chain ID and a block header in a single batch request.
+    ///
+    /// This avoids two round-trips when setting up a fork.
+    pub fn get_fork_info(&self, block: u64) -> Result<(u64, Block)> {
+        let block_tag = json!(format!("0x{block:x}"));
+        let cache_key = format!("get_fork_info_{block}");
+
+        let id_chain: u64 = 100;
+        let id_block: u64 = 101;
+
+        let payload = serde_json::Value::Array(vec![
+            request::payload_with_id("eth_chainId", &[], id_chain),
+            request::payload_with_id(
+                "eth_getBlockByNumber",
+                &[block_tag.clone(), json!(false)],
+                id_block,
+            ),
+        ]);
+
+        let envelope = self.call(&cache_key, payload)?;
+        let results = envelope
+            .as_array()
+            .context("batch response should be an array")?;
+
+        let mut by_id = HashMap::new();
+        for item in results {
+            if let Some(id) = item.get("id").and_then(|v| v.as_u64()) {
+                by_id.insert(id, item);
+            }
+        }
+
+        let chain_item = by_id
+            .get(&id_chain)
+            .with_context(|| "missing eth_chainId response in batch")?;
+        let chain_str = chain_item
+            .get("result")
+            .and_then(|v| v.as_str())
+            .context("expected hex string for chain id")?;
+        let chain_id = U64::from_str_radix(chain_str.strip_prefix("0x").unwrap_or(chain_str), 16)
+            .context("invalid u64 hex for chain id")?
+            .to();
+
+        let block_item = by_id
+            .get(&id_block)
+            .with_context(|| "missing eth_getBlockByNumber response in batch")?;
+        let block_result = block_item
+            .get("result")
+            .cloned()
+            .with_context(|| "missing result field in eth_getBlockByNumber response")?;
+        if block_result.is_null() {
+            bail!("block {} not found", block);
+        }
+        let block: Block =
+            serde_json::from_value(block_result).context("invalid block response")?;
+
+        Ok((chain_id, block))
+    }
+
     /// Fetch balance, nonce, and code for an address in a single batch request.
     ///
     /// Responses are matched by their JSON-RPC `id`, not by array position,
@@ -827,6 +885,41 @@ mod tests {
         assert!(!code.is_empty());
         // get_account issues a single JSON-RPC batch; the mock must reflect
         // one batch dispatch rather than three individual sends.
+        assert_eq!(transport.call_count("mock://test", &batch), 1);
+    }
+
+    #[test]
+    fn mock_get_fork_info_roundtrip() {
+        let transport = MockTransport::default();
+        let block_tag = json!("0x1312d00");
+        let batch = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getBlockByNumber","params":[block_tag, json!(false)]},
+        ]);
+        transport.mock_response(
+            "mock://test",
+            &batch,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x1"},
+                {"jsonrpc":"2.0","id":101,"result":{
+                    "number":"0x1312d00",
+                    "timestamp":"0x65f5e100",
+                    "miner":"0x0000000000000000000000000000000000000000",
+                    "gasLimit":"0x1c9c380",
+                    "baseFeePerGas":"0x1"
+                }},
+            ]),
+        );
+
+        let config = Config::new("mock://test");
+        let rpc = Client::new_with_transport(config, transport.clone());
+        let (chain_id, block) = rpc.get_fork_info(20_000_000).unwrap();
+
+        assert_eq!(chain_id, 1);
+        assert_eq!(block.number.to::<u64>(), 20_000_000);
+        assert_eq!(block.timestamp.to::<u64>(), 0x65f5e100);
+        // get_fork_info issues a single JSON-RPC batch; the mock must reflect
+        // one batch dispatch rather than two individual sends.
         assert_eq!(transport.call_count("mock://test", &batch), 1);
     }
 
