@@ -1,4 +1,4 @@
-//! Transport abstraction: HTTP and mock implementations.
+//! Transport abstraction: HTTP and Mock implementations.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -15,26 +15,10 @@ pub trait Transport: Send + Sync + std::fmt::Debug {
     fn exec(&self, url: &str, payload: &serde_json::Value) -> Result<serde_json::Value>;
 }
 
-// ----------------------------------------------------------------------------
-// HTTP Transport
-// ----------------------------------------------------------------------------
-
-#[derive(Debug)]
-pub struct HttpTransport {
-    agent: ureq::Agent,
-}
-
-impl HttpTransport {
-    pub fn new(agent: ureq::Agent) -> Self {
-        Self { agent }
-    }
-}
-
-impl Transport for HttpTransport {
+impl Transport for ureq::Agent {
     fn exec(&self, url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
         let body = serde_json::to_vec(payload).context("serializing RPC payload")?;
         let mut response = self
-            .agent
             .post(url)
             .header("Content-Type", "application/json")
             .send(&body)
@@ -48,10 +32,6 @@ impl Transport for HttpTransport {
     }
 }
 
-// ----------------------------------------------------------------------------
-// Mock Transport
-// ----------------------------------------------------------------------------
-
 #[derive(Debug, Default, Clone)]
 pub struct MockTransport {
     responses: Arc<Mutex<HashMap<(String, String), serde_json::Value>>>,
@@ -60,7 +40,7 @@ pub struct MockTransport {
 }
 
 impl MockTransport {
-    /// Insert a canned response for a given URL and serialized payload.
+    /// Insert a mock response for a given URL and serialized payload.
     pub fn insert(&self, url: &str, payload: &serde_json::Value, response: serde_json::Value) {
         let payload_json = serde_json::to_string(payload).unwrap_or_default();
         let mut guard = self.responses.lock().unwrap_or_else(|e| e.into_inner());

@@ -6,7 +6,7 @@ pub use client::{Block, Client};
 pub use config::Config;
 pub use dedup::DedupTable;
 pub use limiter::RateLimiter;
-pub use transport::{HttpTransport, MockTransport, Transport};
+pub use transport::{MockTransport, Transport};
 
 mod cache;
 mod client;

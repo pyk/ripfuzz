@@ -639,7 +639,7 @@ mod tests {
     /// never fail due to insufficient funds.
     #[test]
     fn chain_fork_seeds_deployer_with_max_balance() -> Result<()> {
-        let transport = Arc::new(MockTransport::default());
+        let transport = MockTransport::default();
 
         // Minimal block header for eth_getBlockByNumber.
         let payload = json!({
@@ -703,7 +703,7 @@ mod tests {
     /// calls cheatcodes during deployment or setup.
     #[test]
     fn chain_fork_injects_vm_address() -> Result<()> {
-        let transport = Arc::new(MockTransport::default());
+        let transport = MockTransport::default();
 
         // Minimal block header for eth_getBlockByNumber.
         let payload = json!({
