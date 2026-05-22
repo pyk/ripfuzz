@@ -247,10 +247,7 @@ impl ForkModeArgs {
     /// Validate the RPC URL by fetching its chain_id.
     pub fn validate_chain_id(&self, project_path: impl AsRef<Path>) -> Result<u64> {
         let project_path = project_path.as_ref();
-        let url = self
-            .rpc_url
-            .as_ref()
-            .context("no RPC URL configured")?;
+        let url = self.rpc_url.as_ref().context("no RPC URL configured")?;
         info!(%url, timeout = "5s", "Fetching chain_id");
         let url_t0 = std::time::Instant::now();
         let chain_id = crate::rpc::get_chain_id(project_path, url)?;
@@ -264,11 +261,8 @@ impl ForkModeArgs {
         let block = self
             .rpc_block
             .context("--rpc-block is required with --rpc-url")?;
-        let url = self
-            .rpc_url
-            .as_ref()
-            .context("--rpc-url is required")?;
-        let rpc_instance = crate::rpc::Rpc::with_urls(&[url.clone()])
+        let url = self.rpc_url.as_ref().context("--rpc-url is required")?;
+        let rpc_instance = crate::rpc::Rpc::with_urls(std::slice::from_ref(url))
             .with_retries(self.rpc_retries)
             .with_retry_backoff(std::time::Duration::from_millis(self.rpc_backoff))
             .with_requests_per_second(self.rpc_rate_limit)
@@ -340,11 +334,7 @@ pub fn run(args: Args) -> Result<()> {
             .rate_limit(args.fork_mode.rpc_rate_limit)
             .timeout_ms(args.fork_mode.rpc_timeout)
             .cache_dir(&cache_dir);
-        info!(
-            chain_id,
-            block = block,
-            "loading fork"
-        );
+        info!(chain_id, block = block, "loading fork");
         let client = rpc_v2::Client::new(config);
         let rpc = Arc::new(client);
         info!("creating fork environment");
