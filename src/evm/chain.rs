@@ -221,6 +221,7 @@ impl Chain<CacheDB<LocalDB>> {
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);
         cfg_env.disable_nonce_check = true;
         cfg_env.disable_eip3607 = true;
+        cfg_env.disable_base_fee = true;
         cfg_env.limit_contract_code_size = Some(usize::MAX);
         cfg_env.limit_contract_initcode_size = Some(usize::MAX);
         cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
@@ -288,6 +289,7 @@ impl Chain<CacheDB<ForkDB>> {
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);
         cfg_env.disable_nonce_check = true;
         cfg_env.disable_eip3607 = true;
+        cfg_env.disable_base_fee = true;
         cfg_env.limit_contract_code_size = Some(usize::MAX);
         cfg_env.set_spec_and_mainnet_gas_params(spec_id);
 
@@ -300,7 +302,9 @@ impl Chain<CacheDB<ForkDB>> {
             beneficiary: block.coinbase,
             timestamp: U256::from(block.timestamp),
             gas_limit: block.gas_limit.to(),
-            basefee: block.basefee.to(),
+            // Zero basefee so that transactions with gas_price = 0 (the default
+            // for deploy/call) do not fail validation with GasPriceLessThanBasefee.
+            basefee: 0,
             difficulty: block.difficulty,
             prevrandao: block.prevrandao,
             blob_excess_gas_and_price: None,
@@ -863,6 +867,66 @@ mod tests {
             SpecId::CANCUN,
             "fork at Base mainnet post-Ecotone must use Cancun spec"
         );
+        Ok(())
+    }
+
+    /// Regression: Chain::fork must zero `basefee` so that transactions with
+    /// `gas_price = 0` (the default used by deploy/call) do not fail revm
+    /// validation with `GasPriceLessThanBasefee`.
+    #[test]
+    fn chain_fork_zeros_basefee() -> Result<()> {
+        let transport = MockTransport::default();
+
+        let batch_payload = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
+        ]);
+        // Use a non-zero base fee to trigger the bug.
+        transport.mock_response(
+            "mock://test",
+            &batch_payload,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x1"},
+                {"jsonrpc":"2.0","id":101,"result":{
+                    "number":"0x1",
+                    "timestamp":"0x1",
+                    "miner":"0x0000000000000000000000000000000000000000",
+                    "gasLimit":"0xffffffffffffffff",
+                    "baseFeePerGas":"0x1",
+                    "difficulty":"0x0",
+                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+                }},
+            ]),
+        );
+
+        let config = Config::new("mock://test");
+        let client = Client::new_with_transport(config, transport.clone());
+        let fork_config = ForkConfig {
+            client: Arc::new(client),
+            block_number: 1,
+        };
+
+        let mut chain = Chain::fork(fork_config)?;
+
+        assert_eq!(
+            chain.block_env().basefee,
+            0,
+            "Chain::fork must zero basefee so gas_price=0 transactions validate"
+        );
+
+        // Execute a CALL against the locally-injected VM_ADDRESS using the
+        // default gas_price of 0.  If basefee were kept non-zero this would
+        // fail with GasPriceLessThanBasefee.
+        // We also seed the beneficiary (Address::ZERO) so the fork DB is not
+        // hit for block rewards during the transact.
+        chain.seed_account(Address::ZERO, U256::ZERO)?;
+        let tx_result = chain.call(DEFAULT_DEPLOYER, VM_ADDRESS, U256::ZERO, Bytes::new())?;
+        assert!(
+            tx_result.success,
+            "call with gas_price=0 must succeed in fork mode"
+        );
+
         Ok(())
     }
 
