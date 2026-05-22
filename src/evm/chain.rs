@@ -1,5 +1,6 @@
 //! EVM chain state and executor.
 
+use std::convert::Infallible;
 use std::sync::Arc;
 
 use alloy_primitives::{Address, B256, U256, address};
@@ -8,7 +9,7 @@ use revm::{
     Database, DatabaseCommit, DatabaseRef, MainBuilder, MainContext,
     bytecode::Bytecode,
     context::{BlockEnv, CfgEnv, Context, TxEnv},
-    database::{CacheDB, InMemoryDB},
+    database::{CacheDB, EmptyDBTyped},
     database_interface::DBErrorMarker,
     handler::ExecuteCommitEvm,
     inspector::{InspectCommitEvm, Inspector},
@@ -138,9 +139,9 @@ impl From<anyhow::Error> for ChainError {
     }
 }
 
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // ForkConfig
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 /// Configuration for a forked chain.
 #[derive(Debug, Clone)]
@@ -149,9 +150,47 @@ pub struct ForkConfig {
     pub block_number: u64,
 }
 
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// LocalDB
+// ----------------------------------------------------------------------------
+
+/// Wrapper around `revm::EmptyDB` that returns `Some(AccountInfo::default())`
+/// for every address so that `CacheDB` never marks an account as
+/// `AccountState::NotExisting`.
+///
+/// In revm, `CacheDB` distinguishes between "non-existing" (`None`) and
+/// "empty" (`Some(AccountInfo::default())`). If an account is marked as
+/// `NotExisting`, state transitions differ when the account is later created
+/// (e.g. via `deal` or `etch`). A sandbox fuzzer has no state trie, so every
+/// address should be treated as empty rather than non-existing.
+///
+/// Foundry uses the same trick: see `foundry-evm-core::backend::EmptyDBWrapper`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LocalDB(EmptyDBTyped<Infallible>);
+
+impl DatabaseRef for LocalDB {
+    type Error = Infallible;
+
+    fn basic_ref(&self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        Ok(Some(AccountInfo::default()))
+    }
+
+    fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        self.0.code_by_hash_ref(code_hash)
+    }
+
+    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
+        self.0.storage_ref(address, index)
+    }
+
+    fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
+        self.0.block_hash_ref(number)
+    }
+}
+
+// ----------------------------------------------------------------------------
 // Chain
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 /// EVM Chain state and executor.
 ///
@@ -171,15 +210,24 @@ where
     deployer: Address,
 }
 
-impl Default for Chain<InMemoryDB> {
+impl Default for Chain<CacheDB<LocalDB>> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Chain<InMemoryDB> {
+impl Chain<CacheDB<LocalDB>> {
     /// Create a new local sandbox EVM.
     pub fn new() -> Self {
+        let mut cfg_env = CfgEnv::default();
+        cfg_env.chain_id = 1;
+        cfg_env.tx_gas_limit_cap = Some(u64::MAX);
+        cfg_env.disable_nonce_check = true;
+        cfg_env.disable_eip3607 = true;
+        cfg_env.limit_contract_code_size = Some(usize::MAX);
+        cfg_env.limit_contract_initcode_size = Some(usize::MAX);
+        cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
+
         let mut block_env = BlockEnv {
             number: U256::from(1),
             beneficiary: Address::ZERO,
@@ -191,17 +239,11 @@ impl Chain<InMemoryDB> {
             blob_excess_gas_and_price: None,
             slot_num: 0,
         };
+
+        // NOTE: This is required for post-Cancun
         block_env.set_blob_excess_gas_and_price(0, 3338477);
 
-        let mut cfg_env = CfgEnv::default();
-        cfg_env.chain_id = 1;
-        cfg_env.tx_gas_limit_cap = Some(u64::MAX);
-        cfg_env.disable_nonce_check = true;
-        cfg_env.disable_eip3607 = true;
-        cfg_env.limit_contract_code_size = Some(usize::MAX);
-        cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
-
-        let mut db = InMemoryDB::default();
+        let mut db = CacheDB::new(LocalDB::default());
         let info = AccountInfo {
             balance: U256::MAX,
             nonce: 0,
@@ -521,6 +563,25 @@ mod tests {
             "Chain::new must inject non-empty code at VM_ADDRESS so extcodesize checks pass"
         );
         Ok(())
+    }
+
+    /// Chain::new must use a database that returns `Some(AccountInfo::default())`
+    /// for never-seen addresses.  If `Database::basic` returns `None`,
+    /// revm's `CacheDB` marks the account as `AccountState::NotExisting`.
+    /// A sandbox has no state trie, so there is no concept of "non-existing"
+    /// vs "empty"; every address must be treated as empty.
+    #[test]
+    fn chain_new_returns_default_account_info_for_unknown_address() {
+        let mut chain = Chain::new();
+        let db = chain.database_mut().expect("database should be available");
+        let unknown = address!("0x00000000000000000000000000000000000000ab");
+        let info = db.basic(unknown).unwrap();
+        assert!(
+            info.is_some(),
+            "a sandbox database must return Some(AccountInfo::default()) for every address; \
+             got None, which marks the account as NotExisting in CacheDB"
+        );
+        assert_eq!(info.unwrap(), AccountInfo::default());
     }
 
     /// Chain::new must disable the contract code size limit so
