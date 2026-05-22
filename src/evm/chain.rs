@@ -4,7 +4,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use alloy_primitives::{Address, B256, U256, address};
-use anyhow::Context as _;
+use anyhow::{Context as _, Result};
 use revm::{
     Database, DatabaseCommit, DatabaseRef, MainBuilder, MainContext,
     bytecode::Bytecode,
@@ -25,28 +25,28 @@ use crate::rpc_v2::Client;
 pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1");
 
 // -----------------------------------------------------------------------------
-// ForkDb
+// ForkDB
 // -----------------------------------------------------------------------------
 
 /// Thin newtype around `anyhow::Error` so we can implement `DBErrorMarker`.
 #[derive(Debug)]
-pub struct ForkDbError(anyhow::Error);
+pub struct ForkDBError(anyhow::Error);
 
-impl std::fmt::Display for ForkDbError {
+impl std::fmt::Display for ForkDBError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl std::error::Error for ForkDbError {
+impl std::error::Error for ForkDBError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.0.source()
     }
 }
 
-impl DBErrorMarker for ForkDbError {}
+impl DBErrorMarker for ForkDBError {}
 
-impl From<anyhow::Error> for ForkDbError {
+impl From<anyhow::Error> for ForkDBError {
     fn from(e: anyhow::Error) -> Self {
         Self(e)
     }
@@ -57,12 +57,12 @@ impl From<anyhow::Error> for ForkDbError {
 /// All state caching is delegated to the RPC layer; this struct only maps
 /// revm database operations to typed RPC calls.
 #[derive(Clone, Debug)]
-pub struct ForkDb {
+pub struct ForkDB {
     client: Arc<Client>,
     block_number: u64,
 }
 
-impl ForkDb {
+impl ForkDB {
     pub fn new(client: Arc<Client>, block_number: u64) -> Self {
         Self {
             client,
@@ -71,14 +71,14 @@ impl ForkDb {
     }
 }
 
-impl DatabaseRef for ForkDb {
-    type Error = ForkDbError;
+impl DatabaseRef for ForkDB {
+    type Error = ForkDBError;
 
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
         let (balance, nonce, code) = self
             .client
             .get_account(address, self.block_number)
-            .map_err(ForkDbError::from)?;
+            .map_err(ForkDBError::from)?;
         let bytecode = if code.is_empty() {
             Bytecode::default()
         } else {
@@ -101,41 +101,15 @@ impl DatabaseRef for ForkDb {
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
         self.client
             .get_storage_at(address, index, self.block_number)
-            .map_err(ForkDbError::from)
+            .map_err(ForkDBError::from)
     }
 
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
         let block = self
             .client
             .get_block_by_number(number)
-            .map_err(ForkDbError::from)?;
+            .map_err(ForkDBError::from)?;
         Ok(block.hash.unwrap_or_default())
-    }
-}
-
-// -----------------------------------------------------------------------------
-// ChainError
-// -----------------------------------------------------------------------------
-
-/// Error type for [`Chain`] operations.
-#[derive(Debug)]
-pub struct ChainError(anyhow::Error);
-
-impl std::fmt::Display for ChainError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl std::error::Error for ChainError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.0.as_ref())
-    }
-}
-
-impl From<anyhow::Error> for ChainError {
-    fn from(e: anyhow::Error) -> Self {
-        Self(e)
     }
 }
 
@@ -205,8 +179,8 @@ where
     D: Database + DatabaseCommit,
 {
     database: Option<D>,
-    block_env: BlockEnv,
     cfg_env: CfgEnv,
+    block_env: BlockEnv,
     deployer: Address,
 }
 
@@ -276,18 +250,27 @@ impl Chain<CacheDB<LocalDB>> {
     }
 }
 
-impl Chain<CacheDB<ForkDb>> {
+impl Chain<CacheDB<ForkDB>> {
     /// Create a new forked EVM pinned to a remote block.
-    pub fn fork(config: ForkConfig) -> Result<Self, ChainError> {
+    pub fn fork(config: ForkConfig) -> Result<Self> {
+        let chain_id = config.client.chain_id();
+
+        let mut cfg_env = CfgEnv::default();
+        cfg_env.chain_id = chain_id;
+        cfg_env.tx_gas_limit_cap = Some(u64::MAX);
+        cfg_env.disable_nonce_check = true;
+        cfg_env.disable_eip3607 = true;
+        cfg_env.limit_contract_code_size = Some(usize::MAX);
+        cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
+
         let block = config
             .client
             .get_block_by_number(config.block_number)
             .with_context(|| format!("fetching block {}", config.block_number))?;
 
         let client = Arc::clone(&config.client);
-        let fork_db = ForkDb::new(client, config.block_number);
-        let database = CacheDB::new(fork_db);
-        let chain_id = config.client.chain_id();
+        let fork_db = ForkDB::new(client, config.block_number);
+        let mut database = CacheDB::new(fork_db);
 
         let mut block_env = BlockEnv {
             number: U256::from(block.number),
@@ -304,13 +287,15 @@ impl Chain<CacheDB<ForkDb>> {
             block_env.set_blob_excess_gas_and_price(excess.to(), 3338477);
         }
 
-        let mut cfg_env = CfgEnv::default();
-        cfg_env.chain_id = chain_id;
-        cfg_env.tx_gas_limit_cap = Some(u64::MAX);
-        cfg_env.disable_nonce_check = true;
-        cfg_env.disable_eip3607 = true;
-        cfg_env.limit_contract_code_size = Some(usize::MAX);
-        cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
+        // Set deployer balance
+        let info = AccountInfo {
+            balance: U256::MAX,
+            nonce: 0,
+            code_hash: revm::primitives::KECCAK_EMPTY,
+            code: None,
+            account_id: None,
+        };
+        database.insert_account_info(DEFAULT_DEPLOYER, info);
 
         Ok(Self {
             database: Some(database),
@@ -323,7 +308,7 @@ impl Chain<CacheDB<ForkDb>> {
 
 impl<Inner: DatabaseRef> Chain<CacheDB<Inner>> {
     /// Seed an account with balance and zero nonce.
-    pub fn seed_account(&mut self, address: Address, balance: U256) -> Result<(), ChainError> {
+    pub fn seed_account(&mut self, address: Address, balance: U256) -> Result<()> {
         let info = AccountInfo {
             balance,
             nonce: 0,
@@ -333,7 +318,7 @@ impl<Inner: DatabaseRef> Chain<CacheDB<Inner>> {
         };
         self.database
             .as_mut()
-            .ok_or_else(|| ChainError::from(anyhow::anyhow!("database unavailable")))?
+            .context("database unavailable")?
             .insert_account_info(address, info);
         Ok(())
     }
@@ -389,7 +374,7 @@ where
         caller: Address,
         value: U256,
         initcode: Bytes,
-    ) -> Result<(Address, TransactionResult), ChainError> {
+    ) -> Result<(Address, TransactionResult)> {
         let tx = TxEnv {
             caller,
             kind: TxKind::Create,
@@ -401,7 +386,7 @@ where
         let result = self.transact(tx)?;
         let address = result
             .created_address
-            .ok_or_else(|| ChainError::from(anyhow::anyhow!("create succeeded but no address")))?;
+            .context("create succeeded but no address")?;
         Ok((address, result))
     }
 
@@ -412,7 +397,7 @@ where
         target: Address,
         value: U256,
         data: Bytes,
-    ) -> Result<TransactionResult, ChainError> {
+    ) -> Result<TransactionResult> {
         let tx = TxEnv {
             caller,
             kind: TxKind::Call(target),
@@ -425,18 +410,13 @@ where
     }
 
     /// Execute a raw transaction and commit state changes.
-    pub fn transact(&mut self, tx: TxEnv) -> Result<TransactionResult, ChainError> {
-        let db = self
-            .database
-            .take()
-            .ok_or_else(|| ChainError::from(anyhow::anyhow!("database unavailable")))?;
+    pub fn transact(&mut self, tx: TxEnv) -> Result<TransactionResult> {
+        let db = self.database.take().context("database unavailable")?;
         let mut ctx = Context::mainnet().with_db(db);
         ctx.block = self.block_env.clone();
         ctx.cfg = self.cfg_env.clone();
         let mut evm = ctx.build_mainnet();
-        let result = evm
-            .transact_commit(tx)
-            .map_err(|e| ChainError::from(anyhow::anyhow!("{e}")))?;
+        let result = evm.transact_commit(tx).context("transact_commit failed")?;
         self.database = Some(evm.ctx.journaled_state.database);
         Ok(TransactionResult::from(result))
     }
@@ -445,25 +425,18 @@ where
     ///
     /// Returns the transaction result and the owned inspector so the caller can
     /// extract collected data (e.g. traces, coverage).
-    pub fn inspect<INSP>(
-        &mut self,
-        tx: TxEnv,
-        inspector: INSP,
-    ) -> Result<(TransactionResult, INSP), ChainError>
+    pub fn inspect<INSP>(&mut self, tx: TxEnv, inspector: INSP) -> Result<(TransactionResult, INSP)>
     where
         INSP: Inspector<Context<BlockEnv, TxEnv, CfgEnv, D, revm::Journal<D>>>,
     {
-        let db = self
-            .database
-            .take()
-            .ok_or_else(|| ChainError::from(anyhow::anyhow!("database unavailable")))?;
+        let db = self.database.take().context("database unavailable")?;
         let mut ctx = Context::mainnet().with_db(db);
         ctx.block = self.block_env.clone();
         ctx.cfg = self.cfg_env.clone();
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
         let result = evm
             .inspect_tx_commit(tx)
-            .map_err(|e| ChainError::from(anyhow::anyhow!("{e}")))?;
+            .context("revm transaction failed")?;
         self.database = Some(evm.ctx.journaled_state.database);
         Ok((TransactionResult::from(result), evm.inspector))
     }
@@ -471,11 +444,15 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use alloy_primitives::utils::keccak256;
     use revm::bytecode::opcode::{CODECOPY, MSTORE, PUSH1, PUSH2, RETURN};
     use revm::primitives::hardfork::SpecId;
+    use serde_json::json;
 
+    use crate::rpc_v2::{Client, Config, MockTransport};
     use crate::vm::VM_ADDRESS;
 
     #[test]
@@ -496,16 +473,14 @@ mod tests {
     }
 
     #[test]
-    fn chain_new_seeds_deployer_with_max_balance() -> Result<(), ChainError> {
+    fn chain_new_seeds_deployer_with_max_balance() -> Result<()> {
         let chain = Chain::new();
         assert_eq!(
             chain.deployer(),
             DEFAULT_DEPLOYER,
             "deployer should default to DEFAULT_DEPLOYER"
         );
-        let db = chain
-            .database()
-            .ok_or_else(|| ChainError::from(anyhow::anyhow!("database unavailable")))?;
+        let db = chain.database().context("database unavailable")?;
         let Ok(info) = db.basic_ref(DEFAULT_DEPLOYER);
         let balance = info.map(|i| i.balance).unwrap_or_default();
         assert_eq!(
@@ -517,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn chain_new_allows_contract_as_caller() -> Result<(), ChainError> {
+    fn chain_new_allows_contract_as_caller() -> Result<()> {
         let mut chain = Chain::new();
 
         // Initcode that returns 1 byte of runtime code (0x00 STOP) so the
@@ -546,18 +521,12 @@ mod tests {
     /// that Solidity `extcodesize` checks do not revert when a target contract
     /// calls cheatcodes during deployment or setup.
     #[test]
-    fn chain_new_injects_vm_address() -> Result<(), ChainError> {
+    fn chain_new_injects_vm_address() -> Result<()> {
         let chain = Chain::new();
-        let db = chain
-            .database()
-            .ok_or_else(|| ChainError::from(anyhow::anyhow!("database unavailable")))?;
+        let db = chain.database().context("database unavailable")?;
         let Ok(info) = db.basic_ref(VM_ADDRESS);
-        let info =
-            info.ok_or_else(|| ChainError::from(anyhow::anyhow!("VM_ADDRESS account missing")))?;
-        let code = info
-            .code
-            .as_ref()
-            .ok_or_else(|| ChainError::from(anyhow::anyhow!("VM_ADDRESS code missing")))?;
+        let info = info.context("VM_ADDRESS account missing")?;
+        let code = info.code.as_ref().context("VM_ADDRESS code missing")?;
         assert!(
             !code.is_empty(),
             "Chain::new must inject non-empty code at VM_ADDRESS so extcodesize checks pass"
@@ -649,5 +618,82 @@ mod tests {
             .expect("account should exist");
         let code_len = info.code.map(|c| c.len()).unwrap_or(0);
         assert_eq!(code_len, 0x8001, "deployed code must be 32769 bytes");
+    }
+
+    /// Chain::fork must seed the default deployer with U256::MAX balance,
+    /// just like Chain::new, so that setup and deployment transactions
+    /// never fail due to insufficient funds.
+    #[test]
+    fn chain_fork_seeds_deployer_with_max_balance() -> Result<()> {
+        let transport = Arc::new(MockTransport::default());
+
+        // Minimal block header for eth_getBlockByNumber.
+        transport.insert(
+            "eth_getBlockByNumber",
+            &[json!("0x1"), json!(false)],
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "number": "0x1",
+                    "timestamp": "0x1",
+                    "miner": "0x0000000000000000000000000000000000000000",
+                    "gasLimit": "0xffffffffffffffff",
+                    "baseFeePerGas": "0x0",
+                    "difficulty": "0x0",
+                    "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                }
+            }),
+        );
+
+        // Remote state for the deployer: zero balance so the test
+        // fails if Chain::fork forgets to override it locally.
+        transport.insert(
+            "eth_getBalance",
+            &[
+                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x0"}),
+        );
+        transport.insert(
+            "eth_getTransactionCount",
+            &[
+                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 2, "result": "0x0"}),
+        );
+        transport.insert(
+            "eth_getCode",
+            &[
+                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
+                json!("0x1"),
+            ],
+            json!({"jsonrpc": "2.0", "id": 3, "result": "0x"}),
+        );
+
+        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let client = Client::new_with_transport(config, transport);
+        let fork_config = ForkConfig {
+            client: Arc::new(client),
+            block_number: 1,
+        };
+
+        let chain = Chain::fork(fork_config)?;
+        assert_eq!(chain.deployer(), DEFAULT_DEPLOYER);
+
+        let db = chain.database().context("database unavailable")?;
+        let info = db
+            .basic_ref(DEFAULT_DEPLOYER)
+            .context("revm transaction failed")?
+            .context("deployer account missing")?;
+        assert_eq!(
+            info.balance,
+            U256::MAX,
+            "deployer must be seeded with U256::MAX in Chain::fork"
+        );
+        Ok(())
     }
 }
