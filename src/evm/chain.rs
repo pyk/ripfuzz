@@ -10,6 +10,7 @@ use revm::{
     Database, DatabaseCommit, DatabaseRef, MainBuilder, MainContext,
     bytecode::Bytecode,
     context::{BlockEnv, CfgEnv, Context, TxEnv},
+    context_interface::block::BlobExcessGasAndPrice,
     database::{CacheDB, EmptyDBTyped},
     database_interface::DBErrorMarker,
     handler::ExecuteCommitEvm,
@@ -239,7 +240,8 @@ impl Chain<CacheDB<LocalDB>> {
         };
 
         // NOTE: This is required for post-Cancun
-        block_env.set_blob_excess_gas_and_price(0, 3338477);
+        block_env.blob_excess_gas_and_price =
+            Some(BlobExcessGasAndPrice::new_with_spec(0, SpecId::AMSTERDAM));
 
         let mut db = CacheDB::new(LocalDB::default());
         let info = AccountInfo {
@@ -320,7 +322,8 @@ impl Chain<CacheDB<ForkDB>> {
             slot_num: 0,
         };
         if let Some(excess) = block.excess_blob_gas {
-            block_env.set_blob_excess_gas_and_price(excess.to(), 3338477);
+            block_env.blob_excess_gas_and_price =
+                Some(BlobExcessGasAndPrice::new_with_spec(excess.to(), spec_id));
         }
 
         // Set deployer balance
@@ -1039,6 +1042,66 @@ mod tests {
             transport.call_count("mock://test", &extra_payload),
             0,
             "block_hash_ref must not trigger an extra RPC for the fork block"
+        );
+
+        Ok(())
+    }
+
+    /// Regression: Chain::fork must derive the blob base fee update fraction from
+    /// the resolved `SpecId` instead of hardcoding the Cancun mainnet value
+    /// (`3338477`).  Forking a Prague block on mainnet should use the Prague
+    /// fraction (`5007716`), which produces a different blob gasprice for the same
+    /// excess blob gas.
+    #[test]
+    fn chain_fork_uses_spec_aware_blob_fraction() -> Result<()> {
+        let transport = MockTransport::default();
+
+        let batch_payload = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
+        ]);
+        transport.mock_response(
+            "mock://test",
+            &batch_payload,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x1"},
+                {"jsonrpc":"2.0","id":101,"result":{
+                    "number":"0x1",
+                    "timestamp":"0x681b3057",
+                    "miner":"0x0000000000000000000000000000000000000000",
+                    "gasLimit":"0xffffffffffffffff",
+                    "baseFeePerGas":"0x0",
+                    "difficulty":"0x0",
+                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "excessBlobGas":"0x4c4b40"
+                }},
+            ]),
+        );
+
+        let config = Config::new("mock://test");
+        let client = Client::new_with_transport(config, transport.clone());
+        let fork_config = ForkConfig {
+            client: Arc::new(client),
+            block_number: 1,
+        };
+
+        let chain = Chain::fork(fork_config)?;
+        let blob_info = chain
+            .block_env()
+            .blob_excess_gas_and_price
+            .context("blob_excess_gas_and_price must be set when excessBlobGas is present")?;
+
+        // Prague update fraction (5_007_716) yields blob_gasprice=2 for
+        // excess_blob_gas=5_000_000.  The old hardcoded Cancun fraction
+        // (3_338_477) would yield 4.
+        assert_eq!(
+            blob_info.blob_gasprice, 2,
+            "fork at Prague must use Prague blob base fee update fraction"
+        );
+        assert_eq!(
+            blob_info.excess_blob_gas, 5_000_000,
+            "excess_blob_gas must match RPC response"
         );
 
         Ok(())
