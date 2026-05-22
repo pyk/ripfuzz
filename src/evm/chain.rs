@@ -297,6 +297,15 @@ impl Chain<CacheDB<ForkDB>> {
         let fork_db = ForkDB::new(client, config.block_number);
         let mut database = CacheDB::new(fork_db);
 
+        // Pre-cache the fork block hash so the BLOCKHASH opcode does not
+        // trigger an unnecessary RPC call.
+        if let Some(hash) = block.hash {
+            database
+                .cache
+                .block_hashes
+                .insert(U256::from(block.number), hash);
+        }
+
         let mut block_env = BlockEnv {
             number: U256::from(block.number),
             beneficiary: block.coinbase,
@@ -971,6 +980,65 @@ mod tests {
         assert_eq!(
             resolved, expected_code,
             "ForkDB::code_by_hash_ref must return the same bytecode that basic_ref provided"
+        );
+
+        Ok(())
+    }
+
+    /// Regression: Chain::fork must cache the fork block hash so that the
+    /// BLOCKHASH opcode for the fork block number resolves locally instead of
+    /// triggering an eth_getBlockByNumber RPC call.
+    #[test]
+    fn chain_fork_caches_fork_block_hash() -> Result<()> {
+        let transport = MockTransport::default();
+
+        let fork_hash = B256::from([0xab; 32]);
+        let batch_payload = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
+        ]);
+        transport.mock_response(
+            "mock://test",
+            &batch_payload,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x1"},
+                {"jsonrpc":"2.0","id":101,"result":{
+                    "number":"0x1",
+                    "timestamp":"0x1",
+                    "miner":"0x0000000000000000000000000000000000000000",
+                    "gasLimit":"0xffffffffffffffff",
+                    "baseFeePerGas":"0x0",
+                    "difficulty":"0x0",
+                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash": fork_hash
+                }},
+            ]),
+        );
+
+        let config = Config::new("mock://test");
+        let client = Client::new_with_transport(config, transport.clone());
+        let fork_config = ForkConfig {
+            client: Arc::new(client),
+            block_number: 1,
+        };
+
+        let chain = Chain::fork(fork_config)?;
+        let db = chain.database().context("database unavailable")?;
+
+        // This must resolve from cache and return the exact fork hash.
+        let hash = db
+            .block_hash_ref(1)
+            .context("block_hash_ref should not fail")?;
+        assert_eq!(hash, fork_hash, "fork block hash must be cached");
+
+        // No extra eth_getBlockByNumber call should have been made.
+        let extra_payload = json!([
+            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
+        ]);
+        assert_eq!(
+            transport.call_count("mock://test", &extra_payload),
+            0,
+            "block_hash_ref must not trigger an extra RPC for the fork block"
         );
 
         Ok(())
