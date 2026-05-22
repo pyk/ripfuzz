@@ -5,6 +5,7 @@
 use anyhow::{Context, Result};
 use revm::{
     MainBuilder, MainContext,
+    bytecode::Bytecode,
     context::TxEnv,
     database::InMemoryDB,
     inspector::InspectCommitEvm,
@@ -34,7 +35,7 @@ pub fn run_cheatcode(
             account_id: None,
         },
     );
-    let vm_code = revm::bytecode::Bytecode::new_raw(Bytes::from_static(&[0x00]));
+    let vm_code = Bytecode::new_raw(Bytes::from_static(&[0x00]));
     db.insert_account_info(
         VM_ADDRESS,
         AccountInfo {

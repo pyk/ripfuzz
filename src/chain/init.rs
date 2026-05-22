@@ -2,6 +2,7 @@
 
 use revm::{
     Database as RevmDatabase, MainBuilder, MainContext,
+    bytecode::Bytecode,
     context::result::ExecutionResult,
     context::{Context, TxEnv},
     inspector::InspectCommitEvm,
@@ -27,7 +28,7 @@ pub const DEFAULT_DEPLOYER: Address = Address::new([
 /// Insert a dummy VM contract into the database so Solidity's
 /// `extcodesize` check passes when a target calls raptor cheatcodes.
 pub fn insert_raptor_vm(db: &mut Database) {
-    let vm_code = revm::bytecode::Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x00]));
+    let vm_code = Bytecode::new_raw(Bytes::from_static(&[0x00]));
     db.insert_account_info(
         VM_ADDRESS,
         revm::state::AccountInfo {

@@ -1,6 +1,7 @@
 //! Cloneable state snapshot owned by the chain and cloned by the fuzzer.
 
 use alloy_primitives::Address;
+use revm::bytecode::Bytecode;
 use revm::context::{BlockEnv, CfgEnv};
 use revm::primitives::{Bytes, KECCAK_EMPTY, U256};
 use revm::state::AccountInfo;
@@ -38,7 +39,7 @@ impl StateSnapshot {
 
     /// Pre-deploy bytecode at an address.
     pub fn predeploy(&mut self, address: Address, code: Bytes) {
-        let bytecode = revm::bytecode::Bytecode::new_raw(code);
+        let bytecode = Bytecode::new_raw(code);
         let info = AccountInfo {
             balance: U256::ZERO,
             nonce: 0,

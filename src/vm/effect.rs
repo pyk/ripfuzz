@@ -6,6 +6,7 @@
 
 use alloy_primitives::I256;
 use revm::{
+    bytecode::Bytecode,
     context::{BlockEnv, ContextSetters},
     context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
     primitives::{Address, Bytes, U256},
@@ -148,7 +149,7 @@ pub fn apply_effect<CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut>(
             ctx.journal_mut()
                 .load_account(*addr)
                 .map_err(|_| "account load failed")?;
-            let bytecode = revm::bytecode::Bytecode::new_raw_checked(code.clone())
+            let bytecode = Bytecode::new_raw_checked(code.clone())
                 .map_err(|e| format!("failed to create bytecode: {e}"))?;
             ctx.journal_mut().set_code(*addr, bytecode);
         }

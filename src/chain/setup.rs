@@ -77,7 +77,7 @@ pub fn setup(
     let setup_tx = TxEnv {
         caller: deployer,
         kind: TxKind::Call(contract_address),
-        data: revm::primitives::Bytes::copy_from_slice(&SETUP_SELECTOR),
+        data: Bytes::copy_from_slice(&SETUP_SELECTOR),
         gas_limit: u64::MAX,
         nonce,
         ..Default::default()

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use alloy_primitives::{Address, U256};
 use anyhow::Result;
+use revm::bytecode::Bytecode;
 use revm::database::{CacheDB, InMemoryDB};
 use revm::state::AccountInfo;
 
@@ -93,7 +94,7 @@ impl revm::Database for Database {
     fn code_by_hash(
         &mut self,
         code_hash: revm::primitives::FixedBytes<32>,
-    ) -> Result<revm::bytecode::Bytecode, Self::Error> {
+    ) -> Result<Bytecode, Self::Error> {
         match self {
             Self::Sandbox(db) => db.code_by_hash(code_hash).map_err(|e| e.into()),
             Self::Fork(db) => db.code_by_hash(code_hash).map_err(|e| e.into()),

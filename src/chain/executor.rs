@@ -40,7 +40,7 @@ pub struct ExecutionOptions {
 const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
 
 /// Detect a Solidity `assert` failure (`Panic(0x01)`) in revert output.
-fn is_assert_failure(output: &revm::primitives::Bytes) -> bool {
+fn is_assert_failure(output: &Bytes) -> bool {
     output.len() >= 36 && output[..4] == PANIC_SELECTOR && output[35] == 0x01
 }
 

@@ -6,6 +6,7 @@ use alloy_primitives::{Address, B256, U256, address};
 use anyhow::Context as _;
 use revm::{
     Database, DatabaseCommit, DatabaseRef, MainBuilder, MainContext,
+    bytecode::Bytecode,
     context::{BlockEnv, CfgEnv, Context, TxEnv},
     database::{CacheDB, InMemoryDB},
     database_interface::DBErrorMarker,
@@ -78,9 +79,9 @@ impl DatabaseRef for ForkDb {
             .get_account(address, self.block_number)
             .map_err(ForkDbError::from)?;
         let bytecode = if code.is_empty() {
-            revm::bytecode::Bytecode::default()
+            Bytecode::default()
         } else {
-            revm::bytecode::Bytecode::new_raw(code)
+            Bytecode::new_raw(code)
         };
         let code_hash = bytecode.hash_slow();
         Ok(Some(AccountInfo {
@@ -92,8 +93,8 @@ impl DatabaseRef for ForkDb {
         }))
     }
 
-    fn code_by_hash_ref(&self, _code_hash: B256) -> Result<revm::bytecode::Bytecode, Self::Error> {
-        Ok(revm::bytecode::Bytecode::default())
+    fn code_by_hash_ref(&self, _code_hash: B256) -> Result<Bytecode, Self::Error> {
+        Ok(Bytecode::default())
     }
 
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
@@ -212,8 +213,7 @@ impl Chain<InMemoryDB> {
 
         // Insert a dummy VM contract so Solidity's `extcodesize` check passes
         // when a target calls raptor cheatcodes during deployment or setup.
-        let vm_code =
-            revm::bytecode::Bytecode::new_raw(revm::primitives::Bytes::from_static(&[0x00]));
+        let vm_code = Bytecode::new_raw(Bytes::from_static(&[0x00]));
         db.insert_account_info(
             crate::vm::VM_ADDRESS,
             AccountInfo {

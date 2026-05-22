@@ -7,6 +7,7 @@ use alloy_json_abi::JsonAbi;
 use anyhow::Result;
 use revm::{
     Database as RevmDatabase,
+    bytecode::Bytecode,
     primitives::{Address, Bytes, U256},
     state::AccountInfo,
 };
@@ -92,7 +93,7 @@ impl BaseState {
     /// Set the code of an address.
     pub fn set_code(&mut self, addr: Address, code: Bytes) {
         let mut info = self.db.basic(addr).unwrap_or_default().unwrap_or_default();
-        let bytecode = revm::bytecode::Bytecode::new_raw(code);
+        let bytecode = Bytecode::new_raw(code);
         info.code_hash = bytecode.hash_slow();
         info.code = Some(bytecode);
         self.db.insert_account_info(addr, info);
