@@ -1,7 +1,8 @@
 //! EVM chain state and executor.
 
+use std::collections::HashMap;
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use alloy_primitives::{Address, B256, U256, address};
 use anyhow::{Context as _, Result};
@@ -98,6 +99,10 @@ impl From<anyhow::Error> for ForkDBError {
 pub struct ForkDB {
     client: Arc<Client>,
     block_number: u64,
+    /// Caches bytecode by code hash. RwLock chosen because `code_by_hash_ref`
+    /// is a read-heavy while writes only happen on cache misses during
+    /// `basic_ref`.
+    contracts: Arc<RwLock<HashMap<B256, Bytecode>>>,
 }
 
 impl ForkDB {
@@ -105,6 +110,7 @@ impl ForkDB {
         Self {
             client,
             block_number,
+            contracts: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -123,6 +129,12 @@ impl DatabaseRef for ForkDB {
             Bytecode::new_raw(code)
         };
         let code_hash = bytecode.hash_slow();
+        if !bytecode.is_empty() {
+            self.contracts
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(code_hash, bytecode.clone());
+        }
         Ok(Some(AccountInfo {
             balance,
             nonce,
@@ -132,8 +144,23 @@ impl DatabaseRef for ForkDB {
         }))
     }
 
-    fn code_by_hash_ref(&self, _code_hash: B256) -> Result<Bytecode, Self::Error> {
-        Ok(Bytecode::default())
+    fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        if code_hash == revm::primitives::KECCAK_EMPTY || code_hash.is_zero() {
+            return Ok(Bytecode::default());
+        }
+        match self
+            .contracts
+            .read()
+            // TODO(pyk): handle lock poisoning here
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&code_hash)
+        {
+            Some(code) => Ok(code.clone()),
+            None => Err(ForkDBError::from(anyhow::anyhow!(
+                "code hash {} not found in fork database",
+                code_hash
+            ))),
+        }
     }
 
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
@@ -755,6 +782,52 @@ mod tests {
             !code.is_empty(),
             "Chain::fork must inject non-empty code at VM_ADDRESS so extcodesize checks pass"
         );
+        Ok(())
+    }
+
+    /// Regression: ForkDB::code_by_hash_ref must resolve code that was
+    /// previously fetched via basic_ref. Returning empty bytecode for every
+    /// hash silently corrupts execution when revm or CacheDB falls back to
+    /// the underlying database.
+    #[test]
+    fn forkdb_code_by_hash_ref_resolves_known_code() -> Result<()> {
+        let transport = MockTransport::default();
+        let address = address!("0x0000000000000000000000000000000000000001");
+        let block_tag = json!("0x1");
+
+        // Mock the batch request that get_account sends.
+        let batch_payload = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_getBalance","params":[json!(format!("0x{address:x}")), block_tag.clone()]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getTransactionCount","params":[json!(format!("0x{address:x}")), block_tag.clone()]},
+            {"jsonrpc":"2.0","id":102,"method":"eth_getCode","params":[json!(format!("0x{address:x}")), block_tag]},
+        ]);
+        let code_hex = "0x600160005260016000f3";
+        transport.mock_response(
+            "mock://test",
+            &batch_payload,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x0"},
+                {"jsonrpc":"2.0","id":101,"result":"0x0"},
+                {"jsonrpc":"2.0","id":102,"result": code_hex},
+            ]),
+        );
+
+        let config = Config::new("mock://test");
+        let client = Client::new_with_transport(config, transport.clone());
+        let fork_db = ForkDB::new(Arc::new(client), 1);
+
+        let info = fork_db
+            .basic_ref(address)?
+            .context("account should exist")?;
+        let code_hash = info.code_hash;
+        let expected_code = info.code.context("code should be present")?;
+
+        let resolved = fork_db.code_by_hash_ref(code_hash)?;
+        assert_eq!(
+            resolved, expected_code,
+            "ForkDB::code_by_hash_ref must return the same bytecode that basic_ref provided"
+        );
+
         Ok(())
     }
 }
