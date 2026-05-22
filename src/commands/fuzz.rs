@@ -1,6 +1,5 @@
 //! `fuzz` CLI command implementation.
 
-use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -191,22 +190,13 @@ pub struct Args {
 
 #[derive(Debug, Parser)]
 pub struct ForkModeArgs {
-    /// JSON-RPC URL to fork from. Repeatable.
-    #[arg(long = "rpc-url", value_name = "URL", help_heading = "Fork Mode", action = clap::ArgAction::Append)]
-    pub rpc_urls: Vec<String>,
+    /// JSON-RPC URL to fork from.
+    #[arg(long = "rpc-url", value_name = "URL", help_heading = "Fork Mode")]
+    pub rpc_url: Option<String>,
 
     /// Block number to fork at. Must be <= the remote latest block.
     #[arg(long = "rpc-block", value_name = "N", help_heading = "Fork Mode")]
     pub rpc_block: Option<u64>,
-
-    /// Number of concurrent RPC connections for fork mode.
-    #[arg(
-        long = "rpc-pool",
-        default_value = "4",
-        value_name = "N",
-        help_heading = "Fork Mode"
-    )]
-    pub rpc_pool: u32,
 
     /// Maximum retry attempts per RPC URL after transient failure.
     #[arg(
@@ -238,60 +228,35 @@ pub struct ForkModeArgs {
         help_heading = "Fork Mode"
     )]
     pub rpc_timeout: u64,
-
-    /// Chain ID to fork from. Defaults to 1.
-    #[arg(
-        long = "rpc-chain-id",
-        default_value = "1",
-        value_name = "N",
-        help_heading = "Fork Mode"
-    )]
-    pub rpc_chain_id: u64,
 }
 
 impl Default for ForkModeArgs {
     fn default() -> Self {
         Self {
-            rpc_urls: Vec::new(),
+            rpc_url: None,
             rpc_block: None,
-            rpc_pool: 4,
             rpc_retries: 3,
             rpc_backoff: 100,
             rpc_rate_limit: None,
             rpc_timeout: 30000,
-            rpc_chain_id: 1,
         }
     }
 }
 
 impl ForkModeArgs {
-    /// Validate that every provided RPC URL returns the same chain_id.
+    /// Validate the RPC URL by fetching its chain_id.
     pub fn validate_chain_id(&self, project_path: impl AsRef<Path>) -> Result<u64> {
         let project_path = project_path.as_ref();
-        let mut ids: Vec<(&str, u64)> = Vec::new();
-
-        for url in self.rpc_urls.iter().collect::<HashSet<&String>>() {
-            info!(%url, timeout = "5s", "Fetching chain_id");
-            let url_t0 = std::time::Instant::now();
-            let chain_id = crate::rpc::get_chain_id(project_path, url)?;
-            let url_elapsed = url_t0.elapsed();
-            info!(%url, chain_id, took = %format!("{}ms", url_elapsed.as_millis()), "OK");
-            ids.push((url, chain_id));
-        }
-
-        ensure!(!ids.is_empty(), "no RPC URLs to validate");
-
-        let first = ids[0].1;
-        if ids.iter().all(|(_, id)| *id == first) {
-            Ok(first)
-        } else {
-            let details = ids
-                .iter()
-                .map(|(url, id)| format!("{} -> {}", url, id))
-                .collect::<Vec<String>>()
-                .join(", ");
-            bail!("chain ID mismatch: {}", details);
-        }
+        let url = self
+            .rpc_url
+            .as_ref()
+            .context("no RPC URL configured")?;
+        info!(%url, timeout = "5s", "Fetching chain_id");
+        let url_t0 = std::time::Instant::now();
+        let chain_id = crate::rpc::get_chain_id(project_path, url)?;
+        let url_elapsed = url_t0.elapsed();
+        info!(%url, chain_id, took = %format!("{}ms", url_elapsed.as_millis()), "OK");
+        Ok(chain_id)
     }
 
     /// Build the RPC client and validate the fork block.
@@ -299,15 +264,18 @@ impl ForkModeArgs {
         let block = self
             .rpc_block
             .context("--rpc-block is required with --rpc-url")?;
-        let rpc_instance = crate::rpc::Rpc::with_urls(&self.rpc_urls)
-            .with_pool_size(self.rpc_pool)
+        let url = self
+            .rpc_url
+            .as_ref()
+            .context("--rpc-url is required")?;
+        let rpc_instance = crate::rpc::Rpc::with_urls(&[url.clone()])
             .with_retries(self.rpc_retries)
             .with_retry_backoff(std::time::Duration::from_millis(self.rpc_backoff))
             .with_requests_per_second(self.rpc_rate_limit)
             .with_timeout(std::time::Duration::from_millis(self.rpc_timeout))
             .with_chain_id(chain_id)
             .build()?;
-        info!(urls = ?self.rpc_urls, "Fetching latest block");
+        info!(%url, "Fetching latest block");
         let t0 = std::time::Instant::now();
         let latest = rpc_instance
             .latest_block_number()
@@ -317,7 +285,7 @@ impl ForkModeArgs {
         if block > latest {
             bail!("--rpc-block ({block}) exceeds remote latest block ({latest})");
         }
-        info!(urls = ?self.rpc_urls, block = block, "Forking");
+        info!(%url, block = block, "Forking");
         Ok((Arc::new(rpc_instance), block))
     }
 }
@@ -351,8 +319,8 @@ pub fn run(args: Args) -> Result<()> {
     let _target_contract = target::Contract::try_from(target_artifact)?;
 
     // Resolve chain environment
-    info!("resolving chain environment");
-    let _env = if args.fork_mode.rpc_urls.is_empty() {
+    info!("creating test chain");
+    let _env = if args.fork_mode.rpc_url.is_none() {
         chain_v2::Environment::local()
     } else {
         let cache_dir = project_path.join("raptor").join("cache");
@@ -362,32 +330,32 @@ pub fn run(args: Args) -> Result<()> {
             .context("--rpc-block is required with --rpc-url")?;
         let url = args
             .fork_mode
-            .rpc_urls
-            .first()
-            .cloned()
-            .context("at least one RPC URL is required")?;
-        let config = rpc_v2::Config::new(url)
+            .rpc_url
+            .as_ref()
+            .context("--rpc-url is required")?;
+        let chain_id = crate::rpc::get_chain_id(&project_path, url)?;
+        let config = rpc_v2::Config::new(url.clone())
             .retries(args.fork_mode.rpc_retries)
             .backoff_ms(args.fork_mode.rpc_backoff)
             .rate_limit(args.fork_mode.rpc_rate_limit)
             .timeout_ms(args.fork_mode.rpc_timeout)
             .cache_dir(&cache_dir);
         info!(
-            chain_id = args.fork_mode.rpc_chain_id,
+            chain_id,
             block = block,
             "loading fork"
         );
         let client = rpc_v2::Client::new(config);
         let rpc = Arc::new(client);
         info!("creating fork environment");
-        chain_v2::Environment::fork(rpc, block, args.fork_mode.rpc_chain_id)?
+        chain_v2::Environment::fork(rpc, block, chain_id)?
     };
 
     // -----------------------------------------------------------------------
     // NOTE: old env below kept for downstream compatibility until full switch
     // -----------------------------------------------------------------------
 
-    let env = if args.fork_mode.rpc_urls.is_empty() {
+    let env = if args.fork_mode.rpc_url.is_none() {
         info!("sandbox environment resolved");
         Environment::sandbox()
     } else {
@@ -586,42 +554,26 @@ mod tests {
     }
 
     #[test]
-    fn validate_chain_id_success_when_all_match() {
+    fn validate_chain_id_success() {
         let tmp = tempfile::tempdir().unwrap();
         let args = ForkModeArgs {
-            rpc_urls: vec!["http://a.com".into(), "http://b.com".into()],
+            rpc_url: Some("http://a.com".into()),
             rpc_block: Some(1),
             ..ForkModeArgs::default()
         };
         seed_chain_id_cache(tmp.path(), "http://a.com", 1);
-        seed_chain_id_cache(tmp.path(), "http://b.com", 1);
         assert_eq!(args.validate_chain_id(tmp.path()).unwrap(), 1);
     }
 
     #[test]
-    fn validate_chain_id_fails_on_mismatch() {
+    fn validate_chain_id_no_url_fails() {
         let tmp = tempfile::tempdir().unwrap();
         let args = ForkModeArgs {
-            rpc_urls: vec!["http://a.com".into(), "http://b.com".into()],
-            rpc_block: Some(1),
+            rpc_url: None,
             ..ForkModeArgs::default()
         };
-        seed_chain_id_cache(tmp.path(), "http://a.com", 1);
-        seed_chain_id_cache(tmp.path(), "http://b.com", 56);
         let err = args.validate_chain_id(tmp.path()).unwrap_err();
-        assert!(err.to_string().contains("chain ID mismatch"));
-    }
-
-    #[test]
-    fn validate_chain_id_dedups_duplicate_urls() {
-        let tmp = tempfile::tempdir().unwrap();
-        let args = ForkModeArgs {
-            rpc_urls: vec!["http://a.com".into(), "http://a.com".into()],
-            rpc_block: Some(1),
-            ..ForkModeArgs::default()
-        };
-        seed_chain_id_cache(tmp.path(), "http://a.com", 1);
-        assert_eq!(args.validate_chain_id(tmp.path()).unwrap(), 1);
+        assert!(err.to_string().contains("no RPC URL configured"));
     }
 
     #[test]
