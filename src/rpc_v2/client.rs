@@ -1,9 +1,7 @@
-//! HTTP agent pool, URL pool, and JSON-RPC client with caching, deduplication,
-//! rate limiting, retries, and failover.
+//! JSON-RPC client with caching, deduplication, rate limiting, and retries.
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use alloy_primitives::{Address, B256, Bytes, U64, U256};
@@ -17,52 +15,6 @@ use crate::rpc_v2::config::Config;
 use crate::rpc_v2::request;
 use crate::rpc_v2::transport::{HttpTransport, Transport};
 use crate::rpc_v2::{Cache, DedupTable, RateLimiter};
-
-/// Round-robin pool of `ureq::Agent` instances.
-#[derive(Debug)]
-pub struct AgentPool {
-    agents: Vec<Agent>,
-    idx: AtomicUsize,
-}
-
-impl AgentPool {
-    pub fn new(agents: Vec<Agent>) -> Self {
-        Self {
-            agents,
-            idx: AtomicUsize::new(0),
-        }
-    }
-
-    pub fn next(&self) -> &Agent {
-        let idx = self.idx.fetch_add(1, Ordering::Relaxed) % self.agents.len().max(1);
-        &self.agents[idx]
-    }
-}
-
-/// Round-robin pool of JSON-RPC endpoint URLs.
-#[derive(Debug)]
-pub struct UrlPool {
-    urls: Vec<String>,
-    idx: AtomicUsize,
-}
-
-impl UrlPool {
-    pub fn new(urls: Vec<String>) -> Self {
-        Self {
-            urls,
-            idx: AtomicUsize::new(0),
-        }
-    }
-
-    pub fn next(&self) -> &str {
-        let idx = self.idx.fetch_add(1, Ordering::Relaxed) % self.urls.len().max(1);
-        &self.urls[idx]
-    }
-
-    pub fn urls(&self) -> &[String] {
-        &self.urls
-    }
-}
 
 /// Typed block header returned by `eth_getBlockByNumber`.
 #[derive(Debug, Clone, Deserialize)]
@@ -88,7 +40,7 @@ pub struct Block {
 }
 
 /// JSON-RPC client with two-layer caching, deduplication, rate limiting,
-/// retries, and failover across multiple URLs.
+/// and retries.
 #[derive(Clone, Debug)]
 pub struct Client {
     inner: Arc<ClientInner>,
@@ -97,6 +49,9 @@ pub struct Client {
 #[derive(Debug)]
 struct ClientInner {
     transport: Arc<dyn Transport>,
+    url: String,
+    retries: u32,
+    backoff: Duration,
     cache: Option<Cache>,
     dedup: DedupTable,
     limiter: Option<RateLimiter>,
@@ -107,21 +62,11 @@ impl Client {
     /// Create a new client from a validated configuration.
     pub fn new(config: Config) -> Self {
         let timeout = Duration::from_millis(config.timeout_ms);
-        let pool_size = config.pool_size.max(1) as usize;
-        let agents: Vec<Agent> = (0..pool_size)
-            .map(|_| {
-                let cfg = Agent::config_builder()
-                    .timeout_global(Some(timeout))
-                    .build();
-                Agent::new_with_config(cfg)
-            })
-            .collect();
-        let transport = Arc::new(HttpTransport::new(
-            config.urls.clone(),
-            agents,
-            config.retries,
-            Duration::from_millis(config.backoff_ms),
-        ));
+        let agent_cfg = Agent::config_builder()
+            .timeout_global(Some(timeout))
+            .build();
+        let agent = Agent::new_with_config(agent_cfg);
+        let transport = Arc::new(HttpTransport::new(agent));
         Self::new_with_transport(config, transport)
     }
 
@@ -129,15 +74,25 @@ impl Client {
     pub fn new_with_transport(config: Config, transport: Arc<dyn Transport>) -> Self {
         let limiter = config.rate_limit.map(RateLimiter::new);
         let cache = config.cache_dir.map(|dir| Cache::new(dir, config.chain_id));
+        let url = config.url.unwrap_or_default();
         Self {
             inner: Arc::new(ClientInner {
                 transport,
+                url,
+                retries: config.retries,
+                backoff: Duration::from_millis(config.backoff_ms),
                 cache,
                 dedup: DedupTable::new(),
                 limiter,
                 chain_id: config.chain_id,
             }),
         }
+    }
+
+    /// Compute the sleep duration for a given retry attempt (0-indexed).
+    fn backoff_duration(&self, attempt: u32) -> Duration {
+        let multiplier = 2_u64.pow(attempt);
+        self.inner.backoff * multiplier as u32
     }
 
     /// Configured chain ID.
@@ -334,7 +289,7 @@ impl Client {
     // -----------------------------------------------------------------
 
     /// Unified internal call that handles deduplication, caching, rate
-    /// limiting, and transport for both single requests and batches.
+    /// limiting, retries, and transport for both single requests and batches.
     ///
     /// The caller builds the JSON-RPC `request_payload` (a single object or an
     /// array for batching) and is responsible for extracting `result` fields
@@ -373,53 +328,56 @@ impl Client {
             limiter.acquire();
         }
 
-        // 4. Live network fetch
-        let transport_result = if let Some(items) = request_payload.as_array() {
-            self.inner
-                .transport
-                .send_batch(items.to_vec())
-                .map(serde_json::Value::Array)
-                .with_context(|| format!("RPC batch {cache_key} failed"))
-        } else {
-            self.inner
-                .transport
-                .send(request_payload)
-                .with_context(|| format!("RPC {cache_key} failed"))
-        };
+        // 4. Live network fetch with retries
+        let value = 'retry: {
+            let mut last_err: Option<anyhow::Error> = None;
+            for attempt in 0..=self.inner.retries {
+                match self.inner.transport.exec(&self.inner.url, &request_payload) {
+                    Ok(value) => {
+                        // Validate response shape and reject RPC errors.
+                        let rpc_error = if let Some(arr) = value.as_array() {
+                            arr.iter()
+                                .find_map(|item| item.get("error"))
+                                .map(|e| format!("RPC error in batch response: {e}"))
+                        } else if let Some(obj) = value.as_object() {
+                            obj.get("error").map(|e| format!("RPC error: {e}"))
+                        } else {
+                            Some("invalid RPC response".into())
+                        };
 
-        let result = match transport_result {
-            Ok(r) => r,
-            Err(e) => {
-                self.inner
-                    .dedup
-                    .complete(cache_key, Err(anyhow::anyhow!("{e}")));
-                guard.deactivate();
-                return Err(e);
-            }
-        };
-
-        // 4b. Reject batch responses that contain any RPC error.
-        // We must not cache an errored batch because a retry might succeed.
-        if let Some(arr) = result.as_array() {
-            for item in arr {
-                if let Some(error) = item.get("error") {
-                    let err = anyhow::anyhow!("RPC error in batch response: {error}");
-                    self.inner
-                        .dedup
-                        .complete(cache_key, Err(anyhow::anyhow!("{err}")));
-                    guard.deactivate();
-                    return Err(err);
+                        if let Some(err_msg) = rpc_error {
+                            last_err = Some(anyhow::anyhow!("{err_msg}"));
+                            if attempt < self.inner.retries {
+                                std::thread::sleep(self.backoff_duration(attempt));
+                                continue;
+                            }
+                            break;
+                        }
+                        break 'retry value;
+                    }
+                    Err(e) => {
+                        last_err = Some(e);
+                        if attempt < self.inner.retries {
+                            std::thread::sleep(self.backoff_duration(attempt));
+                        }
+                    }
                 }
             }
-        }
+            let err = last_err.unwrap_or_else(|| anyhow::anyhow!("RPC request failed"));
+            self.inner
+                .dedup
+                .complete(cache_key, Err(anyhow::anyhow!("{err}")));
+            guard.deactivate();
+            return Err(err);
+        };
 
         // 5. Update cache and complete dedup
         if !skip_cache && let Some(ref cache) = self.inner.cache {
-            cache.insert(cache_key, result.clone());
+            cache.insert(cache_key, value.clone());
         }
-        self.inner.dedup.complete(cache_key, Ok(result.clone()));
+        self.inner.dedup.complete(cache_key, Ok(value.clone()));
         guard.deactivate();
-        Ok(result)
+        Ok(value)
     }
 }
 
@@ -433,41 +391,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agent_pool_round_robin() {
-        let a1 = ureq::Agent::new_with_defaults();
-        let a2 = ureq::Agent::new_with_defaults();
-        let pool = AgentPool::new(vec![a1, a2]);
-
-        let first = pool.next() as *const Agent;
-        let second = pool.next() as *const Agent;
-        let third = pool.next() as *const Agent;
-
-        assert_ne!(first, second);
-        assert_eq!(first, third);
-    }
-
-    #[test]
-    fn url_pool_round_robin() {
-        let pool = UrlPool::new(vec![
-            "https://a.example.com".into(),
-            "https://b.example.com".into(),
-        ]);
-
-        assert_eq!(pool.next(), "https://a.example.com");
-        assert_eq!(pool.next(), "https://b.example.com");
-        assert_eq!(pool.next(), "https://a.example.com");
+    fn backoff_is_exponential() {
+        let client = Client::new_with_transport(
+            Config::new().url("mock://test").chain_id(1).backoff_ms(100),
+            Arc::new(crate::rpc_v2::transport::MockTransport::default()),
+        );
+        assert_eq!(client.backoff_duration(0), Duration::from_millis(100));
+        assert_eq!(client.backoff_duration(1), Duration::from_millis(200));
+        assert_eq!(client.backoff_duration(2), Duration::from_millis(400));
+        assert_eq!(client.backoff_duration(3), Duration::from_millis(800));
     }
 
     #[test]
     fn mock_transport_roundtrip() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        let payload = request::payload("eth_blockNumber", &[]);
         transport.insert(
-            "eth_blockNumber",
-            &[],
+            "mock://test",
+            &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
         );
 
-        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let config = Config::new().url("mock://test").chain_id(1);
         let rpc = Client::new_with_transport(config, transport);
 
         let result = rpc.latest_block_number().unwrap();
@@ -478,13 +423,14 @@ mod tests {
     fn dedup_coalesces_parallel_requests() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.set_delay(Duration::from_millis(100));
+        let payload = request::payload("eth_blockNumber", &[]);
         transport.insert(
-            "eth_blockNumber",
-            &[],
+            "mock://test",
+            &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
         );
 
-        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let config = Config::new().url("mock://test").chain_id(1);
         let rpc = Client::new_with_transport(config, transport.clone());
         let rpc2 = rpc.clone();
 
@@ -495,20 +441,21 @@ mod tests {
         let r2 = t2.join().unwrap().unwrap();
         assert_eq!(r1, r2);
         assert_eq!(r1, 0x1a2b);
-        assert_eq!(transport.call_count("eth_blockNumber", &[]), 1);
+        assert_eq!(transport.call_count("mock://test", &payload), 1);
     }
 
     #[test]
     fn rate_limit_throttles_without_network() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        let payload = request::payload("eth_blockNumber", &[]);
         transport.insert(
-            "eth_blockNumber",
-            &[],
+            "mock://test",
+            &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1"}),
         );
 
         let config = Config::new()
-            .urls(vec!["mock://test".into()])
+            .url("mock://test")
             .chain_id(1)
             .rate_limit(Some(2));
         let rpc = Client::new_with_transport(config, transport);
@@ -525,39 +472,29 @@ mod tests {
     }
 
     /// Regression (issue #2): a JSON-RPC batch is dispatched as a single HTTP
-    /// POST, so it must consume exactly one rate-limit token.  Previously
-    /// `call()` acquired N tokens for N methods in the batch, causing
-    /// unnecessary throttling.
+    /// POST, so it must consume exactly one rate-limit token.
     #[test]
     fn rate_limit_batch_counts_as_single_request() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        let addr = json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2");
+        let block_tag = json!("0x1");
+        let batch = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_getBalance","params":[addr, block_tag]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getTransactionCount","params":[addr, block_tag]},
+            {"jsonrpc":"2.0","id":102,"method":"eth_getCode","params":[addr, block_tag]},
+        ]);
         transport.insert(
-            "eth_getBalance",
-            &[
-                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 100, "result": "0x4ec7cefe1a0664fd"}),
-        );
-        transport.insert(
-            "eth_getTransactionCount",
-            &[
-                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 101, "result": "0x1707"}),
-        );
-        transport.insert(
-            "eth_getCode",
-            &[
-                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 102, "result": "0x6060604052"}),
+            "mock://test",
+            &batch,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x4ec7cefe1a0664fd"},
+                {"jsonrpc":"2.0","id":101,"result":"0x1707"},
+                {"jsonrpc":"2.0","id":102,"result":"0x6060604052"},
+            ]),
         );
 
         let config = Config::new()
-            .urls(vec!["mock://test".into()])
+            .url("mock://test")
             .chain_id(1)
             .rate_limit(Some(1)); // 1 req/sec
         let rpc = Client::new_with_transport(config, transport.clone());
@@ -570,8 +507,6 @@ mod tests {
         let _ = rpc.get_account(addr, 1).unwrap();
         let elapsed = t0.elapsed();
 
-        // A batch of 3 JSON-RPC methods must consume 1 token, not 3.
-        // If it consumed 3 tokens at 1 req/sec, we'd wait ~2 seconds.
         assert!(
             elapsed.as_millis() < 200,
             "batch over-counted for rate limit, elapsed: {elapsed:?}"
@@ -579,19 +514,18 @@ mod tests {
     }
 
     /// Stress-test deduplication with many threads hitting the same request.
-    /// We assert deduplication via [`MockTransport::call_count`]:
-    /// if N parallel threads coalesce, the transport sees exactly 1 dispatch.
     #[test]
     fn dedup_coalesces_many_parallel_requests() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.set_delay(Duration::from_millis(100));
+        let payload = request::payload("eth_blockNumber", &[]);
         transport.insert(
-            "eth_blockNumber",
-            &[],
+            "mock://test",
+            &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
         );
 
-        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let config = Config::new().url("mock://test").chain_id(1);
         let rpc = Client::new_with_transport(config, transport.clone());
 
         let mut handles = Vec::new();
@@ -606,7 +540,7 @@ mod tests {
             .collect();
 
         assert!(results.iter().all(|&r| r == 0x1a2b));
-        assert_eq!(transport.call_count("eth_blockNumber", &[]), 1);
+        assert_eq!(transport.call_count("mock://test", &payload), 1);
     }
 
     /// Use a barrier to release all threads at the exact same instant,
@@ -615,13 +549,14 @@ mod tests {
     fn dedup_with_barrier_maximizes_contention() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.set_delay(Duration::from_millis(200));
+        let payload = request::payload("eth_blockNumber", &[]);
         transport.insert(
-            "eth_blockNumber",
-            &[],
+            "mock://test",
+            &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0xdeadbeef"}),
         );
 
-        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let config = Config::new().url("mock://test").chain_id(1);
         let rpc = Client::new_with_transport(config, transport.clone());
 
         let thread_count = 8;
@@ -643,7 +578,7 @@ mod tests {
             .collect();
 
         assert!(results.iter().all(|&r| r == 0xdeadbeef));
-        assert_eq!(transport.call_count("eth_blockNumber", &[]), 1);
+        assert_eq!(transport.call_count("mock://test", &payload), 1);
     }
 
     /// Verify that deduplication is keyed by (method, params).
@@ -653,24 +588,32 @@ mod tests {
     fn dedup_only_coalesces_identical_requests() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.set_delay(Duration::from_millis(50));
-        transport.insert(
+        let payload_a = request::payload(
             "eth_getBalance",
             &[
                 json!("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
                 json!("0x112233"),
             ],
-            json!({"jsonrpc": "2.0", "id": 1, "result": "0x1"}),
         );
-        transport.insert(
+        let payload_b = request::payload(
             "eth_getBalance",
             &[
                 json!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
                 json!("0x112233"),
             ],
+        );
+        transport.insert(
+            "mock://test",
+            &payload_a,
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x1"}),
+        );
+        transport.insert(
+            "mock://test",
+            &payload_b,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x2"}),
         );
 
-        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let config = Config::new().url("mock://test").chain_id(1);
         let rpc = Client::new_with_transport(config, transport.clone());
 
         let addr_a: Address = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -706,47 +649,26 @@ mod tests {
             assert_eq!(*r, U256::from(2));
         }
 
-        assert_eq!(
-            transport.call_count(
-                "eth_getBalance",
-                &[
-                    json!("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-                    json!("0x112233")
-                ]
-            ),
-            1
-        );
-        assert_eq!(
-            transport.call_count(
-                "eth_getBalance",
-                &[
-                    json!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
-                    json!("0x112233")
-                ]
-            ),
-            1
-        );
+        assert_eq!(transport.call_count("mock://test", &payload_a), 1);
+        assert_eq!(transport.call_count("mock://test", &payload_b), 1);
     }
 
     /// Rate limit + dedup interaction: the first batch consumes the initial
     /// token bucket. A second parallel batch for the *same* request must still
     /// wait for the rate-limit refill before the leader can dispatch.
-    ///
-    /// Asserted via [`MockTransport`]:
-    /// - `call_count == 2` (one dispatch per batch, dedup coalesces each batch).
-    /// - second-batch elapsed >= 800 ms (proves the leader was throttled).
     #[test]
     fn rate_limit_throttles_parallel_deduped_requests() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.set_delay(Duration::from_millis(50));
+        let payload = request::payload("eth_blockNumber", &[]);
         transport.insert(
-            "eth_blockNumber",
-            &[],
+            "mock://test",
+            &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1"}),
         );
 
         let config = Config::new()
-            .urls(vec!["mock://test".into()])
+            .url("mock://test")
             .chain_id(1)
             .rate_limit(Some(1)); // 1 req/sec; no cache_dir => no cache layer
         let rpc = Client::new_with_transport(config, transport.clone());
@@ -788,7 +710,7 @@ mod tests {
             elapsed2.as_millis() >= 800,
             "second batch should be rate-limited: {elapsed2:?}"
         );
-        assert_eq!(transport.call_count("eth_blockNumber", &[]), 2);
+        assert_eq!(transport.call_count("mock://test", &payload), 2);
     }
 
     /// Maximal contention: a barrier releases many threads at the exact same
@@ -798,14 +720,15 @@ mod tests {
     fn rate_limit_with_barrier_and_dedup() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
         transport.set_delay(Duration::from_millis(50));
+        let payload = request::payload("eth_blockNumber", &[]);
         transport.insert(
-            "eth_blockNumber",
-            &[],
+            "mock://test",
+            &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0xcafe"}),
         );
 
         let config = Config::new()
-            .urls(vec!["mock://test".into()])
+            .url("mock://test")
             .chain_id(1)
             .rate_limit(Some(1));
         let rpc = Client::new_with_transport(config, transport.clone());
@@ -838,7 +761,7 @@ mod tests {
             elapsed.as_millis() >= 800,
             "rate limit did not throttle under contention: {elapsed:?}"
         );
-        assert_eq!(transport.call_count("eth_blockNumber", &[]), 2);
+        assert_eq!(transport.call_count("mock://test", &payload), 2);
     }
 
     /// Verify that `eth_blockNumber` bypasses the cache while other
@@ -848,23 +771,28 @@ mod tests {
     #[test]
     fn eth_block_number_skips_cache_but_other_methods_are_cached() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
-        transport.insert(
-            "eth_blockNumber",
-            &[],
-            json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
-        );
-        transport.insert(
+        let payload_bn = request::payload("eth_blockNumber", &[]);
+        let payload_bal = request::payload(
             "eth_getBalance",
             &[
                 json!("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
                 json!("0x1"),
             ],
+        );
+        transport.insert(
+            "mock://test",
+            &payload_bn,
+            json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
+        );
+        transport.insert(
+            "mock://test",
+            &payload_bal,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0xc0ffee"}),
         );
 
         let tmp = tempfile::tempdir().unwrap();
         let config = Config::new()
-            .urls(vec!["mock://test".into()])
+            .url("mock://test")
             .chain_id(1)
             .cache_dir(tmp.path());
         let rpc = Client::new_with_transport(config, transport.clone());
@@ -882,48 +810,31 @@ mod tests {
         assert_eq!(rpc.latest_block_number().unwrap(), 0x1a2b);
         assert_eq!(rpc.get_balance(addr, 1).unwrap(), U256::from(0xc0ffee));
 
-        assert_eq!(transport.call_count("eth_blockNumber", &[]), 2);
-        assert_eq!(
-            transport.call_count(
-                "eth_getBalance",
-                &[
-                    json!("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-                    json!("0x1")
-                ]
-            ),
-            1
-        );
+        assert_eq!(transport.call_count("mock://test", &payload_bn), 2);
+        assert_eq!(transport.call_count("mock://test", &payload_bal), 1);
     }
 
     #[test]
     fn mock_get_account_roundtrip() {
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        let addr = json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2");
+        let block_tag = json!("0x17fa30b");
+        let batch = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_getBalance","params":[addr, block_tag]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getTransactionCount","params":[addr, block_tag]},
+            {"jsonrpc":"2.0","id":102,"method":"eth_getCode","params":[addr, block_tag]},
+        ]);
         transport.insert(
-            "eth_getBalance",
-            &[
-                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
-                json!("0x17fa30b"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 1, "result": "0x4ec7cefe1a0664fd"}),
-        );
-        transport.insert(
-            "eth_getTransactionCount",
-            &[
-                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
-                json!("0x17fa30b"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 2, "result": "0x1707"}),
-        );
-        transport.insert(
-            "eth_getCode",
-            &[
-                json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
-                json!("0x17fa30b"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 3, "result": "0x6060604052"}),
+            "mock://test",
+            &batch,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x4ec7cefe1a0664fd"},
+                {"jsonrpc":"2.0","id":101,"result":"0x1707"},
+                {"jsonrpc":"2.0","id":102,"result":"0x6060604052"},
+            ]),
         );
 
-        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let config = Config::new().url("mock://test").chain_id(1);
         let rpc = Client::new_with_transport(config, transport.clone());
 
         let weth: Address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
@@ -937,36 +848,9 @@ mod tests {
         );
         assert_eq!(nonce, 0x1707);
         assert!(!code.is_empty());
-        assert_eq!(
-            transport.call_count(
-                "eth_getBalance",
-                &[
-                    json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
-                    json!("0x17fa30b"),
-                ]
-            ),
-            1
-        );
-        assert_eq!(
-            transport.call_count(
-                "eth_getTransactionCount",
-                &[
-                    json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
-                    json!("0x17fa30b"),
-                ]
-            ),
-            1
-        );
-        assert_eq!(
-            transport.call_count(
-                "eth_getCode",
-                &[
-                    json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
-                    json!("0x17fa30b"),
-                ]
-            ),
-            1
-        );
+        // get_account issues a single JSON-RPC batch; the mock must reflect
+        // one batch dispatch rather than three individual sends.
+        assert_eq!(transport.call_count("mock://test", &batch), 1);
     }
 
     // -----------------------------------------------------------------
@@ -979,13 +863,10 @@ mod tests {
     struct ReversedBatchTransport;
 
     impl crate::rpc_v2::transport::Transport for ReversedBatchTransport {
-        fn send(&self, _payload: serde_json::Value) -> Result<serde_json::Value> {
-            unimplemented!("use send_batch")
-        }
-
-        fn send_batch(&self, payloads: Vec<serde_json::Value>) -> Result<Vec<serde_json::Value>> {
-            let mut responses = Vec::with_capacity(payloads.len());
-            for payload in &payloads {
+        fn exec(&self, _url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
+            let items = payload.as_array().context("expected batch")?;
+            let mut responses = Vec::with_capacity(items.len());
+            for payload in items {
                 let method = payload.get("method").and_then(|v| v.as_str()).unwrap_or("");
                 let id = payload.get("id").cloned().unwrap_or(json!(0));
                 let resp = match method {
@@ -1004,7 +885,7 @@ mod tests {
             }
             // Reverse the order: JSON-RPC spec does not guarantee ordering.
             responses.reverse();
-            Ok(responses)
+            Ok(json!(responses))
         }
     }
 
@@ -1013,7 +894,7 @@ mod tests {
     #[test]
     fn get_account_matches_responses_by_id() {
         let transport = Arc::new(ReversedBatchTransport);
-        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let config = Config::new().url("mock://test").chain_id(1);
         let rpc = Client::new_with_transport(config, transport);
 
         let addr: Address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
@@ -1021,8 +902,6 @@ mod tests {
             .unwrap();
         let (balance, nonce, code) = rpc.get_account(addr, 1).unwrap();
 
-        // Even though the transport reversed the order, the correct values
-        // must be extracted by matching the `id` field in each response.
         assert_eq!(
             balance,
             "0x00000000000000000000000000000000000000000000000000000000DEADBEEF"
@@ -1039,44 +918,42 @@ mod tests {
     struct ErrorThenSuccessTransport(std::sync::atomic::AtomicUsize);
 
     impl crate::rpc_v2::transport::Transport for ErrorThenSuccessTransport {
-        fn send(&self, _payload: serde_json::Value) -> Result<serde_json::Value> {
-            unimplemented!("use send_batch")
-        }
-
-        fn send_batch(&self, payloads: Vec<serde_json::Value>) -> Result<Vec<serde_json::Value>> {
+        fn exec(&self, _url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
             let count = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let ids: Vec<serde_json::Value> = payloads
+            let items = payload.as_array().context("expected batch")?;
+            let ids: Vec<serde_json::Value> = items
                 .iter()
                 .map(|p| p.get("id").cloned().unwrap_or(json!(0)))
                 .collect();
             if count == 0 {
                 // First call: balance item is an RPC error.
-                Ok(vec![
-                    json!({"jsonrpc":"2.0","id":ids[0],"error":{"code":-32000,"message":"rate limited"}}),
-                    json!({"jsonrpc":"2.0","id":ids[1],"result":"0x1"}),
-                    json!({"jsonrpc":"2.0","id":ids[2],"result":"0x6000"}),
-                ])
+                Ok(json!([
+                    {"jsonrpc":"2.0","id":ids[0],"error":{"code":-32000,"message":"rate limited"}},
+                    {"jsonrpc":"2.0","id":ids[1],"result":"0x1"},
+                    {"jsonrpc":"2.0","id":ids[2],"result":"0x6000"},
+                ]))
             } else {
                 // Second call: clean data.
-                Ok(vec![
-                    json!({"jsonrpc":"2.0","id":ids[0],"result":"0xDEADBEEF"}),
-                    json!({"jsonrpc":"2.0","id":ids[1],"result":"0x1"}),
-                    json!({"jsonrpc":"2.0","id":ids[2],"result":"0x6000"}),
-                ])
+                Ok(json!([
+                    {"jsonrpc":"2.0","id":ids[0],"result":"0xDEADBEEF"},
+                    {"jsonrpc":"2.0","id":ids[1],"result":"0x1"},
+                    {"jsonrpc":"2.0","id":ids[2],"result":"0x6000"},
+                ]))
             }
         }
     }
 
     // Regression test: a batch containing an RPC error must NOT be cached.
-    // The second call should trigger a fresh request and succeed.
+    // The client retries, and the successful retry result is what gets
+    // cached. A subsequent call must be served from cache.
     #[test]
-    fn get_account_batch_error_is_not_cached() {
+    fn get_account_batch_error_retries_and_caches() {
         let transport = Arc::new(ErrorThenSuccessTransport(
             std::sync::atomic::AtomicUsize::new(0),
         ));
         let tmp = tempfile::tempdir().unwrap();
         let config = Config::new()
-            .urls(vec!["mock://test".into()])
+            .url("mock://test")
             .chain_id(1)
             .cache_dir(tmp.path());
         let rpc = Client::new_with_transport(config, transport.clone());
@@ -1085,28 +962,26 @@ mod tests {
             .parse()
             .unwrap();
 
-        // First call fails because the balance item carries an RPC error.
-        let err = rpc.get_account(addr, 1).unwrap_err();
-        let msg = format!("{err}");
-        assert!(
-            msg.contains("rate limited"),
-            "first call should fail with the RPC error message: {msg}"
-        );
-
-        // Second call must NOT hit the cache. It should issue a fresh request
-        // and receive the clean data from the transport.
+        // First call encounters a batch RPC error, retries, and succeeds.
         let (balance, nonce, code) = rpc.get_account(addr, 1).unwrap();
         assert_eq!(balance, U256::from(0xDEADBEEFu64));
         assert_eq!(nonce, 1);
         assert_eq!(code, "0x6000".parse::<Bytes>().unwrap());
 
-        // The transport was called exactly twice.
+        // The transport was called twice (error, then retry).
+        assert_eq!(transport.0.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        // Second call must be served from cache.
+        let (balance2, nonce2, code2) = rpc.get_account(addr, 1).unwrap();
+        assert_eq!(balance2, U256::from(0xDEADBEEFu64));
+        assert_eq!(nonce2, 1);
+        assert_eq!(code2, "0x6000".parse::<Bytes>().unwrap());
+
+        // No additional transport calls.
         assert_eq!(transport.0.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     /// Regression (issue #4): Block must reject JSON missing critical fields.
-    /// Previously `serde(default)` silently filled in zeros, masking fatal
-    /// RPC configuration errors in a fork environment.
     #[test]
     fn block_deserialize_missing_required_fields() {
         let cases: Vec<(&str, &str)> = vec![
@@ -1143,9 +1018,10 @@ mod tests {
     fn cache_path_uses_decimal_block_and_chain_id() {
         let tmp = tempfile::tempdir().unwrap();
         let transport = Arc::new(crate::rpc_v2::transport::MockTransport::default());
+        let payload = request::payload("eth_getBlockByNumber", &[json!("0x4d2"), json!(false)]);
         transport.insert(
-            "eth_getBlockByNumber",
-            &[json!("0x4d2"), json!(false)],
+            "mock://test",
+            &payload,
             json!({
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -1160,7 +1036,7 @@ mod tests {
         );
 
         let config = Config::new()
-            .urls(vec!["mock://test".into()])
+            .url("mock://test")
             .chain_id(1)
             .cache_dir(tmp.path());
         let rpc = Client::new_with_transport(config, transport);
@@ -1189,7 +1065,7 @@ mod tests {
         LIVE_CLIENT.get_or_init(|| {
             let url = std::env::var("RAPTOR_RPC_URL")
                 .expect("RAPTOR_RPC_URL must be set to run live tests");
-            let config = Config::new().urls(vec![url]).chain_id(1).pool_size(1);
+            let config = Config::new().url(url).chain_id(1);
             Client::new(config)
         })
     }

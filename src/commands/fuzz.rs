@@ -361,9 +361,14 @@ pub fn run(args: Args) -> Result<()> {
             .rpc_block
             .context("--rpc-block is required with --rpc-url")?;
         let config = rpc_v2::Config::new()
-            .urls(args.fork_mode.rpc_urls.clone())
+            .url(
+                args.fork_mode
+                    .rpc_urls
+                    .first()
+                    .cloned()
+                    .context("at least one RPC URL is required")?,
+            )
             .block(block)
-            .pool_size(args.fork_mode.rpc_pool)
             .retries(args.fork_mode.rpc_retries)
             .backoff_ms(args.fork_mode.rpc_backoff)
             .rate_limit(args.fork_mode.rpc_rate_limit)

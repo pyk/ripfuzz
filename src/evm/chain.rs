@@ -642,9 +642,15 @@ mod tests {
         let transport = Arc::new(MockTransport::default());
 
         // Minimal block header for eth_getBlockByNumber.
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_getBlockByNumber",
+            "params": [json!("0x1"), json!(false)],
+        });
         transport.insert(
-            "eth_getBlockByNumber",
-            &[json!("0x1"), json!(false)],
+            "mock://test",
+            &payload,
             json!({
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -661,7 +667,7 @@ mod tests {
             }),
         );
 
-        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let config = Config::new().url("mock://test").chain_id(1);
         let client = Client::new_with_transport(config, transport.clone());
         let fork_config = ForkConfig {
             client: Arc::new(client),
@@ -674,14 +680,9 @@ mod tests {
         // Chain::fork seeds the deployer locally, so only the block header
         // should have been fetched over RPC.
         assert_eq!(
-            transport.call_count("eth_getBlockByNumber", &[json!("0x1"), json!(false)]),
+            transport.call_count("mock://test", &payload),
             1,
             "Chain::fork must fetch exactly one block header"
-        );
-        assert_eq!(
-            transport.batch_call_count(),
-            0,
-            "Chain::fork must not issue any batch requests for local-seeded accounts"
         );
 
         let db = chain.database().context("database unavailable")?;
@@ -705,9 +706,15 @@ mod tests {
         let transport = Arc::new(MockTransport::default());
 
         // Minimal block header for eth_getBlockByNumber.
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_getBlockByNumber",
+            "params": [json!("0x1"), json!(false)],
+        });
         transport.insert(
-            "eth_getBlockByNumber",
-            &[json!("0x1"), json!(false)],
+            "mock://test",
+            &payload,
             json!({
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -724,7 +731,7 @@ mod tests {
             }),
         );
 
-        let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
+        let config = Config::new().url("mock://test").chain_id(1);
         let client = Client::new_with_transport(config, transport.clone());
         let fork_config = ForkConfig {
             client: Arc::new(client),
@@ -736,14 +743,9 @@ mod tests {
         // Chain::fork injects both deployer and VM_ADDRESS locally, so only
         // the block header should have been fetched over RPC.
         assert_eq!(
-            transport.call_count("eth_getBlockByNumber", &[json!("0x1"), json!(false)]),
+            transport.call_count("mock://test", &payload),
             1,
             "Chain::fork must fetch exactly one block header"
-        );
-        assert_eq!(
-            transport.batch_call_count(),
-            0,
-            "Chain::fork must not issue any batch requests for local-seeded accounts"
         );
 
         let db = chain.database().context("database unavailable")?;

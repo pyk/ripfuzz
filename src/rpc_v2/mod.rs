@@ -1,8 +1,8 @@
-//! RPC v2: self-contained JSON-RPC client with 2-layer caching, deduplication,
+//! RPC v2: self-contained JSON-RPC client with caching, deduplication,
 //! rate limiting, retries, and typed EVM method wrappers.
 
 pub use cache::Cache;
-pub use client::{AgentPool, Block, Client, UrlPool};
+pub use client::{Block, Client};
 pub use config::Config;
 pub use dedup::DedupTable;
 pub use limiter::RateLimiter;

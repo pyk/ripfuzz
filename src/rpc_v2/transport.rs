@@ -6,21 +6,13 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 
-use crate::rpc_v2::client::{AgentPool, UrlPool};
-
 /// Trait for anything that can execute a JSON-RPC request.
+///
+/// The transport is intentionally dumb: it receives a JSON payload and a URL,
+/// sends the payload, and returns the raw JSON response.  No retries, no URL
+/// rotation, no caching, no deduplication, no rate limiting.
 pub trait Transport: Send + Sync + std::fmt::Debug {
-    /// Send a JSON-RPC request and return the full response envelope.
-    fn send(&self, payload: serde_json::Value) -> Result<serde_json::Value>;
-
-    /// Send a JSON-RPC batch request and return the full response envelopes.
-    ///
-    /// The default implementation loops over [`Self::send`] one request at a
-    /// time.  Concrete transports that support true HTTP batching should
-    /// override this.
-    fn send_batch(&self, payloads: Vec<serde_json::Value>) -> Result<Vec<serde_json::Value>> {
-        payloads.into_iter().map(|p| self.send(p)).collect()
-    }
+    fn exec(&self, url: &str, payload: &serde_json::Value) -> Result<serde_json::Value>;
 }
 
 // ----------------------------------------------------------------------------
@@ -29,131 +21,30 @@ pub trait Transport: Send + Sync + std::fmt::Debug {
 
 #[derive(Debug)]
 pub struct HttpTransport {
-    urls: UrlPool,
-    agents: AgentPool,
-    retries: u32,
-    retry_backoff: Duration,
+    agent: ureq::Agent,
 }
 
 impl HttpTransport {
-    pub fn new(
-        urls: Vec<String>,
-        agents: Vec<ureq::Agent>,
-        retries: u32,
-        retry_backoff: Duration,
-    ) -> Self {
-        Self {
-            urls: UrlPool::new(urls),
-            agents: AgentPool::new(agents),
-            retries,
-            retry_backoff,
-        }
-    }
-
-    /// Compute the sleep duration for a given retry attempt (0-indexed).
-    fn backoff_duration(&self, attempt: u32) -> Duration {
-        let multiplier = 2_u64.pow(attempt);
-        self.retry_backoff * multiplier as u32
+    pub fn new(agent: ureq::Agent) -> Self {
+        Self { agent }
     }
 }
 
 impl Transport for HttpTransport {
-    fn send(&self, payload: serde_json::Value) -> Result<serde_json::Value> {
-        let body = serde_json::to_vec(&payload).context("serializing RPC payload")?;
-        let url_count = self.urls.urls().len();
-        let mut last_err: Option<anyhow::Error> = None;
-
-        for _url_idx in 0..url_count {
-            let url = self.urls.next();
-            for attempt in 0..=self.retries {
-                let agent = self.agents.next();
-                match agent
-                    .post(url)
-                    .header("Content-Type", "application/json")
-                    .send(&body)
-                {
-                    Ok(mut response) => {
-                        let text = response
-                            .body_mut()
-                            .read_to_string()
-                            .context("reading RPC response body")?;
-                        let value: serde_json::Value =
-                            serde_json::from_str(&text).context("json decode")?;
-
-                        match value {
-                            serde_json::Value::Object(ref map) if map.get("error").is_some() => {
-                                let err = &map["error"];
-                                last_err = Some(anyhow::anyhow!("RPC error: {err}"));
-                            }
-                            serde_json::Value::Object(_) => {
-                                return Ok(value);
-                            }
-                            _ => {
-                                last_err = Some(anyhow::anyhow!("invalid RPC response"));
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        last_err = Some(anyhow::Error::new(e));
-                    }
-                }
-
-                if attempt < self.retries {
-                    std::thread::sleep(self.backoff_duration(attempt));
-                }
-            }
-        }
-
-        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("RPC request failed on all URLs")))
-    }
-
-    fn send_batch(&self, payloads: Vec<serde_json::Value>) -> Result<Vec<serde_json::Value>> {
-        let body = serde_json::to_vec(&payloads).context("serializing RPC batch payload")?;
-        let url_count = self.urls.urls().len();
-        let mut last_err: Option<anyhow::Error> = None;
-
-        for _url_idx in 0..url_count {
-            let url = self.urls.next();
-            for attempt in 0..=self.retries {
-                let agent = self.agents.next();
-                match agent
-                    .post(url)
-                    .header("Content-Type", "application/json")
-                    .send(&body)
-                {
-                    Ok(mut response) => {
-                        let text = response
-                            .body_mut()
-                            .read_to_string()
-                            .context("reading RPC batch response body")?;
-                        let value: serde_json::Value =
-                            serde_json::from_str(&text).context("json decode")?;
-
-                        match value {
-                            serde_json::Value::Array(arr) => {
-                                return Ok(arr);
-                            }
-                            serde_json::Value::Object(ref map) if map.get("error").is_some() => {
-                                let err = &map["error"];
-                                last_err = Some(anyhow::anyhow!("RPC batch error: {err}"));
-                            }
-                            _ => {
-                                last_err = Some(anyhow::anyhow!("invalid RPC batch response"));
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        last_err = Some(anyhow::Error::new(e));
-                    }
-                }
-
-                if attempt < self.retries {
-                    std::thread::sleep(self.backoff_duration(attempt));
-                }
-            }
-        }
-
-        Err(last_err.unwrap_or_else(|| anyhow::anyhow!("RPC batch request failed on all URLs")))
+    fn exec(&self, url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
+        let body = serde_json::to_vec(payload).context("serializing RPC payload")?;
+        let mut response = self
+            .agent
+            .post(url)
+            .header("Content-Type", "application/json")
+            .send(&body)
+            .context("sending RPC request")?;
+        let text = response
+            .body_mut()
+            .read_to_string()
+            .context("reading RPC response body")?;
+        let value: serde_json::Value = serde_json::from_str(&text).context("json decode")?;
+        Ok(value)
     }
 }
 
@@ -169,39 +60,34 @@ pub struct MockTransport {
 }
 
 impl MockTransport {
-    /// Insert a canned response for a given method and serialized params.
-    pub fn insert(&self, method: &str, params: &[serde_json::Value], response: serde_json::Value) {
-        let params_json = serde_json::to_string(params).unwrap_or_default();
+    /// Insert a canned response for a given URL and serialized payload.
+    pub fn insert(&self, url: &str, payload: &serde_json::Value, response: serde_json::Value) {
+        let payload_json = serde_json::to_string(payload).unwrap_or_default();
         let mut guard = self.responses.lock().unwrap_or_else(|e| e.into_inner());
-        guard.insert((method.into(), params_json), response);
+        guard.insert((url.into(), payload_json), response);
     }
 
-    /// Set an artificial delay for every `send` call.
+    /// Set an artificial delay for every `exec` call.
     pub fn set_delay(&self, delay: Duration) {
         *self.delay.lock().unwrap_or_else(|e| e.into_inner()) = Some(delay);
     }
 
     /// Return how many times a given request was dispatched.
-    pub fn call_count(&self, method: &str, params: &[serde_json::Value]) -> usize {
-        let params_json = serde_json::to_string(params).unwrap_or_default();
+    pub fn call_count(&self, url: &str, payload: &serde_json::Value) -> usize {
+        let payload_json = serde_json::to_string(payload).unwrap_or_default();
         let guard = self.call_count.lock().unwrap_or_else(|e| e.into_inner());
-        guard
-            .get(&(method.into(), params_json))
-            .copied()
-            .unwrap_or(0)
+        guard.get(&(url.into(), payload_json)).copied().unwrap_or(0)
     }
 }
 
 impl Transport for MockTransport {
-    fn send(&self, payload: serde_json::Value) -> Result<serde_json::Value> {
+    fn exec(&self, url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
         if let Some(delay) = *self.delay.lock().unwrap_or_else(|e| e.into_inner()) {
             std::thread::sleep(delay);
         }
 
-        let method = payload.get("method").and_then(|v| v.as_str()).unwrap_or("");
-        let params = payload.get("params").cloned().unwrap_or_default();
-        let params_json = serde_json::to_string(&params).unwrap_or_default();
-        let key = (method.into(), params_json.clone());
+        let payload_json = serde_json::to_string(payload).unwrap_or_default();
+        let key = (url.into(), payload_json);
 
         {
             let mut guard = self.call_count.lock().unwrap_or_else(|e| e.into_inner());
@@ -209,41 +95,18 @@ impl Transport for MockTransport {
         }
 
         let guard = self.responses.lock().unwrap_or_else(|e| e.into_inner());
-        let mut response = guard
-            .get(&key)
-            .cloned()
-            .with_context(|| format!("MockTransport: no response for {method} with {params:?}"))?;
+        let mut response = guard.get(&key).cloned().with_context(|| {
+            format!("MockTransport: no response for url={url} payload={payload}")
+        })?;
 
-        // Echo back the request id so batch matching works correctly.
-        if let Some(id) = payload.get("id")
+        // Echo back the request id so callers that match on id work correctly.
+        let id = payload.get("id").cloned();
+        if let Some(id) = id
             && let Some(obj) = response.as_object_mut()
         {
-            obj.insert("id".into(), id.clone());
+            obj.insert("id".into(), id);
         }
 
         Ok(response)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::*;
-
-    /// Regression for issue #3: backoff must double each attempt (exponential),
-    /// not multiply by (attempt + 1) (linear).
-    #[test]
-    fn backoff_is_exponential() {
-        let transport = HttpTransport::new(
-            vec!["http://a".into()],
-            vec![ureq::Agent::new_with_defaults()],
-            3,
-            Duration::from_millis(100),
-        );
-        assert_eq!(transport.backoff_duration(0), Duration::from_millis(100));
-        assert_eq!(transport.backoff_duration(1), Duration::from_millis(200));
-        assert_eq!(transport.backoff_duration(2), Duration::from_millis(400));
-        assert_eq!(transport.backoff_duration(3), Duration::from_millis(800));
     }
 }

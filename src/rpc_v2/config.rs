@@ -4,7 +4,7 @@
 //! parameters needed to connect to a remote JSON-RPC node for state forking.
 //!
 //! [`Config`] can validate its own consistency via [`Config::validate`],
-//! which checks that URLs and a fork block are configured, and that every
+//! which checks that a URL and a fork block are configured, and that the
 //! URL reports the same `chain_id` as the one configured (defaulting to `1`).
 //!
 //! # Example
@@ -14,7 +14,7 @@
 //! use raptor::rpc_v2::Config;
 //!
 //! let config = Config::new()
-//!     .urls(vec!["https://mainnet.example.com".into()])
+//!     .url("https://mainnet.example.com")
 //!     .block(18_000_000)
 //!     .chain_id(1);
 //!
@@ -23,7 +23,6 @@
 //! # }
 //! ```
 
-use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::fs::{create_dir_all, read_to_string, write};
 use std::hash::{Hash, Hasher};
@@ -36,17 +35,15 @@ use tracing::debug;
 /// Configuration for RPC fork mode.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
-    /// JSON-RPC endpoint URLs.
-    pub urls: Vec<String>,
+    /// JSON-RPC endpoint URL.
+    pub url: Option<String>,
     /// Block number to fork at.
     pub block: Option<u64>,
-    /// Number of concurrent HTTP agents in the pool.
-    pub pool_size: u32,
-    /// Maximum retry attempts per URL after transient failure.
+    /// Maximum retry attempts after transient failure.
     pub retries: u32,
     /// Initial retry backoff in milliseconds (doubles each attempt).
     pub backoff_ms: u64,
-    /// Optional rate limit: maximum requests per second across all URLs.
+    /// Optional rate limit: maximum requests per second.
     pub rate_limit: Option<u64>,
     /// Request timeout in milliseconds for each RPC call.
     pub timeout_ms: u64,
@@ -66,9 +63,8 @@ impl Config {
     /// Create a new configuration with sensible defaults.
     pub fn new() -> Self {
         Self {
-            urls: Vec::new(),
+            url: None,
             block: None,
-            pool_size: 2,
             retries: 3,
             backoff_ms: 100,
             rate_limit: None,
@@ -78,9 +74,9 @@ impl Config {
         }
     }
 
-    /// Set the JSON-RPC endpoint URLs.
-    pub fn urls(mut self, urls: impl Into<Vec<String>>) -> Self {
-        self.urls = urls.into();
+    /// Set the JSON-RPC endpoint URL.
+    pub fn url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
         self
     }
 
@@ -90,13 +86,7 @@ impl Config {
         self
     }
 
-    /// Set the number of concurrent HTTP agents in the pool.
-    pub fn pool_size(mut self, size: u32) -> Self {
-        self.pool_size = size.max(1);
-        self
-    }
-
-    /// Set the maximum retry attempts per URL after transient failure.
+    /// Set the maximum retry attempts after transient failure.
     pub fn retries(mut self, retries: u32) -> Self {
         self.retries = retries;
         self
@@ -108,7 +98,7 @@ impl Config {
         self
     }
 
-    /// Set an optional rate limit (maximum requests per second across all URLs).
+    /// Set an optional rate limit (maximum requests per second).
     pub fn rate_limit(mut self, limit: Option<u64>) -> Self {
         self.rate_limit = limit;
         self
@@ -139,31 +129,20 @@ impl Config {
     /// Validate the configuration.
     ///
     /// Ensures that:
-    /// - at least one URL is configured,
+    /// - a URL is configured,
     /// - a fork block number is set,
-    /// - every URL reports the same `chain_id` as the configured one.
+    /// - the URL reports the same `chain_id` as the configured one.
     pub fn validate(&self) -> Result<()> {
-        debug!(url_count = self.urls.len(), "validating RPC config");
-        ensure!(!self.urls.is_empty(), "at least one RPC URL is required");
+        let url = self.url.as_deref().context("RPC URL is required")?;
         ensure!(self.block.is_some(), "fork block number is required");
 
         let expected = self.chain_id;
-
-        let mut ids: Vec<(&str, u64)> = Vec::new();
-        for url in self.urls.iter().collect::<HashSet<&String>>() {
-            debug!(%url, "fetching chain_id from URL");
-            let id = self.get_chain_id(url)?;
-            ids.push((url, id));
-        }
-
-        ensure!(!ids.is_empty(), "no RPC URLs to validate");
-
-        for (url, id) in &ids {
-            ensure!(
-                *id == expected,
-                "URL {url} reports chain_id {id}, expected {expected}"
-            );
-        }
+        debug!(%url, "fetching chain_id from URL");
+        let id = self.get_chain_id(url)?;
+        ensure!(
+            id == expected,
+            "URL {url} reports chain_id {id}, expected {expected}"
+        );
 
         debug!(chain_id = expected, "RPC config validated successfully");
         Ok(())
@@ -287,9 +266,8 @@ mod tests {
     #[test]
     fn config_builder_roundtrip() {
         let config = Config::new()
-            .urls(vec!["http://localhost:8545".to_string()])
+            .url("http://localhost:8545")
             .block(1_000_000)
-            .pool_size(8)
             .retries(5)
             .backoff_ms(200)
             .rate_limit(Some(10))
@@ -297,9 +275,8 @@ mod tests {
             .chain_id(1)
             .cache_dir("/tmp/cache");
 
-        assert_eq!(config.urls, vec!["http://localhost:8545".to_string()]);
+        assert_eq!(config.url, Some("http://localhost:8545".to_string()));
         assert_eq!(config.block, Some(1_000_000));
-        assert_eq!(config.pool_size, 8);
         assert_eq!(config.retries, 5);
         assert_eq!(config.backoff_ms, 200);
         assert_eq!(config.rate_limit, Some(10));
@@ -314,9 +291,8 @@ mod tests {
     #[test]
     fn config_defaults() {
         let config = Config::new();
-        assert!(config.urls.is_empty());
+        assert_eq!(config.url, None);
         assert_eq!(config.block, None);
-        assert_eq!(config.pool_size, 2);
         assert_eq!(config.retries, 3);
         assert_eq!(config.backoff_ms, 100);
         assert_eq!(config.rate_limit, None);
@@ -330,29 +306,28 @@ mod tests {
     // -----------------------------------------------------------------
 
     #[test]
-    fn validate_fails_without_urls() {
+    fn validate_fails_without_url() {
         let config = Config::new().block(1);
         let err = config.validate().unwrap_err();
-        assert!(err.to_string().contains("at least one RPC URL is required"));
+        assert!(err.to_string().contains("RPC URL is required"));
     }
 
     #[test]
     fn validate_fails_without_block() {
-        let config = Config::new().urls(vec!["http://a.com".into()]);
+        let config = Config::new().url("http://a.com");
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("fork block number is required"));
     }
 
     #[test]
-    fn validate_succeeds_when_all_urls_match() {
+    fn validate_succeeds_when_url_matches() {
         let tmp = tempfile::tempdir().unwrap();
         let config = Config::new()
-            .urls(vec!["http://a.com".into(), "http://b.com".into()])
+            .url("http://a.com")
             .block(1)
             .cache_dir(tmp.path());
 
         seed_chain_id_cache(tmp.path(), "http://a.com", 1);
-        seed_chain_id_cache(tmp.path(), "http://b.com", 1);
 
         assert!(config.validate().is_ok());
     }
@@ -361,30 +336,16 @@ mod tests {
     fn validate_fails_on_chain_id_mismatch() {
         let tmp = tempfile::tempdir().unwrap();
         let config = Config::new()
-            .urls(vec!["http://a.com".into(), "http://b.com".into()])
+            .url("http://a.com")
             .block(1)
             .cache_dir(tmp.path());
 
-        seed_chain_id_cache(tmp.path(), "http://a.com", 1);
-        seed_chain_id_cache(tmp.path(), "http://b.com", 56);
+        seed_chain_id_cache(tmp.path(), "http://a.com", 56);
 
         let err = config.validate().unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("56"));
         assert!(msg.contains("expected 1"));
-    }
-
-    #[test]
-    fn validate_dedups_duplicate_urls() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config = Config::new()
-            .urls(vec!["http://a.com".into(), "http://a.com".into()])
-            .block(1)
-            .cache_dir(tmp.path());
-
-        seed_chain_id_cache(tmp.path(), "http://a.com", 1);
-
-        assert!(config.validate().is_ok());
     }
 
     // -----------------------------------------------------------------
@@ -395,7 +356,7 @@ mod tests {
     fn get_chain_id_reads_from_disk_cache() {
         let tmp = tempfile::tempdir().unwrap();
         let config = Config::new()
-            .urls(vec!["http://dummy.example.com".into()])
+            .url("http://dummy.example.com")
             .cache_dir(tmp.path());
 
         seed_chain_id_cache(tmp.path(), "http://dummy.example.com", 8453);
@@ -406,9 +367,7 @@ mod tests {
 
     #[test]
     fn get_chain_id_returns_error_for_unreachable_url() {
-        let config = Config::new()
-            .urls(vec!["http://127.0.0.1:1".into()])
-            .timeout_ms(100);
+        let config = Config::new().url("http://127.0.0.1:1").timeout_ms(100);
 
         let result = config.get_chain_id("http://127.0.0.1:1");
         assert!(result.is_err());
@@ -418,7 +377,7 @@ mod tests {
     fn get_chain_id_caches_after_fetch() {
         let tmp = tempfile::tempdir().unwrap();
         let config = Config::new()
-            .urls(vec!["http://127.0.0.1:1".into()])
+            .url("http://127.0.0.1:1")
             .cache_dir(tmp.path())
             .timeout_ms(100);
 
