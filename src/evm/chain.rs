@@ -293,6 +293,7 @@ impl Chain<CacheDB<ForkDB>> {
         cfg_env.disable_eip3607 = true;
         cfg_env.disable_base_fee = true;
         cfg_env.limit_contract_code_size = Some(usize::MAX);
+        cfg_env.limit_contract_initcode_size = Some(usize::MAX);
         cfg_env.set_spec_and_mainnet_gas_params(spec_id);
 
         let client = Arc::clone(&config.client);
@@ -1104,6 +1105,51 @@ mod tests {
             "excess_blob_gas must match RPC response"
         );
 
+        Ok(())
+    }
+
+    /// Regression: Chain::fork must disable the initcode size limit so that
+    /// large factory contracts or inlined deployment logic that runs during
+    /// forked setup does not revert with MaxInitCodeSizeExceeded.
+    #[test]
+    fn chain_fork_allows_unlimited_initcode_size() -> Result<()> {
+        let transport = MockTransport::default();
+
+        let batch_payload = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
+        ]);
+        transport.mock_response(
+            "mock://test",
+            &batch_payload,
+            json!([
+                {"jsonrpc":"2.0","id":100,"result":"0x1"},
+                {"jsonrpc":"2.0","id":101,"result":{
+                    "number":"0x1",
+                    "timestamp":"0x1",
+                    "miner":"0x0000000000000000000000000000000000000000",
+                    "gasLimit":"0xffffffffffffffff",
+                    "baseFeePerGas":"0x0",
+                    "difficulty":"0x0",
+                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+                }},
+            ]),
+        );
+
+        let config = Config::new("mock://test");
+        let client = Client::new_with_transport(config, transport.clone());
+        let fork_config = ForkConfig {
+            client: Arc::new(client),
+            block_number: 1,
+        };
+
+        let chain = Chain::fork(fork_config)?;
+        assert_eq!(
+            chain.cfg_env().limit_contract_initcode_size,
+            Some(usize::MAX),
+            "Chain::fork must disable initcode size limit just like Chain::new"
+        );
         Ok(())
     }
 }
