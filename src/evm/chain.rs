@@ -24,9 +24,47 @@ use crate::rpc_v2::Client;
 /// Default deployer address: `address(uint160(uint256(keccak256("raptor deployer"))))`.
 pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1");
 
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// LocalDB
+// ----------------------------------------------------------------------------
+
+/// Wrapper around `revm::EmptyDB` that returns `Some(AccountInfo::default())`
+/// for every address so that `CacheDB` never marks an account as
+/// `AccountState::NotExisting`.
+///
+/// In revm, `CacheDB` distinguishes between "non-existing" (`None`) and
+/// "empty" (`Some(AccountInfo::default())`). If an account is marked as
+/// `NotExisting`, state transitions differ when the account is later created
+/// (e.g. via `deal` or `etch`). A sandbox fuzzer has no state trie, so every
+/// address should be treated as empty rather than non-existing.
+///
+/// Foundry uses the same trick: see `foundry-evm-core::backend::EmptyDBWrapper`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LocalDB(EmptyDBTyped<Infallible>);
+
+impl DatabaseRef for LocalDB {
+    type Error = Infallible;
+
+    fn basic_ref(&self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        Ok(Some(AccountInfo::default()))
+    }
+
+    fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        self.0.code_by_hash_ref(code_hash)
+    }
+
+    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
+        self.0.storage_ref(address, index)
+    }
+
+    fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
+        self.0.block_hash_ref(number)
+    }
+}
+
+// ----------------------------------------------------------------------------
 // ForkDB
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 /// Thin newtype around `anyhow::Error` so we can implement `DBErrorMarker`.
 #[derive(Debug)]
@@ -113,54 +151,12 @@ impl DatabaseRef for ForkDB {
     }
 }
 
-// ----------------------------------------------------------------------------
-// ForkConfig
-// ----------------------------------------------------------------------------
-
 /// Configuration for a forked chain.
 #[derive(Debug, Clone)]
 pub struct ForkConfig {
     pub client: Arc<Client>,
     pub block_number: u64,
     pub chain_id: u64,
-}
-
-// ----------------------------------------------------------------------------
-// LocalDB
-// ----------------------------------------------------------------------------
-
-/// Wrapper around `revm::EmptyDB` that returns `Some(AccountInfo::default())`
-/// for every address so that `CacheDB` never marks an account as
-/// `AccountState::NotExisting`.
-///
-/// In revm, `CacheDB` distinguishes between "non-existing" (`None`) and
-/// "empty" (`Some(AccountInfo::default())`). If an account is marked as
-/// `NotExisting`, state transitions differ when the account is later created
-/// (e.g. via `deal` or `etch`). A sandbox fuzzer has no state trie, so every
-/// address should be treated as empty rather than non-existing.
-///
-/// Foundry uses the same trick: see `foundry-evm-core::backend::EmptyDBWrapper`.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LocalDB(EmptyDBTyped<Infallible>);
-
-impl DatabaseRef for LocalDB {
-    type Error = Infallible;
-
-    fn basic_ref(&self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        Ok(Some(AccountInfo::default()))
-    }
-
-    fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
-        self.0.code_by_hash_ref(code_hash)
-    }
-
-    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        self.0.storage_ref(address, index)
-    }
-
-    fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        self.0.block_hash_ref(number)
-    }
 }
 
 // ----------------------------------------------------------------------------
