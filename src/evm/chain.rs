@@ -661,35 +661,8 @@ mod tests {
             }),
         );
 
-        // Remote state for the deployer: zero balance so the test
-        // fails if Chain::fork forgets to override it locally.
-        transport.insert(
-            "eth_getBalance",
-            &[
-                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 1, "result": "0x0"}),
-        );
-        transport.insert(
-            "eth_getTransactionCount",
-            &[
-                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 2, "result": "0x0"}),
-        );
-        transport.insert(
-            "eth_getCode",
-            &[
-                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 3, "result": "0x"}),
-        );
-
         let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
-        let client = Client::new_with_transport(config, transport);
+        let client = Client::new_with_transport(config, transport.clone());
         let fork_config = ForkConfig {
             client: Arc::new(client),
             block_number: 1,
@@ -697,6 +670,19 @@ mod tests {
 
         let chain = Chain::fork(fork_config)?;
         assert_eq!(chain.deployer(), DEFAULT_DEPLOYER);
+
+        // Chain::fork seeds the deployer locally, so only the block header
+        // should have been fetched over RPC.
+        assert_eq!(
+            transport.call_count("eth_getBlockByNumber", &[json!("0x1"), json!(false)]),
+            1,
+            "Chain::fork must fetch exactly one block header"
+        );
+        assert_eq!(
+            transport.batch_call_count(),
+            0,
+            "Chain::fork must not issue any batch requests for local-seeded accounts"
+        );
 
         let db = chain.database().context("database unavailable")?;
         let info = db
@@ -738,67 +724,28 @@ mod tests {
             }),
         );
 
-        // Remote state for the deployer.
-        transport.insert(
-            "eth_getBalance",
-            &[
-                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 1, "result": "0x0"}),
-        );
-        transport.insert(
-            "eth_getTransactionCount",
-            &[
-                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 2, "result": "0x0"}),
-        );
-        transport.insert(
-            "eth_getCode",
-            &[
-                json!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 3, "result": "0x"}),
-        );
-
-        // Remote state for VM_ADDRESS: empty code so the test fails if
-        // Chain::fork forgets to override it locally.
-        transport.insert(
-            "eth_getBalance",
-            &[
-                json!("0x263af513a0435ebc9d5c362cf76252f87173f8f1"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 1, "result": "0x0"}),
-        );
-        transport.insert(
-            "eth_getTransactionCount",
-            &[
-                json!("0x263af513a0435ebc9d5c362cf76252f87173f8f1"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 2, "result": "0x0"}),
-        );
-        transport.insert(
-            "eth_getCode",
-            &[
-                json!("0x263af513a0435ebc9d5c362cf76252f87173f8f1"),
-                json!("0x1"),
-            ],
-            json!({"jsonrpc": "2.0", "id": 3, "result": "0x"}),
-        );
-
         let config = Config::new().urls(vec!["mock://test".into()]).chain_id(1);
-        let client = Client::new_with_transport(config, transport);
+        let client = Client::new_with_transport(config, transport.clone());
         let fork_config = ForkConfig {
             client: Arc::new(client),
             block_number: 1,
         };
 
         let chain = Chain::fork(fork_config)?;
+
+        // Chain::fork injects both deployer and VM_ADDRESS locally, so only
+        // the block header should have been fetched over RPC.
+        assert_eq!(
+            transport.call_count("eth_getBlockByNumber", &[json!("0x1"), json!(false)]),
+            1,
+            "Chain::fork must fetch exactly one block header"
+        );
+        assert_eq!(
+            transport.batch_call_count(),
+            0,
+            "Chain::fork must not issue any batch requests for local-seeded accounts"
+        );
+
         let db = chain.database().context("database unavailable")?;
         let info = db
             .basic_ref(VM_ADDRESS)
