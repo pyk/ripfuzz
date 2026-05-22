@@ -231,7 +231,7 @@ impl Chain<CacheDB<LocalDB>> {
         let mut block_env = BlockEnv {
             number: U256::from(1),
             beneficiary: Address::ZERO,
-            timestamp: U256::from(1),
+            timestamp: U256::from(1_438_269_988_u64),
             gas_limit: u64::MAX,
             basefee: 0,
             difficulty: U256::ZERO,
@@ -582,6 +582,20 @@ mod tests {
              got None, which marks the account as NotExisting in CacheDB"
         );
         assert_eq!(info.unwrap(), AccountInfo::default());
+    }
+
+    /// Chain::new must use the Ethereum mainnet block 1 timestamp
+    /// (`1438269988`) instead of a small sentinel like 1, which predates the
+    /// Unix epoch and can trigger underflows in contracts that compare
+    /// `block.timestamp` against deployment time or constant offsets.
+    #[test]
+    fn chain_new_uses_mainnet_block_one_timestamp() {
+        let chain = Chain::new();
+        assert_eq!(
+            chain.block_env().timestamp,
+            U256::from(1_438_269_988_u64),
+            "Chain::new should use the mainnet block 1 timestamp (1438269988)"
+        );
     }
 
     /// Chain::new must disable the contract code size limit so
