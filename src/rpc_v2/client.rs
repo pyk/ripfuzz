@@ -397,7 +397,7 @@ mod tests {
     fn mock_transport_roundtrip() {
         let transport = crate::rpc_v2::transport::MockTransport::default();
         let payload = request::payload("eth_blockNumber", &[]);
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
@@ -415,7 +415,7 @@ mod tests {
         let transport = crate::rpc_v2::transport::MockTransport::default();
         transport.set_delay(Duration::from_millis(100));
         let payload = request::payload("eth_blockNumber", &[]);
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
@@ -439,7 +439,7 @@ mod tests {
     fn rate_limit_throttles_without_network() {
         let transport = crate::rpc_v2::transport::MockTransport::default();
         let payload = request::payload("eth_blockNumber", &[]);
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1"}),
@@ -471,7 +471,7 @@ mod tests {
             {"jsonrpc":"2.0","id":101,"method":"eth_getTransactionCount","params":[addr, block_tag]},
             {"jsonrpc":"2.0","id":102,"method":"eth_getCode","params":[addr, block_tag]},
         ]);
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &batch,
             json!([
@@ -504,7 +504,7 @@ mod tests {
         let transport = crate::rpc_v2::transport::MockTransport::default();
         transport.set_delay(Duration::from_millis(100));
         let payload = request::payload("eth_blockNumber", &[]);
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
@@ -535,7 +535,7 @@ mod tests {
         let transport = crate::rpc_v2::transport::MockTransport::default();
         transport.set_delay(Duration::from_millis(200));
         let payload = request::payload("eth_blockNumber", &[]);
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0xdeadbeef"}),
@@ -587,12 +587,12 @@ mod tests {
                 json!("0x112233"),
             ],
         );
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload_a,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1"}),
         );
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload_b,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x2"}),
@@ -646,7 +646,7 @@ mod tests {
         let transport = crate::rpc_v2::transport::MockTransport::default();
         transport.set_delay(Duration::from_millis(50));
         let payload = request::payload("eth_blockNumber", &[]);
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1"}),
@@ -703,7 +703,7 @@ mod tests {
         let transport = crate::rpc_v2::transport::MockTransport::default();
         transport.set_delay(Duration::from_millis(50));
         let payload = request::payload("eth_blockNumber", &[]);
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0xcafe"}),
@@ -758,12 +758,12 @@ mod tests {
                 json!("0x1"),
             ],
         );
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload_bn,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
         );
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload_bal,
             json!({"jsonrpc": "2.0", "id": 1, "result": "0xc0ffee"}),
@@ -800,7 +800,7 @@ mod tests {
             {"jsonrpc":"2.0","id":101,"method":"eth_getTransactionCount","params":[addr, block_tag]},
             {"jsonrpc":"2.0","id":102,"method":"eth_getCode","params":[addr, block_tag]},
         ]);
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &batch,
             json!([
@@ -835,41 +835,29 @@ mod tests {
 
     /// Transport that returns batch responses in *reverse* order,
     /// echoing back the request `id` like a real JSON-RPC node.
-    #[derive(Debug, Clone)]
-    struct ReversedBatchTransport;
-
-    impl crate::rpc_v2::transport::Transport for ReversedBatchTransport {
-        fn exec(&self, _url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
-            let items = payload.as_array().context("expected batch")?;
-            let mut responses = Vec::with_capacity(items.len());
-            for payload in items {
-                let method = payload.get("method").and_then(|v| v.as_str()).unwrap_or("");
-                let id = payload.get("id").cloned().unwrap_or(json!(0));
-                let resp = match method {
-                    "eth_getBalance" => {
-                        json!({"jsonrpc":"2.0","id":id,"result":"0x00000000000000000000000000000000000000000000000000000000DEADBEEF"})
-                    }
-                    "eth_getTransactionCount" => {
-                        json!({"jsonrpc":"2.0","id":id,"result":"0x2"})
-                    }
-                    "eth_getCode" => {
-                        json!({"jsonrpc":"2.0","id":id,"result":"0xCAFEBABE"})
-                    }
-                    _ => json!({"jsonrpc":"2.0","id":id,"result":null}),
-                };
-                responses.push(resp);
-            }
-            // Reverse the order: JSON-RPC spec does not guarantee ordering.
-            responses.reverse();
-            Ok(json!(responses))
-        }
-    }
-
     // Regression test: batch responses may arrive out-of-order.
     // `get_account` must match by `id`, not by array position.
     #[test]
     fn get_account_matches_responses_by_id() {
-        let transport = ReversedBatchTransport;
+        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let addr = json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2");
+        let block_tag = json!("0x1");
+        let batch = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_getBalance","params":[addr, block_tag]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getTransactionCount","params":[addr, block_tag]},
+            {"jsonrpc":"2.0","id":102,"method":"eth_getCode","params":[addr, block_tag]},
+        ]);
+        // Responses in reverse order: JSON-RPC spec does not guarantee ordering.
+        transport.mock_response(
+            "mock://test",
+            &batch,
+            json!([
+                {"jsonrpc":"2.0","id":102,"result":"0xCAFEBABE"},
+                {"jsonrpc":"2.0","id":101,"result":"0x2"},
+                {"jsonrpc":"2.0","id":100,"result":"0x00000000000000000000000000000000000000000000000000000000DEADBEEF"},
+            ]),
+        );
+
         let config = Config::new("mock://test");
         let rpc = Client::new_with_transport(config, transport);
 
@@ -888,43 +876,36 @@ mod tests {
         assert_eq!(code, "0xCAFEBABE".parse::<Bytes>().unwrap());
     }
 
-    /// Transport that returns a batch containing one error on the first call,
-    /// and a clean batch on the second call. Echoes back request `id`s.
-    #[derive(Debug, Clone)]
-    struct ErrorThenSuccessTransport(Arc<std::sync::atomic::AtomicUsize>);
-
-    impl crate::rpc_v2::transport::Transport for ErrorThenSuccessTransport {
-        fn exec(&self, _url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
-            let count = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let items = payload.as_array().context("expected batch")?;
-            let ids: Vec<serde_json::Value> = items
-                .iter()
-                .map(|p| p.get("id").cloned().unwrap_or(json!(0)))
-                .collect();
-            if count == 0 {
-                // First call: balance item is an RPC error.
-                Ok(json!([
-                    {"jsonrpc":"2.0","id":ids[0],"error":{"code":-32000,"message":"rate limited"}},
-                    {"jsonrpc":"2.0","id":ids[1],"result":"0x1"},
-                    {"jsonrpc":"2.0","id":ids[2],"result":"0x6000"},
-                ]))
-            } else {
-                // Second call: clean data.
-                Ok(json!([
-                    {"jsonrpc":"2.0","id":ids[0],"result":"0xDEADBEEF"},
-                    {"jsonrpc":"2.0","id":ids[1],"result":"0x1"},
-                    {"jsonrpc":"2.0","id":ids[2],"result":"0x6000"},
-                ]))
-            }
-        }
-    }
-
     // Regression test: a batch containing an RPC error must NOT be cached.
     // The client retries, and the successful retry result is what gets
     // cached. A subsequent call must be served from cache.
     #[test]
     fn get_account_batch_error_retries_and_caches() {
-        let transport = ErrorThenSuccessTransport(Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+        let transport = crate::rpc_v2::transport::MockTransport::default();
+        let addr = json!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2");
+        let block_tag = json!("0x1");
+        let batch = json!([
+            {"jsonrpc":"2.0","id":100,"method":"eth_getBalance","params":[addr, block_tag]},
+            {"jsonrpc":"2.0","id":101,"method":"eth_getTransactionCount","params":[addr, block_tag]},
+            {"jsonrpc":"2.0","id":102,"method":"eth_getCode","params":[addr, block_tag]},
+        ]);
+        transport.mock_responses(
+            "mock://test",
+            &batch,
+            vec![
+                json!([
+                    {"jsonrpc":"2.0","id":100,"error":{"code":-32000,"message":"rate limited"}},
+                    {"jsonrpc":"2.0","id":101,"result":"0x1"},
+                    {"jsonrpc":"2.0","id":102,"result":"0x6000"},
+                ]),
+                json!([
+                    {"jsonrpc":"2.0","id":100,"result":"0xDEADBEEF"},
+                    {"jsonrpc":"2.0","id":101,"result":"0x1"},
+                    {"jsonrpc":"2.0","id":102,"result":"0x6000"},
+                ]),
+            ],
+        );
+
         let tmp = tempfile::tempdir().unwrap();
         let config = Config::new("mock://test").cache_dir(tmp.path());
         let rpc = Client::new_with_transport(config, transport.clone());
@@ -940,7 +921,7 @@ mod tests {
         assert_eq!(code, "0x6000".parse::<Bytes>().unwrap());
 
         // The transport was called twice (error, then retry).
-        assert_eq!(transport.0.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(transport.call_count("mock://test", &batch), 2);
 
         // Second call must be served from cache.
         let (balance2, nonce2, code2) = rpc.get_account(addr, 1).unwrap();
@@ -949,7 +930,7 @@ mod tests {
         assert_eq!(code2, "0x6000".parse::<Bytes>().unwrap());
 
         // No additional transport calls.
-        assert_eq!(transport.0.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(transport.call_count("mock://test", &batch), 2);
     }
 
     /// Regression (issue #4): Block must reject JSON missing critical fields.
@@ -990,7 +971,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let transport = crate::rpc_v2::transport::MockTransport::default();
         let payload = request::payload("eth_getBlockByNumber", &[json!("0x4d2"), json!(false)]);
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload,
             json!({

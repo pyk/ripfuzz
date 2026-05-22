@@ -647,7 +647,7 @@ mod tests {
             "method": "eth_getBlockByNumber",
             "params": [json!("0x1"), json!(false)],
         });
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload,
             json!({
@@ -712,7 +712,7 @@ mod tests {
             "method": "eth_getBlockByNumber",
             "params": [json!("0x1"), json!(false)],
         });
-        transport.insert(
+        transport.mock_response(
             "mock://test",
             &payload,
             json!({
