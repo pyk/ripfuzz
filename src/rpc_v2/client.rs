@@ -55,7 +55,6 @@ struct ClientInner {
     cache: Option<Cache>,
     dedup: DedupTable,
     limiter: Option<RateLimiter>,
-    chain_id: u64,
 }
 
 impl Client {
@@ -72,18 +71,16 @@ impl Client {
     /// Create a new client with a custom transport (e.g. for testing).
     pub fn new_with_transport(config: Config, transport: impl Transport + 'static) -> Self {
         let limiter = config.rate_limit.map(RateLimiter::new);
-        let cache = config.cache_dir.map(|dir| Cache::new(dir, config.chain_id));
-        let url = config.url.unwrap_or_default();
+        let cache = config.cache_dir.map(Cache::new);
         Self {
             inner: Arc::new(ClientInner {
                 transport: Box::new(transport),
-                url,
+                url: config.url,
                 retries: config.retries,
                 backoff: Duration::from_millis(config.backoff_ms),
                 cache,
                 dedup: DedupTable::new(),
                 limiter,
-                chain_id: config.chain_id,
             }),
         }
     }
@@ -92,11 +89,6 @@ impl Client {
     fn backoff_duration(&self, attempt: u32) -> Duration {
         let multiplier = 2_u64.pow(attempt);
         self.inner.backoff * multiplier as u32
-    }
-
-    /// Configured chain ID.
-    pub fn chain_id(&self) -> u64 {
-        self.inner.chain_id
     }
 
     /// Query the remote node for its latest block number.
@@ -392,7 +384,7 @@ mod tests {
     #[test]
     fn backoff_is_exponential() {
         let client = Client::new_with_transport(
-            Config::new().url("mock://test").chain_id(1).backoff_ms(100),
+            Config::new("mock://test").backoff_ms(100),
             crate::rpc_v2::transport::MockTransport::default(),
         );
         assert_eq!(client.backoff_duration(0), Duration::from_millis(100));
@@ -411,7 +403,7 @@ mod tests {
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
         );
 
-        let config = Config::new().url("mock://test").chain_id(1);
+        let config = Config::new("mock://test");
         let rpc = Client::new_with_transport(config, transport);
 
         let result = rpc.latest_block_number().unwrap();
@@ -429,7 +421,7 @@ mod tests {
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
         );
 
-        let config = Config::new().url("mock://test").chain_id(1);
+        let config = Config::new("mock://test");
         let rpc = Client::new_with_transport(config, transport.clone());
         let rpc2 = rpc.clone();
 
@@ -453,10 +445,7 @@ mod tests {
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1"}),
         );
 
-        let config = Config::new()
-            .url("mock://test")
-            .chain_id(1)
-            .rate_limit(Some(2));
+        let config = Config::new("mock://test").rate_limit(Some(2));
         let rpc = Client::new_with_transport(config, transport);
 
         let t0 = std::time::Instant::now();
@@ -492,10 +481,7 @@ mod tests {
             ]),
         );
 
-        let config = Config::new()
-            .url("mock://test")
-            .chain_id(1)
-            .rate_limit(Some(1)); // 1 req/sec
+        let config = Config::new("mock://test").rate_limit(Some(1)); // 1 req/sec
         let rpc = Client::new_with_transport(config, transport.clone());
 
         let addr: Address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
@@ -524,7 +510,7 @@ mod tests {
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1a2b"}),
         );
 
-        let config = Config::new().url("mock://test").chain_id(1);
+        let config = Config::new("mock://test");
         let rpc = Client::new_with_transport(config, transport.clone());
 
         let mut handles = Vec::new();
@@ -555,7 +541,7 @@ mod tests {
             json!({"jsonrpc": "2.0", "id": 1, "result": "0xdeadbeef"}),
         );
 
-        let config = Config::new().url("mock://test").chain_id(1);
+        let config = Config::new("mock://test");
         let rpc = Client::new_with_transport(config, transport.clone());
 
         let thread_count = 8;
@@ -612,7 +598,7 @@ mod tests {
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x2"}),
         );
 
-        let config = Config::new().url("mock://test").chain_id(1);
+        let config = Config::new("mock://test");
         let rpc = Client::new_with_transport(config, transport.clone());
 
         let addr_a: Address = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -666,10 +652,7 @@ mod tests {
             json!({"jsonrpc": "2.0", "id": 1, "result": "0x1"}),
         );
 
-        let config = Config::new()
-            .url("mock://test")
-            .chain_id(1)
-            .rate_limit(Some(1)); // 1 req/sec; no cache_dir => no cache layer
+        let config = Config::new("mock://test").rate_limit(Some(1)); // 1 req/sec; no cache_dir => no cache layer
         let rpc = Client::new_with_transport(config, transport.clone());
 
         // Batch 1 – token available, should complete immediately.
@@ -726,10 +709,7 @@ mod tests {
             json!({"jsonrpc": "2.0", "id": 1, "result": "0xcafe"}),
         );
 
-        let config = Config::new()
-            .url("mock://test")
-            .chain_id(1)
-            .rate_limit(Some(1));
+        let config = Config::new("mock://test").rate_limit(Some(1));
         let rpc = Client::new_with_transport(config, transport.clone());
 
         // Burn the single initial token.
@@ -790,10 +770,7 @@ mod tests {
         );
 
         let tmp = tempfile::tempdir().unwrap();
-        let config = Config::new()
-            .url("mock://test")
-            .chain_id(1)
-            .cache_dir(tmp.path());
+        let config = Config::new("mock://test").cache_dir(tmp.path());
         let rpc = Client::new_with_transport(config, transport.clone());
 
         let addr: Address = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -833,7 +810,7 @@ mod tests {
             ]),
         );
 
-        let config = Config::new().url("mock://test").chain_id(1);
+        let config = Config::new("mock://test");
         let rpc = Client::new_with_transport(config, transport.clone());
 
         let weth: Address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
@@ -893,7 +870,7 @@ mod tests {
     #[test]
     fn get_account_matches_responses_by_id() {
         let transport = ReversedBatchTransport;
-        let config = Config::new().url("mock://test").chain_id(1);
+        let config = Config::new("mock://test");
         let rpc = Client::new_with_transport(config, transport);
 
         let addr: Address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
@@ -949,10 +926,7 @@ mod tests {
     fn get_account_batch_error_retries_and_caches() {
         let transport = ErrorThenSuccessTransport(Arc::new(std::sync::atomic::AtomicUsize::new(0)));
         let tmp = tempfile::tempdir().unwrap();
-        let config = Config::new()
-            .url("mock://test")
-            .chain_id(1)
-            .cache_dir(tmp.path());
+        let config = Config::new("mock://test").cache_dir(tmp.path());
         let rpc = Client::new_with_transport(config, transport.clone());
 
         let addr: Address = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
@@ -1009,8 +983,8 @@ mod tests {
         }
     }
 
-    /// Regression: cache files must be stored under `rpc/{chain_id}/` and
-    /// block numbers in the filename must be decimal, not hex.
+    /// Regression: cache files must be stored under `rpc/` and block
+    /// numbers in the filename must be decimal, not hex.
     #[test]
     fn cache_path_uses_decimal_block_and_chain_id() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1032,21 +1006,14 @@ mod tests {
             }),
         );
 
-        let config = Config::new()
-            .url("mock://test")
-            .chain_id(1)
-            .cache_dir(tmp.path());
+        let config = Config::new("mock://test").cache_dir(tmp.path());
         let rpc = Client::new_with_transport(config, transport);
 
         let block = rpc.get_block_by_number(1234).unwrap();
         assert_eq!(block.number.to::<u64>(), 1234);
 
-        // Correct path: chain_id directory + decimal block number
-        let expected = tmp
-            .path()
-            .join("rpc")
-            .join("1")
-            .join("get_block_by_number_1234.json");
+        // Correct path: rpc directory + decimal block number
+        let expected = tmp.path().join("rpc").join("get_block_by_number_1234.json");
         assert!(
             expected.exists(),
             "expected cache file at {expected:?}, but it was not found"
@@ -1062,7 +1029,7 @@ mod tests {
         LIVE_CLIENT.get_or_init(|| {
             let url = std::env::var("RAPTOR_RPC_URL")
                 .expect("RAPTOR_RPC_URL must be set to run live tests");
-            let config = Config::new().url(url).chain_id(1);
+            let config = Config::new(url);
             Client::new(config)
         })
     }

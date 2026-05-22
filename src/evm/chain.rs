@@ -122,6 +122,7 @@ impl DatabaseRef for ForkDB {
 pub struct ForkConfig {
     pub client: Arc<Client>,
     pub block_number: u64,
+    pub chain_id: u64,
 }
 
 // ----------------------------------------------------------------------------
@@ -253,10 +254,8 @@ impl Chain<CacheDB<LocalDB>> {
 impl Chain<CacheDB<ForkDB>> {
     /// Create a new forked EVM pinned to a remote block.
     pub fn fork(config: ForkConfig) -> Result<Self> {
-        let chain_id = config.client.chain_id();
-
         let mut cfg_env = CfgEnv::default();
-        cfg_env.chain_id = chain_id;
+        cfg_env.chain_id = config.chain_id;
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);
         cfg_env.disable_nonce_check = true;
         cfg_env.disable_eip3607 = true;
@@ -667,11 +666,12 @@ mod tests {
             }),
         );
 
-        let config = Config::new().url("mock://test").chain_id(1);
+        let config = Config::new("mock://test");
         let client = Client::new_with_transport(config, transport.clone());
         let fork_config = ForkConfig {
             client: Arc::new(client),
             block_number: 1,
+            chain_id: 1,
         };
 
         let chain = Chain::fork(fork_config)?;
@@ -731,11 +731,12 @@ mod tests {
             }),
         );
 
-        let config = Config::new().url("mock://test").chain_id(1);
+        let config = Config::new("mock://test");
         let client = Client::new_with_transport(config, transport.clone());
         let fork_config = ForkConfig {
             client: Arc::new(client),
             block_number: 1,
+            chain_id: 1,
         };
 
         let chain = Chain::fork(fork_config)?;

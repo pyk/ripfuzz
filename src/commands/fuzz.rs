@@ -360,32 +360,27 @@ pub fn run(args: Args) -> Result<()> {
             .fork_mode
             .rpc_block
             .context("--rpc-block is required with --rpc-url")?;
-        let config = rpc_v2::Config::new()
-            .url(
-                args.fork_mode
-                    .rpc_urls
-                    .first()
-                    .cloned()
-                    .context("at least one RPC URL is required")?,
-            )
-            .block(block)
+        let url = args
+            .fork_mode
+            .rpc_urls
+            .first()
+            .cloned()
+            .context("at least one RPC URL is required")?;
+        let config = rpc_v2::Config::new(url)
             .retries(args.fork_mode.rpc_retries)
             .backoff_ms(args.fork_mode.rpc_backoff)
             .rate_limit(args.fork_mode.rpc_rate_limit)
             .timeout_ms(args.fork_mode.rpc_timeout)
-            .chain_id(args.fork_mode.rpc_chain_id)
             .cache_dir(&cache_dir);
         info!(
-            chain_id = config.chain_id,
-            block = config.block,
+            chain_id = args.fork_mode.rpc_chain_id,
+            block = block,
             "loading fork"
         );
-        info!("validating rpc configurations");
-        config.validate()?;
         let client = rpc_v2::Client::new(config);
         let rpc = Arc::new(client);
         info!("creating fork environment");
-        chain_v2::Environment::fork(rpc, block)?
+        chain_v2::Environment::fork(rpc, block, args.fork_mode.rpc_chain_id)?
     };
 
     // -----------------------------------------------------------------------
