@@ -16,7 +16,6 @@ use crate::contract::resolve_coverage_to_source;
 use crate::evm;
 use crate::foundry;
 use crate::rpc::RpcClient;
-use crate::rpc_v2;
 use crate::target;
 
 fn default_threads() -> usize {
@@ -327,21 +326,14 @@ pub fn run(args: Args) -> Result<()> {
             .rpc_url
             .as_ref()
             .context("--rpc-url is required")?;
-        let chain_id = crate::rpc::get_chain_id(&project_path, url)?;
-        let config = rpc_v2::Config::new(url.clone())
+        let config = crate::evm::forkdb::Config::new(url.clone())
             .retries(args.fork_mode.rpc_retries)
             .backoff_ms(args.fork_mode.rpc_backoff)
             .rate_limit(args.fork_mode.rpc_rate_limit)
             .timeout_ms(args.fork_mode.rpc_timeout)
             .cache_dir(&cache_dir);
-        info!(chain_id, block = block, "loading fork");
-        let client = rpc_v2::Client::new(config);
-        let rpc = Arc::new(client);
-        info!("creating fork environment");
-        evm::Chain::fork(evm::ForkConfig {
-            client: rpc,
-            block_number: block,
-        })?
+        info!("forking a chain"); // TODO: add chain name, block number etc
+        evm::Chain::fork(config, block)?
     };
 
     // -----------------------------------------------------------------------
