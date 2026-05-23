@@ -71,6 +71,12 @@ impl Chain {
         let chain_id = chain_id.context("missing ChainId response")?;
         let block = block.context("missing BlockByNumber response")?;
 
+        let returned_number = block.number.to::<u64>();
+        ensure!(
+            returned_number == block_number,
+            "RPC returned block {returned_number} but requested block {block_number}"
+        );
+
         let spec_id = crate::evm::specs::get_spec_id(chain_id, block.timestamp.to());
 
         let mut cfg_env = CfgEnv::default();
@@ -520,6 +526,53 @@ mod tests {
             chain.cfg_env().limit_contract_initcode_size,
             Some(usize::MAX),
             "Chain::fork must disable initcode size limit just like Chain::new"
+        );
+    }
+
+    /// Regression: Chain::fork must validate that the block returned by
+    /// eth_getBlockByNumber matches the requested block number. A lagging node,
+    /// reorg race, or misconfigured proxy could return a different block.
+    #[test]
+    fn chain_fork_rejects_mismatched_block_number() {
+        let transport = MockTransport::default();
+
+        let batch_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x64"), json!(false)]},
+        ]);
+        // Return block number 1 when block 100 was requested.
+        transport.mock_response(
+            "mock://test",
+            &batch_payload,
+            json!([
+                {"jsonrpc":"2.0","id":0,"result":"0x1"},
+                {"jsonrpc":"2.0","id":1,"result":{
+                    "number":"0x1",
+                    "timestamp":"0x1",
+                    "miner":"0x0000000000000000000000000000000000000000",
+                    "gasLimit":"0xffffffffffffffff",
+                    "baseFeePerGas":"0x0",
+                    "difficulty":"0x0",
+                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+                }},
+            ]),
+        );
+
+        let config = Config::new("mock://test");
+        let result = Chain::fork_with_transport(config, transport.clone(), 100);
+        assert!(
+            result.is_err(),
+            "Chain::fork must reject a block whose number does not match the requested height"
+        );
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("100"),
+            "error message must mention the requested block number: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("1"),
+            "error message must mention the returned block number: {err_msg}"
         );
     }
 }
