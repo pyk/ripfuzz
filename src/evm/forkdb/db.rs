@@ -72,6 +72,82 @@ impl ForkDB {
             contracts: Arc::new(Mutex::new(contracts)),
         }
     }
+
+    /// Parse the heterogeneous batch responses for `basic_ref` into an
+    /// `AccountInfo`.  The responses may arrive in any order; we match by
+    /// variant rather than by index so that `db.rs` is decoupled from the
+    /// batcher's ordering guarantees.
+    fn parse_basic_responses(
+        &self,
+        responses: Vec<Response>,
+    ) -> Result<Option<AccountInfo>, ForkDBError> {
+        let mut balance = None;
+        let mut nonce = None;
+        let mut code = None;
+
+        for response in responses {
+            match response {
+                Response::Balance(v) => {
+                    if balance.is_some() {
+                        return Err(ForkDBError::from(anyhow::anyhow!(
+                            "duplicate Balance response"
+                        )));
+                    }
+                    balance = Some(v);
+                }
+                Response::TransactionCount(v) => {
+                    if nonce.is_some() {
+                        return Err(ForkDBError::from(anyhow::anyhow!(
+                            "duplicate TransactionCount response"
+                        )));
+                    }
+                    nonce = Some(v);
+                }
+                Response::Code(v) => {
+                    if code.is_some() {
+                        return Err(ForkDBError::from(anyhow::anyhow!(
+                            "duplicate Code response"
+                        )));
+                    }
+                    code = Some(v);
+                }
+                _ => {
+                    return Err(ForkDBError::from(anyhow::anyhow!(
+                        "unexpected response in basic_ref batch"
+                    )));
+                }
+            }
+        }
+
+        let balance = balance
+            .ok_or_else(|| ForkDBError::from(anyhow::anyhow!("missing Balance response")))?;
+        let nonce = nonce.ok_or_else(|| {
+            ForkDBError::from(anyhow::anyhow!("missing TransactionCount response"))
+        })?;
+        let code =
+            code.ok_or_else(|| ForkDBError::from(anyhow::anyhow!("missing Code response")))?;
+
+        let bytecode = if code.is_empty() {
+            Bytecode::default()
+        } else {
+            Bytecode::new_raw(code)
+        };
+        let code_hash = bytecode.hash_slow();
+        if !bytecode.is_empty() {
+            self.contracts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .put(code_hash, bytecode.clone());
+        }
+
+        Ok(Some(AccountInfo {
+            balance,
+            nonce,
+            code_hash,
+            code: Some(bytecode),
+            account_id: None,
+        }))
+    }
 }
 
 impl DatabaseRef for ForkDB {
@@ -98,51 +174,7 @@ impl DatabaseRef for ForkDB {
             ])
             .map_err(ForkDBError::from)?;
 
-        let balance = match &responses[0] {
-            Response::Balance(v) => *v,
-            _ => {
-                return Err(ForkDBError::from(anyhow::anyhow!(
-                    "unexpected response for GetBalance"
-                )));
-            }
-        };
-        let nonce = match &responses[1] {
-            Response::TransactionCount(v) => *v,
-            _ => {
-                return Err(ForkDBError::from(anyhow::anyhow!(
-                    "unexpected response for GetTransactionCount"
-                )));
-            }
-        };
-        let code = match &responses[2] {
-            Response::Code(v) => v.clone(),
-            _ => {
-                return Err(ForkDBError::from(anyhow::anyhow!(
-                    "unexpected response for GetCode"
-                )));
-            }
-        };
-
-        let bytecode = if code.is_empty() {
-            Bytecode::default()
-        } else {
-            Bytecode::new_raw(code)
-        };
-        let code_hash = bytecode.hash_slow();
-        if !bytecode.is_empty() {
-            self.contracts
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .put(code_hash, bytecode.clone());
-        }
-
-        Ok(Some(AccountInfo {
-            balance,
-            nonce,
-            code_hash,
-            code: Some(bytecode),
-            account_id: None,
-        }))
+        self.parse_basic_responses(responses)
     }
 
     fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
@@ -209,6 +241,7 @@ impl DatabaseRef for ForkDB {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_primitives::Bytes;
     use serde_json::json;
 
     use crate::evm::forkdb::{Config as ForkdbConfig, MockTransport};
@@ -264,5 +297,31 @@ mod tests {
             2,
             "contracts cache must be bounded by LRU capacity"
         );
+    }
+
+    /// Regression: ForkDB::basic_ref must not assume that the batcher returns
+    /// responses in the same order as the requests.  If the response order
+    /// changes (or a future batcher reorders them), matching by index silently
+    /// corrupts account state.
+    #[test]
+    fn basic_ref_is_order_independent() {
+        let transport = MockTransport::default();
+        let config = ForkdbConfig::new("mock://test");
+        let client = Client::new_with_transport(config, transport);
+        let fork_db = ForkDB::new(Arc::new(client), 1);
+
+        // Responses arrive in a different order than the requests.
+        let responses = vec![
+            Response::TransactionCount(2),
+            Response::Code(Bytes::from_static(&[0x60, 0x00])),
+            Response::Balance(U256::from(1)),
+        ];
+
+        let info = fork_db.parse_basic_responses(responses).unwrap().unwrap();
+        assert_eq!(info.balance, U256::from(1));
+        assert_eq!(info.nonce, 2);
+        let expected_code = Bytecode::new_raw(Bytes::from_static(&[0x60, 0x00]));
+        assert_eq!(info.code, Some(expected_code.clone()));
+        assert_eq!(info.code_hash, expected_code.hash_slow());
     }
 }

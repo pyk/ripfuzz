@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use alloy_primitives::U256;
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, bail, ensure};
 use revm::{
     bytecode::Bytecode,
     context::{BlockEnv, CfgEnv},
@@ -51,14 +51,25 @@ impl Chain {
             ])
             .with_context(|| format!("fetching fork info for block {block_number}"))?;
 
-        let chain_id = match &responses[0] {
-            Response::ChainId(v) => *v,
-            _ => bail!("unexpected response for GetChainId"),
-        };
-        let block = match &responses[1] {
-            Response::BlockByNumber(b) => b.clone(),
-            _ => bail!("unexpected response for GetBlockByNumber"),
-        };
+        let mut chain_id = None;
+        let mut block = None;
+
+        for response in responses {
+            match response {
+                Response::ChainId(v) => {
+                    ensure!(chain_id.is_none(), "duplicate ChainId response");
+                    chain_id = Some(v);
+                }
+                Response::BlockByNumber(b) => {
+                    ensure!(block.is_none(), "duplicate BlockByNumber response");
+                    block = Some(b);
+                }
+                _ => bail!("unexpected response in fork batch"),
+            }
+        }
+
+        let chain_id = chain_id.context("missing ChainId response")?;
+        let block = block.context("missing BlockByNumber response")?;
 
         let spec_id = crate::evm::specs::get_spec_id(chain_id, block.timestamp.to());
 
