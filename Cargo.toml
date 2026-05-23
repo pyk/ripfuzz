@@ -58,6 +58,7 @@ solc = "0.0.10"
 
 # Parallel processing
 rayon = "1.12"
+crossbeam = "0.8"
 
 # Path traversal
 walkdir = "2"
