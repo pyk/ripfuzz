@@ -31,7 +31,7 @@ impl Drop for DedupGuard<'_> {
         if self.active {
             trace!(key = %self.key, "dedup guard dropping - completing with error");
             self.table
-                .complete(&self.key, Err(anyhow!("dedup caller panicked")));
+                .complete(&self.key, Err(anyhow!("batcher restarted")));
         }
     }
 }

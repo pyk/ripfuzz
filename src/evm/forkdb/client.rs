@@ -189,20 +189,29 @@ impl Client {
         //    guard gets properly completed even if one request errors.
         let mut resp_results = Vec::with_capacity(receivers.len());
         for (_, _, _, rx) in &receivers {
-            resp_results.push(rx.recv().map_err(|_| Error::Internal {
-                message: "batch worker response channel closed".into(),
-            })?);
+            resp_results.push(rx.recv().map_err(|_| Error::BatcherRestarted));
         }
 
         // 4. Fill results and deactivate dedup guards (batcher already cached & completed).
         for ((idx, _cache_key, guard, _), resp_result) in receivers.into_iter().zip(resp_results) {
             match resp_result {
-                Ok(response) => {
+                Ok(Ok(response)) => {
                     guard.deactivate();
                     results[idx] = Some(response);
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     guard.deactivate();
+                    if any_err.is_none() {
+                        any_err = Some(e);
+                    }
+                }
+                Err(e) => {
+                    // BatcherRestarted means the batcher panicked before
+                    // calling complete. Leave the guard active so its Drop
+                    // notifies waiters with a transient error they can retry.
+                    if !matches!(e, Error::BatcherRestarted) {
+                        guard.deactivate();
+                    }
                     if any_err.is_none() {
                         any_err = Some(e);
                     }
@@ -508,6 +517,99 @@ mod tests {
             transport.call_count(url, &payload),
             1,
             "waiter must not resubmit after dedup error; only the leader's request should hit the transport"
+        );
+    }
+
+    /// Regression: when the batcher panics while processing a request, the
+    /// in-flight request must receive a transient error so that higher-level
+    /// retry logic can safely retry. Previously it received Error::Internal
+    /// which is permanent.
+    #[test]
+    fn batcher_panic_returns_transient_error_for_leader() {
+        #[derive(Debug)]
+        struct PanicTransport;
+
+        impl Transport for PanicTransport {
+            fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
+                panic!("simulated transport panic");
+            }
+        }
+
+        let config = Config::new("mock://panic").batch_timeout_ms(0).retries(0);
+        let client = Client::new_with_transport(config, PanicTransport);
+
+        let res = client.request(&[Request::GetChainId]);
+        assert!(
+            res.is_err(),
+            "leader request must fail because batcher panicked"
+        );
+
+        let err = res.unwrap_err();
+        assert!(
+            err.is_transient(),
+            "leader error must be transient so callers can retry; got: {err}"
+        );
+    }
+
+    /// Regression: when the batcher panics, dedup waiters must also receive a
+    /// transient error, not a permanent internal error.
+    #[test]
+    fn batcher_panic_returns_transient_error_for_waiter() {
+        #[derive(Debug)]
+        struct BlockingPanicTransport {
+            barrier: Arc<Barrier>,
+        }
+
+        impl Transport for BlockingPanicTransport {
+            fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
+                self.barrier.wait();
+                panic!("simulated transport panic");
+            }
+        }
+
+        let batcher_barrier = Arc::new(Barrier::new(2));
+        let transport = BlockingPanicTransport {
+            barrier: Arc::clone(&batcher_barrier),
+        };
+
+        let config = Config::new("mock://panic").batch_timeout_ms(0).retries(0);
+        let client = Arc::new(Client::new_with_transport(config, transport));
+
+        let req_barrier = Arc::new(Barrier::new(3));
+        let req_barrier1 = Arc::clone(&req_barrier);
+        let client2 = Arc::clone(&client);
+        let req_barrier2 = Arc::clone(&req_barrier);
+
+        let handle1 = std::thread::spawn(move || {
+            req_barrier1.wait();
+            client.request(&[Request::GetChainId])
+        });
+        let handle2 = std::thread::spawn(move || {
+            req_barrier2.wait();
+            client2.request(&[Request::GetChainId])
+        });
+
+        // Release both request threads simultaneously.
+        req_barrier.wait();
+
+        // Wait until the batcher has entered transport.exec() (i.e. started processing).
+        batcher_barrier.wait();
+
+        // Batcher will now panic.
+
+        let res1 = handle1.join().unwrap();
+        let res2 = handle2.join().unwrap();
+
+        assert!(res1.is_err(), "leader must fail after batcher panic");
+        assert!(res2.is_err(), "waiter must fail after batcher panic");
+
+        assert!(
+            res1.unwrap_err().is_transient(),
+            "leader error must be transient"
+        );
+        assert!(
+            res2.unwrap_err().is_transient(),
+            "waiter error must be transient"
         );
     }
 }

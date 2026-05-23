@@ -18,6 +18,9 @@ pub enum Error {
     UnexpectedResponse { message: String },
     /// The requested account or code hash is not present in the fork database.
     MissingAccount { message: String },
+    /// The batcher worker restarted (e.g. after a panic). The request should
+    /// be retried by higher-level logic.
+    BatcherRestarted,
     /// An internal error (channel closed, worker shut down, etc.).
     Internal { message: String },
 }
@@ -26,7 +29,10 @@ impl Error {
     /// Returns `true` if this error is likely transient and the request
     /// should be retried.
     pub fn is_transient(&self) -> bool {
-        matches!(self, Self::RpcTimeout { .. } | Self::RateLimited { .. })
+        matches!(
+            self,
+            Self::RpcTimeout { .. } | Self::RateLimited { .. } | Self::BatcherRestarted
+        )
     }
 }
 
@@ -42,6 +48,9 @@ impl std::fmt::Display for Error {
             }
             Self::MissingAccount { message } => {
                 write!(f, "missing account in fork DB: {message}")
+            }
+            Self::BatcherRestarted => {
+                write!(f, "batcher restarted, request should be retried")
             }
             Self::Internal { message } => write!(f, "internal fork DB error: {message}"),
         }
@@ -77,6 +86,9 @@ impl From<anyhow::Error> for Error {
         }
         if msg.contains("timeout") || msg.contains("timed out") {
             return Self::RpcTimeout { url: String::new() };
+        }
+        if msg.contains("batcher restarted") {
+            return Self::BatcherRestarted;
         }
         Self::Internal { message: msg }
     }
@@ -114,5 +126,16 @@ mod tests {
         };
         assert!(matches!(decode, Error::DecodeError { .. }));
         assert!(!decode.is_transient());
+
+        let restarted = Error::BatcherRestarted;
+        assert!(matches!(restarted, Error::BatcherRestarted));
+        assert!(restarted.is_transient());
+
+        let from_anyhow = Error::from(anyhow::anyhow!("batcher restarted"));
+        assert!(
+            matches!(from_anyhow, Error::BatcherRestarted),
+            "anyhow containing 'batcher restarted' must map to Error::BatcherRestarted"
+        );
+        assert!(from_anyhow.is_transient());
     }
 }
