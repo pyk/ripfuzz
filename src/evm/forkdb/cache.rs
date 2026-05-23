@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use anyhow::Result;
 use lru::LruCache;
 use serde_json::Value;
+use walkdir::WalkDir;
 
 use crate::evm::forkdb::request::Request;
 
@@ -36,11 +37,13 @@ impl Cache {
             Some(n) => LruCache::new(n),
             None => LruCache::unbounded(),
         };
-        Self {
+        let cache = Self {
             base_dir: base_dir.as_ref().to_path_buf(),
             memory: Mutex::new(memory),
             insert_count: AtomicUsize::new(0),
-        }
+        };
+        cache.load_from_disk();
+        cache
     }
 
     fn cache_file_path(&self, req: &Request) -> PathBuf {
@@ -59,28 +62,42 @@ impl Cache {
         Ok(())
     }
 
-    /// Lookup in the in-memory cache first, then fall back to a lazy disk load.
-    pub fn get(&self, req: &Request) -> Option<Value> {
-        let key = req.cache_key();
+    /// Load all existing `.json` files from the base directory into the
+    /// in-memory LRU so that `get` never touches the filesystem.
+    fn load_from_disk(&self) {
+        let mut guard = self.memory.lock().unwrap_or_else(|e| e.into_inner());
+        for entry in WalkDir::new(&self.base_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
         {
-            let mut guard = self.memory.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(v) = guard.get(&key) {
-                return Some(v.clone());
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.path();
+            if path.extension().is_none_or(|ext| ext != "json") {
+                continue;
+            }
+            if let Ok(data) = fs::read(path)
+                && let Ok(value) = serde_json::from_slice::<Value>(&data)
+                && let Ok(relative) = path.strip_prefix(&self.base_dir)
+            {
+                let key = relative.to_string_lossy();
+                let key = match key.strip_suffix(".json") {
+                    Some(k) => k,
+                    None => &key,
+                };
+                guard.put(key.into(), value);
             }
         }
+    }
 
-        let path = self.cache_file_path(req);
-        if !path.exists() {
-            return None;
-        }
-
-        let data = fs::read(&path).ok()?;
-        let value: Value = serde_json::from_slice(&data).ok()?;
-
+    /// Lookup in the in-memory cache only. The disk is never touched on the
+    /// hot path; all persisted entries are loaded into memory when the Cache
+    /// is constructed.
+    pub fn get(&self, req: &Request) -> Option<Value> {
+        let key = req.cache_key();
         let mut guard = self.memory.lock().unwrap_or_else(|e| e.into_inner());
-        guard.put(key, value.clone());
-
-        Some(value)
+        guard.get(&key).cloned()
     }
 
     /// Insert into memory and persist atomically to disk.
@@ -213,9 +230,41 @@ mod tests {
             "memory cache must respect LRU capacity"
         );
 
-        // Evicted entry must still be available from disk.
-        assert_eq!(cache.get(&req1).unwrap(), "0x1");
+        // Evicted entry must NOT be reloaded from disk on the hot path.
+        assert!(
+            cache.get(&req1).is_none(),
+            "evicted entry must not trigger a disk read on get"
+        );
+
+        // The remaining two entries are still in memory.
         assert_eq!(cache.get(&req2).unwrap(), "0x2");
         assert_eq!(cache.get(&req3).unwrap(), "0x3");
+
+        // After construction, a new Cache instance loads the disk contents
+        // into memory, so persisted entries survive a restart.
+        let cache2 = Cache::with_capacity(tmp.path(), 3);
+        assert_eq!(cache2.get(&req1).unwrap(), "0x1");
+        assert_eq!(cache2.get(&req2).unwrap(), "0x2");
+        assert_eq!(cache2.get(&req3).unwrap(), "0x3");
+    }
+
+    /// Regression: the hot path must never touch the filesystem. A new Cache
+    /// instance loads disk contents into memory at construction time; after
+    /// that, `get` must remain a pure memory operation.
+    #[test]
+    fn cache_get_never_reads_disk_after_construction() {
+        let tmp = tempdir().unwrap();
+        let cache = Cache::new(tmp.path());
+
+        let req = Request::GetChainId;
+        cache.insert(&req, json!("0x1"));
+
+        // New instance loads from disk eagerly during construction.
+        let cache2 = Cache::new(tmp.path());
+        // Remove the backing directory so any disk read would fail.
+        fs::remove_dir_all(tmp.path()).unwrap();
+
+        // Must still succeed because the value is fully in memory.
+        assert_eq!(cache2.get(&req).unwrap(), "0x1");
     }
 }
