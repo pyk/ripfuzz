@@ -1,10 +1,8 @@
 //! Strongly typed JSON-RPC requests for EVM state fetches.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, U256, utils::keccak256};
 use serde_json::json;
 
 /// Strongly typed JSON-RPC request for a single EVM state fetch.
@@ -150,14 +148,24 @@ impl Request {
 
 /// Deterministic hash of an RPC URL, used as the `eth_chainId` cache key.
 pub fn url_hash(url: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    url.hash(&mut hasher);
-    hasher.finish()
+    let hash = keccak256(url.as_bytes());
+    u64::from_be_bytes(hash[..8].try_into().unwrap())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Request;
+    use super::{Request, url_hash};
+
+    /// Regression: `url_hash` must be deterministic across process restarts.
+    /// `std::collections::hash_map::DefaultHasher` is seeded with random state
+    /// per process, so it cannot be used for cross-process cache keys.
+    /// The expected value below was computed with `keccak256(url)[..8]`.
+    #[test]
+    fn url_hash_is_deterministic() {
+        let h = url_hash("http://rpc.example");
+        // Deterministic expected value: first 8 bytes of keccak256("http://rpc.example").
+        assert_eq!(h, 0x675d8003b7eb343e, "url_hash must be deterministic across process restarts");
+    }
 
     #[test]
     fn get_block_by_number_cache_key_includes_full_tx() {
