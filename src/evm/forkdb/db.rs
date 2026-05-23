@@ -1,7 +1,5 @@
 //! ForkDB: revm-native forked database backed by an RPC [`Client`].
 
-use std::sync::Arc;
-
 use alloy_primitives::{Address, B256, U256};
 use revm::{DatabaseRef, bytecode::Bytecode, primitives::KECCAK_EMPTY, state::AccountInfo};
 
@@ -19,13 +17,13 @@ use crate::evm::forkdb::response::Response;
 /// needs to call `code_by_hash_ref` during normal execution.
 #[derive(Clone, Debug)]
 pub struct ForkDB {
-    client: Arc<Client>,
+    client: Client,
     block_number: u64,
     chain_id: u64,
 }
 
 impl ForkDB {
-    pub fn new(client: Arc<Client>, block_number: u64, chain_id: u64) -> Self {
+    pub fn new(client: Client, block_number: u64, chain_id: u64) -> Self {
         Self {
             client,
             block_number,
@@ -36,22 +34,24 @@ impl ForkDB {
     /// Retry transient errors so that a batcher panic (or temporary RPC
     /// timeout / rate-limit) does not abort the current fuzzing run.
     fn with_retry<T>(&self, f: impl Fn() -> Result<T, Error>) -> Result<T, Error> {
-        let mut last_err = None;
-        for attempt in 0..3 {
-            match f() {
-                Ok(v) => return Ok(v),
-                Err(e) if e.is_transient() => {
-                    last_err = Some(e);
-                    if attempt < 2 {
-                        std::thread::sleep(std::time::Duration::from_millis(
-                            50 * (1_u64 << attempt),
-                        ));
+        match f() {
+            Ok(v) => Ok(v),
+            Err(e) if !e.is_transient() => Err(e),
+            Err(e) => {
+                let mut last_err = e;
+                for attempt in 1..3 {
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        50 * (1_u64 << (attempt - 1)),
+                    ));
+                    match f() {
+                        Ok(v) => return Ok(v),
+                        Err(e) if !e.is_transient() => return Err(e),
+                        Err(e) => last_err = e,
                     }
                 }
-                Err(e) => return Err(e),
+                Err(last_err)
             }
         }
-        Err(last_err.unwrap())
     }
 
     /// Parse the heterogeneous batch responses for `basic_ref` into an
@@ -216,6 +216,11 @@ impl DatabaseRef for ForkDB {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use anyhow::Result;
+
     use super::*;
     use alloy_primitives::Bytes;
     use revm::database::CacheDB;
@@ -227,19 +232,13 @@ mod tests {
     /// instead of returning them directly to revm.
     #[test]
     fn forkdb_retries_transient_batcher_restarted() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
         #[derive(Debug)]
         struct PanicOnceTransport {
             panics_remaining: AtomicUsize,
         }
 
         impl Transport for PanicOnceTransport {
-            fn exec(
-                &self,
-                _url: &str,
-                _payload: &serde_json::Value,
-            ) -> anyhow::Result<serde_json::Value> {
+            fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
                 if self.panics_remaining.fetch_sub(1, Ordering::SeqCst) > 0 {
                     panic!("simulated transport panic");
                 }
@@ -256,9 +255,11 @@ mod tests {
             panics_remaining: AtomicUsize::new(1),
         };
 
-        let config = ForkdbConfig::new("mock://panic").batch_timeout_ms(0).retries(0);
+        let config = ForkdbConfig::new("mock://panic")
+            .batch_timeout_ms(0)
+            .retries(0);
         let client = Client::new_with_transport(config, transport);
-        let fork_db = ForkDB::new(Arc::new(client), 1, 1);
+        let fork_db = ForkDB::new(client, 1, 1);
 
         let result = fork_db.basic_ref(Address::ZERO);
         assert!(
@@ -282,7 +283,7 @@ mod tests {
         let transport = MockTransport::default();
         let config = ForkdbConfig::new("mock://test");
         let client = Client::new_with_transport(config, transport);
-        let fork_db = ForkDB::new(Arc::new(client), 1, 1);
+        let fork_db = ForkDB::new(client, 1, 1);
 
         // Responses arrive in a different order than the requests.
         let responses = vec![
@@ -360,13 +361,32 @@ mod tests {
 
         let config = ForkdbConfig::new(url).batch_timeout_ms(0);
         let client = Client::new_with_transport(config, transport);
-        let fork_db = ForkDB::new(Arc::new(client), 1, 1);
+        let fork_db = ForkDB::new(client, 1, 1);
 
         let result = fork_db.block_hash_ref(1);
         assert!(
             result.is_err(),
             "block_hash_ref must error when RPC returns hash: null, got {result:?}"
         );
+    }
+
+    /// Regression: ForkDB must store Client directly, not Arc<Client>.
+    /// Client is already internally reference-counted (Arc<ClientInner>),
+    /// so wrapping it in another Arc wastes an extra heap allocation and
+    /// forces two pointer chases on every DatabaseRef operation.
+    #[test]
+    fn forkdb_stores_client_directly() {
+        let transport = MockTransport::default();
+        let config = ForkdbConfig::new("mock://test");
+        let client = Client::new_with_transport(config, transport);
+
+        // Must be possible to construct ForkDB from a plain Client
+        // without wrapping in Arc. This proves we are not double-wrapping.
+        let fork_db = ForkDB::new(client.clone(), 1, 1);
+
+        // Clone must be cheap because Client::clone only increments the
+        // inner Arc refcount.
+        let _fork_db2 = fork_db.clone();
     }
 
     /// Regression: dropping all ForkDB (and CacheDB<ForkDB>) handles must
@@ -378,7 +398,7 @@ mod tests {
         let client = Client::new_with_transport(config, transport);
         let weak = Arc::downgrade(&client.inner);
 
-        let fork_db = ForkDB::new(Arc::new(client), 1, 1);
+        let fork_db = ForkDB::new(client, 1, 1);
         let db = CacheDB::new(fork_db);
         let db2 = db.clone();
 

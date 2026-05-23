@@ -149,7 +149,9 @@ impl Request {
 /// Deterministic hash of an RPC URL, used as the `eth_chainId` cache key.
 pub fn url_hash(url: &str) -> u64 {
     let hash = keccak256(url.as_bytes());
-    u64::from_be_bytes(hash[..8].try_into().unwrap())
+    let mut bytes = [0u8; 8];
+    bytes.copy_from_slice(&hash[..8]);
+    u64::from_be_bytes(bytes)
 }
 
 #[cfg(test)]
@@ -164,7 +166,10 @@ mod tests {
     fn url_hash_is_deterministic() {
         let h = url_hash("http://rpc.example");
         // Deterministic expected value: first 8 bytes of keccak256("http://rpc.example").
-        assert_eq!(h, 0x675d8003b7eb343e, "url_hash must be deterministic across process restarts");
+        assert_eq!(
+            h, 0x675d8003b7eb343e,
+            "url_hash must be deterministic across process restarts"
+        );
     }
 
     #[test]

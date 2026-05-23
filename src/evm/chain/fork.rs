@@ -1,7 +1,5 @@
 //! Forked chain initialisation.
 
-use std::sync::Arc;
-
 use alloy_primitives::U256;
 use anyhow::{Context as _, Result, ensure};
 use revm::{
@@ -22,7 +20,7 @@ impl Chain {
     /// Create a new forked EVM pinned to a remote block.
     pub fn fork(config: Config, block_number: u64) -> Result<Self> {
         let url_hash = crate::evm::forkdb::url_hash(&config.url);
-        let client = Arc::new(crate::evm::forkdb::Client::new(config));
+        let client = crate::evm::forkdb::Client::new(config);
         Self::fork_with_client(client, block_number, url_hash)
     }
 
@@ -33,14 +31,12 @@ impl Chain {
         block_number: u64,
     ) -> Result<Self> {
         let url_hash = crate::evm::forkdb::url_hash(&config.url);
-        let client = Arc::new(crate::evm::forkdb::Client::new_with_transport(
-            config, transport,
-        ));
+        let client = crate::evm::forkdb::Client::new_with_transport(config, transport);
         Self::fork_with_client(client, block_number, url_hash)
     }
 
     fn fork_with_client(
-        client: Arc<crate::evm::forkdb::Client>,
+        client: crate::evm::forkdb::Client,
         block_number: u64,
         url_hash: u64,
     ) -> Result<Self> {
@@ -90,7 +86,7 @@ impl Chain {
         cfg_env.limit_contract_initcode_size = Some(usize::MAX);
         cfg_env.set_spec_and_mainnet_gas_params(spec_id);
 
-        let fork_db = ForkDB::new(Arc::clone(&client), block_number, chain_id);
+        let fork_db = ForkDB::new(client.clone(), block_number, chain_id);
         let mut database = CacheDB::new(fork_db);
 
         // Pre-cache the fork block hash so the BLOCKHASH opcode does not
