@@ -117,6 +117,7 @@ impl Client {
 
         let mut results: Vec<Option<Response>> = vec![None; reqs.len()];
         let mut to_fetch: Vec<(usize, String, crate::evm::forkdb::dedup::DedupGuard)> = Vec::new();
+        let mut any_err: Option<Error> = None;
 
         // 1. Check cache and dedup for each request
         for (idx, req) in reqs.iter().enumerate() {
@@ -133,19 +134,29 @@ impl Client {
             }
 
             let cache_key = req.cache_key();
+            let mut skip_fetch = false;
             if let Some(result) = self.inner.dedup.register(&cache_key) {
                 trace!("dedup hit for {}", cache_key);
-                if let Ok(resp) = result.and_then(|v| Response::parse(req, &v)) {
+                if let Err(e) = result {
+                    any_err = Some(Error::from(e));
+                    skip_fetch = true;
+                } else if let Ok(v) = result
+                    && let Ok(resp) = Response::parse(req, &v)
+                {
                     results[idx] = Some(resp);
                     continue;
                 }
             }
-
-            let guard = self.inner.dedup.guard(&cache_key);
-            to_fetch.push((idx, cache_key, guard));
+            if !skip_fetch {
+                let guard = self.inner.dedup.guard(&cache_key);
+                to_fetch.push((idx, cache_key, guard));
+            }
         }
 
         if to_fetch.is_empty() {
+            if let Some(e) = any_err {
+                return Err(e);
+            }
             return results
                 .into_iter()
                 .map(|o| {
@@ -184,7 +195,6 @@ impl Client {
         }
 
         // 4. Fill results and deactivate dedup guards (batcher already cached & completed).
-        let mut any_err = None;
         for ((idx, _cache_key, guard, _), resp_result) in receivers.into_iter().zip(resp_results) {
             match resp_result {
                 Ok(response) => {
@@ -193,7 +203,9 @@ impl Client {
                 }
                 Err(e) => {
                     guard.deactivate();
-                    any_err = Some(e);
+                    if any_err.is_none() {
+                        any_err = Some(e);
+                    }
                 }
             }
         }
@@ -446,6 +458,56 @@ mod tests {
             transport.call_count(url, &single_payload),
             1,
             "failed item should be retried individually"
+        );
+    }
+
+    /// Regression: when an in-flight request fails after all batcher retries are
+    /// exhausted, waiters must receive the error and propagate it. They must NOT
+    /// treat the dedup error as a cache miss and resubmit the request.
+    #[test]
+    fn client_dedup_waiter_does_not_resubmit_on_error() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+
+        let payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
+        ]);
+        // Intentionally do NOT register a mock response, so the transport
+        // always returns an error (simulating a down endpoint).
+        transport.set_delay(Duration::from_millis(100));
+
+        let config = Config::new(url)
+            .batch_timeout_ms(0)
+            .retries(0) // No retries - fail immediately.
+            .backoff_ms(0);
+        let client = Arc::new(Client::new_with_transport(config, transport.clone()));
+
+        let barrier = Arc::new(Barrier::new(2));
+        let client2 = Arc::clone(&client);
+        let barrier2 = Arc::clone(&barrier);
+
+        let handle1 = std::thread::spawn(move || {
+            barrier.wait();
+            client.request(&[Request::GetChainId])
+        });
+        let handle2 = std::thread::spawn(move || {
+            barrier2.wait();
+            client2.request(&[Request::GetChainId])
+        });
+
+        let res1 = handle1.join().unwrap();
+        let res2 = handle2.join().unwrap();
+
+        // Both should error.
+        assert!(res1.is_err(), "leader must get RPC error");
+        assert!(res2.is_err(), "waiter must get RPC error, not resubmit");
+
+        // Only ONE RPC call should have been made. With the bug, the waiter
+        // would resubmit after receiving the dedup error, causing a second call.
+        assert_eq!(
+            transport.call_count(url, &payload),
+            1,
+            "waiter must not resubmit after dedup error; only the leader's request should hit the transport"
         );
     }
 }
