@@ -107,6 +107,11 @@ impl Batcher {
         let _ = pending.response_tx.send(Err(err.clone()));
     }
 
+    fn sleep_duration(&self, attempt: u32) -> Duration {
+        let max_backoff = Duration::from_millis(5_000);
+        std::cmp::min(self.backoff * 2_u32.pow(attempt), max_backoff)
+    }
+
     fn process_batch(&self, mut batch: Vec<PendingRequest>) {
         if batch.is_empty() {
             return;
@@ -164,7 +169,7 @@ impl Batcher {
                     batch = next_batch;
                     if attempt < self.retries {
                         payload = self.build_payload(&batch);
-                        std::thread::sleep(self.backoff * 2_u32.pow(attempt));
+                        std::thread::sleep(self.sleep_duration(attempt));
                         continue;
                     }
 
@@ -180,7 +185,7 @@ impl Batcher {
                 Err(e) => {
                     last_err = Some(Error::from(e));
                     if attempt < self.retries {
-                        std::thread::sleep(self.backoff * 2_u32.pow(attempt));
+                        std::thread::sleep(self.sleep_duration(attempt));
                     }
                 }
             }
@@ -192,5 +197,47 @@ impl Batcher {
         for pending in batch {
             self.dispatch_error(pending, &err);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use crossbeam::channel::bounded;
+
+    use crate::evm::forkdb::dedup::DedupTable;
+    use crate::evm::forkdb::transport::MockTransport;
+
+    use super::Batcher;
+
+    /// Regression: retry backoff must be capped so a permanently down endpoint
+    /// cannot stall the batcher (and all fuzzer threads) for unbounded time.
+    #[test]
+    fn backoff_is_capped() {
+        let (_tx, rx) = bounded::<super::PendingRequest>(1);
+        let batcher = Batcher {
+            request_rx: rx,
+            transport: Arc::new(MockTransport::default()),
+            url: String::new(),
+            retries: 10,
+            backoff: Duration::from_millis(100),
+            batch_size: 1,
+            batch_timeout: Duration::from_millis(0),
+            cache: None,
+            dedup: Arc::new(DedupTable::new()),
+            limiter: None,
+        };
+
+        let cap = Duration::from_millis(5_000);
+        assert_eq!(batcher.sleep_duration(0), Duration::from_millis(100));
+        assert_eq!(batcher.sleep_duration(1), Duration::from_millis(200));
+        assert_eq!(batcher.sleep_duration(5), Duration::from_millis(3_200));
+        assert_eq!(
+            batcher.sleep_duration(10),
+            cap,
+            "backoff must be capped at 5 s to prevent unbounded growth"
+        );
     }
 }
