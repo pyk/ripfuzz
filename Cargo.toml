@@ -65,9 +65,6 @@ parking_lot = "0.12"
 # Path traversal
 walkdir = "2"
 
-# Caching
-lru = "0.18.0"
-
 [dev-dependencies]
 # Test utilities
 serial_test = "=3.4.0"
