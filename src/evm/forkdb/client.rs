@@ -1,6 +1,7 @@
 //! RPC client with automatic batching, caching, deduplication, rate limiting,
 //! and retries.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -122,11 +123,27 @@ impl Client {
         }
 
         let mut results: Vec<Option<Response>> = vec![None; reqs.len()];
-        let mut to_fetch: Vec<(usize, String, crate::evm::forkdb::dedup::DedupGuard)> = Vec::new();
+        let mut to_fetch: Vec<(usize, crate::evm::forkdb::dedup::DedupGuard)> = Vec::new();
         let mut any_err: Option<Error> = None;
+        let mut first_key_index: HashMap<&str, usize> = HashMap::new();
+        let mut duplicates: Vec<(usize, usize)> = Vec::new();
+        let cache_keys: Vec<String> = reqs.iter().map(|r| r.cache_key()).collect();
 
         // 1. Check cache and dedup for each request
         for (idx, req) in reqs.iter().enumerate() {
+            let cache_key = &cache_keys[idx];
+
+            // Self-dedup: if the same key appears earlier in this slice,
+            // share the result with the first occurrence.  This prevents a
+            // deadlock where the first occurrence has not yet been submitted
+            // to the batcher when the duplicate tries to block on the dedup
+            // table.
+            if let Some(&first_idx) = first_key_index.get(cache_key.as_str()) {
+                duplicates.push((idx, first_idx));
+                continue;
+            }
+            first_key_index.insert(cache_key.as_str(), idx);
+
             if let Some(cache) = self.inner.cache.as_ref()
                 && let Some(value) = cache.get(req)
             {
@@ -145,8 +162,7 @@ impl Client {
             let mut handled = false;
             let mut needs_guard = false;
             while !handled {
-                let cache_key = req.cache_key();
-                match self.inner.dedup.register(&cache_key) {
+                match self.inner.dedup.register(cache_key) {
                     Some(Err(e)) => {
                         any_err = Some(Error::from(e));
                         handled = true;
@@ -158,7 +174,7 @@ impl Client {
                                 handled = true;
                             }
                             Err(_) => {
-                                if self.inner.dedup.clear_completed(&cache_key) {
+                                if self.inner.dedup.clear_completed(cache_key) {
                                     needs_guard = true;
                                     handled = true;
                                 }
@@ -174,29 +190,14 @@ impl Client {
                 }
             }
             if needs_guard {
-                let cache_key = req.cache_key();
-                let guard = self.inner.dedup.guard(&cache_key);
-                to_fetch.push((idx, cache_key, guard));
+                let guard = self.inner.dedup.guard(cache_key);
+                to_fetch.push((idx, guard));
             }
-        }
-
-        if to_fetch.is_empty() {
-            if let Some(e) = any_err {
-                return Err(e);
-            }
-            return results
-                .into_iter()
-                .map(|o| {
-                    o.ok_or_else(|| Error::UnexpectedResponse {
-                        message: "missing response".into(),
-                    })
-                })
-                .collect::<Result<Vec<Response>, Error>>();
         }
 
         // 2. Send all uncached / undeduped requests to the batching worker
         let mut receivers = Vec::with_capacity(to_fetch.len());
-        for (idx, cache_key, guard) in to_fetch {
+        for (idx, guard) in to_fetch {
             let (tx, rx) = channel::bounded(1);
             self.inner
                 .request_tx
@@ -208,18 +209,18 @@ impl Client {
                 .map_err(|_| Error::Internal {
                     message: "batch worker shut down".into(),
                 })?;
-            receivers.push((idx, cache_key, guard, rx));
+            receivers.push((idx, guard, rx));
         }
 
         // 3. Collect all responses without failing early so every dedup
         //    guard gets properly completed even if one request errors.
         let mut resp_results = Vec::with_capacity(receivers.len());
-        for (_, _, _, rx) in &receivers {
+        for (_, _, rx) in &receivers {
             resp_results.push(rx.recv().map_err(|_| Error::BatcherRestarted));
         }
 
         // 4. Fill results and deactivate dedup guards (batcher already cached & completed).
-        for ((idx, _cache_key, guard, _), resp_result) in receivers.into_iter().zip(resp_results) {
+        for ((idx, guard, _), resp_result) in receivers.into_iter().zip(resp_results) {
             match resp_result {
                 Ok(Ok(response)) => {
                     guard.deactivate();
@@ -245,6 +246,13 @@ impl Client {
             }
         }
 
+        // Promote duplicates whose first occurrence was resolved by cache,
+        // dedup, or the batcher above.
+        for (dup_idx, first_idx) in &duplicates {
+            // checkrs: allow(clone_in_loops)
+            results[*dup_idx] = results[*first_idx].clone();
+        }
+
         if let Some(e) = any_err {
             return Err(e);
         }
@@ -265,6 +273,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Barrier;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
     use std::time::Duration;
 
     use alloy_primitives::{Address, U256};
@@ -779,6 +788,52 @@ mod tests {
             transport.call_count(url, &single_payload),
             1,
             "stale dedup entry must not cause duplicate RPCs"
+        );
+    }
+
+    /// Regression: `Client::request` must not deadlock when the same `reqs`
+    /// slice contains duplicate cache keys. Only one RPC call should be issued
+    /// and both positions must receive the same response.
+    #[test]
+    fn client_dedups_duplicate_requests_in_single_call() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+        let url_h = url_hash(url);
+
+        let payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
+        ]);
+        transport.mock_response(
+            url,
+            &payload,
+            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
+        );
+
+        let config = Config::new(url).batch_timeout_ms(0);
+        let client = Client::new_with_transport(config, transport.clone());
+
+        let reqs = vec![
+            Request::GetChainId { url_hash: url_h },
+            Request::GetChainId { url_hash: url_h },
+        ];
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(client.request(&reqs));
+        });
+
+        let res = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("Client::request deadlocked on duplicate requests in a single slice")
+            .expect("request errored");
+
+        assert_eq!(res.len(), 2);
+        assert!(matches!(&res[0], Response::ChainId(1)));
+        assert!(matches!(&res[1], Response::ChainId(1)));
+        assert_eq!(
+            transport.call_count(url, &payload),
+            1,
+            "duplicate requests in a single slice must result in exactly one RPC call"
         );
     }
 }
