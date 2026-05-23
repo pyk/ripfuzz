@@ -107,7 +107,11 @@ impl Batcher {
 
     fn sleep_duration(&self, attempt: u32) -> Duration {
         let max_backoff = Duration::from_millis(5_000);
-        std::cmp::min(self.backoff * 2_u32.pow(attempt), max_backoff)
+        let multiplier = 2_u32.saturating_pow(attempt);
+        self.backoff
+            .checked_mul(multiplier)
+            .map(|d| std::cmp::min(d, max_backoff))
+            .unwrap_or(max_backoff)
     }
 
     fn process_batch(&self, mut batch: Vec<PendingRequest>) {
@@ -237,5 +241,32 @@ mod tests {
             cap,
             "backoff must be capped at 5 s to prevent unbounded growth"
         );
+    }
+
+    /// Regression: `sleep_duration` must not panic when `attempt >= 32`.
+    /// `2_u32.pow(attempt)` overflows for `attempt >= 32`; we now use
+    /// saturating math so any configurable `retries` value is safe.
+    #[test]
+    fn backoff_does_not_overflow() {
+        let (_tx, rx) = bounded::<super::PendingRequest>(1);
+        let batcher = Batcher {
+            request_rx: rx,
+            transport: Arc::new(MockTransport::default()),
+            url: String::new(),
+            retries: u32::MAX,
+            backoff: Duration::from_millis(100),
+            batch_size: 1,
+            batch_timeout: Duration::from_millis(0),
+            cache: None,
+            dedup: Arc::new(DedupTable::new()),
+            limiter: None,
+        };
+
+        let cap = Duration::from_millis(5_000);
+        // attempt == 31 is the last value that fits in a u32 power-of-two.
+        assert_eq!(batcher.sleep_duration(31), cap);
+        // attempt >= 32 must not panic.
+        assert_eq!(batcher.sleep_duration(32), cap);
+        assert_eq!(batcher.sleep_duration(u32::MAX), cap);
     }
 }
