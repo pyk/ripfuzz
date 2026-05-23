@@ -13,7 +13,13 @@ use tracing::trace;
 /// implement `Clone`, so we normalise errors to `String` for broadcast.
 type DedupPayload = Result<serde_json::Value, String>;
 
-/// Ensures `complete` is called even if the caller panics.
+#[derive(Debug, Default)]
+struct DedupState {
+    senders: Vec<Sender<Arc<DedupPayload>>>,
+    completed: Option<Arc<DedupPayload>>,
+}
+
+/// Ensures the entry is removed even if the caller panics.
 pub struct DedupGuard<'a> {
     table: &'a DedupTable,
     key: String,
@@ -23,15 +29,15 @@ pub struct DedupGuard<'a> {
 impl<'a> DedupGuard<'a> {
     pub fn deactivate(mut self) {
         self.active = false;
+        self.table.remove(&self.key);
     }
 }
 
 impl Drop for DedupGuard<'_> {
     fn drop(&mut self) {
         if self.active {
-            trace!(key = %self.key, "dedup guard dropping - completing with error");
-            self.table
-                .complete(&self.key, Err(anyhow!("batcher restarted")));
+            trace!(key = %self.key, "dedup guard dropping - abandoning in-flight request");
+            self.table.abandon(&self.key);
         }
     }
 }
@@ -46,7 +52,7 @@ pub struct DedupTable {
     /// Using `DashMap` instead of `Mutex<HashMap>` eliminates the global
     /// lock on the read-heavy `register` path when many fuzzer threads
     /// issue distinct RPC requests concurrently.
-    inflight: DashMap<String, Vec<Sender<Arc<DedupPayload>>>>,
+    inflight: DashMap<String, DedupState>,
     pub complete_count: AtomicUsize,
 }
 
@@ -74,21 +80,31 @@ impl DedupTable {
         trace!(key = %key, table_size = self.inflight.len(), "dedup register");
         match self.inflight.entry(key.to_owned()) {
             Entry::Occupied(mut occupied) => {
-                let (tx, rx) = crossbeam::channel::bounded(1);
-                occupied.get_mut().push(tx);
-                drop(occupied);
-                trace!(key = %key, "dedup hit - waiting on in-flight request");
-                let payload = match rx.recv() {
-                    Ok(v) => v,
-                    Err(_) => return Some(Err(anyhow!("dedup channel closed"))),
-                };
-                Some(match payload.as_ref() {
-                    Ok(v) => Ok(v.clone()),
-                    Err(s) => Err(anyhow!(s.clone())),
-                })
+                let state = occupied.get_mut();
+                if let Some(ref payload) = state.completed {
+                    let payload = Arc::clone(payload);
+                    drop(occupied);
+                    Some(match payload.as_ref() {
+                        Ok(v) => Ok(v.clone()),
+                        Err(s) => Err(anyhow!(s.clone())),
+                    })
+                } else {
+                    let (tx, rx) = crossbeam::channel::bounded(1);
+                    state.senders.push(tx);
+                    drop(occupied);
+                    trace!(key = %key, "dedup hit - waiting on in-flight request");
+                    let payload = match rx.recv() {
+                        Ok(v) => v,
+                        Err(_) => return Some(Err(anyhow!("dedup channel closed"))),
+                    };
+                    Some(match payload.as_ref() {
+                        Ok(v) => Ok(v.clone()),
+                        Err(s) => Err(anyhow!(s.clone())),
+                    })
+                }
             }
             Entry::Vacant(vacant) => {
-                vacant.insert(Vec::new());
+                vacant.insert(DedupState::default());
                 None
             }
         }
@@ -97,18 +113,51 @@ impl DedupTable {
     /// Complete an in-flight request and wake all waiters.
     pub fn complete(&self, key: &str, result: Result<serde_json::Value>) {
         self.complete_count.fetch_add(1, Ordering::SeqCst);
-        if let Some((_, senders)) = self.inflight.remove(key) {
-            let payload = Arc::new(match result {
-                Ok(v) => Ok(v),
-                Err(e) => Err(format!("{e}")),
-            });
-            for tx in senders {
-                let _ = tx.send(Arc::clone(&payload));
-            }
+        let payload = Arc::new(match result {
+            Ok(v) => Ok(v),
+            Err(e) => Err(format!("{e}")),
+        });
+        let Some(mut state) = self.inflight.get_mut(key) else {
+            return;
+        };
+        if state.completed.is_some() {
+            return;
+        }
+        state.completed = Some(Arc::clone(&payload));
+        let senders = std::mem::take(&mut state.senders);
+        drop(state);
+        for tx in senders {
+            let _ = tx.send(Arc::clone(&payload));
         }
     }
 
-    /// Create a guard that auto-completes with error on panic.
+    /// Remove the entry for `key`. Called by the leader when it is done.
+    pub fn remove(&self, key: &str) {
+        self.inflight.remove(key);
+    }
+
+    /// Mark an in-flight request as abandoned (e.g. batcher panic) and wake
+    /// all waiters with a transient error, then remove the entry.
+    pub fn abandon(&self, key: &str) {
+        let Entry::Occupied(mut occupied) = self.inflight.entry(key.to_owned()) else {
+            return;
+        };
+        let state = occupied.get_mut();
+        if state.completed.is_none() {
+            let error_payload = Arc::new(Err("batcher restarted".into()));
+            state.completed = Some(Arc::clone(&error_payload));
+            let senders = std::mem::take(&mut state.senders);
+            drop(occupied);
+            for tx in senders {
+                let _ = tx.send(Arc::clone(&error_payload));
+            }
+            self.inflight.remove(key);
+        } else {
+            occupied.remove();
+        }
+    }
+
+    /// Create a guard that auto-abandons on panic.
     pub fn guard(&self, key: &str) -> DedupGuard<'_> {
         DedupGuard {
             table: self,
@@ -126,7 +175,11 @@ mod tests {
 
     /// Number of waiters currently registered for `key`.
     fn waiter_count(table: &DedupTable, key: &str) -> usize {
-        table.inflight.get(key).map(|r| r.len()).unwrap_or(0)
+        table
+            .inflight
+            .get(key)
+            .map(|r| r.senders.len())
+            .unwrap_or(0)
     }
 
     #[test]
@@ -198,5 +251,38 @@ mod tests {
             let result = waiter.join().unwrap().unwrap().unwrap();
             assert_eq!(result, "0x1a2b");
         }
+    }
+
+    /// Regression: the entry must remain in the table after `complete` so that
+    /// late waiters receive the result immediately. It must only be removed when
+    /// the leader's guard is explicitly deactivated.
+    #[test]
+    fn dedup_late_waiter_after_complete() {
+        let table = Arc::new(DedupTable::new());
+        let key = "eth_chainId";
+
+        // Leader registers.
+        assert!(table.register(key).is_none());
+
+        // Complete the request while the leader still holds the guard.
+        table.complete(key, Ok("0x1a2b".into()));
+
+        // Before the guard is deactivated, a late waiter must receive the
+        // completed result, NOT become a new leader.
+        let late_result = table.register(key);
+        assert!(
+            late_result.is_some(),
+            "late waiter must see completed result, not become a new leader"
+        );
+        assert_eq!(late_result.unwrap().unwrap(), "0x1a2b");
+
+        // After deactivation, the entry is removed and a new caller becomes leader.
+        let guard = table.guard(key);
+        guard.deactivate();
+
+        assert!(
+            table.register(key).is_none(),
+            "entry must be removed after guard deactivation"
+        );
     }
 }
