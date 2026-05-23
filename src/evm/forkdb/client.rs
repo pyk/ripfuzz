@@ -57,21 +57,23 @@ impl Client {
 
         let inner = Arc::new(ClientInner {
             request_tx: RwLock::new(request_tx),
-            cache,
-            dedup,
+            cache: cache.clone(),
+            dedup: Arc::clone(&dedup),
         });
 
         // Restart supervisor: if the batcher panics (e.g. ureq throws on
         // malformed JSON), respawn a fresh worker with a new channel so the
-        // RPC subsystem stays alive for the rest of the campaign.
+        // RPC client stays alive for the rest of the campaign.
         std::thread::spawn({
-            let inner = Arc::clone(&inner);
+            let inner = Arc::downgrade(&inner);
             let transport = Arc::clone(&transport);
             let url = config.url;
             let retries = config.retries;
             let backoff = Duration::from_millis(config.backoff_ms);
             let batch_timeout = Duration::from_millis(config.batch_timeout_ms);
             let limiter = limiter.clone();
+            let cache = cache.clone();
+            let dedup = Arc::clone(&dedup);
 
             move || {
                 let mut batcher = Batcher {
@@ -82,8 +84,8 @@ impl Client {
                     backoff,
                     batch_size,
                     batch_timeout,
-                    cache: inner.cache.clone(),
-                    dedup: Arc::clone(&inner.dedup),
+                    cache: cache.clone(),
+                    dedup: Arc::clone(&dedup),
                     limiter: limiter.clone(),
                 };
 
@@ -92,6 +94,9 @@ impl Client {
                         Ok(()) => break,
                         Err(_) => {
                             tracing::error!("batcher panicked, restarting");
+                            let Some(inner) = inner.upgrade() else {
+                                break;
+                            };
                             let (tx, rx) = channel::bounded(batch_size.saturating_mul(2));
                             *inner.request_tx.write() = tx;
                             let _old = std::mem::replace(&mut batcher.request_rx, rx);
@@ -610,6 +615,31 @@ mod tests {
         assert!(
             res2.unwrap_err().is_transient(),
             "waiter error must be transient"
+        );
+    }
+
+    /// Regression: dropping all Client handles must cause the supervisor thread
+    /// to exit so that Arc<ClientInner> (and therefore the transport, cache,
+    /// and dedup table) are not leaked.
+    #[test]
+    fn supervisor_exits_after_client_dropped() {
+        let transport = MockTransport::default();
+        let config = Config::new("mock://test").batch_timeout_ms(0);
+        let client = Client::new_with_transport(config, transport);
+
+        let weak = Arc::downgrade(&client.inner);
+        drop(client);
+
+        // Poll for up to 2 seconds; with the bug the supervisor holds a strong
+        // Arc so the weak reference never expires.
+        for _ in 0..40 {
+            if weak.upgrade().is_none() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        panic!(
+            "ClientInner leaked: supervisor thread did not exit after all Client handles were dropped"
         );
     }
 }

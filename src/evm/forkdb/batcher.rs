@@ -1,11 +1,9 @@
 //! Background batcher that collects pending requests from a channel,
 //! groups them into JSON-RPC batches, and dispatches responses back.
 //!
-//! # Known Limitations
-//!
-//! 1. Single Batcher Thread. Currently only one batcher thread is spawned per
-//!    `Client`. All fuzzer threads serialize every RPC request through this
-//!    single consumer.
+//! Currently only one batcher thread is spawned per `Client`. All
+//! fuzzer threads serialize every RPC request through this single
+//! consumer.
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -240,4 +240,31 @@ mod tests {
         assert!(matches!(decode, Error::DecodeError { .. }));
         assert!(!decode.is_transient());
     }
+
+    /// Regression: dropping all ForkDB (and CacheDB<ForkDB>) handles must
+    /// release the underlying ClientInner so the supervisor thread exits.
+    #[test]
+    fn forkdb_drop_releases_client_inner() {
+        use revm::database::CacheDB;
+
+        let transport = MockTransport::default();
+        let config = ForkdbConfig::new("mock://test").batch_timeout_ms(0);
+        let client = Client::new_with_transport(config, transport);
+        let weak = Arc::downgrade(&client.inner);
+
+        let fork_db = ForkDB::new(Arc::new(client), 1);
+        let db = CacheDB::new(fork_db);
+        let db2 = db.clone();
+
+        drop(db);
+        drop(db2);
+
+        for _ in 0..40 {
+            if weak.upgrade().is_none() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        panic!("ClientInner leaked through ForkDB/CacheDB clones");
+    }
 }
