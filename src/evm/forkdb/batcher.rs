@@ -32,7 +32,7 @@ pub struct PendingRequest {
 /// groups them into JSON-RPC batches, and dispatches responses back.
 pub struct Batcher {
     pub request_rx: Receiver<PendingRequest>,
-    pub transport: Box<dyn Transport>,
+    pub transport: Arc<dyn Transport>,
     pub url: String,
     pub retries: u32,
     pub backoff: Duration,
