@@ -177,7 +177,9 @@ impl DatabaseRef for ForkDB {
         })?;
 
         match response {
-            Response::BlockByNumber(b) => Ok(b.hash.unwrap_or_default()),
+            Response::BlockByNumber(b) => b.hash.ok_or_else(|| Error::UnexpectedResponse {
+                message: format!("block {number}: hash missing in GetBlockByNumber response"),
+            }),
             _ => Err(Error::UnexpectedResponse {
                 message: "unexpected response for GetBlockByNumber".into(),
             }),
@@ -190,6 +192,7 @@ mod tests {
     use super::*;
     use alloy_primitives::Bytes;
     use revm::database::CacheDB;
+    use serde_json::json;
 
     use crate::evm::forkdb::{Config as ForkdbConfig, MockTransport};
 
@@ -247,6 +250,46 @@ mod tests {
         };
         assert!(matches!(decode, Error::DecodeError { .. }));
         assert!(!decode.is_transient());
+    }
+
+    /// Regression: ForkDB::block_hash_ref must not return B256::default()
+    /// when `eth_getBlockByNumber` returns a block with `"hash": null`.
+    /// Returning the zero hash makes the BLOCKHASH opcode deterministic and
+    /// breaks property invariants that assume a non-zero, non-predictable
+    /// value. A missing hash must propagate as an error.
+    #[test]
+    fn block_hash_ref_rejects_missing_hash() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+
+        let payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":["0x1",false]}
+        ]);
+        transport.mock_response(
+            url,
+            &payload,
+            json!([{
+                "jsonrpc":"2.0",
+                "id":0,
+                "result":{
+                    "number":"0x1",
+                    "timestamp":"0x0",
+                    "miner":"0x0000000000000000000000000000000000000000",
+                    "gasLimit":"0x0",
+                    "hash":null
+                }
+            }]),
+        );
+
+        let config = ForkdbConfig::new(url).batch_timeout_ms(0);
+        let client = Client::new_with_transport(config, transport);
+        let fork_db = ForkDB::new(Arc::new(client), 1, 1);
+
+        let result = fork_db.block_hash_ref(1);
+        assert!(
+            result.is_err(),
+            "block_hash_ref must error when RPC returns hash: null, got {result:?}"
+        );
     }
 
     /// Regression: dropping all ForkDB (and CacheDB<ForkDB>) handles must
