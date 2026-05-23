@@ -12,8 +12,8 @@ use tracing::{debug, info, instrument};
 
 use crate::campaign::CampaignConfig;
 use crate::chain::Environment;
-use crate::chain_v2;
 use crate::contract::resolve_coverage_to_source;
+use crate::evm;
 use crate::foundry;
 use crate::rpc::RpcClient;
 use crate::rpc_v2;
@@ -312,10 +312,10 @@ pub fn run(args: Args) -> Result<()> {
         .context("target artifact not found")?;
     let _target_contract = target::Contract::try_from(target_artifact)?;
 
-    // Resolve chain environment
+    // Create test chain
     info!("creating test chain");
-    let _env = if args.fork_mode.rpc_url.is_none() {
-        chain_v2::Environment::local()
+    let _chain = if args.fork_mode.rpc_url.is_none() {
+        evm::Chain::local()
     } else {
         let cache_dir = project_path.join("raptor").join("cache");
         let block = args
@@ -338,7 +338,10 @@ pub fn run(args: Args) -> Result<()> {
         let client = rpc_v2::Client::new(config);
         let rpc = Arc::new(client);
         info!("creating fork environment");
-        chain_v2::Environment::fork(rpc, block, chain_id)?
+        evm::Chain::fork(evm::ForkConfig {
+            client: rpc,
+            block_number: block,
+        })?
     };
 
     // -----------------------------------------------------------------------

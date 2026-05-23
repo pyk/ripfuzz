@@ -3,15 +3,15 @@
 use alloy_primitives::{Address, U256, address};
 use anyhow::{Context as _, Result};
 use revm::{
-    Database, DatabaseCommit, DatabaseRef, MainBuilder, MainContext,
+    MainBuilder, MainContext,
     context::{BlockEnv, CfgEnv, Context, TxEnv},
-    database::CacheDB,
     handler::ExecuteCommitEvm,
     inspector::{InspectCommitEvm, Inspector},
     primitives::{Bytes, TxKind},
     state::AccountInfo,
 };
 
+use crate::evm::database::Database;
 use crate::evm::result::TransactionResult;
 
 /// Default deployer address: `address(uint160(uint256(keccak256("raptor deployer"))))`.
@@ -19,23 +19,20 @@ pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4
 
 /// EVM Chain state and executor.
 ///
-/// `D` is the database type. It must satisfy both [`Database`] and
-/// [`DatabaseCommit`] so that revm can read state and write results back.
+/// Owns EVM state ([`BlockEnv`](revm::context::BlockEnv),
+/// [`CfgEnv`](revm::context::CfgEnv), and a [`Database`]).
 ///
 /// Cloning a [`Chain`] produces an independent snapshot of state suitable for
 /// isolated fuzzing runs.
 #[derive(Clone, Debug)]
-pub struct Chain<D>
-where
-    D: Database + DatabaseCommit,
-{
-    pub database: Option<D>,
+pub struct Chain {
+    pub database: Option<Database>,
     pub cfg_env: CfgEnv,
     pub block_env: BlockEnv,
     pub deployer: Address,
 }
 
-impl<Inner: DatabaseRef> Chain<CacheDB<Inner>> {
+impl Chain {
     /// Seed an account with balance and zero nonce.
     pub fn seed_account(&mut self, address: Address, balance: U256) -> Result<()> {
         let info = AccountInfo {
@@ -51,12 +48,7 @@ impl<Inner: DatabaseRef> Chain<CacheDB<Inner>> {
             .insert_account_info(address, info);
         Ok(())
     }
-}
 
-impl<D> Chain<D>
-where
-    D: Database + DatabaseCommit,
-{
     /// Mutable access to the block environment.
     pub fn block_env_mut(&mut self) -> &mut BlockEnv {
         &mut self.block_env
@@ -86,14 +78,14 @@ where
     ///
     /// Returns `None` if called while a transaction is in flight (the database
     /// is temporarily moved into revm during execution).
-    pub fn database_mut(&mut self) -> Option<&mut D> {
+    pub fn database_mut(&mut self) -> Option<&mut Database> {
         self.database.as_mut()
     }
 
     /// Immutable access to the underlying database.
     ///
     /// Returns `None` if called while a transaction is in flight.
-    pub fn database(&self) -> Option<&D> {
+    pub fn database(&self) -> Option<&Database> {
         self.database.as_ref()
     }
 
@@ -156,7 +148,7 @@ where
     /// extract collected data (e.g. traces, coverage).
     pub fn inspect<INSP>(&mut self, tx: TxEnv, inspector: INSP) -> Result<(TransactionResult, INSP)>
     where
-        INSP: Inspector<Context<BlockEnv, TxEnv, CfgEnv, D, revm::Journal<D>>>,
+        INSP: Inspector<Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database>>>,
     {
         let db = self.database.take().context("database unavailable")?;
         let mut ctx = Context::mainnet().with_db(db);
@@ -170,3 +162,6 @@ where
         Ok((TransactionResult::from(result), evm.inspector))
     }
 }
+
+mod fork;
+mod local;

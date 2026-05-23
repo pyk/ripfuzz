@@ -1,64 +1,27 @@
-//! Local sandbox database for the EVM chain.
-
-use std::convert::Infallible;
+//! Local sandbox chain initialisation.
 
 use alloy_primitives::{Address, B256, U256};
 use revm::{
-    DatabaseRef,
     bytecode::Bytecode,
     context::{BlockEnv, CfgEnv},
     context_interface::block::BlobExcessGasAndPrice,
     database::CacheDB,
-    database::EmptyDBTyped,
     primitives::Bytes,
     primitives::hardfork::SpecId,
     state::AccountInfo,
 };
 
 use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
+use crate::evm::database::{Database, LocalDB};
 use crate::vm::VM_ADDRESS;
 
-/// Wrapper around `revm::EmptyDB` that returns `Some(AccountInfo::default())`
-/// for every address so that `CacheDB` never marks an account as
-/// `AccountState::NotExisting`.
-///
-/// In revm, `CacheDB` distinguishes between "non-existing" (`None`) and
-/// "empty" (`Some(AccountInfo::default())`). If an account is marked as
-/// `NotExisting`, state transitions differ when the account is later created
-/// (e.g. via `deal` or `etch`). A sandbox fuzzer has no state trie, so every
-/// address should be treated as empty rather than non-existing.
-///
-/// Foundry uses the same trick: see `foundry-evm-core::backend::EmptyDBWrapper`.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LocalDB(EmptyDBTyped<Infallible>);
-
-impl DatabaseRef for LocalDB {
-    type Error = Infallible;
-
-    fn basic_ref(&self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        Ok(Some(AccountInfo::default()))
-    }
-
-    fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
-        self.0.code_by_hash_ref(code_hash)
-    }
-
-    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        self.0.storage_ref(address, index)
-    }
-
-    fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        self.0.block_hash_ref(number)
-    }
-}
-
-impl Default for Chain<CacheDB<LocalDB>> {
+impl Default for Chain {
     fn default() -> Self {
         Self::local()
     }
 }
 
-impl Chain<CacheDB<LocalDB>> {
+impl Chain {
     /// Create a new local sandbox EVM.
     pub fn local() -> Self {
         let mut cfg_env = CfgEnv::default();
@@ -112,7 +75,7 @@ impl Chain<CacheDB<LocalDB>> {
         );
 
         Self {
-            database: Some(db),
+            database: Some(Database::Local(db)),
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,
@@ -125,6 +88,7 @@ mod tests {
     use super::*;
     use alloy_primitives::{Address, U256, address};
     use revm::Database;
+    use revm::DatabaseRef;
     use revm::bytecode::opcode::{CODECOPY, MSTORE, PUSH1, PUSH2, RETURN};
     use revm::primitives::Bytes;
     use revm::primitives::hardfork::SpecId;
@@ -158,7 +122,7 @@ mod tests {
             "deployer should default to DEFAULT_DEPLOYER"
         );
         let db = chain.database().unwrap();
-        let Ok(info) = db.basic_ref(DEFAULT_DEPLOYER);
+        let info = db.basic_ref(DEFAULT_DEPLOYER).unwrap();
         let balance = info.map(|i| i.balance).unwrap_or_default();
         assert_eq!(
             balance,
@@ -201,7 +165,7 @@ mod tests {
     fn chain_new_injects_vm_address() {
         let chain = Chain::local();
         let db = chain.database().unwrap();
-        let Ok(info) = db.basic_ref(VM_ADDRESS);
+        let info = db.basic_ref(VM_ADDRESS).unwrap();
         let info = info.unwrap();
         let code = info.code.as_ref().unwrap();
         assert!(

@@ -6,18 +6,18 @@
 //!
 //! Responsibilities:
 //! 1. Own EVM state: [`BlockEnv`](revm::context::BlockEnv),
-//!    [`CfgEnv`](revm::context::CfgEnv), and a generic database `D`.
+//!    [`CfgEnv`](revm::context::CfgEnv), and a [`Database`].
 //! 2. Execute raw transactions: [`Chain::deploy`], [`Chain::call`],
 //!    [`Chain::transact`].
 //! 3. Return pure data structures for traces; never format or print them.
 
 pub use chain::{Chain, DEFAULT_DEPLOYER};
-pub use databases::fork::{ForkConfig, ForkDB};
-pub use databases::local::LocalDB;
+pub use database::{Database, DatabaseError, ForkConfig};
 pub use result::{CallFrame, Trace, TraceInspector, TransactionResult};
 pub use specs::get_spec_id;
 
-mod chain;
-pub mod databases;
-mod result;
-mod specs;
+pub mod chain;
+pub mod database;
+pub mod forkdb;
+pub mod result;
+pub mod specs;

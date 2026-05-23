@@ -1,144 +1,23 @@
-//! Forked remote database for the EVM chain.
+//! Forked chain initialisation.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::U256;
 use anyhow::{Context as _, Result};
 use revm::{
-    DatabaseRef,
     bytecode::Bytecode,
     context::{BlockEnv, CfgEnv},
     context_interface::block::BlobExcessGasAndPrice,
     database::CacheDB,
-    database_interface::DBErrorMarker,
     primitives::Bytes,
     state::AccountInfo,
 };
 
 use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
-use crate::rpc_v2::Client;
+use crate::evm::database::{Database, ForkConfig, ForkDB};
 use crate::vm::VM_ADDRESS;
 
-/// Thin newtype around `anyhow::Error` so we can implement `DBErrorMarker`.
-#[derive(Debug)]
-pub struct ForkDBError(anyhow::Error);
-
-impl std::fmt::Display for ForkDBError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl std::error::Error for ForkDBError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.0.source()
-    }
-}
-
-impl DBErrorMarker for ForkDBError {}
-
-impl From<anyhow::Error> for ForkDBError {
-    fn from(e: anyhow::Error) -> Self {
-        Self(e)
-    }
-}
-
-/// Remote backend that satisfies [`DatabaseRef`].
-///
-/// All state caching is delegated to the RPC layer; this struct only maps
-/// revm database operations to typed RPC calls.
-#[derive(Clone, Debug)]
-pub struct ForkDB {
-    client: Arc<Client>,
-    block_number: u64,
-    /// Caches bytecode by code hash. RwLock chosen because `code_by_hash_ref`
-    /// is a read-heavy while writes only happen on cache misses during
-    /// `basic_ref`.
-    contracts: Arc<RwLock<HashMap<B256, Bytecode>>>,
-}
-
-impl ForkDB {
-    pub fn new(client: Arc<Client>, block_number: u64) -> Self {
-        Self {
-            client,
-            block_number,
-            contracts: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
-}
-
-impl DatabaseRef for ForkDB {
-    type Error = ForkDBError;
-
-    fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        let (balance, nonce, code) = self
-            .client
-            .get_account(address, self.block_number)
-            .map_err(ForkDBError::from)?;
-        let bytecode = if code.is_empty() {
-            Bytecode::default()
-        } else {
-            Bytecode::new_raw(code)
-        };
-        let code_hash = bytecode.hash_slow();
-        if !bytecode.is_empty() {
-            self.contracts
-                .write()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(code_hash, bytecode.clone());
-        }
-        Ok(Some(AccountInfo {
-            balance,
-            nonce,
-            code_hash,
-            code: Some(bytecode),
-            account_id: None,
-        }))
-    }
-
-    fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
-        if code_hash == revm::primitives::KECCAK_EMPTY || code_hash.is_zero() {
-            return Ok(Bytecode::default());
-        }
-        match self
-            .contracts
-            .read()
-            // TODO(pyk): handle lock poisoning here
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&code_hash)
-        {
-            Some(code) => Ok(code.clone()),
-            None => Err(ForkDBError::from(anyhow::anyhow!(
-                "code hash {} not found in fork database",
-                code_hash
-            ))),
-        }
-    }
-
-    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        self.client
-            .get_storage_at(address, index, self.block_number)
-            .map_err(ForkDBError::from)
-    }
-
-    fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        let block = self
-            .client
-            .get_block_by_number(number)
-            .map_err(ForkDBError::from)?;
-        Ok(block.hash.unwrap_or_default())
-    }
-}
-
-/// Configuration for a forked chain.
-#[derive(Debug, Clone)]
-pub struct ForkConfig {
-    pub client: Arc<Client>,
-    pub block_number: u64,
-}
-
-impl Chain<CacheDB<ForkDB>> {
+impl Chain {
     /// Create a new forked EVM pinned to a remote block.
     pub fn fork(config: ForkConfig) -> Result<Self> {
         let (chain_id, block) = config
@@ -214,7 +93,7 @@ impl Chain<CacheDB<ForkDB>> {
         );
 
         Ok(Self {
-            database: Some(database),
+            database: Some(Database::Fork(database)),
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,
@@ -227,7 +106,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use alloy_primitives::{B256, U256, address};
+    use alloy_primitives::{Address, B256, U256, address};
+    use revm::DatabaseRef;
     use revm::primitives::Bytes;
     use revm::primitives::hardfork::SpecId;
     use serde_json::json;
