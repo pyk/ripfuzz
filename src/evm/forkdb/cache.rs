@@ -98,6 +98,13 @@ impl Cache {
         self.memory.insert(key, value.clone());
         let _ = self.write_to_disk(req, &value);
     }
+
+    /// Remove from memory and delete the on-disk file.
+    pub fn remove(&self, req: &Request) {
+        let key = req.cache_key();
+        self.memory.remove(&key);
+        let _ = fs::remove_file(self.cache_file_path(req));
+    }
 }
 
 #[cfg(test)]

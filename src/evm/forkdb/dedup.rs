@@ -136,6 +136,24 @@ impl DedupTable {
         self.inflight.remove(key);
     }
 
+    /// If the entry for `key` is completed, atomically replace it with a
+    /// fresh in-flight entry so the caller becomes the new leader.
+    /// Returns `true` when the stale completed entry was cleared.
+    pub fn clear_completed(&self, key: &str) -> bool {
+        match self.inflight.entry(key.to_owned()) {
+            Entry::Occupied(mut occupied) => {
+                let state = occupied.get_mut();
+                if state.completed.is_some() {
+                    state.completed = None;
+                    state.senders.clear();
+                    return true;
+                }
+                false
+            }
+            Entry::Vacant(_) => false,
+        }
+    }
+
     /// Mark an in-flight request as abandoned (e.g. batcher panic) and wake
     /// all waiters with a transient error, then remove the entry.
     pub fn abandon(&self, key: &str) {

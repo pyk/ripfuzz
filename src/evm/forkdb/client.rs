@@ -135,25 +135,46 @@ impl Client {
                         results[idx] = Some(resp);
                         continue;
                     }
-                    Err(e) => trace!(?e, "cached parse failed, refetching"),
+                    Err(e) => {
+                        trace!(?e, "cached parse failed, removing stale entry");
+                        cache.remove(req);
+                    }
                 }
             }
 
-            let cache_key = req.cache_key();
-            let mut skip_fetch = false;
-            if let Some(result) = self.inner.dedup.register(&cache_key) {
-                trace!("dedup hit for {}", cache_key);
-                if let Err(e) = result {
-                    any_err = Some(Error::from(e));
-                    skip_fetch = true;
-                } else if let Ok(v) = result
-                    && let Ok(resp) = Response::parse(req, &v)
-                {
-                    results[idx] = Some(resp);
-                    continue;
+            let mut handled = false;
+            let mut needs_guard = false;
+            while !handled {
+                let cache_key = req.cache_key();
+                match self.inner.dedup.register(&cache_key) {
+                    Some(Err(e)) => {
+                        any_err = Some(Error::from(e));
+                        handled = true;
+                    }
+                    Some(Ok(v)) => {
+                        match Response::parse(req, &v) {
+                            Ok(resp) => {
+                                results[idx] = Some(resp);
+                                handled = true;
+                            }
+                            Err(_) => {
+                                if self.inner.dedup.clear_completed(&cache_key) {
+                                    needs_guard = true;
+                                    handled = true;
+                                }
+                                // If another thread raced and cleared the
+                                // entry, loop and try again.
+                            }
+                        }
+                    }
+                    None => {
+                        needs_guard = true;
+                        handled = true;
+                    }
                 }
             }
-            if !skip_fetch {
+            if needs_guard {
+                let cache_key = req.cache_key();
                 let guard = self.inner.dedup.guard(&cache_key);
                 to_fetch.push((idx, cache_key, guard));
             }
@@ -706,6 +727,58 @@ mod tests {
         }
         panic!(
             "ClientInner leaked: supervisor thread did not exit after all Client handles were dropped"
+        );
+    }
+
+    /// Regression: when the dedup table holds a stale completed value that
+    /// fails deserialization, the first thread must atomically clear the entry
+    /// and become the sole leader. Subsequent concurrent callers must wait on
+    /// the new fetch rather than becoming extra pseudo-leaders that each issue
+    /// a duplicate RPC.
+    #[test]
+    fn stale_dedup_entry_does_not_cause_duplicate_rpcs() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+        let url_h = url_hash(url);
+
+        let single_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
+        ]);
+        transport.mock_response(
+            url,
+            &single_payload,
+            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
+        );
+        // Slow transport so the second thread reaches the dedup table while
+        // the first request is still in-flight.
+        transport.set_delay(Duration::from_millis(200));
+
+        let config = Config::new(url).batch_size(1).batch_timeout_ms(0);
+        let client = Client::new_with_transport(config, transport.clone());
+
+        let req = Request::GetChainId { url_hash: url_h };
+        // Pre-seed the dedup table with a stale completed value.
+        let _ = client.inner.dedup.register(&req.cache_key()); // create the entry
+        client
+            .inner
+            .dedup
+            .complete(&req.cache_key(), Ok(json!("stale"))); // fill it
+
+        let client2 = client.clone();
+        let req2 = req.clone();
+
+        let h1 = std::thread::spawn(move || client.request(&[req]));
+        let h2 = std::thread::spawn(move || client2.request(&[req2]));
+
+        let r1 = h1.join().unwrap();
+        let r2 = h2.join().unwrap();
+
+        assert!(r1.is_ok(), "first thread must succeed");
+        assert!(r2.is_ok(), "second thread must succeed");
+        assert_eq!(
+            transport.call_count(url, &single_payload),
+            1,
+            "stale dedup entry must not cause duplicate RPCs"
         );
     }
 }
