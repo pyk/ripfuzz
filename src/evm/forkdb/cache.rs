@@ -52,7 +52,7 @@ impl Cache {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let data = serde_json::to_vec_pretty(value)?;
+        let data = serde_json::to_vec(value)?;
         let temp = path.with_extension("tmp");
         fs::write(&temp, data)?;
         fs::rename(&temp, &path)?;
@@ -158,6 +158,32 @@ mod tests {
             .path()
             .join("eth_getStorageAt/123/0000000000000000000000000000000000000001/2a.json");
         assert!(expected.exists(), "expected file at {expected:?}");
+    }
+
+    /// Regression: disk cache must use compact JSON, not pretty-printed JSON.
+    #[test]
+    fn cache_disk_uses_compact_json() {
+        let tmp = tempdir().unwrap();
+        let cache = Cache::new(tmp.path());
+
+        let req = Request::GetStorageAt {
+            address: Address::ZERO,
+            slot: U256::from(42),
+            block: 1,
+        };
+        let value = json!({"a": 1, "b": [2, 3]});
+
+        cache.insert(&req, value.clone());
+
+        let expected = tmp
+            .path()
+            .join("eth_getStorageAt/1/0000000000000000000000000000000000000000/2a.json");
+        let on_disk = fs::read(&expected).unwrap();
+        let compact = serde_json::to_vec(&value).unwrap();
+        assert_eq!(
+            on_disk, compact,
+            "disk cache must use compact JSON instead of pretty-printed JSON"
+        );
     }
 
     /// Regression: the in-memory cache must be bounded so that a long fuzzing
