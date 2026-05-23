@@ -88,8 +88,8 @@ impl Request {
     pub fn cache_key(&self) -> String {
         match self {
             Self::GetChainId => "eth_chainId".into(),
-            Self::GetBlockByNumber { block, .. } => {
-                format!("eth_getBlockByNumber/{block}")
+            Self::GetBlockByNumber { block, full_tx } => {
+                format!("eth_getBlockByNumber/{block}/{}", *full_tx as u8)
             }
             Self::GetBalance { address, block } => {
                 format!("eth_getBalance/{block}/{address:x}")
@@ -113,5 +113,29 @@ impl Request {
     /// Relative file path under the cache directory.
     pub fn cache_path(&self) -> PathBuf {
         PathBuf::from(self.cache_key()).with_extension("json")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Request;
+
+    #[test]
+    fn get_block_by_number_cache_key_includes_full_tx() {
+        let block = 1_234_567u64;
+        let req_false = Request::GetBlockByNumber {
+            block,
+            full_tx: false,
+        };
+        let req_true = Request::GetBlockByNumber {
+            block,
+            full_tx: true,
+        };
+        let key_false = req_false.cache_key();
+        let key_true = req_true.cache_key();
+        assert_ne!(
+            key_false, key_true,
+            "cache keys must differ when full_tx differs (got {key_false})"
+        );
     }
 }
