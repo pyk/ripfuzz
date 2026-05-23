@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use alloy_primitives::U256;
-use anyhow::{Context as _, Result, bail, ensure};
+use anyhow::{Context as _, Result, ensure};
 use revm::{
     bytecode::Bytecode,
     context::{BlockEnv, CfgEnv},
@@ -21,8 +21,9 @@ use crate::vm::VM_ADDRESS;
 impl Chain {
     /// Create a new forked EVM pinned to a remote block.
     pub fn fork(config: Config, block_number: u64) -> Result<Self> {
+        let url_hash = crate::evm::forkdb::url_hash(&config.url);
         let client = Arc::new(crate::evm::forkdb::Client::new(config));
-        Self::fork_with_client(client, block_number)
+        Self::fork_with_client(client, block_number, url_hash)
     }
 
     /// Create a forked EVM with a custom transport (used in tests).
@@ -31,45 +32,45 @@ impl Chain {
         transport: impl Transport + 'static,
         block_number: u64,
     ) -> Result<Self> {
+        let url_hash = crate::evm::forkdb::url_hash(&config.url);
         let client = Arc::new(crate::evm::forkdb::Client::new_with_transport(
             config, transport,
         ));
-        Self::fork_with_client(client, block_number)
+        Self::fork_with_client(client, block_number, url_hash)
     }
 
     fn fork_with_client(
         client: Arc<crate::evm::forkdb::Client>,
         block_number: u64,
+        url_hash: u64,
     ) -> Result<Self> {
-        let responses = client
-            .request(&[
-                Request::GetChainId,
-                Request::GetBlockByNumber {
-                    block: block_number,
-                    full_tx: false,
-                },
-            ])
-            .with_context(|| format!("fetching fork info for block {block_number}"))?;
+        // Step 1: resolve chain_id so every subsequent cache key is scoped.
+        let mut responses = client
+            .request(&[Request::GetChainId { url_hash }])
+            .with_context(|| "fetching chain id for fork")?;
+        let chain_id = responses
+            .pop()
+            .and_then(|r| match r {
+                Response::ChainId(v) => Some(v),
+                _ => None,
+            })
+            .context("missing ChainId response")?;
 
-        let mut chain_id = None;
-        let mut block = None;
-
-        for response in responses {
-            match response {
-                Response::ChainId(v) => {
-                    ensure!(chain_id.is_none(), "duplicate ChainId response");
-                    chain_id = Some(v);
-                }
-                Response::BlockByNumber(b) => {
-                    ensure!(block.is_none(), "duplicate BlockByNumber response");
-                    block = Some(b);
-                }
-                _ => bail!("unexpected response in fork batch"),
-            }
-        }
-
-        let chain_id = chain_id.context("missing ChainId response")?;
-        let block = block.context("missing BlockByNumber response")?;
+        // Step 2: fetch the fork block using the real chain_id.
+        let mut responses = client
+            .request(&[Request::GetBlockByNumber {
+                chain_id,
+                block: block_number,
+                full_tx: false,
+            }])
+            .with_context(|| format!("fetching fork block {block_number}"))?;
+        let block = responses
+            .pop()
+            .and_then(|r| match r {
+                Response::BlockByNumber(b) => Some(b),
+                _ => None,
+            })
+            .context("missing BlockByNumber response")?;
 
         let returned_number = block.number.to::<u64>();
         ensure!(
@@ -89,7 +90,7 @@ impl Chain {
         cfg_env.limit_contract_initcode_size = Some(usize::MAX);
         cfg_env.set_spec_and_mainnet_gas_params(spec_id);
 
-        let fork_db = ForkDB::new(Arc::clone(&client), block_number);
+        let fork_db = ForkDB::new(Arc::clone(&client), block_number, chain_id);
         let mut database = CacheDB::new(fork_db);
 
         // Pre-cache the fork block hash so the BLOCKHASH opcode does not
@@ -164,45 +165,75 @@ mod tests {
     use crate::evm::forkdb::{Config, MockTransport};
     use crate::vm::VM_ADDRESS;
 
+    fn mock_fork_setup(
+        transport: &MockTransport,
+        url: &str,
+        block_number: u64,
+        chain_id_hex: &str,
+        block_json: serde_json::Value,
+    ) {
+        let chain_id_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
+        ]);
+        let block_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":[json!(format!("0x{block_number:x}")), json!(false)]}
+        ]);
+        transport.mock_response(
+            url,
+            &chain_id_payload,
+            json!([{"jsonrpc":"2.0","id":0,"result":chain_id_hex}]),
+        );
+        transport.mock_response(
+            url,
+            &block_payload,
+            json!([{"jsonrpc":"2.0","id":0,"result":block_json}]),
+        );
+    }
+
     /// Chain::fork must seed the default deployer with U256::MAX balance,
     /// just like Chain::new, so that setup and deployment transactions
     /// never fail due to insufficient funds.
     #[test]
     fn chain_fork_seeds_deployer_with_max_balance() {
         let transport = MockTransport::default();
+        let url = "mock://test";
 
-        let batch_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
-        ]);
-        transport.mock_response(
-            "mock://test",
-            &batch_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x1"},
-                {"jsonrpc":"2.0","id":1,"result":{
-                    "number":"0x1",
-                    "timestamp":"0x1",
-                    "miner":"0x0000000000000000000000000000000000000000",
-                    "gasLimit":"0xffffffffffffffff",
-                    "baseFeePerGas":"0x0",
-                    "difficulty":"0x0",
-                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
-                }},
-            ]),
+        mock_fork_setup(
+            &transport,
+            url,
+            1,
+            "0x1",
+            json!({
+                "number":"0x1",
+                "timestamp":"0x1",
+                "miner":"0x0000000000000000000000000000000000000000",
+                "gasLimit":"0xffffffffffffffff",
+                "baseFeePerGas":"0x0",
+                "difficulty":"0x0",
+                "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+            }),
         );
 
-        let config = Config::new("mock://test");
+        let config = Config::new(url);
         let chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
         assert_eq!(chain.deployer(), DEFAULT_DEPLOYER);
 
-        // Chain::fork seeds the deployer locally, so only the batch should
-        // have been fetched over RPC.
+        let chain_id_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
+        ]);
+        let block_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]}
+        ]);
         assert_eq!(
-            transport.call_count("mock://test", &batch_payload),
+            transport.call_count(url, &chain_id_payload),
             1,
-            "Chain::fork must fetch exactly one batch request"
+            "Chain::fork must fetch chain_id once"
+        );
+        assert_eq!(
+            transport.call_count(url, &block_payload),
+            1,
+            "Chain::fork must fetch block once"
         );
 
         let db = chain.database().unwrap();
@@ -220,38 +251,43 @@ mod tests {
     #[test]
     fn chain_fork_injects_vm_address() {
         let transport = MockTransport::default();
+        let url = "mock://test";
 
-        let batch_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
-        ]);
-        transport.mock_response(
-            "mock://test",
-            &batch_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x1"},
-                {"jsonrpc":"2.0","id":1,"result":{
-                    "number":"0x1",
-                    "timestamp":"0x1",
-                    "miner":"0x0000000000000000000000000000000000000000",
-                    "gasLimit":"0xffffffffffffffff",
-                    "baseFeePerGas":"0x0",
-                    "difficulty":"0x0",
-                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
-                }},
-            ]),
+        mock_fork_setup(
+            &transport,
+            url,
+            1,
+            "0x1",
+            json!({
+                "number":"0x1",
+                "timestamp":"0x1",
+                "miner":"0x0000000000000000000000000000000000000000",
+                "gasLimit":"0xffffffffffffffff",
+                "baseFeePerGas":"0x0",
+                "difficulty":"0x0",
+                "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+            }),
         );
 
-        let config = Config::new("mock://test");
+        let config = Config::new(url);
         let chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
 
-        // Chain::fork injects both deployer and VM_ADDRESS locally, so only
-        // the batch should have been fetched over RPC.
+        let chain_id_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
+        ]);
+        let block_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]}
+        ]);
         assert_eq!(
-            transport.call_count("mock://test", &batch_payload),
+            transport.call_count(url, &chain_id_payload),
             1,
-            "Chain::fork must fetch exactly one batch request"
+            "Chain::fork must fetch chain_id once"
+        );
+        assert_eq!(
+            transport.call_count(url, &block_payload),
+            1,
+            "Chain::fork must fetch block once"
         );
 
         let db = chain.database().unwrap();
@@ -269,30 +305,26 @@ mod tests {
     #[test]
     fn chain_fork_uses_correct_spec_for_mainnet_cancun() {
         let transport = MockTransport::default();
+        let url = "mock://test";
 
-        let batch_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x1312d00"), json!(false)]},
-        ]);
-        transport.mock_response(
-            "mock://test",
-            &batch_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x1"},
-                {"jsonrpc":"2.0","id":1,"result":{
-                    "number":"0x1312d00",
-                    "timestamp":"0x65f5e100",
-                    "miner":"0x0000000000000000000000000000000000000000",
-                    "gasLimit":"0xffffffffffffffff",
-                    "baseFeePerGas":"0x0",
-                    "difficulty":"0x0",
-                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
-                }},
-            ]),
+        mock_fork_setup(
+            &transport,
+            url,
+            20_000_000,
+            "0x1",
+            json!({
+                "number":"0x1312d00",
+                "timestamp":"0x65f5e100",
+                "miner":"0x0000000000000000000000000000000000000000",
+                "gasLimit":"0xffffffffffffffff",
+                "baseFeePerGas":"0x0",
+                "difficulty":"0x0",
+                "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+            }),
         );
 
-        let config = Config::new("mock://test");
+        let config = Config::new(url);
         let chain = Chain::fork_with_transport(config, transport.clone(), 20_000_000).unwrap();
         assert_eq!(
             chain.cfg_env().spec,
@@ -307,30 +339,26 @@ mod tests {
     #[test]
     fn chain_fork_uses_correct_spec_for_base_mainnet() {
         let transport = MockTransport::default();
+        let url = "mock://test";
 
-        let batch_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x895440"), json!(false)]},
-        ]);
-        transport.mock_response(
-            "mock://test",
-            &batch_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x2105"},
-                {"jsonrpc":"2.0","id":1,"result":{
-                    "number":"0x895440",
-                    "timestamp":"0x665fd100",
-                    "miner":"0x0000000000000000000000000000000000000000",
-                    "gasLimit":"0xffffffffffffffff",
-                    "baseFeePerGas":"0x0",
-                    "difficulty":"0x0",
-                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
-                }},
-            ]),
+        mock_fork_setup(
+            &transport,
+            url,
+            9_000_000,
+            "0x2105",
+            json!({
+                "number":"0x895440",
+                "timestamp":"0x665fd100",
+                "miner":"0x0000000000000000000000000000000000000000",
+                "gasLimit":"0xffffffffffffffff",
+                "baseFeePerGas":"0x0",
+                "difficulty":"0x0",
+                "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+            }),
         );
 
-        let config = Config::new("mock://test");
+        let config = Config::new(url);
         let chain = Chain::fork_with_transport(config, transport.clone(), 9_000_000).unwrap();
         assert_eq!(
             chain.cfg_env().spec,
@@ -345,31 +373,26 @@ mod tests {
     #[test]
     fn chain_fork_zeros_basefee() {
         let transport = MockTransport::default();
+        let url = "mock://test";
 
-        let batch_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
-        ]);
-        // Use a non-zero base fee to trigger the bug.
-        transport.mock_response(
-            "mock://test",
-            &batch_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x1"},
-                {"jsonrpc":"2.0","id":1,"result":{
-                    "number":"0x1",
-                    "timestamp":"0x1",
-                    "miner":"0x0000000000000000000000000000000000000000",
-                    "gasLimit":"0xffffffffffffffff",
-                    "baseFeePerGas":"0x1",
-                    "difficulty":"0x0",
-                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
-                }},
-            ]),
+        mock_fork_setup(
+            &transport,
+            url,
+            1,
+            "0x1",
+            json!({
+                "number":"0x1",
+                "timestamp":"0x1",
+                "miner":"0x0000000000000000000000000000000000000000",
+                "gasLimit":"0xffffffffffffffff",
+                "baseFeePerGas":"0x1",
+                "difficulty":"0x0",
+                "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+            }),
         );
 
-        let config = Config::new("mock://test");
+        let config = Config::new(url);
         let mut chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
 
         assert_eq!(
@@ -378,11 +401,6 @@ mod tests {
             "Chain::fork must zero basefee so gas_price=0 transactions validate"
         );
 
-        // Execute a CALL against the locally-injected VM_ADDRESS using the
-        // default gas_price of 0.  If basefee were kept non-zero this would
-        // fail with GasPriceLessThanBasefee.
-        // We also seed the beneficiary (Address::ZERO) so the fork DB is not
-        // hit for block rewards during the transact.
         chain.seed_account(Address::ZERO, U256::ZERO).unwrap();
         let tx_result = chain
             .call(DEFAULT_DEPLOYER, VM_ADDRESS, U256::ZERO, Bytes::new())
@@ -399,45 +417,39 @@ mod tests {
     #[test]
     fn chain_fork_caches_fork_block_hash() {
         let transport = MockTransport::default();
-
+        let url = "mock://test";
         let fork_hash = B256::from([0xab; 32]);
-        let batch_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
-        ]);
-        transport.mock_response(
-            "mock://test",
-            &batch_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x1"},
-                {"jsonrpc":"2.0","id":1,"result":{
-                    "number":"0x1",
-                    "timestamp":"0x1",
-                    "miner":"0x0000000000000000000000000000000000000000",
-                    "gasLimit":"0xffffffffffffffff",
-                    "baseFeePerGas":"0x0",
-                    "difficulty":"0x0",
-                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash": fork_hash
-                }},
-            ]),
+
+        mock_fork_setup(
+            &transport,
+            url,
+            1,
+            "0x1",
+            json!({
+                "number":"0x1",
+                "timestamp":"0x1",
+                "miner":"0x0000000000000000000000000000000000000000",
+                "gasLimit":"0xffffffffffffffff",
+                "baseFeePerGas":"0x0",
+                "difficulty":"0x0",
+                "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "hash": fork_hash
+            }),
         );
 
-        let config = Config::new("mock://test");
+        let config = Config::new(url);
         let chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
         let db = chain.database().unwrap();
 
-        // This must resolve from cache and return the exact fork hash.
         let hash = db.block_hash_ref(1).unwrap();
         assert_eq!(hash, fork_hash, "fork block hash must be cached");
 
-        // No extra eth_getBlockByNumber call should have been made.
         let extra_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
+            {"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]}
         ]);
         assert_eq!(
-            transport.call_count("mock://test", &extra_payload),
-            0,
+            transport.call_count(url, &extra_payload),
+            1,
             "block_hash_ref must not trigger an extra RPC for the fork block"
         );
     }
@@ -450,37 +462,30 @@ mod tests {
     #[test]
     fn chain_fork_uses_spec_aware_blob_fraction() {
         let transport = MockTransport::default();
+        let url = "mock://test";
 
-        let batch_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
-        ]);
-        transport.mock_response(
-            "mock://test",
-            &batch_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x1"},
-                {"jsonrpc":"2.0","id":1,"result":{
-                    "number":"0x1",
-                    "timestamp":"0x681b3057",
-                    "miner":"0x0000000000000000000000000000000000000000",
-                    "gasLimit":"0xffffffffffffffff",
-                    "baseFeePerGas":"0x0",
-                    "difficulty":"0x0",
-                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "excessBlobGas":"0x4c4b40"
-                }},
-            ]),
+        mock_fork_setup(
+            &transport,
+            url,
+            1,
+            "0x1",
+            json!({
+                "number":"0x1",
+                "timestamp":"0x681b3057",
+                "miner":"0x0000000000000000000000000000000000000000",
+                "gasLimit":"0xffffffffffffffff",
+                "baseFeePerGas":"0x0",
+                "difficulty":"0x0",
+                "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "hash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "excessBlobGas":"0x4c4b40"
+            }),
         );
 
-        let config = Config::new("mock://test");
+        let config = Config::new(url);
         let chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
         let blob_info = chain.block_env().blob_excess_gas_and_price.unwrap();
 
-        // Prague update fraction (5_007_716) yields blob_gasprice=2 for
-        // excess_blob_gas=5_000_000.  The old hardcoded Cancun fraction
-        // (3_338_477) would yield 4.
         assert_eq!(
             blob_info.blob_gasprice, 2,
             "fork at Prague must use Prague blob base fee update fraction"
@@ -497,30 +502,26 @@ mod tests {
     #[test]
     fn chain_fork_allows_unlimited_initcode_size() {
         let transport = MockTransport::default();
+        let url = "mock://test";
 
-        let batch_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
-        ]);
-        transport.mock_response(
-            "mock://test",
-            &batch_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x1"},
-                {"jsonrpc":"2.0","id":1,"result":{
-                    "number":"0x1",
-                    "timestamp":"0x1",
-                    "miner":"0x0000000000000000000000000000000000000000",
-                    "gasLimit":"0xffffffffffffffff",
-                    "baseFeePerGas":"0x0",
-                    "difficulty":"0x0",
-                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
-                }},
-            ]),
+        mock_fork_setup(
+            &transport,
+            url,
+            1,
+            "0x1",
+            json!({
+                "number":"0x1",
+                "timestamp":"0x1",
+                "miner":"0x0000000000000000000000000000000000000000",
+                "gasLimit":"0xffffffffffffffff",
+                "baseFeePerGas":"0x0",
+                "difficulty":"0x0",
+                "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+            }),
         );
 
-        let config = Config::new("mock://test");
+        let config = Config::new(url);
         let chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
         assert_eq!(
             chain.cfg_env().limit_contract_initcode_size,
@@ -535,31 +536,36 @@ mod tests {
     #[test]
     fn chain_fork_rejects_mismatched_block_number() {
         let transport = MockTransport::default();
+        let url = "mock://test";
 
-        let batch_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x64"), json!(false)]},
+        let chain_id_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
         ]);
+        let block_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":[json!("0x64"), json!(false)]}
+        ]);
+        transport.mock_response(
+            url,
+            &chain_id_payload,
+            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
+        );
         // Return block number 1 when block 100 was requested.
         transport.mock_response(
-            "mock://test",
-            &batch_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x1"},
-                {"jsonrpc":"2.0","id":1,"result":{
-                    "number":"0x1",
-                    "timestamp":"0x1",
-                    "miner":"0x0000000000000000000000000000000000000000",
-                    "gasLimit":"0xffffffffffffffff",
-                    "baseFeePerGas":"0x0",
-                    "difficulty":"0x0",
-                    "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-                    "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
-                }},
-            ]),
+            url,
+            &block_payload,
+            json!([{"jsonrpc":"2.0","id":0,"result":{
+                "number":"0x1",
+                "timestamp":"0x1",
+                "miner":"0x0000000000000000000000000000000000000000",
+                "gasLimit":"0xffffffffffffffff",
+                "baseFeePerGas":"0x0",
+                "difficulty":"0x0",
+                "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+            }}]),
         );
 
-        let config = Config::new("mock://test");
+        let config = Config::new(url);
         let result = Chain::fork_with_transport(config, transport.clone(), 100);
         assert!(
             result.is_err(),

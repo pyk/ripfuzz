@@ -113,7 +113,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let cache = Cache::new(tmp.path());
 
-        let req = Request::GetChainId;
+        let req = Request::GetChainId { url_hash: 0xabc };
         assert!(cache.get(&req).is_none());
 
         cache.insert(&req, json!("0x1"));
@@ -130,10 +130,12 @@ mod tests {
         let cache = Cache::new(tmp.path());
 
         let req_a = Request::GetBalance {
+            chain_id: 1,
             address: Address::ZERO,
             block: 1,
         };
         let req_b = Request::GetStorageAt {
+            chain_id: 1,
             address: Address::ZERO,
             slot: U256::from(2),
             block: 1,
@@ -152,6 +154,7 @@ mod tests {
         let cache = Cache::new(tmp.path());
 
         let req = Request::GetStorageAt {
+            chain_id: 1,
             address: address!("0x0000000000000000000000000000000000000001"),
             slot: U256::from(42),
             block: 123,
@@ -161,7 +164,7 @@ mod tests {
 
         let expected = tmp
             .path()
-            .join("eth_getStorageAt/123/0000000000000000000000000000000000000001/2a.json");
+            .join("eth_getStorageAt/1/123/0000000000000000000000000000000000000001/2a.json");
         assert!(expected.exists(), "expected file at {expected:?}");
     }
 
@@ -172,6 +175,7 @@ mod tests {
         let cache = Cache::new(tmp.path());
 
         let req = Request::GetStorageAt {
+            chain_id: 1,
             address: Address::ZERO,
             slot: U256::from(42),
             block: 1,
@@ -182,7 +186,7 @@ mod tests {
 
         let expected = tmp
             .path()
-            .join("eth_getStorageAt/1/0000000000000000000000000000000000000000/2a.json");
+            .join("eth_getStorageAt/1/1/0000000000000000000000000000000000000000/2a.json");
         let on_disk = fs::read(&expected).unwrap();
         let compact = serde_json::to_vec(&value).unwrap();
         assert_eq!(
@@ -199,7 +203,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let cache = Cache::new(tmp.path());
 
-        let req = Request::GetChainId;
+        let req = Request::GetChainId { url_hash: 0xabc };
         cache.insert(&req, json!("0x1"));
 
         // New instance loads from disk eagerly during construction.
@@ -209,5 +213,32 @@ mod tests {
 
         // Must still succeed because the value is fully in memory.
         assert_eq!(cache2.get(&req).unwrap(), "0x1");
+    }
+
+    /// Regression: two chains sharing the same cache_dir must not see each
+    /// other's cached state entries.
+    #[test]
+    fn cache_chain_id_isolation() {
+        let tmp = tempdir().unwrap();
+
+        let cache1 = Cache::new(tmp.path());
+        let req = Request::GetBalance {
+            chain_id: 1,
+            address: Address::ZERO,
+            block: 100,
+        };
+        cache1.insert(&req, json!("0xabc"));
+
+        let cache2 = Cache::new(tmp.path());
+        let req2 = Request::GetBalance {
+            chain_id: 8453,
+            address: Address::ZERO,
+            block: 100,
+        };
+
+        assert!(
+            cache2.get(&req2).is_none(),
+            "chain 8453 must not see chain 1 cache entry"
+        );
     }
 }

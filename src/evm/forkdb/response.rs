@@ -43,7 +43,7 @@ impl Response {
     /// Parse the `result` field of a JSON-RPC response into a typed value.
     pub fn parse(request: &super::request::Request, result: &serde_json::Value) -> Result<Self> {
         match request {
-            super::request::Request::GetChainId => {
+            super::request::Request::GetChainId { .. } => {
                 let s = result.as_str().context("expected hex string for chainId")?;
                 let v = U64::from_str_radix(s.strip_prefix("0x").unwrap_or(s), 16)
                     .context("invalid chainId hex")?;

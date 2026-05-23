@@ -14,7 +14,7 @@ pub use client::Client;
 pub use config::Config;
 pub use db::ForkDB;
 pub use error::Error;
-pub use request::Request;
+pub use request::{Request, url_hash};
 pub use response::{Block, Response};
 pub use transport::{MockTransport, Transport};
 

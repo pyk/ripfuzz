@@ -21,13 +21,15 @@ use crate::evm::forkdb::response::Response;
 pub struct ForkDB {
     client: Arc<Client>,
     block_number: u64,
+    chain_id: u64,
 }
 
 impl ForkDB {
-    pub fn new(client: Arc<Client>, block_number: u64) -> Self {
+    pub fn new(client: Arc<Client>, block_number: u64, chain_id: u64) -> Self {
         Self {
             client,
             block_number,
+            chain_id,
         }
     }
 
@@ -112,14 +114,17 @@ impl DatabaseRef for ForkDB {
         // background worker can send them as one JSON-RPC batch request.
         let responses = self.client.request(&[
             Request::GetBalance {
+                chain_id: self.chain_id,
                 address,
                 block: self.block_number,
             },
             Request::GetTransactionCount {
+                chain_id: self.chain_id,
                 address,
                 block: self.block_number,
             },
             Request::GetCode {
+                chain_id: self.chain_id,
                 address,
                 block: self.block_number,
             },
@@ -144,6 +149,7 @@ impl DatabaseRef for ForkDB {
 
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
         let mut responses = self.client.request(&[Request::GetStorageAt {
+            chain_id: self.chain_id,
             address,
             slot: index,
             block: self.block_number,
@@ -162,6 +168,7 @@ impl DatabaseRef for ForkDB {
 
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
         let mut responses = self.client.request(&[Request::GetBlockByNumber {
+            chain_id: self.chain_id,
             block: number,
             full_tx: false,
         }])?;
@@ -182,6 +189,7 @@ impl DatabaseRef for ForkDB {
 mod tests {
     use super::*;
     use alloy_primitives::Bytes;
+    use revm::database::CacheDB;
 
     use crate::evm::forkdb::{Config as ForkdbConfig, MockTransport};
 
@@ -194,7 +202,7 @@ mod tests {
         let transport = MockTransport::default();
         let config = ForkdbConfig::new("mock://test");
         let client = Client::new_with_transport(config, transport);
-        let fork_db = ForkDB::new(Arc::new(client), 1);
+        let fork_db = ForkDB::new(Arc::new(client), 1, 1);
 
         // Responses arrive in a different order than the requests.
         let responses = vec![
@@ -245,14 +253,12 @@ mod tests {
     /// release the underlying ClientInner so the supervisor thread exits.
     #[test]
     fn forkdb_drop_releases_client_inner() {
-        use revm::database::CacheDB;
-
         let transport = MockTransport::default();
         let config = ForkdbConfig::new("mock://test").batch_timeout_ms(0);
         let client = Client::new_with_transport(config, transport);
         let weak = Arc::downgrade(&client.inner);
 
-        let fork_db = ForkDB::new(Arc::new(client), 1);
+        let fork_db = ForkDB::new(Arc::new(client), 1, 1);
         let db = CacheDB::new(fork_db);
         let db2 = db.clone();
 

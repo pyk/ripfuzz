@@ -246,12 +246,14 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
-    use alloy_primitives::Address;
+    use alloy_primitives::{Address, U256};
     use anyhow::Result;
     use serde_json::json;
     use tempfile::tempdir;
 
-    use crate::evm::forkdb::{Client, Config, MockTransport, Request, Response, Transport};
+    use crate::evm::forkdb::{
+        Client, Config, MockTransport, Request, Response, Transport, url_hash,
+    };
 
     /// Regression: the background batcher must be the sole thread that writes
     /// to the disk cache and completes dedup entries.  The caller thread
@@ -260,6 +262,7 @@ mod tests {
     fn client_caches_and_dedups_exactly_once() {
         let transport = MockTransport::default();
         let url = "mock://test";
+        let url_h = url_hash(url);
 
         let payload = json!([
             {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
@@ -274,7 +277,7 @@ mod tests {
         let config = Config::new(url).cache_dir(tmp.path()).batch_timeout_ms(0);
         let client = Client::new_with_transport(config, transport.clone());
 
-        let reqs = &[Request::GetChainId];
+        let reqs = &[Request::GetChainId { url_hash: url_h }];
         let res = client.request(reqs).unwrap();
         assert_eq!(res.len(), 1);
 
@@ -300,6 +303,7 @@ mod tests {
     fn client_dedups_concurrent_requests() {
         let transport = MockTransport::default();
         let url = "mock://test";
+        let url_h = url_hash(url);
 
         let payload = json!([
             {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
@@ -321,11 +325,11 @@ mod tests {
 
         let handle1 = std::thread::spawn(move || {
             barrier.wait();
-            client.request(&[Request::GetChainId])
+            client.request(&[Request::GetChainId { url_hash: url_h }])
         });
         let handle2 = std::thread::spawn(move || {
             barrier2.wait();
-            client2.request(&[Request::GetChainId])
+            client2.request(&[Request::GetChainId { url_hash: url_h }])
         });
 
         let res1 = handle1.join().unwrap().unwrap();
@@ -389,7 +393,7 @@ mod tests {
         let client = Client::new_with_transport(config, transport);
 
         // First request triggers the panic inside the batcher.
-        let res1 = client.request(&[Request::GetChainId]);
+        let res1 = client.request(&[Request::GetChainId { url_hash: 0 }]);
         assert!(
             res1.is_err(),
             "first request must fail because transport panicked and retries=0"
@@ -399,7 +403,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(100));
 
         // Second request must succeed now that the batcher has restarted.
-        let res2 = client.request(&[Request::GetChainId]);
+        let res2 = client.request(&[Request::GetChainId { url_hash: 0 }]);
         assert!(
             res2.is_ok(),
             "batcher must recover from transport panic; got: {:#}",
@@ -417,6 +421,7 @@ mod tests {
     fn batch_per_item_retry() {
         let transport = MockTransport::default();
         let url = "mock://test";
+        let url_h = url_hash(url);
 
         let batch_payload = json!([
             {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
@@ -450,8 +455,9 @@ mod tests {
         let client = Client::new_with_transport(config, transport.clone());
 
         let reqs = &[
-            Request::GetChainId,
+            Request::GetChainId { url_hash: url_h },
             Request::GetBalance {
+                chain_id: 1,
                 address: Address::ZERO,
                 block: 1,
             },
@@ -482,6 +488,7 @@ mod tests {
     fn client_dedup_waiter_does_not_resubmit_on_error() {
         let transport = MockTransport::default();
         let url = "mock://test";
+        let url_h = url_hash(url);
 
         let payload = json!([
             {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
@@ -502,11 +509,11 @@ mod tests {
 
         let handle1 = std::thread::spawn(move || {
             barrier.wait();
-            client.request(&[Request::GetChainId])
+            client.request(&[Request::GetChainId { url_hash: url_h }])
         });
         let handle2 = std::thread::spawn(move || {
             barrier2.wait();
-            client2.request(&[Request::GetChainId])
+            client2.request(&[Request::GetChainId { url_hash: url_h }])
         });
 
         let res1 = handle1.join().unwrap();
@@ -543,7 +550,7 @@ mod tests {
         let config = Config::new("mock://panic").batch_timeout_ms(0).retries(0);
         let client = Client::new_with_transport(config, PanicTransport);
 
-        let res = client.request(&[Request::GetChainId]);
+        let res = client.request(&[Request::GetChainId { url_hash: 0 }]);
         assert!(
             res.is_err(),
             "leader request must fail because batcher panicked"
@@ -587,11 +594,11 @@ mod tests {
 
         let handle1 = std::thread::spawn(move || {
             req_barrier1.wait();
-            client.request(&[Request::GetChainId])
+            client.request(&[Request::GetChainId { url_hash: 0 }])
         });
         let handle2 = std::thread::spawn(move || {
             req_barrier2.wait();
-            client2.request(&[Request::GetChainId])
+            client2.request(&[Request::GetChainId { url_hash: 0 }])
         });
 
         // Release both request threads simultaneously.
@@ -615,6 +622,65 @@ mod tests {
         assert!(
             res2.unwrap_err().is_transient(),
             "waiter error must be transient"
+        );
+    }
+
+    /// Regression: disk cache must be scoped by chain_id so that two forks on
+    /// different chains sharing the same cache_dir do not load stale data.
+    #[test]
+    fn cache_isolated_by_chain_id() {
+        let tmp = tempdir().unwrap();
+        let url1 = "mock://chain1";
+        let url2 = "mock://chain2";
+
+        let balance_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000000","0x64"]}
+        ]);
+
+        // First client: chain 1
+        let transport1 = MockTransport::default();
+        transport1.mock_response(
+            url1,
+            &balance_payload,
+            json!([{"jsonrpc":"2.0","id":0,"result":"0xabc"}]),
+        );
+
+        let config1 = Config::new(url1).cache_dir(tmp.path()).batch_timeout_ms(0);
+        let client1 = Client::new_with_transport(config1, transport1.clone());
+
+        let res = client1
+            .request(&[Request::GetBalance {
+                chain_id: 1,
+                address: Address::ZERO,
+                block: 100,
+            }])
+            .unwrap();
+        assert!(matches!(&res[0], Response::Balance(v) if *v == U256::from(0xabc)));
+        assert_eq!(transport1.call_count(url1, &balance_payload), 1);
+
+        // Second client: chain 8453, same cache_dir.
+        let transport2 = MockTransport::default();
+        transport2.mock_response(
+            url2,
+            &balance_payload,
+            json!([{"jsonrpc":"2.0","id":0,"result":"0xdef"}]),
+        );
+
+        let config2 = Config::new(url2).cache_dir(tmp.path()).batch_timeout_ms(0);
+        let client2 = Client::new_with_transport(config2, transport2.clone());
+
+        let res = client2
+            .request(&[Request::GetBalance {
+                chain_id: 8453,
+                address: Address::ZERO,
+                block: 100,
+            }])
+            .unwrap();
+        assert!(matches!(&res[0], Response::Balance(v) if *v == U256::from(0xdef)));
+        assert_eq!(
+            transport2.call_count(url2, &balance_payload),
+            1,
+            "chain 8453 must fetch its own balance instead of loading chain 1 cache"
         );
     }
 
