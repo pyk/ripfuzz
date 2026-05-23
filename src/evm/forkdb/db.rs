@@ -1,9 +1,10 @@
 //! ForkDB: revm-native forked database backed by an RPC [`Client`].
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
 
 use alloy_primitives::{Address, B256, U256};
+use lru::LruCache;
 use revm::{
     DatabaseRef, bytecode::Bytecode, database_interface::DBErrorMarker, primitives::KECCAK_EMPTY,
     state::AccountInfo,
@@ -12,6 +13,8 @@ use revm::{
 use crate::evm::forkdb::client::Client;
 use crate::evm::forkdb::request::Request;
 use crate::evm::forkdb::response::Response;
+
+const DEFAULT_CONTRACT_CACHE_CAPACITY: usize = 1024;
 
 /// Thin newtype around `anyhow::Error` so we can implement `DBErrorMarker`.
 #[derive(Debug)]
@@ -42,24 +45,31 @@ impl From<anyhow::Error> for ForkDBError {
 /// All RPC state fetching is delegated to the internal [`Client`], which
 /// handles caching, deduplication, rate limiting, retries, and automatic
 /// batching. This struct only maps revm database operations to typed RPC
-/// requests and keeps a small in-process cache for contract bytecode (needed
-/// for [`code_by_hash_ref`](DatabaseRef::code_by_hash_ref)).
+/// requests and keeps a small in-process LRU cache for contract bytecode
+/// (needed for [`code_by_hash_ref`](DatabaseRef::code_by_hash_ref)).
 #[derive(Clone, Debug)]
 pub struct ForkDB {
     client: Arc<Client>,
     block_number: u64,
-    /// Caches bytecode by code hash. `RwLock` chosen because
-    /// `code_by_hash_ref` is read-heavy while writes only happen on cache
-    /// misses during `basic_ref`.
-    contracts: Arc<RwLock<HashMap<B256, Bytecode>>>,
+    /// Caches bytecode by code hash. `Mutex` is required because `LruCache`
+    /// needs `&mut self` on both reads (to promote recency) and writes.
+    contracts: Arc<Mutex<LruCache<B256, Bytecode>>>,
 }
 
 impl ForkDB {
     pub fn new(client: Arc<Client>, block_number: u64) -> Self {
+        Self::with_capacity(client, block_number, DEFAULT_CONTRACT_CACHE_CAPACITY)
+    }
+
+    pub fn with_capacity(client: Arc<Client>, block_number: u64, cap: usize) -> Self {
+        let contracts = match NonZeroUsize::new(cap) {
+            Some(n) => LruCache::new(n),
+            None => LruCache::unbounded(),
+        };
         Self {
             client,
             block_number,
-            contracts: Arc::new(RwLock::new(HashMap::new())),
+            contracts: Arc::new(Mutex::new(contracts)),
         }
     }
 }
@@ -121,9 +131,9 @@ impl DatabaseRef for ForkDB {
         let code_hash = bytecode.hash_slow();
         if !bytecode.is_empty() {
             self.contracts
-                .write()
+                .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .insert(code_hash, bytecode.clone());
+                .put(code_hash, bytecode.clone());
         }
 
         Ok(Some(AccountInfo {
@@ -141,7 +151,7 @@ impl DatabaseRef for ForkDB {
         }
         match self
             .contracts
-            .read()
+            .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(&code_hash)
         {
@@ -193,5 +203,66 @@ impl DatabaseRef for ForkDB {
                 "unexpected response for GetBlockByNumber"
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    use crate::evm::forkdb::{Config as ForkdbConfig, MockTransport};
+
+    /// Regression: ForkDB must keep its in-memory contracts cache bounded so
+    /// that a long campaign touching thousands of unique contracts does not OOM.
+    #[test]
+    fn forkdb_contracts_cache_is_bounded() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+        let block_tag = json!("0x1");
+
+        let addresses: Vec<Address> = (0..4u64)
+            .map(|i| {
+                let mut bytes = [0u8; 20];
+                bytes[19] = (i + 1) as u8;
+                Address::from(bytes)
+            })
+            .collect();
+
+        for (i, addr) in addresses.iter().enumerate() {
+            let payload = json!([
+                {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":[json!(format!("0x{addr:x}")), block_tag.clone()]},
+                {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":[json!(format!("0x{addr:x}")), block_tag.clone()]},
+                {"jsonrpc":"2.0","id":2,"method":"eth_getCode","params":[json!(format!("0x{addr:x}")), block_tag.clone()]},
+            ]);
+            let code_hex = format!("0x{:04x}", i);
+            transport.mock_response(
+                url,
+                &payload,
+                json!([
+                    {"jsonrpc":"2.0","id":0,"result":"0x0"},
+                    {"jsonrpc":"2.0","id":1,"result":"0x0"},
+                    {"jsonrpc":"2.0","id":2,"result": code_hex},
+                ]),
+            );
+        }
+
+        let config = ForkdbConfig::new(url);
+        let client = Client::new_with_transport(config, transport.clone());
+        let fork_db = ForkDB::with_capacity(Arc::new(client), 1, 2);
+
+        for addr in &addresses {
+            let _ = fork_db.basic_ref(*addr).unwrap().unwrap();
+        }
+
+        assert_eq!(
+            fork_db
+                .contracts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            2,
+            "contracts cache must be bounded by LRU capacity"
+        );
     }
 }

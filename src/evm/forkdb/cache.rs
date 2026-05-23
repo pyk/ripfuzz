@@ -1,17 +1,20 @@
 //! Two-layer cache (in-memory + on-disk) for forked RPC responses.
 
-use std::collections::HashMap;
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Result;
+use lru::LruCache;
 use serde_json::Value;
 
 use crate::evm::forkdb::request::Request;
 
-/// Two-layer cache: in-memory hashmap backed by individual JSON files per
+const DEFAULT_MEMORY_CACHE_CAPACITY: usize = 4096;
+
+/// Two-layer cache: in-memory LRU backed by individual JSON files per
 /// request. Each entry is written atomically (temp file + rename) so there is
 /// no race between parallel threads.
 ///
@@ -19,15 +22,23 @@ use crate::evm::forkdb::request::Request;
 #[derive(Debug)]
 pub struct Cache {
     base_dir: PathBuf,
-    memory: RwLock<HashMap<String, Value>>,
+    memory: Mutex<LruCache<String, Value>>,
     pub insert_count: AtomicUsize,
 }
 
 impl Cache {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
+        Self::with_capacity(base_dir, DEFAULT_MEMORY_CACHE_CAPACITY)
+    }
+
+    pub fn with_capacity(base_dir: impl AsRef<Path>, cap: usize) -> Self {
+        let memory = match NonZeroUsize::new(cap) {
+            Some(n) => LruCache::new(n),
+            None => LruCache::unbounded(),
+        };
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
-            memory: RwLock::new(HashMap::new()),
+            memory: Mutex::new(memory),
             insert_count: AtomicUsize::new(0),
         }
     }
@@ -52,7 +63,7 @@ impl Cache {
     pub fn get(&self, req: &Request) -> Option<Value> {
         let key = req.cache_key();
         {
-            let guard = self.memory.read().unwrap_or_else(|e| e.into_inner());
+            let mut guard = self.memory.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(v) = guard.get(&key) {
                 return Some(v.clone());
             }
@@ -66,8 +77,8 @@ impl Cache {
         let data = fs::read(&path).ok()?;
         let value: Value = serde_json::from_slice(&data).ok()?;
 
-        let mut guard = self.memory.write().unwrap_or_else(|e| e.into_inner());
-        guard.insert(key, value.clone());
+        let mut guard = self.memory.lock().unwrap_or_else(|e| e.into_inner());
+        guard.put(key, value.clone());
 
         Some(value)
     }
@@ -77,8 +88,8 @@ impl Cache {
         self.insert_count.fetch_add(1, Ordering::SeqCst);
         let key = req.cache_key();
         {
-            let mut guard = self.memory.write().unwrap_or_else(|e| e.into_inner());
-            guard.insert(key, value.clone());
+            let mut guard = self.memory.lock().unwrap_or_else(|e| e.into_inner());
+            guard.put(key, value.clone());
         }
         let _ = self.write_to_disk(req, &value);
     }
@@ -147,5 +158,38 @@ mod tests {
             .path()
             .join("eth_getStorageAt/123/0000000000000000000000000000000000000001/2a.json");
         assert!(expected.exists(), "expected file at {expected:?}");
+    }
+
+    /// Regression: the in-memory cache must be bounded so that a long fuzzing
+    /// campaign touching thousands of accounts and slots does not OOM.
+    #[test]
+    fn cache_memory_is_bounded_by_lru_capacity() {
+        let tmp = tempdir().unwrap();
+        let cache = Cache::with_capacity(tmp.path(), 2);
+
+        let req1 = Request::GetChainId;
+        let req2 = Request::GetBalance {
+            address: Address::ZERO,
+            block: 1,
+        };
+        let req3 = Request::GetBalance {
+            address: Address::ZERO,
+            block: 2,
+        };
+
+        cache.insert(&req1, json!("0x1"));
+        cache.insert(&req2, json!("0x2"));
+        cache.insert(&req3, json!("0x3"));
+
+        assert_eq!(
+            cache.memory.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            2,
+            "memory cache must respect LRU capacity"
+        );
+
+        // Evicted entry must still be available from disk.
+        assert_eq!(cache.get(&req1).unwrap(), "0x1");
+        assert_eq!(cache.get(&req2).unwrap(), "0x2");
+        assert_eq!(cache.get(&req3).unwrap(), "0x3");
     }
 }
