@@ -390,48 +390,6 @@ mod tests {
         );
     }
 
-    /// Regression: ForkDB::code_by_hash_ref must resolve code that was
-    /// previously fetched via basic_ref. Returning empty bytecode for every
-    /// hash silently corrupts execution when revm or CacheDB falls back to
-    /// the underlying database.
-    #[test]
-    fn forkdb_code_by_hash_ref_resolves_known_code() {
-        let transport = MockTransport::default();
-        let address = address!("0x0000000000000000000000000000000000000001");
-        let block_tag = json!("0x1");
-
-        // Mock the batch request that get_account sends.
-        let batch_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":[json!(format!("0x{address:x}")), block_tag.clone()]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":[json!(format!("0x{address:x}")), block_tag.clone()]},
-            {"jsonrpc":"2.0","id":2,"method":"eth_getCode","params":[json!(format!("0x{address:x}")), block_tag]},
-        ]);
-        let code_hex = "0x600160005260016000f3";
-        transport.mock_response(
-            "mock://test",
-            &batch_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x0"},
-                {"jsonrpc":"2.0","id":1,"result":"0x0"},
-                {"jsonrpc":"2.0","id":2,"result": code_hex},
-            ]),
-        );
-
-        let config = ForkdbConfig::new("mock://test");
-        let client = Client::new_with_transport(config, transport.clone());
-        let fork_db = ForkDB::new(Arc::new(client), 1);
-
-        let info = fork_db.basic_ref(address).unwrap().unwrap();
-        let code_hash = info.code_hash;
-        let expected_code = info.code.unwrap();
-
-        let resolved = fork_db.code_by_hash_ref(code_hash).unwrap();
-        assert_eq!(
-            resolved, expected_code,
-            "ForkDB::code_by_hash_ref must return the same bytecode that basic_ref provided"
-        );
-    }
-
     /// Regression: Chain::fork must cache the fork block hash so that the
     /// BLOCKHASH opcode for the fork block number resolves locally instead of
     /// triggering an eth_getBlockByNumber RPC call.

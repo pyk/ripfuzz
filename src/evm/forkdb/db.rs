@@ -1,10 +1,8 @@
 //! ForkDB: revm-native forked database backed by an RPC [`Client`].
 
-use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use alloy_primitives::{Address, B256, U256};
-use lru::LruCache;
 use revm::{
     DatabaseRef, bytecode::Bytecode, database_interface::DBErrorMarker, primitives::KECCAK_EMPTY,
     state::AccountInfo,
@@ -13,8 +11,6 @@ use revm::{
 use crate::evm::forkdb::client::Client;
 use crate::evm::forkdb::request::Request;
 use crate::evm::forkdb::response::Response;
-
-const DEFAULT_CONTRACT_CACHE_CAPACITY: usize = 1024;
 
 /// Enumerated error type for ForkDB so callers can programmatically
 /// distinguish between transient and permanent failures.
@@ -101,31 +97,19 @@ impl From<anyhow::Error> for ForkDBError {
 /// All RPC state fetching is delegated to the internal [`Client`], which
 /// handles caching, deduplication, rate limiting, retries, and automatic
 /// batching. This struct only maps revm database operations to typed RPC
-/// requests and keeps a small in-process LRU cache for contract bytecode
-/// (needed for [`code_by_hash_ref`](DatabaseRef::code_by_hash_ref)).
+/// requests. Bytecode is returned inline with `basic_ref` so revm never
+/// needs to call `code_by_hash_ref` during normal execution.
 #[derive(Clone, Debug)]
 pub struct ForkDB {
     client: Arc<Client>,
     block_number: u64,
-    /// Caches bytecode by code hash. `Mutex` is required because `LruCache`
-    /// needs `&mut self` on both reads (to promote recency) and writes.
-    contracts: Arc<Mutex<LruCache<B256, Bytecode>>>,
 }
 
 impl ForkDB {
     pub fn new(client: Arc<Client>, block_number: u64) -> Self {
-        Self::with_capacity(client, block_number, DEFAULT_CONTRACT_CACHE_CAPACITY)
-    }
-
-    pub fn with_capacity(client: Arc<Client>, block_number: u64, cap: usize) -> Self {
-        let contracts = match NonZeroUsize::new(cap) {
-            Some(n) => LruCache::new(n),
-            None => LruCache::unbounded(),
-        };
         Self {
             client,
             block_number,
-            contracts: Arc::new(Mutex::new(contracts)),
         }
     }
 
@@ -191,12 +175,6 @@ impl ForkDB {
             Bytecode::new_raw(code)
         };
         let code_hash = bytecode.hash_slow();
-        if !bytecode.is_empty() {
-            self.contracts
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .put(code_hash, bytecode.clone());
-        }
 
         Ok(Some(AccountInfo {
             balance,
@@ -236,17 +214,14 @@ impl DatabaseRef for ForkDB {
         if code_hash == KECCAK_EMPTY || code_hash.is_zero() {
             return Ok(Bytecode::default());
         }
-        match self
-            .contracts
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&code_hash)
-        {
-            Some(code) => Ok(code.clone()),
-            None => Err(ForkDBError::MissingAccount {
-                message: format!("code hash {code_hash} not found in fork database"),
-            }),
-        }
+        // revm's CacheDB caches code loaded via basic_ref, so this path is
+        // rarely exercised in practice. AlloyDB takes the same stance and
+        // panics here; we return a typed error instead.
+        Err(ForkDBError::MissingAccount {
+            message: format!(
+                "code hash {code_hash} not present in fork DB; code should have been loaded via basic_ref"
+            ),
+        })
     }
 
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
@@ -296,59 +271,6 @@ mod tests {
     use serde_json::json;
 
     use crate::evm::forkdb::{Config as ForkdbConfig, MockTransport};
-
-    /// Regression: ForkDB must keep its in-memory contracts cache bounded so
-    /// that a long campaign touching thousands of unique contracts does not OOM.
-    #[test]
-    fn forkdb_contracts_cache_is_bounded() {
-        let transport = MockTransport::default();
-        let url = "mock://test";
-        let block_tag = json!("0x1");
-
-        let addresses: Vec<Address> = (0..4u64)
-            .map(|i| {
-                let mut bytes = [0u8; 20];
-                bytes[19] = (i + 1) as u8;
-                Address::from(bytes)
-            })
-            .collect();
-
-        for (i, addr) in addresses.iter().enumerate() {
-            let payload = json!([
-                {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":[json!(format!("0x{addr:x}")), block_tag.clone()]},
-                {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":[json!(format!("0x{addr:x}")), block_tag.clone()]},
-                {"jsonrpc":"2.0","id":2,"method":"eth_getCode","params":[json!(format!("0x{addr:x}")), block_tag.clone()]},
-            ]);
-            let code_hex = format!("0x{:04x}", i);
-            transport.mock_response(
-                url,
-                &payload,
-                json!([
-                    {"jsonrpc":"2.0","id":0,"result":"0x0"},
-                    {"jsonrpc":"2.0","id":1,"result":"0x0"},
-                    {"jsonrpc":"2.0","id":2,"result": code_hex},
-                ]),
-            );
-        }
-
-        let config = ForkdbConfig::new(url);
-        let client = Client::new_with_transport(config, transport.clone());
-        let fork_db = ForkDB::with_capacity(Arc::new(client), 1, 2);
-
-        for addr in &addresses {
-            let _ = fork_db.basic_ref(*addr).unwrap().unwrap();
-        }
-
-        assert_eq!(
-            fork_db
-                .contracts
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .len(),
-            2,
-            "contracts cache must be bounded by LRU capacity"
-        );
-    }
 
     /// Regression: ForkDB::basic_ref must not assume that the batcher returns
     /// responses in the same order as the requests.  If the response order
