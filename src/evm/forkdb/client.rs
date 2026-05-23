@@ -1,10 +1,11 @@
 //! RPC client with automatic batching, caching, deduplication, rate limiting,
 //! and retries.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossbeam::channel::{self, Sender};
+use parking_lot::RwLock;
 use tracing::{instrument, trace};
 
 use crate::evm::forkdb::batcher::{Batcher, PendingRequest};
@@ -28,7 +29,7 @@ pub struct Client {
 
 #[derive(Debug)]
 pub struct ClientInner {
-    pub request_tx: Mutex<Sender<PendingRequest>>,
+    pub request_tx: RwLock<Sender<PendingRequest>>,
     pub cache: Option<Arc<Cache>>,
     pub dedup: Arc<DedupTable>,
 }
@@ -55,7 +56,7 @@ impl Client {
         let (request_tx, request_rx) = channel::bounded(batch_size.saturating_mul(2));
 
         let inner = Arc::new(ClientInner {
-            request_tx: Mutex::new(request_tx),
+            request_tx: RwLock::new(request_tx),
             cache,
             dedup,
         });
@@ -92,7 +93,7 @@ impl Client {
                         Err(_) => {
                             tracing::error!("batcher panicked, restarting");
                             let (tx, rx) = channel::bounded(batch_size.saturating_mul(2));
-                            *inner.request_tx.lock().unwrap_or_else(|e| e.into_inner()) = tx;
+                            *inner.request_tx.write() = tx;
                             let _old = std::mem::replace(&mut batcher.request_rx, rx);
                             drop(_old);
                         }
@@ -173,8 +174,7 @@ impl Client {
             let (tx, rx) = channel::bounded(1);
             self.inner
                 .request_tx
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
+                .read()
                 .send(PendingRequest {
                     request: reqs[idx].to_owned(),
                     response_tx: tx,
@@ -334,7 +334,7 @@ mod tests {
         let config = Config::new("mock://test");
         let client = Client::new_with_transport(config, transport);
 
-        let tx = client.inner.request_tx.lock().unwrap();
+        let tx = client.inner.request_tx.read();
         assert!(
             tx.capacity().is_some(),
             "request channel must be bounded, got unbounded"
