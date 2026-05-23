@@ -1,32 +1,16 @@
 //! Request deduplication table for in-flight RPC calls.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow};
+use crossbeam::channel::Sender;
 use tracing::trace;
 
-#[derive(Debug)]
-struct InflightHandle {
-    done: Condvar,
-    completed: AtomicBool,
-    result: Mutex<Option<Result<serde_json::Value>>>,
-}
-
-impl InflightHandle {
-    fn wait(&self) -> Result<serde_json::Value> {
-        let mut guard = self.result.lock().unwrap_or_else(|e| e.into_inner());
-        while !self.completed.load(Ordering::Relaxed) {
-            guard = self.done.wait(guard).unwrap_or_else(|e| e.into_inner());
-        }
-        match guard.as_ref() {
-            Some(Ok(v)) => Ok(v.clone()),
-            Some(Err(e)) => Err(anyhow!("{e}")),
-            None => Err(anyhow!("dedup waiter woken with no result")),
-        }
-    }
-}
+/// Cloneable payload used inside crossbeam channels. `anyhow::Error` does not
+/// implement `Clone`, so we normalise errors to `String` for broadcast.
+type DedupPayload = Result<serde_json::Value, String>;
 
 /// Ensures `complete` is called even if the caller panics.
 pub struct DedupGuard<'a> {
@@ -53,7 +37,11 @@ impl Drop for DedupGuard<'_> {
 
 #[derive(Debug)]
 pub struct DedupTable {
-    inflight: Mutex<HashMap<String, Arc<InflightHandle>>>,
+    /// In-flight keys mapped to the list of channel senders for waiters.
+    /// The first caller that inserts the key becomes the leader and must
+    /// later call `complete`.  Subsequent callers push a new `Sender` into
+    /// the vector, drop the map lock, and block on the paired `Receiver`.
+    inflight: Mutex<HashMap<String, Vec<Sender<Arc<DedupPayload>>>>>,
     pub complete_count: AtomicUsize,
 }
 
@@ -75,22 +63,26 @@ impl DedupTable {
     ///
     /// Returns `None` if this thread is the first to issue the request;
     /// the caller must later call `complete` (or use a [`DedupGuard`]).
-    /// Returns `Some(handle)` if another thread is already handling it.
+    /// Returns `Some(result)` if another thread is already handling it,
+    /// blocking until the batcher signals completion.
     pub fn register(&self, key: &str) -> Option<Result<serde_json::Value>> {
         let mut map = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
         trace!(key = %key, table_size = map.len(), "dedup register");
-        if let Some(handle) = map.get(key) {
-            let handle = Arc::clone(handle);
+        if let Some(senders) = map.get_mut(key) {
+            let (tx, rx) = crossbeam::channel::bounded(1);
+            senders.push(tx);
             drop(map);
             trace!(key = %key, "dedup hit - waiting on in-flight request");
-            return Some(handle.wait());
+            let payload = match rx.recv() {
+                Ok(v) => v,
+                Err(_) => return Some(Err(anyhow!("dedup channel closed"))),
+            };
+            return Some(match payload.as_ref() {
+                Ok(v) => Ok(v.clone()),
+                Err(s) => Err(anyhow!(s.clone())),
+            });
         }
-        let handle = Arc::new(InflightHandle {
-            done: Condvar::new(),
-            completed: AtomicBool::new(false),
-            result: Mutex::new(None),
-        });
-        map.insert(key.into(), handle);
+        map.insert(key.into(), Vec::new());
         None
     }
 
@@ -98,12 +90,14 @@ impl DedupTable {
     pub fn complete(&self, key: &str, result: Result<serde_json::Value>) {
         self.complete_count.fetch_add(1, Ordering::SeqCst);
         let mut map = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(handle) = map.remove(key) {
-            let mut guard = handle.result.lock().unwrap_or_else(|e| e.into_inner());
-            *guard = Some(result);
-            handle.completed.store(true, Ordering::Relaxed);
-            drop(guard);
-            handle.done.notify_all();
+        if let Some(senders) = map.remove(key) {
+            let payload = Arc::new(match result {
+                Ok(v) => Ok(v),
+                Err(e) => Err(format!("{e}")),
+            });
+            for tx in senders {
+                let _ = tx.send(Arc::clone(&payload));
+            }
         }
     }
 
@@ -155,5 +149,30 @@ mod tests {
 
         let err = waiter.join().unwrap().unwrap().unwrap_err();
         assert!(format!("{err}").contains("network down"));
+    }
+
+    /// Regression: many concurrent waiters on the same key must all receive the
+    /// result without spurious wakeup issues.
+    #[test]
+    fn dedup_many_waiters_all_receive() {
+        let table = Arc::new(DedupTable::new());
+        let key = "eth_chainId";
+
+        assert!(table.register(key).is_none());
+
+        let waiters: Vec<std::thread::JoinHandle<Option<Result<serde_json::Value>>>> = (0..20)
+            .map(|_| {
+                let table = Arc::clone(&table);
+                std::thread::spawn(move || table.register(key))
+            })
+            .collect();
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        table.complete(key, Ok("0x1a2b".into()));
+
+        for waiter in waiters {
+            let result = waiter.join().unwrap().unwrap().unwrap();
+            assert_eq!(result, "0x1a2b");
+        }
     }
 }
