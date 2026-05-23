@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use alloy_primitives::U256;
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use revm::{
     bytecode::Bytecode,
     context::{BlockEnv, CfgEnv},
@@ -53,11 +53,11 @@ impl Chain {
 
         let chain_id = match &responses[0] {
             Response::ChainId(v) => *v,
-            _ => anyhow::bail!("unexpected response for GetChainId"),
+            _ => bail!("unexpected response for GetChainId"),
         };
         let block = match &responses[1] {
             Response::BlockByNumber(b) => b.clone(),
-            _ => anyhow::bail!("unexpected response for GetBlockByNumber"),
+            _ => bail!("unexpected response for GetBlockByNumber"),
         };
 
         let spec_id = crate::evm::specs::get_spec_id(chain_id, block.timestamp.to());

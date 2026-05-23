@@ -1,3 +1,5 @@
+//! Request deduplication table for in-flight RPC calls.
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};

@@ -1,8 +1,17 @@
+//! Background batcher that collects pending requests from a channel,
+//! groups them into JSON-RPC batches, and dispatches responses back.
+//!
+//! # Known Limitations
+//!
+//! 1. Single Batcher Thread. Currently only one batcher thread is spawned per
+//!    `Client`. All fuzzer threads serialize every RPC request through this
+//!    single consumer.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::anyhow;
+use anyhow::{Result, anyhow};
 use crossbeam::channel::{Receiver, RecvTimeoutError, Sender};
 use serde_json::json;
 
@@ -16,7 +25,7 @@ use crate::evm::forkdb::transport::Transport;
 /// A queued request waiting for the background batcher to dispatch.
 pub struct PendingRequest {
     pub request: Request,
-    pub response_tx: Sender<anyhow::Result<Response>>,
+    pub response_tx: Sender<Result<Response>>,
 }
 
 /// Background batcher that collects pending requests from a channel,
@@ -72,7 +81,7 @@ impl Batcher {
                 "params": req.params(),
             })
         } else {
-            let array: Vec<_> = batch
+            let array: Vec<serde_json::Value> = batch
                 .iter()
                 .enumerate()
                 .map(|(idx, pending)| {
@@ -139,12 +148,15 @@ impl Batcher {
                 .get("result")
                 .cloned()
                 .unwrap_or(serde_json::Value::Null);
-            let pending = batch.into_iter().next().unwrap();
+            let mut it = batch.into_iter();
+            let Some(pending) = it.next() else {
+                return;
+            };
             let parsed = Response::parse(&pending.request, &result);
-            if let Ok(ref resp) = parsed {
-                if let Some(ref cache) = self.cache {
-                    cache.insert(&pending.request, resp.to_json());
-                }
+            if let Ok(resp) = &parsed
+                && let Some(cache) = self.cache.as_ref()
+            {
+                cache.insert(&pending.request, resp.to_json());
                 self.dedup
                     .complete(&pending.request.cache_key(), Ok(resp.to_json()));
             }
@@ -152,21 +164,22 @@ impl Batcher {
         } else {
             let arr = value.as_array().cloned().unwrap_or_default();
             let mut by_id: HashMap<usize, serde_json::Value> = HashMap::new();
-            for item in arr {
-                if let Some(id) = item.get("id").and_then(|v| v.as_u64()).map(|v| v as usize)
-                    && let Some(result) = item.get("result")
-                {
-                    by_id.insert(id, result.clone());
+            for mut item in arr {
+                let Some(id) = item.get("id").and_then(|v| v.as_u64()).map(|v| v as usize) else {
+                    continue;
+                };
+                if let Some(result) = item.as_object_mut().and_then(|obj| obj.remove("result")) {
+                    by_id.insert(id, result);
                 }
             }
 
             for (idx, pending) in batch.into_iter().enumerate() {
                 let result = by_id.get(&idx).cloned().unwrap_or(serde_json::Value::Null);
                 let parsed = Response::parse(&pending.request, &result);
-                if let Ok(ref resp) = parsed {
-                    if let Some(ref cache) = self.cache {
-                        cache.insert(&pending.request, resp.to_json());
-                    }
+                if let Ok(resp) = &parsed
+                    && let Some(cache) = self.cache.as_ref()
+                {
+                    cache.insert(&pending.request, resp.to_json());
                     self.dedup
                         .complete(&pending.request.cache_key(), Ok(resp.to_json()));
                 }

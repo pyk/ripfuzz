@@ -8,9 +8,7 @@ use revm::{
     database_interface::DBErrorMarker, state::AccountInfo,
 };
 
-use crate::evm::forkdb;
-
-pub use forkdb::{ForkDB, ForkDBError};
+pub use crate::evm::forkdb::{ForkDB, ForkDBError};
 
 // ---------------------------------------------------------------------------
 // LocalDB

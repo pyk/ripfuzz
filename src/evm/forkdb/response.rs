@@ -1,4 +1,7 @@
+//! Strongly typed JSON-RPC responses for EVM state fetches.
+
 use alloy_primitives::{Address, B256, Bytes, U64, U256};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 /// Typed block header (subset of `eth_getBlockByNumber` result).
@@ -25,7 +28,8 @@ pub struct Block {
 }
 
 /// Strongly typed JSON-RPC response for a single EVM state fetch.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
 pub enum Response {
     ChainId(u64),
     BlockByNumber(Block),
@@ -37,12 +41,7 @@ pub enum Response {
 
 impl Response {
     /// Parse the `result` field of a JSON-RPC response into a typed value.
-    pub fn parse(
-        request: &super::request::Request,
-        result: &serde_json::Value,
-    ) -> anyhow::Result<Self> {
-        use anyhow::{Context, bail};
-
+    pub fn parse(request: &super::request::Request, result: &serde_json::Value) -> Result<Self> {
         match request {
             super::request::Request::GetChainId => {
                 let s = result.as_str().context("expected hex string for chainId")?;
@@ -54,8 +53,7 @@ impl Response {
                 if result.is_null() {
                     bail!("block not found");
                 }
-                let block: Block =
-                    serde_json::from_value(result.clone()).context("invalid block response")?;
+                let block = Block::deserialize(result).context("invalid block response")?;
                 Ok(Self::BlockByNumber(block))
             }
             super::request::Request::GetBalance { .. } => {

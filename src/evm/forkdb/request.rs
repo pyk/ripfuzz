@@ -1,6 +1,9 @@
+//! Strongly typed JSON-RPC requests for EVM state fetches.
+
 use std::path::PathBuf;
 
 use alloy_primitives::{Address, U256};
+use serde_json::json;
 
 /// Strongly typed JSON-RPC request for a single EVM state fetch.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -44,7 +47,6 @@ impl Request {
 
     /// JSON-RPC parameters as serde values.
     pub fn params(&self) -> Vec<serde_json::Value> {
-        use serde_json::json;
         match self {
             Self::GetChainId => vec![],
             Self::GetBlockByNumber { block, full_tx } => {

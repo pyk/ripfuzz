@@ -1,3 +1,5 @@
+//! Transport abstraction for JSON-RPC execution (live HTTP and mock).
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

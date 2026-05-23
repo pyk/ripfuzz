@@ -1,7 +1,10 @@
+//! RPC client with automatic batching, caching, deduplication, rate limiting,
+//! and retries.
+
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use crossbeam::channel::{self, Sender};
 use tracing::{instrument, trace};
 
@@ -85,12 +88,7 @@ impl Client {
         }
 
         let mut results: Vec<Option<Response>> = vec![None; reqs.len()];
-        let mut to_fetch: Vec<(
-            usize,
-            Request,
-            String,
-            crate::evm::forkdb::dedup::DedupGuard,
-        )> = Vec::new();
+        let mut to_fetch: Vec<(usize, String, crate::evm::forkdb::dedup::DedupGuard)> = Vec::new();
 
         // 1. Check cache and dedup for each request
         for (idx, req) in reqs.iter().enumerate() {
@@ -116,31 +114,34 @@ impl Client {
             }
 
             let guard = self.inner.dedup.guard(&cache_key);
-            to_fetch.push((idx, req.clone(), cache_key, guard));
+            to_fetch.push((idx, cache_key, guard));
         }
 
         if to_fetch.is_empty() {
-            return Ok(results.into_iter().map(|o| o.unwrap()).collect());
+            return results
+                .into_iter()
+                .map(|o| o.context("missing response"))
+                .collect::<Result<Vec<Response>>>();
         }
 
         // 2. Send all uncached / undeduped requests to the batching worker
         let mut receivers = Vec::with_capacity(to_fetch.len());
-        for (idx, req, cache_key, guard) in to_fetch {
+        for (idx, cache_key, guard) in to_fetch {
             let (tx, rx) = channel::bounded(1);
             self.inner
                 .request_tx
                 .send(PendingRequest {
-                    request: req.clone(),
+                    request: reqs[idx].to_owned(),
                     response_tx: tx,
                 })
                 .map_err(|_| anyhow!("batch worker shut down"))?;
-            receivers.push((idx, req, cache_key, guard, rx));
+            receivers.push((idx, cache_key, guard, rx));
         }
 
         // 3. Collect all responses without failing early so every dedup
         //    guard gets properly completed even if one request errors.
         let mut resp_results = Vec::with_capacity(receivers.len());
-        for (_, _, _, _, rx) in &receivers {
+        for (_, _, _, rx) in &receivers {
             resp_results.push(
                 rx.recv()
                     .map_err(|_| anyhow!("batch worker response channel closed"))?,
@@ -149,13 +150,12 @@ impl Client {
 
         // 4. Cache, complete dedup, and fill results
         let mut any_err = None;
-        for ((idx, req, cache_key, guard, _), resp_result) in
-            receivers.into_iter().zip(resp_results)
-        {
+        for ((idx, cache_key, guard, _), resp_result) in receivers.into_iter().zip(resp_results) {
+            let req = &reqs[idx];
             match resp_result {
                 Ok(response) => {
                     if let Some(cache) = self.inner.cache.as_ref() {
-                        cache.insert(&req, response.to_json());
+                        cache.insert(req, response.to_json());
                     }
                     self.inner
                         .dedup
@@ -175,6 +175,9 @@ impl Client {
             return Err(e);
         }
 
-        Ok(results.into_iter().map(|o| o.unwrap()).collect())
+        results
+            .into_iter()
+            .map(|o| o.context("missing response"))
+            .collect::<Result<Vec<Response>>>()
     }
 }

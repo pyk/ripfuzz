@@ -1,8 +1,11 @@
+//! Two-layer cache (in-memory + on-disk) for forked RPC responses.
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
+use anyhow::Result;
 use serde_json::Value;
 
 use crate::evm::forkdb::request::Request;
@@ -30,7 +33,7 @@ impl Cache {
         self.base_dir.join(req.cache_path())
     }
 
-    fn write_to_disk(&self, req: &Request, value: &Value) -> anyhow::Result<()> {
+    fn write_to_disk(&self, req: &Request, value: &Value) -> Result<()> {
         let path = self.cache_file_path(req);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;

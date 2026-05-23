@@ -1,3 +1,5 @@
+//! ForkDB: revm-native forked database backed by an RPC [`Client`].
+
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -151,16 +153,17 @@ impl DatabaseRef for ForkDB {
     }
 
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        let response = self
+        let mut responses = self
             .client
             .request(&[Request::GetStorageAt {
                 address,
                 slot: index,
                 block: self.block_number,
             }])
-            .map_err(ForkDBError::from)?
-            .pop()
-            .unwrap();
+            .map_err(ForkDBError::from)?;
+        let response = responses.pop().ok_or_else(|| {
+            ForkDBError::from(anyhow::anyhow!("expected one response for GetStorageAt"))
+        })?;
 
         match response {
             Response::StorageAt(v) => Ok(v),
@@ -171,15 +174,18 @@ impl DatabaseRef for ForkDB {
     }
 
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        let response = self
+        let mut responses = self
             .client
             .request(&[Request::GetBlockByNumber {
                 block: number,
                 full_tx: false,
             }])
-            .map_err(ForkDBError::from)?
-            .pop()
-            .unwrap();
+            .map_err(ForkDBError::from)?;
+        let response = responses.pop().ok_or_else(|| {
+            ForkDBError::from(anyhow::anyhow!(
+                "expected one response for GetBlockByNumber"
+            ))
+        })?;
 
         match response {
             Response::BlockByNumber(b) => Ok(b.hash.unwrap_or_default()),

@@ -1,3 +1,5 @@
+//! Token-bucket rate limiter for RPC requests.
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 

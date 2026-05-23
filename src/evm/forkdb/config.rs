@@ -1,4 +1,6 @@
-use std::path::PathBuf;
+//! Configuration for the RPC client and batching behaviour.
+
+use std::path::{Path, PathBuf};
 
 /// Configuration for the RPC client and batching behaviour.
 #[derive(Debug, Clone)]
@@ -42,8 +44,8 @@ impl Config {
         self
     }
 
-    pub fn cache_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.cache_dir = Some(dir.into());
+    pub fn cache_dir(mut self, dir: impl AsRef<Path>) -> Self {
+        self.cache_dir = Some(dir.as_ref().to_path_buf());
         self
     }
 
