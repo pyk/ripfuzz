@@ -31,21 +31,21 @@ impl ForkDB {
         }
     }
 
-    /// Retry transient errors so that a batcher panic (or temporary RPC
-    /// timeout / rate-limit) does not abort the current fuzzing run.
+    /// Retry `BatcherRestarted` immediately so that a batcher panic does not
+    /// abort the current fuzzing run.  All other errors (including RPC
+    /// timeouts and rate limits) are propagated directly: the batcher is the
+    /// sole retry layer and already applies exponential-backoff sleeps.
+    /// Sleeping here on every fuzzer thread would create a thundering herd.
     fn with_retry<T>(&self, f: impl Fn() -> Result<T, Error>) -> Result<T, Error> {
         match f() {
             Ok(v) => Ok(v),
-            Err(e) if !e.is_transient() => Err(e),
+            Err(e) if !matches!(e, Error::BatcherRestarted) => Err(e),
             Err(e) => {
                 let mut last_err = e;
-                for attempt in 1..3 {
-                    std::thread::sleep(std::time::Duration::from_millis(
-                        50 * (1_u64 << (attempt - 1)),
-                    ));
+                for _ in 1..3 {
                     match f() {
                         Ok(v) => return Ok(v),
-                        Err(e) if !e.is_transient() => return Err(e),
+                        Err(e) if !matches!(e, Error::BatcherRestarted) => return Err(e),
                         Err(e) => last_err = e,
                     }
                 }
@@ -228,10 +228,10 @@ mod tests {
 
     use crate::evm::forkdb::{Config as ForkdbConfig, MockTransport, Transport};
 
-    /// Regression: ForkDB must retry transient errors (including BatcherRestarted)
-    /// instead of returning them directly to revm.
+    /// Regression: ForkDB must retry BatcherRestarted (which needs a new
+    /// channel) but it must NOT sleep the fuzzer thread while doing so.
     #[test]
-    fn forkdb_retries_transient_batcher_restarted() {
+    fn forkdb_retries_batcher_restarted_without_sleep() {
         #[derive(Debug)]
         struct PanicOnceTransport {
             panics_remaining: AtomicUsize,
@@ -261,10 +261,17 @@ mod tests {
         let client = Client::new_with_transport(config, transport);
         let fork_db = ForkDB::new(client, 1, 1);
 
+        let start = std::time::Instant::now();
         let result = fork_db.basic_ref(Address::ZERO);
+        let elapsed = start.elapsed();
+
         assert!(
             result.is_ok(),
             "ForkDB must retry BatcherRestarted and eventually succeed, got: {result:?}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(30),
+            "ForkDB must not sleep when retrying BatcherRestarted; took {elapsed:?}"
         );
         let info = result.unwrap().unwrap();
         assert_eq!(info.balance, U256::from(1));
@@ -272,6 +279,74 @@ mod tests {
         let expected_code = Bytecode::new_raw(Bytes::from_static(&[0x60, 0x00]));
         assert_eq!(info.code, Some(expected_code.clone()));
         assert_eq!(info.code_hash, expected_code.hash_slow());
+    }
+
+    /// Regression: ForkDB must NOT sleep the fuzzer thread when the batcher
+    /// returns RpcTimeout. The batcher is the sole retry layer; ForkDB should
+    /// propagate the error immediately.
+    #[test]
+    fn forkdb_does_not_sleep_on_rpc_timeout() {
+        #[derive(Debug)]
+        struct TimeoutTransport;
+
+        impl Transport for TimeoutTransport {
+            fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
+                Err(anyhow::anyhow!("request timed out"))
+            }
+        }
+
+        let config = ForkdbConfig::new("mock://timeout")
+            .batch_timeout_ms(0)
+            .retries(0);
+        let client = Client::new_with_transport(config, TimeoutTransport);
+        let fork_db = ForkDB::new(client, 1, 1);
+
+        let start = std::time::Instant::now();
+        let result = fork_db.basic_ref(Address::ZERO);
+        let elapsed = start.elapsed();
+
+        assert!(
+            matches!(result, Err(Error::RpcTimeout { .. })),
+            "ForkDB must propagate RpcTimeout immediately, got: {result:?}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(30),
+            "ForkDB must not sleep on RpcTimeout; took {elapsed:?}"
+        );
+    }
+
+    /// Regression: ForkDB must NOT sleep the fuzzer thread when the batcher
+    /// returns RateLimited. The batcher is the sole retry layer; ForkDB should
+    /// propagate the error immediately.
+    #[test]
+    fn forkdb_does_not_sleep_on_rate_limited() {
+        #[derive(Debug)]
+        struct RateLimitTransport;
+
+        impl Transport for RateLimitTransport {
+            fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
+                Err(anyhow::anyhow!("429 too many requests"))
+            }
+        }
+
+        let config = ForkdbConfig::new("mock://ratelimit")
+            .batch_timeout_ms(0)
+            .retries(0);
+        let client = Client::new_with_transport(config, RateLimitTransport);
+        let fork_db = ForkDB::new(client, 1, 1);
+
+        let start = std::time::Instant::now();
+        let result = fork_db.basic_ref(Address::ZERO);
+        let elapsed = start.elapsed();
+
+        assert!(
+            matches!(result, Err(Error::RateLimited { .. })),
+            "ForkDB must propagate RateLimited immediately, got: {result:?}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(30),
+            "ForkDB must not sleep on RateLimited; took {elapsed:?}"
+        );
     }
 
     /// Regression: ForkDB::basic_ref must not assume that the batcher returns
