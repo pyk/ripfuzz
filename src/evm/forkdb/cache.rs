@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Result;
 use serde_json::Value;
@@ -19,6 +20,7 @@ use crate::evm::forkdb::request::Request;
 pub struct Cache {
     base_dir: PathBuf,
     memory: RwLock<HashMap<String, Value>>,
+    pub insert_count: AtomicUsize,
 }
 
 impl Cache {
@@ -26,6 +28,7 @@ impl Cache {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
             memory: RwLock::new(HashMap::new()),
+            insert_count: AtomicUsize::new(0),
         }
     }
 
@@ -71,6 +74,7 @@ impl Cache {
 
     /// Insert into memory and persist atomically to disk.
     pub fn insert(&self, req: &Request, value: Value) {
+        self.insert_count.fetch_add(1, Ordering::SeqCst);
         let key = req.cache_key();
         {
             let mut guard = self.memory.write().unwrap_or_else(|e| e.into_inner());

@@ -137,6 +137,8 @@ impl Batcher {
             }
             let err = last_err.unwrap_or_else(|| anyhow!("RPC request failed"));
             for pending in batch {
+                self.dedup
+                    .complete(&pending.request.cache_key(), Err(anyhow!("{err}")));
                 let _ = pending.response_tx.send(Err(anyhow!("{err}")));
             }
             return;
@@ -157,9 +159,13 @@ impl Batcher {
                 && let Some(cache) = self.cache.as_ref()
             {
                 cache.insert(&pending.request, resp.to_json());
-                self.dedup
-                    .complete(&pending.request.cache_key(), Ok(resp.to_json()));
             }
+            let dedup_result = match &parsed {
+                Ok(r) => Ok(r.to_json()),
+                Err(e) => Err(anyhow!("{e}")),
+            };
+            self.dedup
+                .complete(&pending.request.cache_key(), dedup_result);
             let _ = pending.response_tx.send(parsed);
         } else {
             let arr = value.as_array().cloned().unwrap_or_default();
@@ -180,9 +186,13 @@ impl Batcher {
                     && let Some(cache) = self.cache.as_ref()
                 {
                     cache.insert(&pending.request, resp.to_json());
-                    self.dedup
-                        .complete(&pending.request.cache_key(), Ok(resp.to_json()));
                 }
+                let dedup_result = match &parsed {
+                    Ok(r) => Ok(r.to_json()),
+                    Err(e) => Err(anyhow!("{e}")),
+                };
+                self.dedup
+                    .complete(&pending.request.cache_key(), dedup_result);
                 let _ = pending.response_tx.send(parsed);
             }
         }

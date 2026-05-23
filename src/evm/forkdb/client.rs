@@ -23,14 +23,14 @@ use crate::evm::forkdb::transport::Transport;
 /// Cloning is cheap (shares the same background worker and caches).
 #[derive(Debug, Clone)]
 pub struct Client {
-    inner: Arc<ClientInner>,
+    pub inner: Arc<ClientInner>,
 }
 
 #[derive(Debug)]
-struct ClientInner {
-    request_tx: Sender<PendingRequest>,
-    cache: Option<Arc<Cache>>,
-    dedup: Arc<DedupTable>,
+pub struct ClientInner {
+    pub request_tx: Sender<PendingRequest>,
+    pub cache: Option<Arc<Cache>>,
+    pub dedup: Arc<DedupTable>,
 }
 
 impl Client {
@@ -148,23 +148,15 @@ impl Client {
             );
         }
 
-        // 4. Cache, complete dedup, and fill results
+        // 4. Fill results and deactivate dedup guards (batcher already cached & completed).
         let mut any_err = None;
-        for ((idx, cache_key, guard, _), resp_result) in receivers.into_iter().zip(resp_results) {
-            let req = &reqs[idx];
+        for ((idx, _cache_key, guard, _), resp_result) in receivers.into_iter().zip(resp_results) {
             match resp_result {
                 Ok(response) => {
-                    if let Some(cache) = self.inner.cache.as_ref() {
-                        cache.insert(req, response.to_json());
-                    }
-                    self.inner
-                        .dedup
-                        .complete(&cache_key, Ok(response.to_json()));
                     guard.deactivate();
                     results[idx] = Some(response);
                 }
                 Err(e) => {
-                    self.inner.dedup.complete(&cache_key, Err(anyhow!("{e}")));
                     guard.deactivate();
                     any_err = Some(e);
                 }
@@ -179,5 +171,111 @@ impl Client {
             .into_iter()
             .map(|o| o.context("missing response"))
             .collect::<Result<Vec<Response>>>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::Barrier;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use serde_json::json;
+    use tempfile::tempdir;
+
+    use crate::evm::forkdb::{Client, Config, MockTransport, Request};
+
+    /// Regression: the background batcher must be the sole thread that writes
+    /// to the disk cache and completes dedup entries.  The caller thread
+    /// (Client::request) must never perform these actions itself.
+    #[test]
+    fn client_caches_and_dedups_exactly_once() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_chainId",
+            "params": [],
+        });
+        transport.mock_response(
+            url,
+            &payload,
+            json!({"jsonrpc":"2.0","id":1,"result":"0x1"}),
+        );
+
+        let tmp = tempdir().unwrap();
+        let config = Config::new(url).cache_dir(tmp.path()).batch_timeout_ms(0);
+        let client = Client::new_with_transport(config, transport.clone());
+
+        let reqs = &[Request::GetChainId];
+        let res = client.request(reqs).unwrap();
+        assert_eq!(res.len(), 1);
+
+        let cache = client.inner.cache.as_ref().unwrap();
+        assert_eq!(
+            cache.insert_count.load(Ordering::SeqCst),
+            1,
+            "cache insert must happen exactly once (batcher only)"
+        );
+
+        let dedup = &client.inner.dedup;
+        assert_eq!(
+            dedup.complete_count.load(Ordering::SeqCst),
+            1,
+            "dedup complete must happen exactly once (batcher only)"
+        );
+    }
+
+    /// Two threads requesting the same key concurrently must result in a single
+    /// RPC call.  The second thread must block on the dedup table and receive
+    /// the result via the batcher’s `complete` call, not issue a duplicate.
+    #[test]
+    fn client_dedups_concurrent_requests() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_chainId",
+            "params": [],
+        });
+        transport.mock_response(
+            url,
+            &payload,
+            json!({"jsonrpc":"2.0","id":1,"result":"0x1"}),
+        );
+        // Slow transport so both threads race while the request is in-flight.
+        transport.set_delay(Duration::from_millis(50));
+
+        let config = Config::new(url).batch_timeout_ms(0);
+        let client = Arc::new(Client::new_with_transport(config, transport.clone()));
+
+        let barrier = Arc::new(Barrier::new(2));
+        let client2 = Arc::clone(&client);
+        let barrier2 = Arc::clone(&barrier);
+
+        let handle1 = std::thread::spawn(move || {
+            barrier.wait();
+            client.request(&[Request::GetChainId])
+        });
+        let handle2 = std::thread::spawn(move || {
+            barrier2.wait();
+            client2.request(&[Request::GetChainId])
+        });
+
+        let res1 = handle1.join().unwrap().unwrap();
+        let res2 = handle2.join().unwrap().unwrap();
+
+        assert_eq!(res1.len(), 1);
+        assert_eq!(res2.len(), 1);
+        assert_eq!(
+            transport.call_count(url, &payload),
+            1,
+            "concurrent identical requests must result in exactly one RPC call"
+        );
     }
 }

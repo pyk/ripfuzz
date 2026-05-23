@@ -1,7 +1,7 @@
 //! Request deduplication table for in-flight RPC calls.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use anyhow::{Result, anyhow};
@@ -54,6 +54,7 @@ impl Drop for DedupGuard<'_> {
 #[derive(Debug)]
 pub struct DedupTable {
     inflight: Mutex<HashMap<String, Arc<InflightHandle>>>,
+    pub complete_count: AtomicUsize,
 }
 
 impl Default for DedupTable {
@@ -66,6 +67,7 @@ impl DedupTable {
     pub fn new() -> Self {
         Self {
             inflight: Mutex::new(HashMap::new()),
+            complete_count: AtomicUsize::new(0),
         }
     }
 
@@ -94,6 +96,7 @@ impl DedupTable {
 
     /// Complete an in-flight request and wake all waiters.
     pub fn complete(&self, key: &str, result: Result<serde_json::Value>) {
+        self.complete_count.fetch_add(1, Ordering::SeqCst);
         let mut map = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(handle) = map.remove(key) {
             let mut guard = handle.result.lock().unwrap_or_else(|e| e.into_inner());
