@@ -4,13 +4,13 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
 use crossbeam::channel::{self, Sender};
 use tracing::{instrument, trace};
 
 use crate::evm::forkdb::batcher::{Batcher, PendingRequest};
 use crate::evm::forkdb::cache::Cache;
 use crate::evm::forkdb::config::Config;
+use crate::evm::forkdb::db::ForkDBError;
 use crate::evm::forkdb::dedup::DedupTable;
 use crate::evm::forkdb::limiter::RateLimiter;
 use crate::evm::forkdb::request::Request;
@@ -110,7 +110,7 @@ impl Client {
     /// Even a single request goes through the batching worker so it benefits
     /// from the same caching, dedup, and retry logic as a full batch.
     #[instrument(skip(self), fields(count = reqs.len()))]
-    pub fn request(&self, reqs: &[Request]) -> Result<Vec<Response>> {
+    pub fn request(&self, reqs: &[Request]) -> Result<Vec<Response>, ForkDBError> {
         if reqs.is_empty() {
             return Ok(Vec::new());
         }
@@ -148,8 +148,12 @@ impl Client {
         if to_fetch.is_empty() {
             return results
                 .into_iter()
-                .map(|o| o.context("missing response"))
-                .collect::<Result<Vec<Response>>>();
+                .map(|o| {
+                    o.ok_or_else(|| ForkDBError::UnexpectedResponse {
+                        message: "missing response".into(),
+                    })
+                })
+                .collect::<Result<Vec<Response>, ForkDBError>>();
         }
 
         // 2. Send all uncached / undeduped requests to the batching worker
@@ -164,7 +168,9 @@ impl Client {
                     request: reqs[idx].to_owned(),
                     response_tx: tx,
                 })
-                .map_err(|_| anyhow!("batch worker shut down"))?;
+                .map_err(|_| ForkDBError::Internal {
+                    message: "batch worker shut down".into(),
+                })?;
             receivers.push((idx, cache_key, guard, rx));
         }
 
@@ -172,10 +178,9 @@ impl Client {
         //    guard gets properly completed even if one request errors.
         let mut resp_results = Vec::with_capacity(receivers.len());
         for (_, _, _, rx) in &receivers {
-            resp_results.push(
-                rx.recv()
-                    .map_err(|_| anyhow!("batch worker response channel closed"))?,
-            );
+            resp_results.push(rx.recv().map_err(|_| ForkDBError::Internal {
+                message: "batch worker response channel closed".into(),
+            })?);
         }
 
         // 4. Fill results and deactivate dedup guards (batcher already cached & completed).
@@ -199,8 +204,12 @@ impl Client {
 
         results
             .into_iter()
-            .map(|o| o.context("missing response"))
-            .collect::<Result<Vec<Response>>>()
+            .map(|o| {
+                o.ok_or_else(|| ForkDBError::UnexpectedResponse {
+                    message: "missing response".into(),
+                })
+            })
+            .collect::<Result<Vec<Response>, ForkDBError>>()
     }
 }
 

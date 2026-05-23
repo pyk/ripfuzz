@@ -11,11 +11,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{Result, anyhow};
+use anyhow::anyhow;
 use crossbeam::channel::{Receiver, RecvTimeoutError, Sender};
 use serde_json::json;
 
 use crate::evm::forkdb::cache::Cache;
+use crate::evm::forkdb::db::ForkDBError;
 use crate::evm::forkdb::dedup::DedupTable;
 use crate::evm::forkdb::limiter::RateLimiter;
 use crate::evm::forkdb::request::Request;
@@ -25,7 +26,7 @@ use crate::evm::forkdb::transport::Transport;
 /// A queued request waiting for the background batcher to dispatch.
 pub struct PendingRequest {
     pub request: Request,
-    pub response_tx: Sender<Result<Response>>,
+    pub response_tx: Sender<std::result::Result<Response, ForkDBError>>,
 }
 
 /// Background batcher that collects pending requests from a channel,
@@ -83,7 +84,10 @@ impl Batcher {
     }
 
     fn dispatch_one(&self, pending: PendingRequest, result: &serde_json::Value) {
-        let parsed = Response::parse(&pending.request, result);
+        let parsed =
+            Response::parse(&pending.request, result).map_err(|e| ForkDBError::DecodeError {
+                message: format!("{e}"),
+            });
         if let Ok(resp) = &parsed
             && let Some(cache) = self.cache.as_ref()
         {
@@ -98,10 +102,10 @@ impl Batcher {
         let _ = pending.response_tx.send(parsed);
     }
 
-    fn dispatch_error(&self, pending: PendingRequest, err: anyhow::Error) {
+    fn dispatch_error(&self, pending: PendingRequest, err: &ForkDBError) {
         self.dedup
             .complete(&pending.request.cache_key(), Err(anyhow!("{err}")));
-        let _ = pending.response_tx.send(Err(err));
+        let _ = pending.response_tx.send(Err(err.clone()));
     }
 
     fn process_batch(&self, mut batch: Vec<PendingRequest>) {
@@ -117,7 +121,7 @@ impl Batcher {
         }
 
         // Live network fetch with exponential backoff retries.
-        let mut last_err = None;
+        let mut last_err: Option<ForkDBError> = None;
         for attempt in 0..=self.retries {
             match self.transport.exec(&self.url, &payload) {
                 Ok(v) => {
@@ -130,7 +134,13 @@ impl Batcher {
                             continue;
                         };
                         if let Some(err) = item.get("error") {
-                            last_err = Some(anyhow!("RPC error in batch: {err}"));
+                            let code = err.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+                            let message = err
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown RPC error")
+                                .into();
+                            last_err = Some(ForkDBError::RpcError { code, message });
                         } else if let Some(result) =
                             item.as_object_mut().and_then(|obj| obj.remove("result"))
                         {
@@ -160,14 +170,16 @@ impl Batcher {
                     }
 
                     // Retries exhausted: return errors for the remaining items.
-                    let err = last_err.unwrap_or_else(|| anyhow!("RPC request failed"));
+                    let err = last_err.unwrap_or_else(|| ForkDBError::UnexpectedResponse {
+                        message: "RPC request failed or response missing".into(),
+                    });
                     for pending in batch {
-                        self.dispatch_error(pending, anyhow!("{err}"));
+                        self.dispatch_error(pending, &err);
                     }
                     return;
                 }
                 Err(e) => {
-                    last_err = Some(e);
+                    last_err = Some(ForkDBError::from(e));
                     if attempt < self.retries {
                         std::thread::sleep(self.backoff * 2_u32.pow(attempt));
                     }
@@ -175,9 +187,11 @@ impl Batcher {
             }
         }
 
-        let err = last_err.unwrap_or_else(|| anyhow!("RPC request failed"));
+        let err = last_err.unwrap_or_else(|| ForkDBError::UnexpectedResponse {
+            message: "RPC request failed".into(),
+        });
         for pending in batch {
-            self.dispatch_error(pending, anyhow!("{err}"));
+            self.dispatch_error(pending, &err);
         }
     }
 }
