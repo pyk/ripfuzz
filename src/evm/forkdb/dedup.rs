@@ -1,11 +1,12 @@
 //! Request deduplication table for in-flight RPC calls.
 
-use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow};
 use crossbeam::channel::Sender;
+use dashmap::DashMap;
+use dashmap::mapref::entry::Entry;
 use tracing::trace;
 
 /// Cloneable payload used inside crossbeam channels. `anyhow::Error` does not
@@ -40,8 +41,12 @@ pub struct DedupTable {
     /// In-flight keys mapped to the list of channel senders for waiters.
     /// The first caller that inserts the key becomes the leader and must
     /// later call `complete`.  Subsequent callers push a new `Sender` into
-    /// the vector, drop the map lock, and block on the paired `Receiver`.
-    inflight: Mutex<HashMap<String, Vec<Sender<Arc<DedupPayload>>>>>,
+    /// the vector, drop the shard lock, and block on the paired `Receiver`.
+    ///
+    /// Using `DashMap` instead of `Mutex<HashMap>` eliminates the global
+    /// lock on the read-heavy `register` path when many fuzzer threads
+    /// issue distinct RPC requests concurrently.
+    inflight: DashMap<String, Vec<Sender<Arc<DedupPayload>>>>,
     pub complete_count: AtomicUsize,
 }
 
@@ -54,7 +59,7 @@ impl Default for DedupTable {
 impl DedupTable {
     pub fn new() -> Self {
         Self {
-            inflight: Mutex::new(HashMap::new()),
+            inflight: DashMap::new(),
             complete_count: AtomicUsize::new(0),
         }
     }
@@ -66,31 +71,33 @@ impl DedupTable {
     /// Returns `Some(result)` if another thread is already handling it,
     /// blocking until the batcher signals completion.
     pub fn register(&self, key: &str) -> Option<Result<serde_json::Value>> {
-        let mut map = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
-        trace!(key = %key, table_size = map.len(), "dedup register");
-        if let Some(senders) = map.get_mut(key) {
-            let (tx, rx) = crossbeam::channel::bounded(1);
-            senders.push(tx);
-            drop(map);
-            trace!(key = %key, "dedup hit - waiting on in-flight request");
-            let payload = match rx.recv() {
-                Ok(v) => v,
-                Err(_) => return Some(Err(anyhow!("dedup channel closed"))),
-            };
-            return Some(match payload.as_ref() {
-                Ok(v) => Ok(v.clone()),
-                Err(s) => Err(anyhow!(s.clone())),
-            });
+        trace!(key = %key, table_size = self.inflight.len(), "dedup register");
+        match self.inflight.entry(key.to_owned()) {
+            Entry::Occupied(mut occupied) => {
+                let (tx, rx) = crossbeam::channel::bounded(1);
+                occupied.get_mut().push(tx);
+                drop(occupied);
+                trace!(key = %key, "dedup hit - waiting on in-flight request");
+                let payload = match rx.recv() {
+                    Ok(v) => v,
+                    Err(_) => return Some(Err(anyhow!("dedup channel closed"))),
+                };
+                Some(match payload.as_ref() {
+                    Ok(v) => Ok(v.clone()),
+                    Err(s) => Err(anyhow!(s.clone())),
+                })
+            }
+            Entry::Vacant(vacant) => {
+                vacant.insert(Vec::new());
+                None
+            }
         }
-        map.insert(key.into(), Vec::new());
-        None
     }
 
     /// Complete an in-flight request and wake all waiters.
     pub fn complete(&self, key: &str, result: Result<serde_json::Value>) {
         self.complete_count.fetch_add(1, Ordering::SeqCst);
-        let mut map = self.inflight.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(senders) = map.remove(key) {
+        if let Some((_, senders)) = self.inflight.remove(key) {
             let payload = Arc::new(match result {
                 Ok(v) => Ok(v),
                 Err(e) => Err(format!("{e}")),
@@ -116,6 +123,11 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+
+    /// Number of waiters currently registered for `key`.
+    fn waiter_count(table: &DedupTable, key: &str) -> usize {
+        table.inflight.get(key).map(|r| r.len()).unwrap_or(0)
+    }
 
     #[test]
     fn dedup_first_caller_wins() {
@@ -167,7 +179,19 @@ mod tests {
             })
             .collect();
 
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        // Poll until every waiter has pushed its sender into the in-flight
+        // entry.  A short sleep is still needed because the scheduler may
+        // not have started all threads yet, but the polling loop makes the
+        // test deterministic rather than relying on a fixed delay.
+        let start = std::time::Instant::now();
+        while waiter_count(&table, key) < 20 {
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(5),
+                "timeout waiting for all waiters to register"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+
         table.complete(key, Ok("0x1a2b".into()));
 
         for waiter in waiters {
