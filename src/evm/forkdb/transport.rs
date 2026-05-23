@@ -1,10 +1,11 @@
 //! Transport abstraction for JSON-RPC execution (live HTTP and mock).
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use parking_lot::Mutex;
 
 /// Trait for anything that can execute a JSON-RPC request.
 ///
@@ -53,7 +54,7 @@ impl MockTransport {
         response: serde_json::Value,
     ) {
         let payload_json = serde_json::to_string(payload).unwrap_or_default();
-        let mut guard = self.responses.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.responses.lock();
         guard.insert((url.into(), payload_json), response);
     }
 
@@ -67,26 +68,26 @@ impl MockTransport {
         responses: Vec<serde_json::Value>,
     ) {
         let payload_json = serde_json::to_string(payload).unwrap_or_default();
-        let mut guard = self.sequences.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.sequences.lock();
         guard.insert((url.into(), payload_json), responses);
     }
 
     /// Set an artificial delay for every `exec` call.
     pub fn set_delay(&self, delay: Duration) {
-        *self.delay.lock().unwrap_or_else(|e| e.into_inner()) = Some(delay);
+        *self.delay.lock() = Some(delay);
     }
 
     /// Return how many times a given request was dispatched.
     pub fn call_count(&self, url: &str, payload: &serde_json::Value) -> usize {
         let payload_json = serde_json::to_string(payload).unwrap_or_default();
-        let guard = self.call_count.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = self.call_count.lock();
         guard.get(&(url.into(), payload_json)).copied().unwrap_or(0)
     }
 }
 
 impl Transport for MockTransport {
     fn exec(&self, url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
-        if let Some(delay) = *self.delay.lock().unwrap_or_else(|e| e.into_inner()) {
+        if let Some(delay) = *self.delay.lock() {
             std::thread::sleep(delay);
         }
 
@@ -94,14 +95,14 @@ impl Transport for MockTransport {
         let key = (url.into(), payload_json);
 
         let call_count = {
-            let mut guard = self.call_count.lock().unwrap_or_else(|e| e.into_inner());
+            let mut guard = self.call_count.lock();
             let count = guard.entry(key.clone()).or_insert(0);
             *count += 1;
             *count
         };
 
         let mut response = {
-            let guard = self.sequences.lock().unwrap_or_else(|e| e.into_inner());
+            let guard = self.sequences.lock();
             if let Some(seq) = guard.get(&key) {
                 let idx = (call_count - 1).min(seq.len().saturating_sub(1));
                 Some(seq[idx].clone())
@@ -110,7 +111,7 @@ impl Transport for MockTransport {
             }
         }
         .or_else(|| {
-            let guard = self.responses.lock().unwrap_or_else(|e| e.into_inner());
+            let guard = self.responses.lock();
             guard.get(&key).cloned()
         })
         .with_context(|| format!("MockTransport: no response for url={url} payload={payload}"))?;

@@ -1,26 +1,38 @@
 //! Token-bucket rate limiter for RPC requests.
 
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use tracing::trace;
 
-/// Optional token-bucket rate limiter.
-///
-/// State is protected by a `Mutex` so there are no atomic ordering concerns
-/// and no background threads are spawned.
+/// Optional token-bucket rate limiter implemented with a single atomic so
+/// there is no mutex contention on the hot path.
 #[derive(Debug)]
 pub struct RateLimiter {
     // `None` means unlimited (zero rate limit).
-    inner: Option<Mutex<State>>,
+    inner: Option<RateLimiterInner>,
     max_tokens: u64,
     interval_ms: u64,
 }
 
 #[derive(Debug)]
-struct State {
-    tokens: u64,
-    last_refill: Instant,
+struct RateLimiterInner {
+    state: AtomicU64,
+    start: Instant,
+}
+
+impl RateLimiterInner {
+    #[inline]
+    fn pack(last_refill_ms: u32, tokens: u32) -> u64 {
+        ((last_refill_ms as u64) << 32) | (tokens as u64)
+    }
+
+    #[inline]
+    fn unpack(packed: u64) -> (u32, u32) {
+        let last_refill_ms = (packed >> 32) as u32;
+        let tokens = (packed & 0xFFFF_FFFF) as u32;
+        (last_refill_ms, tokens)
+    }
 }
 
 impl RateLimiter {
@@ -33,48 +45,76 @@ impl RateLimiter {
             };
         }
 
+        let max_tokens = requests_per_second.min(u32::MAX as u64);
+        let start = Instant::now();
+        let state = AtomicU64::new(RateLimiterInner::pack(0, max_tokens as u32));
+
         Self {
-            inner: Some(Mutex::new(State {
-                tokens: requests_per_second,
-                last_refill: Instant::now(),
-            })),
-            max_tokens: requests_per_second,
+            inner: Some(RateLimiterInner { state, start }),
+            max_tokens,
             interval_ms: 1000,
         }
     }
 
     fn compute_refill(elapsed_ms: u64, max_tokens: u64, interval_ms: u64) -> u64 {
-        elapsed_ms.saturating_mul(max_tokens) / interval_ms
+        ((elapsed_ms as u128).saturating_mul(max_tokens as u128) / (interval_ms as u128)) as u64
     }
 
     pub fn acquire(&self) {
-        let Some(ref mutex) = self.inner else {
+        let Some(inner) = &self.inner else {
             return;
         };
 
-        let mut state = mutex.lock().unwrap_or_else(|e| e.into_inner());
+        let max_tokens = self.max_tokens as u32;
+        let interval_ms = self.interval_ms;
+
         loop {
-            let now = Instant::now();
-            let elapsed = now.duration_since(state.last_refill).as_millis() as u64;
-            let tokens_to_add = Self::compute_refill(elapsed, self.max_tokens, self.interval_ms);
+            let result = inner
+                .state
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |packed| {
+                    let (last_refill_ms, tokens) = RateLimiterInner::unpack(packed);
+                    let now_ms = inner.start.elapsed().as_millis() as u32;
+                    let elapsed_ms = now_ms.wrapping_sub(last_refill_ms) as u64;
+                    let add = Self::compute_refill(elapsed_ms, self.max_tokens, interval_ms) as u32;
 
-            if tokens_to_add > 0 {
-                state.tokens = (state.tokens + tokens_to_add).min(self.max_tokens);
-                state.last_refill = now;
-                trace!(tokens = state.tokens, "rate limit refilled");
+                    let new_tokens = if add > 0 {
+                        tokens.saturating_add(add).min(max_tokens)
+                    } else {
+                        tokens
+                    };
+
+                    if new_tokens >= 1 {
+                        let new_tokens = new_tokens - 1;
+                        let new_last_refill = if add > 0 { now_ms } else { last_refill_ms };
+                        Some(RateLimiterInner::pack(new_last_refill, new_tokens))
+                    } else {
+                        None
+                    }
+                });
+
+            match result {
+                Ok(packed) => {
+                    let (last_refill_ms, tokens) = RateLimiterInner::unpack(packed);
+                    let now_ms = inner.start.elapsed().as_millis() as u32;
+                    let elapsed_ms = now_ms.wrapping_sub(last_refill_ms) as u64;
+                    let add = Self::compute_refill(elapsed_ms, self.max_tokens, interval_ms) as u32;
+                    let new_tokens = if add > 0 {
+                        tokens.saturating_add(add).min(max_tokens)
+                    } else {
+                        tokens
+                    };
+                    trace!(tokens = new_tokens - 1, "rate limit acquired");
+                    return;
+                }
+                Err(packed) => {
+                    let (last_refill_ms, _) = RateLimiterInner::unpack(packed);
+                    let now_ms = inner.start.elapsed().as_millis() as u32;
+                    let elapsed_ms = now_ms.wrapping_sub(last_refill_ms) as u64;
+                    let sleep_ms = interval_ms.saturating_sub(elapsed_ms % interval_ms);
+                    trace!(sleep_ms, "rate limit sleep");
+                    std::thread::sleep(Duration::from_millis(sleep_ms.max(1)));
+                }
             }
-
-            if state.tokens >= 1 {
-                state.tokens -= 1;
-                trace!(tokens = state.tokens, "rate limit acquired");
-                return;
-            }
-
-            let sleep_ms = self.interval_ms - (elapsed % self.interval_ms);
-            trace!(sleep_ms, "rate limit sleep");
-            drop(state);
-            std::thread::sleep(Duration::from_millis(sleep_ms.max(1)));
-            state = mutex.lock().unwrap_or_else(|e| e.into_inner());
         }
     }
 }

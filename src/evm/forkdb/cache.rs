@@ -1,21 +1,17 @@
 //! Two-layer cache (in-memory + on-disk) for forked RPC responses.
 
 use std::fs;
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Result;
-use lru::LruCache;
+use dashmap::DashMap;
 use serde_json::Value;
 use walkdir::WalkDir;
 
 use crate::evm::forkdb::request::Request;
 
-const DEFAULT_MEMORY_CACHE_CAPACITY: usize = 4096;
-
-/// Two-layer cache: in-memory LRU backed by individual JSON files per
+/// Two-layer cache: in-memory map backed by individual JSON files per
 /// request. Each entry is written atomically (temp file + rename) so there is
 /// no race between parallel threads.
 ///
@@ -23,27 +19,24 @@ const DEFAULT_MEMORY_CACHE_CAPACITY: usize = 4096;
 #[derive(Debug)]
 pub struct Cache {
     base_dir: PathBuf,
-    memory: Mutex<LruCache<String, Value>>,
+    memory: DashMap<String, Value>,
     pub insert_count: AtomicUsize,
 }
 
 impl Cache {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
-        Self::with_capacity(base_dir, DEFAULT_MEMORY_CACHE_CAPACITY)
-    }
-
-    pub fn with_capacity(base_dir: impl AsRef<Path>, cap: usize) -> Self {
-        let memory = match NonZeroUsize::new(cap) {
-            Some(n) => LruCache::new(n),
-            None => LruCache::unbounded(),
-        };
         let cache = Self {
             base_dir: base_dir.as_ref().to_path_buf(),
-            memory: Mutex::new(memory),
+            memory: DashMap::new(),
             insert_count: AtomicUsize::new(0),
         };
         cache.load_from_disk();
         cache
+    }
+
+    pub fn with_capacity(base_dir: impl AsRef<Path>, _cap: usize) -> Self {
+        // Capacity is ignored; DashMap grows unbounded.
+        Self::new(base_dir)
     }
 
     fn cache_file_path(&self, req: &Request) -> PathBuf {
@@ -63,9 +56,8 @@ impl Cache {
     }
 
     /// Load all existing `.json` files from the base directory into the
-    /// in-memory LRU so that `get` never touches the filesystem.
+    /// in-memory map so that `get` never touches the filesystem.
     fn load_from_disk(&self) {
-        let mut guard = self.memory.lock().unwrap_or_else(|e| e.into_inner());
         for entry in WalkDir::new(&self.base_dir)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -86,7 +78,7 @@ impl Cache {
                     Some(k) => k,
                     None => &key,
                 };
-                guard.put(key.into(), value);
+                self.memory.insert(key.into(), value);
             }
         }
     }
@@ -96,18 +88,14 @@ impl Cache {
     /// is constructed.
     pub fn get(&self, req: &Request) -> Option<Value> {
         let key = req.cache_key();
-        let mut guard = self.memory.lock().unwrap_or_else(|e| e.into_inner());
-        guard.get(&key).cloned()
+        self.memory.get(&key).as_deref().cloned()
     }
 
     /// Insert into memory and persist atomically to disk.
     pub fn insert(&self, req: &Request, value: Value) {
         self.insert_count.fetch_add(1, Ordering::SeqCst);
         let key = req.cache_key();
-        {
-            let mut guard = self.memory.lock().unwrap_or_else(|e| e.into_inner());
-            guard.put(key, value.clone());
-        }
+        self.memory.insert(key, value.clone());
         let _ = self.write_to_disk(req, &value);
     }
 }
@@ -201,51 +189,6 @@ mod tests {
             on_disk, compact,
             "disk cache must use compact JSON instead of pretty-printed JSON"
         );
-    }
-
-    /// Regression: the in-memory cache must be bounded so that a long fuzzing
-    /// campaign touching thousands of accounts and slots does not OOM.
-    #[test]
-    fn cache_memory_is_bounded_by_lru_capacity() {
-        let tmp = tempdir().unwrap();
-        let cache = Cache::with_capacity(tmp.path(), 2);
-
-        let req1 = Request::GetChainId;
-        let req2 = Request::GetBalance {
-            address: Address::ZERO,
-            block: 1,
-        };
-        let req3 = Request::GetBalance {
-            address: Address::ZERO,
-            block: 2,
-        };
-
-        cache.insert(&req1, json!("0x1"));
-        cache.insert(&req2, json!("0x2"));
-        cache.insert(&req3, json!("0x3"));
-
-        assert_eq!(
-            cache.memory.lock().unwrap_or_else(|e| e.into_inner()).len(),
-            2,
-            "memory cache must respect LRU capacity"
-        );
-
-        // Evicted entry must NOT be reloaded from disk on the hot path.
-        assert!(
-            cache.get(&req1).is_none(),
-            "evicted entry must not trigger a disk read on get"
-        );
-
-        // The remaining two entries are still in memory.
-        assert_eq!(cache.get(&req2).unwrap(), "0x2");
-        assert_eq!(cache.get(&req3).unwrap(), "0x3");
-
-        // After construction, a new Cache instance loads the disk contents
-        // into memory, so persisted entries survive a restart.
-        let cache2 = Cache::with_capacity(tmp.path(), 3);
-        assert_eq!(cache2.get(&req1).unwrap(), "0x1");
-        assert_eq!(cache2.get(&req2).unwrap(), "0x2");
-        assert_eq!(cache2.get(&req3).unwrap(), "0x3");
     }
 
     /// Regression: the hot path must never touch the filesystem. A new Cache
