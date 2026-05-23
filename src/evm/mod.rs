@@ -18,6 +18,5 @@ pub use specs::get_spec_id;
 
 pub mod chain;
 pub mod database;
-pub mod forkdb;
 pub mod result;
 pub mod specs;
