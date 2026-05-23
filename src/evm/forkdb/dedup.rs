@@ -127,7 +127,7 @@ mod tests {
         let table2 = Arc::clone(&table);
         let waiter = std::thread::spawn(move || table2.register(key));
 
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_millis(100));
         table.complete(key, Ok("0x1a2b".into()));
 
         let result = waiter.join().unwrap().unwrap().unwrap();

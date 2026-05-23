@@ -10,8 +10,8 @@ use tracing::{instrument, trace};
 use crate::evm::forkdb::batcher::{Batcher, PendingRequest};
 use crate::evm::forkdb::cache::Cache;
 use crate::evm::forkdb::config::Config;
-use crate::evm::forkdb::db::ForkDBError;
 use crate::evm::forkdb::dedup::DedupTable;
+use crate::evm::forkdb::error::Error;
 use crate::evm::forkdb::limiter::RateLimiter;
 use crate::evm::forkdb::request::Request;
 use crate::evm::forkdb::response::Response;
@@ -110,7 +110,7 @@ impl Client {
     /// Even a single request goes through the batching worker so it benefits
     /// from the same caching, dedup, and retry logic as a full batch.
     #[instrument(skip(self), fields(count = reqs.len()))]
-    pub fn request(&self, reqs: &[Request]) -> Result<Vec<Response>, ForkDBError> {
+    pub fn request(&self, reqs: &[Request]) -> Result<Vec<Response>, Error> {
         if reqs.is_empty() {
             return Ok(Vec::new());
         }
@@ -149,11 +149,11 @@ impl Client {
             return results
                 .into_iter()
                 .map(|o| {
-                    o.ok_or_else(|| ForkDBError::UnexpectedResponse {
+                    o.ok_or_else(|| Error::UnexpectedResponse {
                         message: "missing response".into(),
                     })
                 })
-                .collect::<Result<Vec<Response>, ForkDBError>>();
+                .collect::<Result<Vec<Response>, Error>>();
         }
 
         // 2. Send all uncached / undeduped requests to the batching worker
@@ -168,7 +168,7 @@ impl Client {
                     request: reqs[idx].to_owned(),
                     response_tx: tx,
                 })
-                .map_err(|_| ForkDBError::Internal {
+                .map_err(|_| Error::Internal {
                     message: "batch worker shut down".into(),
                 })?;
             receivers.push((idx, cache_key, guard, rx));
@@ -178,7 +178,7 @@ impl Client {
         //    guard gets properly completed even if one request errors.
         let mut resp_results = Vec::with_capacity(receivers.len());
         for (_, _, _, rx) in &receivers {
-            resp_results.push(rx.recv().map_err(|_| ForkDBError::Internal {
+            resp_results.push(rx.recv().map_err(|_| Error::Internal {
                 message: "batch worker response channel closed".into(),
             })?);
         }
@@ -205,11 +205,11 @@ impl Client {
         results
             .into_iter()
             .map(|o| {
-                o.ok_or_else(|| ForkDBError::UnexpectedResponse {
+                o.ok_or_else(|| Error::UnexpectedResponse {
                     message: "missing response".into(),
                 })
             })
-            .collect::<Result<Vec<Response>, ForkDBError>>()
+            .collect::<Result<Vec<Response>, Error>>()
     }
 }
 

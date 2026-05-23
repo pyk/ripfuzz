@@ -15,19 +15,19 @@ use revm::{
 
 use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
 use crate::evm::database::{Database, ForkDB};
-use crate::evm::forkdb::{Config as ForkdbConfig, Request, Response, Transport};
+use crate::evm::forkdb::{Config, Request, Response, Transport};
 use crate::vm::VM_ADDRESS;
 
 impl Chain {
     /// Create a new forked EVM pinned to a remote block.
-    pub fn fork(config: ForkdbConfig, block_number: u64) -> Result<Self> {
+    pub fn fork(config: Config, block_number: u64) -> Result<Self> {
         let client = Arc::new(crate::evm::forkdb::Client::new(config));
         Self::fork_with_client(client, block_number)
     }
 
     /// Create a forked EVM with a custom transport (used in tests).
     pub fn fork_with_transport(
-        config: ForkdbConfig,
+        config: Config,
         transport: impl Transport + 'static,
         block_number: u64,
     ) -> Result<Self> {
@@ -148,17 +148,14 @@ impl Chain {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use super::*;
-    use alloy_primitives::{Address, B256, U256, address};
+    use alloy_primitives::{Address, B256, U256};
     use revm::DatabaseRef;
     use revm::primitives::Bytes;
     use revm::primitives::hardfork::SpecId;
     use serde_json::json;
 
     use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
-    use crate::evm::forkdb::{Client, Config as ForkdbConfig, MockTransport};
+    use crate::evm::forkdb::{Config, MockTransport};
     use crate::vm::VM_ADDRESS;
 
     /// Chain::fork must seed the default deployer with U256::MAX balance,
@@ -190,7 +187,7 @@ mod tests {
             ]),
         );
 
-        let config = ForkdbConfig::new("mock://test");
+        let config = Config::new("mock://test");
         let chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
         assert_eq!(chain.deployer(), DEFAULT_DEPLOYER);
 
@@ -240,7 +237,7 @@ mod tests {
             ]),
         );
 
-        let config = ForkdbConfig::new("mock://test");
+        let config = Config::new("mock://test");
         let chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
 
         // Chain::fork injects both deployer and VM_ADDRESS locally, so only
@@ -289,7 +286,7 @@ mod tests {
             ]),
         );
 
-        let config = ForkdbConfig::new("mock://test");
+        let config = Config::new("mock://test");
         let chain = Chain::fork_with_transport(config, transport.clone(), 20_000_000).unwrap();
         assert_eq!(
             chain.cfg_env().spec,
@@ -327,7 +324,7 @@ mod tests {
             ]),
         );
 
-        let config = ForkdbConfig::new("mock://test");
+        let config = Config::new("mock://test");
         let chain = Chain::fork_with_transport(config, transport.clone(), 9_000_000).unwrap();
         assert_eq!(
             chain.cfg_env().spec,
@@ -366,7 +363,7 @@ mod tests {
             ]),
         );
 
-        let config = ForkdbConfig::new("mock://test");
+        let config = Config::new("mock://test");
         let mut chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
 
         assert_eq!(
@@ -420,7 +417,7 @@ mod tests {
             ]),
         );
 
-        let config = ForkdbConfig::new("mock://test");
+        let config = Config::new("mock://test");
         let chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
         let db = chain.database().unwrap();
 
@@ -471,7 +468,7 @@ mod tests {
             ]),
         );
 
-        let config = ForkdbConfig::new("mock://test");
+        let config = Config::new("mock://test");
         let chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
         let blob_info = chain.block_env().blob_excess_gas_and_price.unwrap();
 
@@ -517,7 +514,7 @@ mod tests {
             ]),
         );
 
-        let config = ForkdbConfig::new("mock://test");
+        let config = Config::new("mock://test");
         let chain = Chain::fork_with_transport(config, transport.clone(), 1).unwrap();
         assert_eq!(
             chain.cfg_env().limit_contract_initcode_size,

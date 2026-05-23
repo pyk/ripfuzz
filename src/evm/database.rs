@@ -8,7 +8,8 @@ use revm::{
     database_interface::DBErrorMarker, state::AccountInfo,
 };
 
-pub use crate::evm::forkdb::{ForkDB, ForkDBError};
+pub use crate::evm::forkdb;
+pub use crate::evm::forkdb::ForkDB;
 
 // ---------------------------------------------------------------------------
 // LocalDB
@@ -59,7 +60,7 @@ impl DatabaseRef for LocalDB {
 /// Unified database error.
 #[derive(Debug)]
 pub enum DatabaseError {
-    Fork(ForkDBError),
+    Fork(forkdb::Error),
 }
 
 impl std::fmt::Display for DatabaseError {
@@ -80,8 +81,8 @@ impl std::error::Error for DatabaseError {
 
 impl DBErrorMarker for DatabaseError {}
 
-impl From<ForkDBError> for DatabaseError {
-    fn from(e: ForkDBError) -> Self {
+impl From<forkdb::Error> for DatabaseError {
+    fn from(e: forkdb::Error) -> Self {
         Self::Fork(e)
     }
 }

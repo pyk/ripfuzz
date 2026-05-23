@@ -12,7 +12,8 @@
 pub use cache::Cache;
 pub use client::Client;
 pub use config::Config;
-pub use db::{ForkDB, ForkDBError};
+pub use db::ForkDB;
+pub use error::Error;
 pub use request::Request;
 pub use response::{Block, Response};
 pub use transport::{MockTransport, Transport};
@@ -23,6 +24,7 @@ mod client;
 mod config;
 mod db;
 mod dedup;
+mod error;
 mod limiter;
 mod request;
 mod response;
