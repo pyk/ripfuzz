@@ -43,6 +43,10 @@ impl RateLimiter {
         }
     }
 
+    fn compute_refill(elapsed_ms: u64, max_tokens: u64, interval_ms: u64) -> u64 {
+        elapsed_ms.saturating_mul(max_tokens) / interval_ms
+    }
+
     pub fn acquire(&self) {
         let Some(ref mutex) = self.inner else {
             return;
@@ -52,7 +56,7 @@ impl RateLimiter {
         loop {
             let now = Instant::now();
             let elapsed = now.duration_since(state.last_refill).as_millis() as u64;
-            let tokens_to_add = (elapsed / self.interval_ms).saturating_mul(self.max_tokens);
+            let tokens_to_add = Self::compute_refill(elapsed, self.max_tokens, self.interval_ms);
 
             if tokens_to_add > 0 {
                 state.tokens = (state.tokens + tokens_to_add).min(self.max_tokens);
@@ -149,5 +153,18 @@ mod tests {
             "slowest thread in burst took {}ms",
             times.last().copied().unwrap_or(0)
         );
+    }
+
+    /// Regression: refill math must be smooth (multiply before divide) so that
+    /// tokens accrue continuously rather than bursting at interval boundaries.
+    #[test]
+    fn rate_limiter_smooth_refill_regression() {
+        // 100 req/sec: after 999 ms the buggy formula (elapsed/interval)*max_tokens
+        // gives 0 tokens; the correct formula gives 99.
+        assert_eq!(RateLimiter::compute_refill(999, 100, 1000), 99);
+        // 2 req/sec: after 600 ms the buggy formula gives 0; correct gives 1.
+        assert_eq!(RateLimiter::compute_refill(600, 2, 1000), 1);
+        // 1000 req/sec: after 1 ms should give 1 token (per-ms refill).
+        assert_eq!(RateLimiter::compute_refill(1, 1000, 1000), 1);
     }
 }
