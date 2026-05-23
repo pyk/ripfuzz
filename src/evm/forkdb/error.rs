@@ -34,6 +34,39 @@ impl Error {
             Self::RpcTimeout { .. } | Self::RateLimited { .. } | Self::BatcherRestarted
         )
     }
+
+    /// Classify an `anyhow::Error` into a typed [`Error`], preserving the
+    /// endpoint `url` for transport failures.
+    pub fn from_anyhow(e: anyhow::Error, url: &str) -> Self {
+        let msg = format!("{e}");
+        // Classify transport errors by inspecting the root cause.
+        if let Some(ureq_err) = e.root_cause().downcast_ref::<ureq::Error>() {
+            match ureq_err {
+                ureq::Error::StatusCode(429) => {
+                    return Self::RateLimited { url: url.into() };
+                }
+                ureq::Error::Timeout(_) => {
+                    return Self::RpcTimeout { url: url.into() };
+                }
+                _ => {}
+            }
+        }
+        if let Some(json_err) = e.root_cause().downcast_ref::<serde_json::Error>() {
+            return Self::DecodeError {
+                message: format!("{json_err}"),
+            };
+        }
+        if msg.contains("429") || msg.contains("rate limit") || msg.contains("too many requests") {
+            return Self::RateLimited { url: url.into() };
+        }
+        if msg.contains("timeout") || msg.contains("timed out") {
+            return Self::RpcTimeout { url: url.into() };
+        }
+        if msg.contains("batcher restarted") {
+            return Self::BatcherRestarted;
+        }
+        Self::Internal { message: msg }
+    }
 }
 
 impl std::fmt::Display for Error {

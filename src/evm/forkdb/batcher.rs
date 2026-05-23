@@ -185,7 +185,7 @@ impl Batcher {
                     return;
                 }
                 Err(e) => {
-                    last_err = Some(Error::from(e));
+                    last_err = Some(Error::from_anyhow(e, &self.url));
                     if attempt < self.retries {
                         std::thread::sleep(self.sleep_duration(attempt));
                     }
@@ -207,12 +207,16 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use anyhow::Result;
+    use anyhow::anyhow;
     use crossbeam::channel::bounded;
 
     use crate::evm::forkdb::dedup::DedupTable;
-    use crate::evm::forkdb::transport::MockTransport;
+    use crate::evm::forkdb::error::Error;
+    use crate::evm::forkdb::request::Request;
+    use crate::evm::forkdb::transport::{MockTransport, Transport};
 
-    use super::Batcher;
+    use super::{Batcher, PendingRequest};
 
     /// Regression: retry backoff must be capped so a permanently down endpoint
     /// cannot stall the batcher (and all fuzzer threads) for unbounded time.
@@ -268,5 +272,101 @@ mod tests {
         // attempt >= 32 must not panic.
         assert_eq!(batcher.sleep_duration(32), cap);
         assert_eq!(batcher.sleep_duration(u32::MAX), cap);
+    }
+
+    #[derive(Debug)]
+    struct ErrorTransport {
+        message: String,
+    }
+
+    impl Transport for ErrorTransport {
+        fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
+            Err(anyhow!("{}", self.message))
+        }
+    }
+
+    /// Regression: when the transport returns a timeout, the batcher must
+    /// preserve the endpoint URL in the error so callers with multiple RPC
+    /// endpoints can identify which one failed.
+    #[test]
+    fn transport_timeout_preserves_url() {
+        let (req_tx, req_rx) = bounded::<PendingRequest>(1);
+        let url = "http://rpc.example";
+        let batcher = Batcher {
+            request_rx: req_rx,
+            transport: Arc::new(ErrorTransport {
+                message: "request timed out".into(),
+            }),
+            url: url.into(),
+            retries: 0,
+            backoff: Duration::from_millis(0),
+            batch_size: 1,
+            batch_timeout: Duration::from_millis(0),
+            cache: None,
+            dedup: Arc::new(DedupTable::new()),
+            limiter: None,
+        };
+
+        let (resp_tx, resp_rx) = bounded(1);
+        let request = Request::GetChainId { url_hash: 0 };
+        req_tx
+            .send(PendingRequest {
+                request,
+                response_tx: resp_tx,
+            })
+            .unwrap();
+        drop(req_tx);
+
+        batcher.run();
+
+        let result = resp_rx.recv().unwrap();
+        match result {
+            Err(Error::RpcTimeout { url: err_url }) => {
+                assert_eq!(err_url, url, "RpcTimeout must preserve the endpoint URL");
+            }
+            other => panic!("expected RpcTimeout with URL={url}, got {:?}", other),
+        }
+    }
+
+    /// Regression: when the transport returns a rate-limit error, the batcher
+    /// must preserve the endpoint URL in the error.
+    #[test]
+    fn transport_rate_limit_preserves_url() {
+        let (req_tx, req_rx) = bounded::<PendingRequest>(1);
+        let url = "http://rpc.example";
+        let batcher = Batcher {
+            request_rx: req_rx,
+            transport: Arc::new(ErrorTransport {
+                message: "429 too many requests".into(),
+            }),
+            url: url.into(),
+            retries: 0,
+            backoff: Duration::from_millis(0),
+            batch_size: 1,
+            batch_timeout: Duration::from_millis(0),
+            cache: None,
+            dedup: Arc::new(DedupTable::new()),
+            limiter: None,
+        };
+
+        let (resp_tx, resp_rx) = bounded(1);
+        let request = Request::GetChainId { url_hash: 0 };
+        req_tx
+            .send(PendingRequest {
+                request,
+                response_tx: resp_tx,
+            })
+            .unwrap();
+        drop(req_tx);
+
+        batcher.run();
+
+        let result = resp_rx.recv().unwrap();
+        match result {
+            Err(Error::RateLimited { url: err_url }) => {
+                assert_eq!(err_url, url, "RateLimited must preserve the endpoint URL");
+            }
+            other => panic!("expected RateLimited with URL={url}, got {:?}", other),
+        }
     }
 }
