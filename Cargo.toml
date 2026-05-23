@@ -62,6 +62,9 @@ rayon = "1.12"
 # Path traversal
 walkdir = "2"
 
+# RPC
+alloy = { version = "2", features = ["full"] }
+
 [dev-dependencies]
 # Test utilities
 serial_test = "=3.4.0"
