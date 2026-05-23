@@ -66,35 +66,50 @@ impl Batcher {
         }
     }
 
-    fn process_batch(&self, batch: Vec<PendingRequest>) {
+    fn build_payload(&self, batch: &[PendingRequest]) -> serde_json::Value {
+        let array: Vec<serde_json::Value> = batch
+            .iter()
+            .enumerate()
+            .map(|(idx, pending)| {
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": idx,
+                    "method": pending.request.method(),
+                    "params": pending.request.params(),
+                })
+            })
+            .collect();
+        json!(array)
+    }
+
+    fn dispatch_one(&self, pending: PendingRequest, result: &serde_json::Value) {
+        let parsed = Response::parse(&pending.request, result);
+        if let Ok(resp) = &parsed
+            && let Some(cache) = self.cache.as_ref()
+        {
+            cache.insert(&pending.request, resp.to_json());
+        }
+        let dedup_result = match &parsed {
+            Ok(r) => Ok(r.to_json()),
+            Err(e) => Err(anyhow!("{e}")),
+        };
+        self.dedup
+            .complete(&pending.request.cache_key(), dedup_result);
+        let _ = pending.response_tx.send(parsed);
+    }
+
+    fn dispatch_error(&self, pending: PendingRequest, err: anyhow::Error) {
+        self.dedup
+            .complete(&pending.request.cache_key(), Err(anyhow!("{err}")));
+        let _ = pending.response_tx.send(Err(err));
+    }
+
+    fn process_batch(&self, mut batch: Vec<PendingRequest>) {
         if batch.is_empty() {
             return;
         }
 
-        let is_single = batch.len() == 1;
-        let payload = if is_single {
-            let req = &batch[0].request;
-            json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": req.method(),
-                "params": req.params(),
-            })
-        } else {
-            let array: Vec<serde_json::Value> = batch
-                .iter()
-                .enumerate()
-                .map(|(idx, pending)| {
-                    json!({
-                        "jsonrpc": "2.0",
-                        "id": idx,
-                        "method": pending.request.method(),
-                        "params": pending.request.params(),
-                    })
-                })
-                .collect();
-            json!(array)
-        };
+        let mut payload = self.build_payload(&batch);
 
         // Rate limit gate: one HTTP POST == one token regardless of batch size.
         if let Some(ref limiter) = self.limiter {
@@ -102,99 +117,67 @@ impl Batcher {
         }
 
         // Live network fetch with exponential backoff retries.
-        let value = 'retry: {
-            let mut last_err = None;
-            for attempt in 0..=self.retries {
-                match self.transport.exec(&self.url, &payload) {
-                    Ok(v) => {
-                        let rpc_err = if is_single {
-                            v.get("error").map(|e| format!("RPC error: {e}"))
-                        } else {
-                            v.as_array().and_then(|arr| {
-                                arr.iter().find_map(|item| {
-                                    item.get("error")
-                                        .map(|e| format!("RPC error in batch: {e}"))
-                                })
-                            })
+        let mut last_err = None;
+        for attempt in 0..=self.retries {
+            match self.transport.exec(&self.url, &payload) {
+                Ok(v) => {
+                    let mut by_id: HashMap<usize, serde_json::Value> = HashMap::new();
+
+                    let arr = v.as_array().cloned().unwrap_or_default();
+                    for mut item in arr {
+                        let Some(id) = item.get("id").and_then(|v| v.as_u64()).map(|v| v as usize)
+                        else {
+                            continue;
                         };
-                        if let Some(err) = rpc_err {
-                            last_err = Some(anyhow!(err));
-                            if attempt < self.retries {
-                                std::thread::sleep(self.backoff * 2_u32.pow(attempt));
-                                continue;
-                            }
-                            break;
-                        }
-                        break 'retry v;
-                    }
-                    Err(e) => {
-                        last_err = Some(e);
-                        if attempt < self.retries {
-                            std::thread::sleep(self.backoff * 2_u32.pow(attempt));
+                        if let Some(err) = item.get("error") {
+                            last_err = Some(anyhow!("RPC error in batch: {err}"));
+                        } else if let Some(result) =
+                            item.as_object_mut().and_then(|obj| obj.remove("result"))
+                        {
+                            by_id.insert(id, result);
                         }
                     }
-                }
-            }
-            let err = last_err.unwrap_or_else(|| anyhow!("RPC request failed"));
-            for pending in batch {
-                self.dedup
-                    .complete(&pending.request.cache_key(), Err(anyhow!("{err}")));
-                let _ = pending.response_tx.send(Err(anyhow!("{err}")));
-            }
-            return;
-        };
 
-        // Dispatch responses back to waiting threads.
-        if is_single {
-            let result = value
-                .get("result")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null);
-            let mut it = batch.into_iter();
-            let Some(pending) = it.next() else {
-                return;
-            };
-            let parsed = Response::parse(&pending.request, &result);
-            if let Ok(resp) = &parsed
-                && let Some(cache) = self.cache.as_ref()
-            {
-                cache.insert(&pending.request, resp.to_json());
-            }
-            let dedup_result = match &parsed {
-                Ok(r) => Ok(r.to_json()),
-                Err(e) => Err(anyhow!("{e}")),
-            };
-            self.dedup
-                .complete(&pending.request.cache_key(), dedup_result);
-            let _ = pending.response_tx.send(parsed);
-        } else {
-            let arr = value.as_array().cloned().unwrap_or_default();
-            let mut by_id: HashMap<usize, serde_json::Value> = HashMap::new();
-            for mut item in arr {
-                let Some(id) = item.get("id").and_then(|v| v.as_u64()).map(|v| v as usize) else {
-                    continue;
-                };
-                if let Some(result) = item.as_object_mut().and_then(|obj| obj.remove("result")) {
-                    by_id.insert(id, result);
-                }
-            }
+                    let mut next_batch = Vec::new();
+                    for (idx, pending) in batch.into_iter().enumerate() {
+                        if let Some(result) = by_id.remove(&idx) {
+                            self.dispatch_one(pending, &result);
+                        } else {
+                            next_batch.push(pending);
+                        }
+                    }
 
-            for (idx, pending) in batch.into_iter().enumerate() {
-                let result = by_id.get(&idx).cloned().unwrap_or(serde_json::Value::Null);
-                let parsed = Response::parse(&pending.request, &result);
-                if let Ok(resp) = &parsed
-                    && let Some(cache) = self.cache.as_ref()
-                {
-                    cache.insert(&pending.request, resp.to_json());
+                    if next_batch.is_empty() {
+                        return;
+                    }
+
+                    // Some items failed or were missing - retry only them.
+                    batch = next_batch;
+                    if attempt < self.retries {
+                        payload = self.build_payload(&batch);
+                        std::thread::sleep(self.backoff * 2_u32.pow(attempt));
+                        continue;
+                    }
+
+                    // Retries exhausted: return errors for the remaining items.
+                    let err = last_err.unwrap_or_else(|| anyhow!("RPC request failed"));
+                    for pending in batch {
+                        self.dispatch_error(pending, anyhow!("{err}"));
+                    }
+                    return;
                 }
-                let dedup_result = match &parsed {
-                    Ok(r) => Ok(r.to_json()),
-                    Err(e) => Err(anyhow!("{e}")),
-                };
-                self.dedup
-                    .complete(&pending.request.cache_key(), dedup_result);
-                let _ = pending.response_tx.send(parsed);
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt < self.retries {
+                        std::thread::sleep(self.backoff * 2_u32.pow(attempt));
+                    }
+                }
             }
+        }
+
+        let err = last_err.unwrap_or_else(|| anyhow!("RPC request failed"));
+        for pending in batch {
+            self.dispatch_error(pending, anyhow!("{err}"));
         }
     }
 }

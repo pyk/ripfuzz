@@ -52,6 +52,9 @@ impl Client {
 
         let (request_tx, request_rx) = channel::unbounded();
 
+        // Known issue (acked): disk cache writes are synchronous and run on
+        // the batcher thread. Under load this stalls the worker and blocks
+        // every fuzzing thread that is waiting for an RPC response.
         let batcher = Batcher {
             request_rx,
             transport: Box::new(transport),
@@ -181,10 +184,11 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
+    use alloy_primitives::Address;
     use serde_json::json;
     use tempfile::tempdir;
 
-    use crate::evm::forkdb::{Client, Config, MockTransport, Request};
+    use crate::evm::forkdb::{Client, Config, MockTransport, Request, Response};
 
     /// Regression: the background batcher must be the sole thread that writes
     /// to the disk cache and completes dedup entries.  The caller thread
@@ -194,16 +198,13 @@ mod tests {
         let transport = MockTransport::default();
         let url = "mock://test";
 
-        let payload = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "eth_chainId",
-            "params": [],
-        });
+        let payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
+        ]);
         transport.mock_response(
             url,
             &payload,
-            json!({"jsonrpc":"2.0","id":1,"result":"0x1"}),
+            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
         );
 
         let tmp = tempdir().unwrap();
@@ -237,16 +238,13 @@ mod tests {
         let transport = MockTransport::default();
         let url = "mock://test";
 
-        let payload = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "eth_chainId",
-            "params": [],
-        });
+        let payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
+        ]);
         transport.mock_response(
             url,
             &payload,
-            json!({"jsonrpc":"2.0","id":1,"result":"0x1"}),
+            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
         );
         // Slow transport so both threads race while the request is in-flight.
         transport.set_delay(Duration::from_millis(50));
@@ -276,6 +274,71 @@ mod tests {
             transport.call_count(url, &payload),
             1,
             "concurrent identical requests must result in exactly one RPC call"
+        );
+    }
+
+    /// Regression: a JSON-RPC batch containing one error and one success must
+    /// not fail the entire batch. The successful item should be dispatched
+    /// immediately and only the failed item retried.
+    #[test]
+    fn batch_per_item_retry() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+
+        let batch_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000000","0x1"]}
+        ]);
+        // First batch call: mixed response - first item succeeds, second errors.
+        transport.mock_responses(
+            url,
+            &batch_payload,
+            vec![json!([
+                {"jsonrpc":"2.0","id":0,"result":"0x1"},
+                {"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"bad block"}}
+            ])],
+        );
+
+        let single_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000000","0x1"]}
+        ]);
+        // Retry of the failed item (now sent individually) succeeds.
+        transport.mock_response(
+            url,
+            &single_payload,
+            json!([{"jsonrpc":"2.0","id":0,"result":"0x0"}]),
+        );
+
+        let config = Config::new(url)
+            .batch_size(2)
+            .batch_timeout_ms(100)
+            .retries(1)
+            .backoff_ms(0);
+        let client = Client::new_with_transport(config, transport.clone());
+
+        let reqs = &[
+            Request::GetChainId,
+            Request::GetBalance {
+                address: Address::ZERO,
+                block: 1,
+            },
+        ];
+        let res = client.request(reqs).unwrap();
+        assert_eq!(res.len(), 2);
+        assert!(matches!(&res[0], Response::ChainId(1)));
+        assert!(matches!(&res[1], Response::Balance(v) if v.is_zero()));
+
+        // The full batch must have been submitted exactly once.
+        assert_eq!(
+            transport.call_count(url, &batch_payload),
+            1,
+            "full batch should be sent once"
+        );
+        // Only the failed item should have been retried individually.
+        assert_eq!(
+            transport.call_count(url, &single_payload),
+            1,
+            "failed item should be retried individually"
         );
     }
 }

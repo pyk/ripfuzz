@@ -461,7 +461,7 @@ mod tests {
 
         // No extra eth_getBlockByNumber call should have been made.
         let extra_payload = json!([
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
+            {"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]},
         ]);
         assert_eq!(
             transport.call_count("mock://test", &extra_payload),
