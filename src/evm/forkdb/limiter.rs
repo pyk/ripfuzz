@@ -110,7 +110,9 @@ impl RateLimiter {
                     let (last_refill_ms, _) = RateLimiterInner::unpack(packed);
                     let now_ms = inner.start.elapsed().as_millis() as u32;
                     let elapsed_ms = now_ms.wrapping_sub(last_refill_ms) as u64;
-                    let sleep_ms = interval_ms.saturating_sub(elapsed_ms % interval_ms);
+                    let n = elapsed_ms.saturating_mul(self.max_tokens);
+                    let remainder = n % interval_ms;
+                    let sleep_ms = (interval_ms - remainder).div_ceil(self.max_tokens);
                     trace!(sleep_ms, "rate limit sleep");
                     std::thread::sleep(Duration::from_millis(sleep_ms.max(1)));
                 }
@@ -206,5 +208,26 @@ mod tests {
         assert_eq!(RateLimiter::compute_refill(600, 2, 1000), 1);
         // 1000 req/sec: after 1 ms should give 1 token (per-ms refill).
         assert_eq!(RateLimiter::compute_refill(1, 1000, 1000), 1);
+    }
+
+    /// Regression: high-RPS rate limiter must sleep for interval/max_tokens
+    /// (time per token) rather than the remainder of a 1-second window.
+    #[test]
+    fn rate_limiter_high_rps_sleep_duration() {
+        let rps = 100;
+        let limiter = RateLimiter::new(rps);
+        // Exhaust the initial burst.
+        for _ in 0..rps {
+            limiter.acquire();
+        }
+        // The next acquire should wait ~10 ms (1000 ms / 100 rps), not ~1000 ms.
+        let t0 = Instant::now();
+        limiter.acquire();
+        let elapsed = Instant::now().duration_since(t0).as_millis() as u64;
+        assert!(
+            elapsed < 200,
+            "rate limiter slept {elapsed}ms, expected ~{}ms (time per token)",
+            1000 / rps
+        );
     }
 }
