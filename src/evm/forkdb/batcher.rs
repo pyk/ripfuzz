@@ -133,7 +133,11 @@ impl Batcher {
                 Ok(v) => {
                     let mut by_id: HashMap<usize, serde_json::Value> = HashMap::new();
 
-                    let arr = v.as_array().cloned().unwrap_or_default();
+                    let arr: Vec<serde_json::Value> = if v.is_object() {
+                        vec![v.clone()]
+                    } else {
+                        v.as_array().cloned().unwrap_or_default()
+                    };
                     for mut item in arr {
                         let Some(id) = item.get("id").and_then(|v| v.as_u64()).map(|v| v as usize)
                         else {
@@ -211,9 +215,12 @@ mod tests {
     use anyhow::anyhow;
     use crossbeam::channel::bounded;
 
+    use serde_json::json;
+
     use crate::evm::forkdb::dedup::DedupTable;
     use crate::evm::forkdb::error::Error;
     use crate::evm::forkdb::request::Request;
+    use crate::evm::forkdb::response::Response;
     use crate::evm::forkdb::transport::{MockTransport, Transport};
 
     use super::{Batcher, PendingRequest};
@@ -368,5 +375,61 @@ mod tests {
             }
             other => panic!("expected RateLimited with URL={url}, got {:?}", other),
         }
+    }
+
+    #[derive(Debug)]
+    struct SingleObjectTransport {
+        response: serde_json::Value,
+    }
+
+    impl Transport for SingleObjectTransport {
+        fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
+            Ok(self.response.clone())
+        }
+    }
+
+    /// Regression: non-compliant RPC servers may return a single JSON object
+    /// instead of a single-element array for a batch of one request.
+    /// `process_batch` must accept both shapes.
+    #[test]
+    fn single_object_batch_response_is_accepted() {
+        let (req_tx, req_rx) = bounded::<PendingRequest>(1);
+        let batcher = Batcher {
+            request_rx: req_rx,
+            transport: Arc::new(SingleObjectTransport {
+                response: json!({
+                    "jsonrpc": "2.0",
+                    "id": 0,
+                    "result": "0x1",
+                }),
+            }),
+            url: "http://rpc.example".into(),
+            retries: 0,
+            backoff: Duration::from_millis(0),
+            batch_size: 1,
+            batch_timeout: Duration::from_millis(0),
+            cache: None,
+            dedup: Arc::new(DedupTable::new()),
+            limiter: None,
+        };
+
+        let (resp_tx, resp_rx) = bounded(1);
+        let request = Request::GetChainId { url_hash: 0 };
+        req_tx
+            .send(PendingRequest {
+                request,
+                response_tx: resp_tx,
+            })
+            .unwrap();
+        drop(req_tx);
+
+        batcher.run();
+
+        let result = resp_rx.recv().unwrap();
+        assert!(
+            matches!(result, Ok(Response::ChainId(1))),
+            "single-object response for batch of one must be accepted, got {:?}",
+            result
+        );
     }
 }
