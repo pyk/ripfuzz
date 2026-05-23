@@ -109,11 +109,12 @@ impl Cache {
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::{Address, U256, address};
+    use alloy_primitives::{Address, Bytes, U256, address};
     use serde_json::json;
     use tempfile::tempdir;
 
     use super::*;
+    use crate::evm::forkdb::Response;
 
     #[test]
     fn cache_roundtrip() {
@@ -129,6 +130,110 @@ mod tests {
         // New instance reads from disk
         let cache2 = Cache::new(tmp.path());
         assert_eq!(cache2.get(&req).unwrap(), "0x1");
+    }
+
+    #[test]
+    fn cache_roundtrip_get_code() {
+        let tmp = tempdir().unwrap();
+        let cache = Cache::new(tmp.path());
+
+        let req = Request::GetCode {
+            chain_id: 1,
+            address: Address::ZERO,
+            block: 1,
+        };
+        let raw = json!("0x6000");
+
+        assert!(cache.get(&req).is_none());
+        cache.insert(&req, raw.clone());
+
+        let cache2 = Cache::new(tmp.path());
+        let value = cache2.get(&req).unwrap();
+        let parsed = Response::parse(&req, &value).expect("parsing cached code should succeed");
+        assert!(
+            matches!(parsed, Response::Code(ref b) if *b == Bytes::from_static(&[0x60, 0x00])),
+            "roundtrip must preserve the same Bytes value"
+        );
+    }
+
+    #[test]
+    fn cache_roundtrip_get_balance() {
+        let tmp = tempdir().unwrap();
+        let cache = Cache::new(tmp.path());
+
+        let req = Request::GetBalance {
+            chain_id: 1,
+            address: Address::ZERO,
+            block: 1,
+        };
+        let raw = json!("0xabc");
+
+        assert!(cache.get(&req).is_none());
+        cache.insert(&req, raw.clone());
+
+        let cache2 = Cache::new(tmp.path());
+        let value = cache2.get(&req).unwrap();
+        let parsed = Response::parse(&req, &value).expect("parsing cached balance should succeed");
+        assert!(
+            matches!(parsed, Response::Balance(v) if v == U256::from(0xabc)),
+            "roundtrip must preserve the same U256 value"
+        );
+    }
+
+    #[test]
+    fn cache_roundtrip_get_storage_at() {
+        let tmp = tempdir().unwrap();
+        let cache = Cache::new(tmp.path());
+
+        let req = Request::GetStorageAt {
+            chain_id: 1,
+            address: Address::ZERO,
+            slot: U256::from(0),
+            block: 1,
+        };
+        let raw = json!("0x1234");
+
+        assert!(cache.get(&req).is_none());
+        cache.insert(&req, raw.clone());
+
+        let cache2 = Cache::new(tmp.path());
+        let value = cache2.get(&req).unwrap();
+        let parsed = Response::parse(&req, &value).expect("parsing cached storage should succeed");
+        assert!(
+            matches!(parsed, Response::StorageAt(v) if v == U256::from(0x1234)),
+            "roundtrip must preserve the same U256 value"
+        );
+    }
+
+    #[test]
+    fn cache_roundtrip_get_block_by_number() {
+        let tmp = tempdir().unwrap();
+        let cache = Cache::new(tmp.path());
+
+        let req = Request::GetBlockByNumber {
+            chain_id: 1,
+            block: 1,
+            full_tx: false,
+        };
+        let raw = json!({
+            "number": "0x1",
+            "timestamp": "0x65f0b480",
+            "miner": "0x0000000000000000000000000000000000000000",
+            "gasLimit": "0x1c9c380",
+            "baseFeePerGas": "0x1",
+            "difficulty": "0x0"
+        });
+
+        assert!(cache.get(&req).is_none());
+        cache.insert(&req, raw.clone());
+
+        let cache2 = Cache::new(tmp.path());
+        let value = cache2.get(&req).unwrap();
+        let parsed = Response::parse(&req, &value).expect("parsing cached block should succeed");
+        assert!(
+            matches!(parsed, Response::BlockByNumber(ref b) if b.number.to::<u64>() == 1),
+            "roundtrip must preserve the same block number"
+        );
     }
 
     #[test]
