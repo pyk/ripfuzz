@@ -33,6 +33,27 @@ impl ForkDB {
         }
     }
 
+    /// Retry transient errors so that a batcher panic (or temporary RPC
+    /// timeout / rate-limit) does not abort the current fuzzing run.
+    fn with_retry<T>(&self, f: impl Fn() -> Result<T, Error>) -> Result<T, Error> {
+        let mut last_err = None;
+        for attempt in 0..3 {
+            match f() {
+                Ok(v) => return Ok(v),
+                Err(e) if e.is_transient() => {
+                    last_err = Some(e);
+                    if attempt < 2 {
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            50 * (1_u64 << attempt),
+                        ));
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last_err.unwrap())
+    }
+
     /// Parse the heterogeneous batch responses for `basic_ref` into an
     /// `AccountInfo`.  The responses may arrive in any order; we match by
     /// variant rather than by index so that `db.rs` is decoupled from the
@@ -110,27 +131,29 @@ impl DatabaseRef for ForkDB {
     type Error = Error;
 
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        // Fetch balance, nonce, and code in a single atomic batch so the
-        // background worker can send them as one JSON-RPC batch request.
-        let responses = self.client.request(&[
-            Request::GetBalance {
-                chain_id: self.chain_id,
-                address,
-                block: self.block_number,
-            },
-            Request::GetTransactionCount {
-                chain_id: self.chain_id,
-                address,
-                block: self.block_number,
-            },
-            Request::GetCode {
-                chain_id: self.chain_id,
-                address,
-                block: self.block_number,
-            },
-        ])?;
+        self.with_retry(|| {
+            // Fetch balance, nonce, and code in a single atomic batch so the
+            // background worker can send them as one JSON-RPC batch request.
+            let responses = self.client.request(&[
+                Request::GetBalance {
+                    chain_id: self.chain_id,
+                    address,
+                    block: self.block_number,
+                },
+                Request::GetTransactionCount {
+                    chain_id: self.chain_id,
+                    address,
+                    block: self.block_number,
+                },
+                Request::GetCode {
+                    chain_id: self.chain_id,
+                    address,
+                    block: self.block_number,
+                },
+            ])?;
 
-        self.parse_basic_responses(responses)
+            self.parse_basic_responses(responses)
+        })
     }
 
     fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
@@ -148,42 +171,46 @@ impl DatabaseRef for ForkDB {
     }
 
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        let mut responses = self.client.request(&[Request::GetStorageAt {
-            chain_id: self.chain_id,
-            address,
-            slot: index,
-            block: self.block_number,
-        }])?;
-        let response = responses.pop().ok_or_else(|| Error::UnexpectedResponse {
-            message: "expected one response for GetStorageAt".into(),
-        })?;
+        self.with_retry(|| {
+            let mut responses = self.client.request(&[Request::GetStorageAt {
+                chain_id: self.chain_id,
+                address,
+                slot: index,
+                block: self.block_number,
+            }])?;
+            let response = responses.pop().ok_or_else(|| Error::UnexpectedResponse {
+                message: "expected one response for GetStorageAt".into(),
+            })?;
 
-        match response {
-            Response::StorageAt(v) => Ok(v),
-            _ => Err(Error::UnexpectedResponse {
-                message: "unexpected response for GetStorageAt".into(),
-            }),
-        }
+            match response {
+                Response::StorageAt(v) => Ok(v),
+                _ => Err(Error::UnexpectedResponse {
+                    message: "unexpected response for GetStorageAt".into(),
+                }),
+            }
+        })
     }
 
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        let mut responses = self.client.request(&[Request::GetBlockByNumber {
-            chain_id: self.chain_id,
-            block: number,
-            full_tx: false,
-        }])?;
-        let response = responses.pop().ok_or_else(|| Error::UnexpectedResponse {
-            message: "expected one response for GetBlockByNumber".into(),
-        })?;
+        self.with_retry(|| {
+            let mut responses = self.client.request(&[Request::GetBlockByNumber {
+                chain_id: self.chain_id,
+                block: number,
+                full_tx: false,
+            }])?;
+            let response = responses.pop().ok_or_else(|| Error::UnexpectedResponse {
+                message: "expected one response for GetBlockByNumber".into(),
+            })?;
 
-        match response {
-            Response::BlockByNumber(b) => b.hash.ok_or_else(|| Error::UnexpectedResponse {
-                message: format!("block {number}: hash missing in GetBlockByNumber response"),
-            }),
-            _ => Err(Error::UnexpectedResponse {
-                message: "unexpected response for GetBlockByNumber".into(),
-            }),
-        }
+            match response {
+                Response::BlockByNumber(b) => b.hash.ok_or_else(|| Error::UnexpectedResponse {
+                    message: format!("block {number}: hash missing in GetBlockByNumber response"),
+                }),
+                _ => Err(Error::UnexpectedResponse {
+                    message: "unexpected response for GetBlockByNumber".into(),
+                }),
+            }
+        })
     }
 }
 
@@ -194,7 +221,57 @@ mod tests {
     use revm::database::CacheDB;
     use serde_json::json;
 
-    use crate::evm::forkdb::{Config as ForkdbConfig, MockTransport};
+    use crate::evm::forkdb::{Config as ForkdbConfig, MockTransport, Transport};
+
+    /// Regression: ForkDB must retry transient errors (including BatcherRestarted)
+    /// instead of returning them directly to revm.
+    #[test]
+    fn forkdb_retries_transient_batcher_restarted() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Debug)]
+        struct PanicOnceTransport {
+            panics_remaining: AtomicUsize,
+        }
+
+        impl Transport for PanicOnceTransport {
+            fn exec(
+                &self,
+                _url: &str,
+                _payload: &serde_json::Value,
+            ) -> anyhow::Result<serde_json::Value> {
+                if self.panics_remaining.fetch_sub(1, Ordering::SeqCst) > 0 {
+                    panic!("simulated transport panic");
+                }
+                // Return valid batch response for basic_ref (balance, nonce, code)
+                Ok(json!([
+                    {"jsonrpc":"2.0","id":0,"result":"0x1"},
+                    {"jsonrpc":"2.0","id":1,"result":"0x2"},
+                    {"jsonrpc":"2.0","id":2,"result":"0x6000"}
+                ]))
+            }
+        }
+
+        let transport = PanicOnceTransport {
+            panics_remaining: AtomicUsize::new(1),
+        };
+
+        let config = ForkdbConfig::new("mock://panic").batch_timeout_ms(0).retries(0);
+        let client = Client::new_with_transport(config, transport);
+        let fork_db = ForkDB::new(Arc::new(client), 1, 1);
+
+        let result = fork_db.basic_ref(Address::ZERO);
+        assert!(
+            result.is_ok(),
+            "ForkDB must retry BatcherRestarted and eventually succeed, got: {result:?}"
+        );
+        let info = result.unwrap().unwrap();
+        assert_eq!(info.balance, U256::from(1));
+        assert_eq!(info.nonce, 2);
+        let expected_code = Bytecode::new_raw(Bytes::from_static(&[0x60, 0x00]));
+        assert_eq!(info.code, Some(expected_code.clone()));
+        assert_eq!(info.code_hash, expected_code.hash_slow());
+    }
 
     /// Regression: ForkDB::basic_ref must not assume that the batcher returns
     /// responses in the same order as the requests.  If the response order
