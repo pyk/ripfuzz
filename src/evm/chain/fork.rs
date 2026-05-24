@@ -19,9 +19,11 @@ use crate::evm::forkdb::{Config, Request, Response, Transport};
 impl Chain {
     /// Create a new forked EVM pinned to a remote block.
     pub fn fork(config: Config, block_number: u64) -> Result<Self> {
-        let url_hash = crate::evm::forkdb::url_hash(&config.url);
-        let backend = crate::evm::forkdb::SharedBackend::new(config);
-        Self::fork_with_backend(backend, block_number, url_hash)
+        let agent_cfg = ureq::Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_millis(config.timeout_ms)))
+            .build();
+        let agent = ureq::Agent::new_with_config(agent_cfg);
+        Self::fork_with_transport(config, agent, block_number)
     }
 
     /// Create a forked EVM with a custom transport (used in tests).
@@ -32,14 +34,7 @@ impl Chain {
     ) -> Result<Self> {
         let url_hash = crate::evm::forkdb::url_hash(&config.url);
         let backend = crate::evm::forkdb::SharedBackend::new_with_transport(config, transport);
-        Self::fork_with_backend(backend, block_number, url_hash)
-    }
 
-    fn fork_with_backend(
-        backend: crate::evm::forkdb::SharedBackend,
-        block_number: u64,
-        url_hash: u64,
-    ) -> Result<Self> {
         // resolve chain_id so every subsequent cache key is scoped.
         let mut responses = backend
             .fetch_or_wait(&[Request::GetChainId { url_hash }])
