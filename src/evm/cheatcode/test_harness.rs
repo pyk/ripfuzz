@@ -13,9 +13,9 @@ use revm::{
     state::AccountInfo,
 };
 
-use crate::vm::ExecutionState;
-use crate::vm::VM_ADDRESS;
-use crate::vm::inspector::CheatcodeInspector;
+use crate::evm::cheatcode::ExecutionState;
+use crate::evm::cheatcode::VM_ADDRESS;
+use crate::evm::cheatcode::inspector::CheatcodeInspector;
 
 /// Run a single cheatcode call against the VM precompile and return the
 /// execution result plus the updated [`ExecutionState`].

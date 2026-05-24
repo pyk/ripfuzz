@@ -5,8 +5,6 @@
 //! structure makes the boundary clear.
 
 pub use address::VM_ADDRESS;
-pub use cheatcodes::deal::DealRecord;
-pub use cheatcodes::nonce::NonceRecord;
 pub use config::VmConfig;
 pub use decode::{
     decode_address_arg, decode_address_bytes32_args, decode_address_bytes32_bytes32_args,
@@ -15,6 +13,8 @@ pub use decode::{
 pub use dispatch::{Cheatcode, dispatch_effects};
 pub use effect::CheatcodeEffect;
 pub use execution_state::ExecutionState;
+pub use functions::deal::DealRecord;
+pub use functions::nonce::NonceRecord;
 pub use outcome::{
     build_outcome, dummy_success, panic_outcome, revert_outcome, success_bool_outcome,
     success_bytes_outcome, success_int256_outcome, success_u256_outcome,
@@ -29,12 +29,12 @@ pub trait VmFactory: Send + Sync + std::fmt::Debug + 'static {
 }
 
 pub mod address;
-pub mod cheatcodes;
 pub mod config;
 pub mod decode;
 pub mod dispatch;
 pub mod effect;
 pub mod execution_state;
+pub mod functions;
 pub mod inspector;
 pub mod outcome;
 pub mod state;

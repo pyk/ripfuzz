@@ -383,7 +383,9 @@ mod tests {
                 .unwrap();
         let chain = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/basic-target"))
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -409,9 +411,13 @@ mod tests {
         .unwrap();
 
         let err = crate::chain::Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/basic-target"))
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap_err();
         let msg = format!("{err}");
@@ -429,7 +435,9 @@ mod tests {
         .unwrap();
 
         let err = crate::chain::Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/basic-target"))
             .init()
             .unwrap_err();
@@ -447,9 +455,13 @@ mod tests {
                 .unwrap();
 
         let err = crate::chain::Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/basic-target"))
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -476,7 +488,9 @@ mod tests {
         config.timeout_secs = Some(10);
         let chain = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/challenges"))
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -537,7 +551,9 @@ mod tests {
         .unwrap();
         let chain = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/basic-target"))
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_deploy_value(deploy_value)
             .init()
             .unwrap()
@@ -569,7 +585,9 @@ mod tests {
                 .unwrap();
         let err = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/basic-target"))
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_deploy_value(deploy_value)
             .init()
             .unwrap_err();
@@ -588,7 +606,9 @@ mod tests {
                 .unwrap();
         let chain = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/basic-target"))
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()

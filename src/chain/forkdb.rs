@@ -729,7 +729,7 @@ mod tests {
         let artifact =
             crate::contract::tests::load_test_artifact("fixtures/forks", "test/ForkTarget.sol")
                 .unwrap();
-        let vm = crate::vm::Vm::new(crate::vm::VmConfig::default());
+        let vm = crate::evm::cheatcode::Vm::new(crate::evm::cheatcode::VmConfig::default());
         let chain = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/forks"))
             .with_vm(vm)

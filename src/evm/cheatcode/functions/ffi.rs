@@ -5,7 +5,7 @@ use std::process::Command;
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use revm::primitives::Bytes;
 
-use crate::vm::{Cheatcode, CheatcodeEffect};
+use crate::evm::cheatcode::{Cheatcode, CheatcodeEffect};
 
 pub struct Ffi;
 
@@ -160,10 +160,12 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_vm(crate::vm::Vm::new(
-                crate::vm::VmConfig::default().with_ffi(true),
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default().with_ffi(true),
             ))
             .init()
             .unwrap()
@@ -190,10 +192,12 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_vm(crate::vm::Vm::new(
-                crate::vm::VmConfig::default().with_ffi(true),
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default().with_ffi(true),
             ))
             .init()
             .unwrap()
@@ -238,10 +242,12 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_vm(crate::vm::Vm::new(
-                crate::vm::VmConfig::default().with_ffi(true),
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default().with_ffi(true),
             ))
             .init()
             .unwrap()
@@ -273,10 +279,12 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_vm(crate::vm::Vm::new(
-                crate::vm::VmConfig::default().with_ffi(true),
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default().with_ffi(true),
             ))
             .init()
             .unwrap()
@@ -303,10 +311,12 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_vm(crate::vm::Vm::new(
-                crate::vm::VmConfig::default().with_ffi(true),
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default().with_ffi(true),
             ))
             .init()
             .unwrap()
@@ -333,10 +343,12 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_vm(crate::vm::Vm::new(
-                crate::vm::VmConfig::default().with_ffi(true),
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default().with_ffi(true),
             ))
             .init()
             .unwrap()
@@ -363,10 +375,12 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_vm(crate::vm::Vm::new(
-                crate::vm::VmConfig::default().with_ffi(true),
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default().with_ffi(true),
             ))
             .init()
             .unwrap()
@@ -393,10 +407,12 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_vm(crate::vm::Vm::new(
-                crate::vm::VmConfig::default().with_ffi(true),
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default().with_ffi(true),
             ))
             .init()
             .unwrap()
@@ -440,10 +456,12 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_vm(crate::vm::Vm::new(
-                crate::vm::VmConfig::default().with_ffi(true),
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default().with_ffi(true),
             ))
             .init()
             .unwrap()
@@ -474,10 +492,12 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .with_project(Path::new("fixtures/cheatcodes"))
-            .with_vm(crate::vm::Vm::new(
-                crate::vm::VmConfig::default().with_ffi(true),
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default().with_ffi(true),
             ))
             .init()
             .unwrap()

@@ -12,8 +12,8 @@ use revm::{
 };
 
 use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
+use crate::evm::cheatcode::VM_ADDRESS;
 use crate::evm::database::{Database, EmptyDB};
-use crate::vm::VM_ADDRESS;
 
 impl Default for Chain {
     fn default() -> Self {
@@ -94,7 +94,7 @@ mod tests {
     use revm::primitives::hardfork::SpecId;
 
     use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployOptions};
-    use crate::vm::VM_ADDRESS;
+    use crate::evm::cheatcode::VM_ADDRESS;
 
     #[test]
     fn chain_new_uses_latest_spec() {

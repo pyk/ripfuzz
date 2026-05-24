@@ -1,5 +1,5 @@
 //! Persistent cheatcode state types used by [`BaseState`](crate::chain::BaseState)
-//! and [`ExecutionState`](crate::vm::ExecutionState).
+//! and [`ExecutionState`](crate::evm::cheatcode::ExecutionState).
 
 use alloy_primitives::U256;
 use revm::primitives::Address;

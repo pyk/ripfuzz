@@ -16,7 +16,7 @@ use revm::{
     primitives::{Address, Bytes},
 };
 
-use crate::vm::VM_ADDRESS;
+use crate::evm::cheatcode::VM_ADDRESS;
 
 /// A single frame in a call trace.
 #[derive(Debug, Clone)]

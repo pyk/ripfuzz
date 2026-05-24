@@ -16,7 +16,7 @@ use crate::chain::Database;
 use crate::chain::base_state::BaseState;
 use crate::chain::error::ChainInitError;
 use crate::contract::ContractArtifact;
-use crate::vm::VM_ADDRESS;
+use crate::evm::cheatcode::VM_ADDRESS;
 
 pub const CALLER: Address = Address::new([0xde; 20]);
 // address(uint160(uint256(keccak256("raptor deployer"))))

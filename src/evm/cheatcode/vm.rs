@@ -2,7 +2,7 @@
 
 use revm::primitives::Bytes;
 
-use crate::vm::{CheatcodeEffect, VmConfig, dispatch_effects};
+use crate::evm::cheatcode::{CheatcodeEffect, VmConfig, dispatch_effects};
 
 /// Component instance for the VM layer.
 #[derive(Debug, Clone)]
@@ -25,7 +25,7 @@ impl Vm {
     }
 }
 
-impl crate::vm::VmFactory for Vm {
+impl crate::evm::cheatcode::VmFactory for Vm {
     fn config(&self) -> &VmConfig {
         &self.config
     }

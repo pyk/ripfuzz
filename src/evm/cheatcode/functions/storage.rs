@@ -2,7 +2,7 @@
 
 use revm::primitives::{Address, Bytes, U256};
 
-use crate::vm::{
+use crate::evm::cheatcode::{
     Cheatcode, CheatcodeEffect, decode_address_bytes32_args, decode_address_bytes32_bytes32_args,
 };
 
@@ -55,9 +55,9 @@ mod tests {
     use crate::chain::Chain;
     use crate::contract;
     use crate::corpus::Call;
-    use crate::vm::build_outcome;
-    use crate::vm::effect::apply_effect;
-    use crate::vm::inspector::CheatcodeInspector;
+    use crate::evm::cheatcode::build_outcome;
+    use crate::evm::cheatcode::effect::apply_effect;
+    use crate::evm::cheatcode::inspector::CheatcodeInspector;
 
     // ------------------------------------------------------------------
     //  Load unit tests
@@ -166,7 +166,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -192,7 +194,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -220,7 +224,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -248,7 +254,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -274,7 +282,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -300,7 +310,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -340,7 +352,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -366,7 +380,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -396,7 +412,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -422,7 +440,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -450,7 +470,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -478,7 +500,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -504,7 +528,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -530,7 +556,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -556,7 +584,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -592,7 +622,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -632,7 +664,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()
@@ -658,7 +692,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()

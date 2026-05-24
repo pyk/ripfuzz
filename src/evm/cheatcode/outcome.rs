@@ -7,7 +7,7 @@ use revm::{
     primitives::{Bytes, U256},
 };
 
-use crate::vm::{CheatcodeEffect, ExecutionState};
+use crate::evm::cheatcode::{CheatcodeEffect, ExecutionState};
 
 pub fn build_outcome<CTX: ContextTr>(
     effects: &[CheatcodeEffect],
@@ -85,8 +85,11 @@ pub fn build_outcome<CTX: ContextTr>(
             ))
         }
         CheatcodeEffect::FfiExec(args) => {
-            match crate::vm::cheatcodes::ffi::run_ffi(args, state.ffi_enabled, &state.project_root)
-            {
+            match crate::evm::cheatcode::functions::ffi::run_ffi(
+                args,
+                state.ffi_enabled,
+                &state.project_root,
+            ) {
                 Ok(encoded) => Some(success_bytes_outcome(encoded, gas_limit)),
                 Err(reason) => Some(revert_outcome(&reason)),
             }

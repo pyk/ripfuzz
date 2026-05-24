@@ -15,7 +15,7 @@ use revm::{
     primitives::Address,
 };
 
-use crate::vm::{
+use crate::evm::cheatcode::{
     ExecutionState, VM_ADDRESS, build_outcome, dispatch_effects,
     effect::{CheatcodeEffect, apply_effect},
     revert_outcome,
@@ -202,8 +202,11 @@ impl Default for CheatcodeInspector {
     }
 }
 
-impl<CTX: ContextTr<Block = BlockEnv, Tx = TxEnv> + ContextSetters + crate::vm::effect::CfgMut>
-    Inspector<CTX, EthInterpreter> for CheatcodeInspector
+impl<
+    CTX: ContextTr<Block = BlockEnv, Tx = TxEnv>
+        + ContextSetters
+        + crate::evm::cheatcode::effect::CfgMut,
+> Inspector<CTX, EthInterpreter> for CheatcodeInspector
 {
     fn initialize_interp(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
     }

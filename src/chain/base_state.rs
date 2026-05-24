@@ -13,7 +13,7 @@ use revm::{
 };
 
 use crate::chain::Database;
-use crate::vm::{BlockCheatState, PrankCheatState};
+use crate::evm::cheatcode::{BlockCheatState, PrankCheatState};
 
 /// The committed snapshot after deployment and optional setup.
 /// Cloned once per sequence execution.

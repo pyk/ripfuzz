@@ -34,7 +34,7 @@ impl Default for ChainConfig {
 
 /// Builder for constructing a [`Chain`].
 #[derive(Debug)]
-pub struct ChainBuilder<'a, V: crate::vm::VmFactory = crate::vm::Vm> {
+pub struct ChainBuilder<'a, V: crate::evm::cheatcode::VmFactory = crate::evm::cheatcode::Vm> {
     artifact: &'a ContractArtifact,
     project_root: PathBuf,
     vm: Option<V>,
@@ -43,7 +43,7 @@ pub struct ChainBuilder<'a, V: crate::vm::VmFactory = crate::vm::Vm> {
     environment: Option<crate::chain::Environment>,
 }
 
-impl<'a, V: crate::vm::VmFactory> ChainBuilder<'a, V> {
+impl<'a, V: crate::evm::cheatcode::VmFactory> ChainBuilder<'a, V> {
     /// Override the Foundry project root directory.
     pub fn with_project(mut self, path: impl AsRef<Path>) -> Self {
         self.project_root = path.as_ref().to_path_buf();
@@ -51,7 +51,7 @@ impl<'a, V: crate::vm::VmFactory> ChainBuilder<'a, V> {
     }
 
     /// Set the VM component (required).
-    pub fn with_vm<V2: crate::vm::VmFactory>(self, vm: V2) -> ChainBuilder<'a, V2> {
+    pub fn with_vm<V2: crate::evm::cheatcode::VmFactory>(self, vm: V2) -> ChainBuilder<'a, V2> {
         ChainBuilder {
             artifact: self.artifact,
             project_root: self.project_root,
@@ -236,7 +236,9 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::vm::Vm::new(crate::vm::VmConfig::default()))
+            .with_vm(crate::evm::cheatcode::Vm::new(
+                crate::evm::cheatcode::VmConfig::default(),
+            ))
             .init()
             .unwrap()
             .setup()

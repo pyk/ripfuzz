@@ -12,7 +12,6 @@ pub mod fuzzer;
 pub mod logger;
 pub mod rpc;
 pub mod target;
-pub mod vm;
 
 /// Convert a [`Result`] into an [`Option`] without the `ok()` method call.
 pub fn result_to_option<T, E>(result: Result<T, E>) -> Option<T> {

@@ -12,9 +12,9 @@ use revm::{
 };
 
 use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
+use crate::evm::cheatcode::VM_ADDRESS;
 use crate::evm::database::{Database, ForkDB};
 use crate::evm::forkdb::{Config, Request, Response, Transport};
-use crate::vm::VM_ADDRESS;
 
 impl Chain {
     /// Create a new forked EVM pinned to a remote block.
@@ -158,8 +158,8 @@ mod tests {
     use serde_json::json;
 
     use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
+    use crate::evm::cheatcode::VM_ADDRESS;
     use crate::evm::forkdb::{Config, MockTransport};
-    use crate::vm::VM_ADDRESS;
 
     fn mock_fork_setup(
         transport: &MockTransport,

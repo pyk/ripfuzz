@@ -5,10 +5,10 @@ use std::path::PathBuf;
 
 use revm::primitives::{Address, Bytes};
 
-use crate::vm::{BlockCheatState, DealRecord, NonceRecord, PrankCheatState};
+use crate::evm::cheatcode::{BlockCheatState, DealRecord, NonceRecord, PrankCheatState};
 
 /// Transient scratchpad for one call sequence.
-/// Lives inside [`CheatcodeInspector`](crate::vm::inspector::CheatcodeInspector).
+/// Lives inside [`CheatcodeInspector`](crate::evm::cheatcode::inspector::CheatcodeInspector).
 /// Born per sequence, dropped per sequence.
 #[derive(Clone, Debug, Default)]
 pub struct ExecutionState {
@@ -27,8 +27,8 @@ pub struct ExecutionState {
 
 impl ExecutionState {
     /// Return all block-context overrides that should be applied before a call.
-    pub fn block_overrides(&self) -> crate::vm::BlockOverrides {
-        crate::vm::BlockOverrides {
+    pub fn block_overrides(&self) -> crate::evm::cheatcode::BlockOverrides {
+        crate::evm::cheatcode::BlockOverrides {
             timestamp: self.block.timestamp,
             number: self.block.number,
             basefee: self.block.basefee.map(|f| u64::try_from(f).unwrap_or(0)),

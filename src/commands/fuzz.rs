@@ -455,8 +455,8 @@ pub fn run(args: Args) -> Result<()> {
     );
 
     // Build chain
-    let vm = crate::vm::Vm::new(
-        crate::vm::VmConfig::default()
+    let vm = crate::evm::cheatcode::Vm::new(
+        crate::evm::cheatcode::VmConfig::default()
             .with_ffi(args.ffi)
             .with_project_root(&project_path),
     );

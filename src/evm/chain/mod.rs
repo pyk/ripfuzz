@@ -11,10 +11,10 @@ use revm::{
     state::AccountInfo,
 };
 
+use crate::evm::cheatcode::inspector::CheatcodeInspector;
 use crate::evm::database::Database;
 use crate::evm::result::TransactionResult;
 use crate::evm::trace::{Inspector as TraceInspector, Trace};
-use crate::vm::inspector::CheatcodeInspector;
 
 /// Default deployer address: `address(uint160(uint256(keccak256("raptor deployer"))))`.
 pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1");
