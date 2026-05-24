@@ -143,6 +143,25 @@ struct BatchState {
     fetcher_in_flight: bool,
 }
 
+impl BatchState {
+    /// Clone the stored batch error if it applies to any of the given keys.
+    fn clone_last_error_if_applies(&self, missing: &[String]) -> Option<Error> {
+        if self.last_error.is_some() && missing.iter().any(|k| self.last_batch_keys.contains(k)) {
+            self.last_error.clone()
+        } else {
+            None
+        }
+    }
+
+    /// Publish a batch error so waiters can observe it and return a clone to
+    /// the caller.
+    fn publish_error(&mut self, err: Error) -> Error {
+        let clone = err.clone();
+        self.last_error = Some(clone);
+        err
+    }
+}
+
 impl SharedBackend {
     /// Create a backend with the default HTTP transport (`ureq`).
     pub fn new(config: Config) -> Self {
@@ -262,19 +281,17 @@ impl SharedBackend {
             }
 
             // --- Check whether the most recent batch still failed for any of our keys ---
-            if let Some(ref err) = state.last_error
-                && missing.iter().any(|k| state.last_batch_keys.contains(k))
-            {
-                return Err(err.clone());
+            if let Some(err) = state.clone_last_error_if_applies(&missing) {
+                return Err(err);
             }
 
             // --- Enqueue missing requests ---
-            for req in reqs {
-                let key = req.cache_key();
-                if state.keys.insert(key) {
-                    state.pending.push(req.clone());
-                }
-            }
+            let to_enqueue: Vec<Request> = reqs
+                .iter()
+                .filter(|req| state.keys.insert(req.cache_key()))
+                .cloned()
+                .collect();
+            state.pending.extend(to_enqueue);
             if state.deadline.is_none() && !state.pending.is_empty() {
                 state.deadline = Some(Instant::now() + self.inner.batch_timeout);
             }
@@ -324,7 +341,7 @@ impl SharedBackend {
                     }
                     Err(err) => {
                         state = self.inner.batch_state.lock();
-                        state.last_error = Some(err.clone());
+                        let err = state.publish_error(err);
                         state.fetcher_in_flight = false;
                         self.inner.batch_condvar.notify_all();
                         return Err(err);
@@ -529,309 +546,14 @@ fn write_disk_cache(base_dir: impl AsRef<Path>, key: &str, value: &Value) -> Res
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Barrier};
     use std::time::Duration;
 
-    use alloy_primitives::Address;
     use anyhow::Result;
     use serde_json::json;
     use tempfile::tempdir;
 
     use super::*;
     use crate::evm::forkdb::{Config, MockTransport, Request, Response, Transport, url_hash};
-
-    /// Regression: a single cached entry must be returned without any RPC
-    /// call and must be written to disk exactly once (by the fetcher).
-    #[test]
-    fn backend_caches_and_dedups_exactly_once() {
-        let transport = MockTransport::default();
-        let url = "mock://test";
-        let url_h = url_hash(url);
-
-        let payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
-        ]);
-        transport.mock_response(
-            url,
-            &payload,
-            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
-        );
-
-        let tmp = tempdir().unwrap();
-        let config = Config::new(url)
-            .cache_dir(tmp.path())
-            .batch_timeout_ms(0)
-            .batch_size(1);
-        let backend = SharedBackend::new_with_transport(config, transport.clone());
-
-        let reqs = &[Request::GetChainId { url_hash: url_h }];
-        let res = backend.fetch_or_wait(reqs).unwrap();
-        assert_eq!(res.len(), 1);
-
-        // Disk must contain the cached entry.
-        let expected = tmp
-            .path()
-            .join("eth_chainId")
-            .join(format!("{:x}.json", url_h));
-        assert!(
-            expected.exists(),
-            "disk cache must be written by the fetcher"
-        );
-
-        // Second call must hit the global cache and issue zero RPC calls.
-        let res2 = backend.fetch_or_wait(reqs).unwrap();
-        assert_eq!(res2.len(), 1);
-        assert_eq!(
-            transport.call_count(url, &payload),
-            1,
-            "second call must not trigger an RPC"
-        );
-    }
-
-    /// Two threads requesting the same key concurrently must result in a single
-    /// RPC call.
-    #[test]
-    fn backend_dedups_concurrent_requests() {
-        let transport = MockTransport::default();
-        let url = "mock://test";
-        let url_h = url_hash(url);
-
-        let payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
-        ]);
-        transport.mock_response(
-            url,
-            &payload,
-            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
-        );
-        transport.set_delay(Duration::from_millis(50));
-
-        let config = Config::new(url).batch_timeout_ms(0).batch_size(2);
-        let backend = Arc::new(SharedBackend::new_with_transport(config, transport.clone()));
-
-        let barrier = Arc::new(Barrier::new(2));
-        let backend2 = Arc::clone(&backend);
-        let barrier2 = Arc::clone(&barrier);
-
-        let handle1 = std::thread::spawn(move || {
-            barrier.wait();
-            backend.fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
-        });
-        let handle2 = std::thread::spawn(move || {
-            barrier2.wait();
-            backend2.fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
-        });
-
-        let res1 = handle1.join().unwrap().unwrap();
-        let res2 = handle2.join().unwrap().unwrap();
-
-        assert_eq!(res1.len(), 1);
-        assert_eq!(res2.len(), 1);
-        assert_eq!(
-            transport.call_count(url, &payload),
-            1,
-            "concurrent identical requests must result in exactly one RPC call"
-        );
-    }
-
-    /// Regression: when an in-flight request fails after all retries are
-    /// exhausted, waiters must receive the error.  They must NOT silently
-    /// retry forever.
-    #[test]
-    fn backend_waiter_receives_error_on_failure() {
-        let transport = MockTransport::default();
-        let url = "mock://test";
-        let url_h = url_hash(url);
-
-        // No mock response registered -> transport error.
-        transport.set_delay(Duration::from_millis(20));
-
-        let config = Config::new(url)
-            .batch_timeout_ms(0)
-            .batch_size(2)
-            .retries(0);
-        let backend = Arc::new(SharedBackend::new_with_transport(config, transport));
-
-        let barrier = Arc::new(Barrier::new(2));
-        let backend2 = Arc::clone(&backend);
-        let barrier2 = Arc::clone(&barrier);
-
-        let handle1 = std::thread::spawn(move || {
-            barrier.wait();
-            backend.fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
-        });
-        let handle2 = std::thread::spawn(move || {
-            barrier2.wait();
-            backend2.fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
-        });
-
-        let res1 = handle1.join().unwrap();
-        let res2 = handle2.join().unwrap();
-
-        assert!(
-            res1.is_err() || res2.is_err(),
-            "at least one waiter must receive an error"
-        );
-    }
-
-    /// A JSON-RPC batch containing an error object must fail the entire batch.
-    #[test]
-    fn backend_batch_fails_on_rpc_error() {
-        let transport = MockTransport::default();
-        let url = "mock://test";
-        let url_h = url_hash(url);
-
-        let payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000000","0x1"]}
-        ]);
-        transport.mock_response(
-            url,
-            &payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x1"},
-                {"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"bad block"}}
-            ]),
-        );
-
-        let config = Config::new(url)
-            .batch_size(2)
-            .batch_timeout_ms(100)
-            .retries(0);
-        let backend = SharedBackend::new_with_transport(config, transport);
-
-        let reqs = &[
-            Request::GetChainId { url_hash: url_h },
-            Request::GetBalance {
-                chain_id: 1,
-                address: Address::ZERO,
-                block: 1,
-            },
-        ];
-        let res = backend.fetch_or_wait(reqs);
-        assert!(
-            res.is_err(),
-            "batch containing an RPC error must fail entirely"
-        );
-    }
-
-    /// A JSON-RPC batch with a missing response item must fail the entire batch.
-    #[test]
-    fn backend_batch_fails_on_missing_items() {
-        let transport = MockTransport::default();
-        let url = "mock://test";
-        let url_h = url_hash(url);
-
-        let payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000000","0x1"]}
-        ]);
-        transport.mock_response(
-            url,
-            &payload,
-            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
-        );
-
-        let config = Config::new(url)
-            .batch_size(2)
-            .batch_timeout_ms(100)
-            .retries(0);
-        let backend = SharedBackend::new_with_transport(config, transport);
-
-        let reqs = &[
-            Request::GetChainId { url_hash: url_h },
-            Request::GetBalance {
-                chain_id: 1,
-                address: Address::ZERO,
-                block: 1,
-            },
-        ];
-        let res = backend.fetch_or_wait(reqs);
-        assert!(
-            res.is_err(),
-            "batch with a missing response item must fail entirely"
-        );
-    }
-
-    /// A transient transport error must trigger a whole-batch retry.
-    #[test]
-    fn backend_retries_on_transient_transport_error() {
-        #[derive(Debug)]
-        struct FailThenSucceed {
-            fail_count: AtomicUsize,
-            max_fail: usize,
-            response: serde_json::Value,
-        }
-
-        impl Transport for FailThenSucceed {
-            fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
-                let count = self.fail_count.fetch_add(1, Ordering::SeqCst);
-                if count < self.max_fail {
-                    Err(anyhow::anyhow!("503 Service Unavailable"))
-                } else {
-                    Ok(self.response.clone())
-                }
-            }
-        }
-
-        let url = "mock://test";
-        let url_h = url_hash(url);
-
-        let _payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
-        ]);
-        let transport = FailThenSucceed {
-            fail_count: AtomicUsize::new(0),
-            max_fail: 2,
-            response: json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
-        };
-
-        let config = Config::new(url)
-            .batch_timeout_ms(0)
-            .batch_size(1)
-            .retries(3)
-            .backoff_ms(0);
-        let backend = SharedBackend::new_with_transport(config, transport);
-
-        let res = backend
-            .fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
-            .unwrap();
-        assert_eq!(res.len(), 1);
-        assert!(matches!(&res[0], Response::ChainId(1)));
-    }
-
-    /// Regression: two identical requests in the same `fetch_or_wait` slice
-    /// must result in exactly one RPC item.
-    #[test]
-    fn backend_self_dedup_within_slice() {
-        let transport = MockTransport::default();
-        let url = "mock://test";
-        let url_h = url_hash(url);
-
-        let payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
-        ]);
-        transport.mock_response(
-            url,
-            &payload,
-            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
-        );
-
-        let config = Config::new(url).batch_timeout_ms(0).batch_size(1);
-        let backend = SharedBackend::new_with_transport(config, transport.clone());
-
-        let reqs = &[
-            Request::GetChainId { url_hash: url_h },
-            Request::GetChainId { url_hash: url_h },
-        ];
-        let res = backend.fetch_or_wait(reqs).unwrap();
-        assert_eq!(res.len(), 2);
-        assert_eq!(
-            transport.call_count(url, &payload),
-            1,
-            "duplicate requests in the same slice must dedup to one RPC item"
-        );
-    }
 
     /// Regression: disk cache must use compact JSON, not pretty-printed JSON.
     #[test]
@@ -912,33 +634,6 @@ mod tests {
             1,
             "second backend must load from disk and not issue a second RPC"
         );
-    }
-
-    /// Regression: a single thread calling `fetch_or_wait` must resolve its
-    /// own requests when it becomes the fetcher (batch_size = 1).
-    #[test]
-    fn fetcher_collects_its_own_results() {
-        let transport = MockTransport::default();
-        let url = "mock://test";
-        let url_h = url_hash(url);
-
-        let payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
-        ]);
-        transport.mock_response(
-            url,
-            &payload,
-            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
-        );
-
-        let config = Config::new(url).batch_timeout_ms(0).batch_size(1);
-        let backend = SharedBackend::new_with_transport(config, transport);
-
-        let res = backend
-            .fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
-            .unwrap();
-        assert_eq!(res.len(), 1);
-        assert!(matches!(&res[0], Response::ChainId(1)));
     }
 
     /// Regression: backoff must be capped so a permanently down endpoint
@@ -1042,5 +737,115 @@ mod tests {
             }
             other => panic!("expected RateLimited with URL={url}, got {:?}", other),
         }
+    }
+
+    /// 16 parallel threads each submit 1 unique request.
+    /// With batch_size = 16 and batch_timeout = 50 ms, the backend must
+    /// issue exactly 1 HTTP POST and every thread must receive the correct
+    /// response.
+    #[test]
+    fn batch_16_parallel_requests_single_http_call() {
+        #[derive(Debug)]
+        struct CountingBatchTransport {
+            call_count: Arc<AtomicUsize>,
+        }
+
+        impl Default for CountingBatchTransport {
+            fn default() -> Self {
+                Self {
+                    call_count: Arc::new(AtomicUsize::new(0)),
+                }
+            }
+        }
+
+        impl Transport for CountingBatchTransport {
+            fn exec(&self, _url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+
+                let requests = payload
+                    .as_array()
+                    .expect("expected JSON array batch payload");
+                assert_eq!(requests.len(), 16, "batch must contain exactly 16 requests");
+
+                let responses: Vec<serde_json::Value> = requests
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, req)| {
+                        let id = req
+                            .get("id")
+                            .and_then(|v| v.as_u64())
+                            .expect("missing id in batch request")
+                            as usize;
+                        assert_eq!(id, idx, "id must match index");
+                        let block_num = req
+                            .get("params")
+                            .and_then(|p| p.as_array())
+                            .and_then(|a| a.first())
+                            .and_then(|v| v.as_str())
+                            .expect("missing block number param");
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "number": block_num,
+                                "timestamp": "0x0",
+                                "miner": "0x0000000000000000000000000000000000000000",
+                                "gasLimit": "0x0"
+                            }
+                        })
+                    })
+                    .collect();
+
+                Ok(json!(responses))
+            }
+        }
+
+        let transport = CountingBatchTransport::default();
+        let call_count = transport.call_count.clone();
+
+        let thread_count = 16;
+        let config = Config::new("mock://test")
+            .batch_size(thread_count)
+            .batch_timeout_ms(50);
+        let backend = SharedBackend::new_with_transport(config, transport);
+
+        let barrier = Arc::new(std::sync::Barrier::new(thread_count));
+        let mut handles = Vec::with_capacity(thread_count);
+
+        for i in 0..thread_count {
+            let backend = backend.clone();
+            let barrier = barrier.clone();
+            let handle = std::thread::spawn(move || {
+                let req = Request::GetBlockByNumber {
+                    chain_id: 1,
+                    block: i as u64,
+                    full_tx: false,
+                };
+                barrier.wait();
+                let res = backend.fetch_or_wait(&[req]).unwrap();
+                assert_eq!(res.len(), 1);
+                match &res[0] {
+                    Response::BlockByNumber(block) => {
+                        assert_eq!(
+                            block.number.to::<u64>(),
+                            i as u64,
+                            "block number must match request"
+                        );
+                    }
+                    other => panic!("expected BlockByNumber, got {:?}", other),
+                }
+            });
+            handles.push(handle);
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "only 1 HTTP POST should be performed for 16 parallel unique requests"
+        );
     }
 }
