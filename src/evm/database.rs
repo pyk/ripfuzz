@@ -1,4 +1,4 @@
-//! Unified EVM database: local sandbox and fork backends.
+//! Unified EVM database: empty chain and fork chain backends.
 
 use std::collections::HashMap;
 
@@ -22,14 +22,10 @@ pub use crate::evm::forkdb::ForkDB;
 /// In revm, `CacheDB` distinguishes between "non-existing" (`None`) and
 /// "empty" (`Some(AccountInfo::default())`). If an account is marked as
 /// `NotExisting`, state transitions differ when the account is later created
-/// (e.g. via `deal` or `etch`). A sandbox fuzzer has no state trie, so every
-/// address should be treated as empty rather than non-existing.
+/// (e.g. via `deal` or `etch`). An empty-chain fuzzer has no state trie, so
+/// every address should be treated as empty rather than non-existing.
 ///
 /// Foundry uses the same trick: see `foundry-evm-core::backend::EmptyDBWrapper`.
-/// Empty sandbox database backend.
-///
-/// Returns `Some(AccountInfo::default())` for every address so that `CacheDB`
-/// never marks an account as `AccountState::NotExisting`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EmptyDB(revm::database::EmptyDBTyped<std::convert::Infallible>);
 
