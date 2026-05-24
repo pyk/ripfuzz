@@ -256,18 +256,24 @@ mod tests {
         assert_eq!(code_len, 0x8001, "deployed code must be 32769 bytes");
     }
 
+    /// Load a [`target::Contract`](crate::target::Contract) from a pre-built
+    /// fixture by its full artifact id (`path:name`).
+    fn load_fixture(id: &str) -> crate::target::Contract {
+        let project = crate::foundry::Project::new("fixtures/target-contract-deployment");
+        let artifacts = project.load_artifacts().unwrap();
+        let artifact_id = crate::foundry::ArtifactId::try_from(id).unwrap();
+        let artifact = artifacts.get(&artifact_id).unwrap();
+        crate::target::Contract::try_from(artifact).unwrap()
+    }
+
     /// A target contract with a constructor but no `setup()` function must
     /// deploy successfully on an empty sandbox chain.
     #[test]
     fn deploy_no_setup_succeeds() {
-        let artifact = crate::contract::tests::load_test_artifact(
-            "fixtures/target-contract-deployment",
-            "src/EmptyChainNoSetup.sol",
-        )
-        .unwrap();
+        let contract = load_fixture("src/EmptyChainNoSetup.sol:EmptyChainNoSetup");
 
         let mut chain = Chain::empty();
-        let opts = DeployOptions::new(artifact.initcode);
+        let opts = DeployOptions::new(contract.initcode);
         let deployment = chain.deploy(opts).unwrap();
 
         assert!(deployment.result.success, "deployment must succeed");
@@ -288,14 +294,11 @@ mod tests {
     /// empty sandbox chain.
     #[test]
     fn deploy_constructor_revert_fails() {
-        let artifact = crate::contract::tests::load_test_artifact(
-            "fixtures/target-contract-deployment",
-            "src/EmptyChainConstructorRevert.sol",
-        )
-        .unwrap();
+        let contract =
+            load_fixture("src/EmptyChainConstructorRevert.sol:EmptyChainConstructorRevert");
 
         let mut chain = Chain::empty();
-        let opts = DeployOptions::new(artifact.initcode);
+        let opts = DeployOptions::new(contract.initcode);
         let deployment = chain.deploy(opts).unwrap();
 
         assert!(
@@ -317,14 +320,12 @@ mod tests {
     /// deploy successfully on an empty sandbox chain.
     #[test]
     fn deploy_cheatcode_in_constructor_succeeds() {
-        let artifact = crate::contract::tests::load_test_artifact(
-            "fixtures/target-contract-deployment",
-            "src/EmptyChainCheatcodeInConstructor.sol",
-        )
-        .unwrap();
+        let contract = load_fixture(
+            "src/EmptyChainCheatcodeInConstructor.sol:EmptyChainCheatcodeInConstructor",
+        );
 
         let mut chain = Chain::empty();
-        let opts = DeployOptions::new(artifact.initcode);
+        let opts = DeployOptions::new(contract.initcode);
         let deployment = chain.deploy(opts).unwrap();
 
         assert!(
@@ -349,14 +350,11 @@ mod tests {
     /// chain.
     #[test]
     fn setup_cheatcode_succeeds() {
-        let artifact = crate::contract::tests::load_test_artifact(
-            "fixtures/target-contract-deployment",
-            "src/EmptyChainCheatcodeInSetup.sol",
-        )
-        .unwrap();
+        let contract =
+            load_fixture("src/EmptyChainCheatcodeInSetup.sol:EmptyChainCheatcodeInSetup");
 
         let mut chain = Chain::empty();
-        let deploy_opts = DeployOptions::new(artifact.initcode);
+        let deploy_opts = DeployOptions::new(contract.initcode);
         let deployment = chain.deploy(deploy_opts).unwrap();
 
         assert!(
@@ -365,10 +363,9 @@ mod tests {
         );
         let address = deployment.address.unwrap();
 
-        let setup_func = artifact
-            .abi
-            .functions()
-            .find(|f| f.name == "setup")
+        let setup_func = contract
+            .setup_function
+            .as_ref()
             .expect("setup function must exist in ABI");
         let setup_data = Bytes::from(setup_func.selector().as_slice().to_vec());
         let setup_opts = crate::evm::chain::SetupOptions::new(address, setup_data);
