@@ -1,8 +1,12 @@
+//! Raw trace inspector that collects [`CallFrame`] trees without formatting
+//! or address labeling.
+
 use revm::inspector::Inspector as RevmInspector;
 use revm::interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome};
 use revm::primitives::Bytes;
 
-use super::CallFrame;
+use crate::evm::trace::CallFrame;
+use crate::evm::trace::Trace;
 
 /// Raw trace inspector that collects [`CallFrame`] trees without formatting
 /// or address labeling.
@@ -17,8 +21,8 @@ impl Inspector {
         Self::default()
     }
 
-    pub fn into_trace(self) -> super::Trace {
-        super::Trace { roots: self.roots }
+    pub fn into_trace(self) -> Trace {
+        Trace { roots: self.roots }
     }
 }
 

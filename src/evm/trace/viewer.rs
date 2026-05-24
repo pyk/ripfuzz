@@ -1,4 +1,7 @@
-use super::Trace;
+//! Enriched trace viewer that adds labels, formats output, and builds a
+//! callgraph from raw [`Trace`] data.
+
+use crate::evm::trace::Trace;
 
 /// Enriched trace viewer that adds labels, formats output, and builds a
 /// callgraph from raw [`Trace`] data.

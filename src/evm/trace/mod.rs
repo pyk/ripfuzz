@@ -1,9 +1,12 @@
 //! Raw call trace types for the EVM chain.
 
+use revm::primitives::{Address, Bytes};
+
+pub use inspector::Inspector;
+pub use viewer::Viewer;
+
 pub mod inspector;
 pub mod viewer;
-
-use revm::primitives::{Address, Bytes};
 
 /// Raw call trace tree.
 #[derive(Debug, Clone, Default)]
@@ -22,6 +25,3 @@ pub struct CallFrame {
     pub success: bool,
     pub children: Vec<CallFrame>,
 }
-
-pub use inspector::Inspector;
-pub use viewer::Viewer;
