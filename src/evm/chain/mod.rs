@@ -71,6 +71,56 @@ pub struct Deployment {
     pub trace: Trace,
 }
 
+/// Result of a setup call, including the trace.
+#[derive(Debug, Clone)]
+pub struct Setup {
+    pub result: TransactionResult,
+    pub trace: Trace,
+}
+
+/// Configuration for a setup call.
+#[derive(Debug, Clone)]
+pub struct SetupOptions {
+    pub caller: Address,
+    pub target: Address,
+    pub data: Bytes,
+    pub value: U256,
+    pub gas_limit: u64,
+}
+
+impl SetupOptions {
+    /// Create [`SetupOptions`] for the given target and calldata.
+    ///
+    /// Caller defaults to [`DEFAULT_DEPLOYER`]; override with [`Self::caller`].
+    pub fn new(target: Address, data: Bytes) -> Self {
+        Self {
+            caller: DEFAULT_DEPLOYER,
+            target,
+            data,
+            value: U256::ZERO,
+            gas_limit: u64::MAX,
+        }
+    }
+
+    /// Set the account address used to send the setup transaction.
+    pub fn caller(mut self, caller: Address) -> Self {
+        self.caller = caller;
+        self
+    }
+
+    /// Set the wei value sent with the setup transaction.
+    pub fn value(mut self, value: U256) -> Self {
+        self.value = value;
+        self
+    }
+
+    /// Set the gas limit for the setup transaction.
+    pub fn gas_limit(mut self, gas_limit: u64) -> Self {
+        self.gas_limit = gas_limit;
+        self
+    }
+}
+
 /// EVM Chain state and executor.
 ///
 /// Owns EVM state ([`BlockEnv`](revm::context::BlockEnv),
@@ -184,6 +234,22 @@ impl Chain {
             ..Default::default()
         };
         self.transact(tx)
+    }
+
+    /// Execute a setup CALL against the given target and return the full result with trace.
+    pub fn setup(&mut self, opts: SetupOptions) -> Result<Setup> {
+        let inspector = (TraceInspector::new(), CheatcodeInspector::new());
+        let tx = TxEnv {
+            caller: opts.caller,
+            kind: TxKind::Call(opts.target),
+            data: opts.data,
+            gas_limit: opts.gas_limit,
+            value: opts.value,
+            ..Default::default()
+        };
+        let (result, (trace_inspector, _)) = self.inspect(tx, inspector)?;
+        let trace = trace_inspector.into_trace();
+        Ok(Setup { result, trace })
     }
 
     /// Execute a raw transaction and commit state changes.

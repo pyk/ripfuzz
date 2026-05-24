@@ -343,4 +343,40 @@ mod tests {
             "deployed contract must have non-empty runtime code"
         );
     }
+
+    /// A target contract with no constructor but a `setup()` that calls a
+    /// raptor cheatcode must deploy and setup successfully on an empty sandbox
+    /// chain.
+    #[test]
+    fn setup_cheatcode_succeeds() {
+        let artifact = crate::contract::tests::load_test_artifact(
+            "fixtures/target-contract-deployment",
+            "src/EmptyChainCheatcodeInSetup.sol",
+        )
+        .unwrap();
+
+        let mut chain = Chain::empty();
+        let deploy_opts = DeployOptions::new(artifact.initcode);
+        let deployment = chain.deploy(deploy_opts).unwrap();
+
+        assert!(
+            deployment.result.success,
+            "deployment must succeed for contract with setup-only cheatcode"
+        );
+        let address = deployment.address.unwrap();
+
+        let setup_func = artifact
+            .abi
+            .functions()
+            .find(|f| f.name == "setup")
+            .expect("setup function must exist in ABI");
+        let setup_data = Bytes::from(setup_func.selector().as_slice().to_vec());
+        let setup_opts = crate::evm::chain::SetupOptions::new(address, setup_data);
+        let setup = chain.setup(setup_opts).unwrap();
+
+        assert!(
+            setup.result.success,
+            "setup must succeed when cheatcode works in setup"
+        );
+    }
 }
