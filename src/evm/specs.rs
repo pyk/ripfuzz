@@ -61,9 +61,9 @@ fn spec_id_from_op_hardfork(hardfork: OpHardfork) -> SpecId {
 /// Derive the correct [`SpecId`] for a forked block using chain-aware
 /// hardfork tables from `alloy-hardforks` and `alloy-op-hardforks`.
 ///
-/// Supported L1 chains: Ethereum mainnet, Sepolia, Holesky, Hoodi,
-/// Arbitrum, Arbitrum Sepolia.
-/// Supported OP chains: Optimism, Optimism Sepolia, Base, Base Sepolia.
+/// Supported L1 chains: Ethereum mainnet, Sepolia, Holesky, Hoodi.
+/// Supported L2 chains: Arbitrum, Arbitrum Sepolia, Optimism,
+/// Optimism Sepolia, Base, Base Sepolia.
 /// All other chains default to [`SpecId::AMSTERDAM`].
 pub fn get_spec_id(chain_id: u64, timestamp: u64) -> SpecId {
     let chain = alloy_chains::Chain::from_id(chain_id);
