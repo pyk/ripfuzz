@@ -1,26 +1,8 @@
-//! Raw call trace types for the EVM chain.
-
 use revm::inspector::Inspector as RevmInspector;
 use revm::interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome};
-use revm::primitives::{Address, Bytes};
+use revm::primitives::Bytes;
 
-/// Raw call trace tree.
-#[derive(Debug, Clone, Default)]
-pub struct Trace {
-    pub roots: Vec<CallFrame>,
-}
-
-/// A single frame in a raw call trace.
-#[derive(Debug, Clone)]
-pub struct CallFrame {
-    pub depth: usize,
-    pub address: Option<Address>,
-    pub input: Bytes,
-    pub output: Bytes,
-    pub gas_used: u64,
-    pub success: bool,
-    pub children: Vec<CallFrame>,
-}
+use super::CallFrame;
 
 /// Raw trace inspector that collects [`CallFrame`] trees without formatting
 /// or address labeling.
@@ -35,8 +17,8 @@ impl Inspector {
         Self::default()
     }
 
-    pub fn into_trace(self) -> Trace {
-        Trace { roots: self.roots }
+    pub fn into_trace(self) -> super::Trace {
+        super::Trace { roots: self.roots }
     }
 }
 
