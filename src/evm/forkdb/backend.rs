@@ -548,6 +548,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
+    use alloy_primitives::{U256, address};
     use anyhow::Result;
     use serde_json::json;
     use tempfile::tempdir;
@@ -846,6 +847,134 @@ mod tests {
             call_count.load(Ordering::SeqCst),
             1,
             "only 1 HTTP POST should be performed for 16 parallel unique requests"
+        );
+    }
+
+    /// 16 parallel threads each submit the same 3 requests (balance, nonce, code).
+    /// Because every thread asks for the same address and block, the backend must
+    /// deduplicate them into a single batch with exactly 3 unique items and issue
+    /// exactly 1 HTTP POST.
+    #[test]
+    fn batch_16_parallel_threads_dedup_same_3_requests() {
+        #[derive(Debug)]
+        struct DedupCountingTransport {
+            call_count: Arc<AtomicUsize>,
+            batch_item_count: Arc<AtomicUsize>,
+        }
+
+        impl Default for DedupCountingTransport {
+            fn default() -> Self {
+                Self {
+                    call_count: Arc::new(AtomicUsize::new(0)),
+                    batch_item_count: Arc::new(AtomicUsize::new(0)),
+                }
+            }
+        }
+
+        impl Transport for DedupCountingTransport {
+            fn exec(&self, _url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+
+                let requests = payload
+                    .as_array()
+                    .expect("expected JSON array batch payload");
+                self.batch_item_count
+                    .fetch_add(requests.len(), Ordering::SeqCst);
+
+                let responses: Vec<serde_json::Value> = requests
+                    .iter()
+                    .enumerate()
+                    .map(|(_idx, req)| {
+                        let id = req
+                            .get("id")
+                            .and_then(|v| v.as_u64())
+                            .expect("missing id in batch request")
+                            as usize;
+
+                        let method = req
+                            .get("method")
+                            .and_then(|v| v.as_str())
+                            .expect("missing method in batch request");
+
+                        let result = match method {
+                            "eth_getBalance" => "0x1",
+                            "eth_getTransactionCount" => "0x2",
+                            "eth_getCode" => "0x6000",
+                            other => panic!("unexpected method: {other}"),
+                        };
+
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": result,
+                        })
+                    })
+                    .collect();
+
+                Ok(json!(responses))
+            }
+        }
+
+        let transport = DedupCountingTransport::default();
+        let call_count = transport.call_count.clone();
+        let batch_item_count = transport.batch_item_count.clone();
+
+        let thread_count = 16;
+        let config = Config::new("mock://test")
+            .batch_size(16)
+            .batch_timeout_ms(50);
+        let backend = SharedBackend::new_with_transport(config, transport);
+
+        let same_address = address!("0x0000000000000000000000000000000000000001");
+        let barrier = Arc::new(std::sync::Barrier::new(thread_count));
+        let mut handles = Vec::with_capacity(thread_count);
+
+        for _ in 0..thread_count {
+            let backend = backend.clone();
+            let barrier = barrier.clone();
+            let handle = std::thread::spawn(move || {
+                let reqs = [
+                    Request::GetBalance {
+                        chain_id: 1,
+                        address: same_address,
+                        block: 1,
+                    },
+                    Request::GetTransactionCount {
+                        chain_id: 1,
+                        address: same_address,
+                        block: 1,
+                    },
+                    Request::GetCode {
+                        chain_id: 1,
+                        address: same_address,
+                        block: 1,
+                    },
+                ];
+                barrier.wait();
+                let res = backend.fetch_or_wait(&reqs).unwrap();
+                assert_eq!(res.len(), 3);
+                assert!(matches!(res[0], Response::Balance(v) if v == U256::from(1)));
+                assert!(matches!(res[1], Response::TransactionCount(2)));
+                assert!(
+                    matches!(res[2], Response::Code(ref bytes) if bytes.as_ref() == &[0x60, 0x00])
+                );
+            });
+            handles.push(handle);
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "only 1 HTTP POST should be performed for 16 parallel identical request sets"
+        );
+        assert_eq!(
+            batch_item_count.load(Ordering::SeqCst),
+            3,
+            "only 3 unique batch items should be sent to the transport"
         );
     }
 }
