@@ -1,63 +1,40 @@
-//! ForkDB: revm-native forked database backed by an RPC [`Client`].
+//! ForkDB: revm-native forked database backed by a [`SharedBackend`].
 
 use alloy_primitives::{Address, B256, U256};
 use revm::{DatabaseRef, bytecode::Bytecode, primitives::KECCAK_EMPTY, state::AccountInfo};
 
-use crate::evm::forkdb::client::Client;
+use crate::evm::forkdb::backend::SharedBackend;
 use crate::evm::forkdb::error::Error;
 use crate::evm::forkdb::request::Request;
 use crate::evm::forkdb::response::Response;
 
 /// Remote backend that satisfies `DatabaseRef`.
 ///
-/// All RPC state fetching is delegated to the internal [`Client`], which
-/// handles caching, deduplication, rate limiting, retries, and automatic
-/// batching. This struct only maps revm database operations to typed RPC
-/// requests. Bytecode is returned inline with `basic_ref` so revm never
-/// needs to call `code_by_hash_ref` during normal execution.
+/// All RPC state fetching is delegated to the internal [`SharedBackend`],
+/// which handles caching, deduplication, rate limiting, retries, and
+/// automatic batching. This struct only maps revm database operations to
+/// typed RPC requests. Bytecode is returned inline with `basic_ref` so revm
+/// never needs to call `code_by_hash_ref` during normal execution.
 #[derive(Clone, Debug)]
 pub struct ForkDB {
-    client: Client,
+    backend: SharedBackend,
     block_number: u64,
     chain_id: u64,
 }
 
 impl ForkDB {
-    pub fn new(client: Client, block_number: u64, chain_id: u64) -> Self {
+    pub fn new(backend: SharedBackend, block_number: u64, chain_id: u64) -> Self {
         Self {
-            client,
+            backend,
             block_number,
             chain_id,
-        }
-    }
-
-    /// Retry `BatcherRestarted` immediately so that a batcher panic does not
-    /// abort the current fuzzing run.  All other errors (including RPC
-    /// timeouts and rate limits) are propagated directly: the batcher is the
-    /// sole retry layer and already applies exponential-backoff sleeps.
-    /// Sleeping here on every fuzzer thread would create a thundering herd.
-    fn with_retry<T>(&self, f: impl Fn() -> Result<T, Error>) -> Result<T, Error> {
-        match f() {
-            Ok(v) => Ok(v),
-            Err(e) if !matches!(e, Error::BatcherRestarted) => Err(e),
-            Err(e) => {
-                let mut last_err = e;
-                for _ in 1..3 {
-                    match f() {
-                        Ok(v) => return Ok(v),
-                        Err(e) if !matches!(e, Error::BatcherRestarted) => return Err(e),
-                        Err(e) => last_err = e,
-                    }
-                }
-                Err(last_err)
-            }
         }
     }
 
     /// Parse the heterogeneous batch responses for `basic_ref` into an
     /// `AccountInfo`.  The responses may arrive in any order; we match by
     /// variant rather than by index so that `db.rs` is decoupled from the
-    /// batcher's ordering guarantees.
+    /// backend's ordering guarantees.
     fn parse_basic_responses(
         &self,
         responses: Vec<Response>,
@@ -131,29 +108,27 @@ impl DatabaseRef for ForkDB {
     type Error = Error;
 
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        self.with_retry(|| {
-            // Fetch balance, nonce, and code in a single atomic batch so the
-            // background worker can send them as one JSON-RPC batch request.
-            let responses = self.client.request(&[
-                Request::GetBalance {
-                    chain_id: self.chain_id,
-                    address,
-                    block: self.block_number,
-                },
-                Request::GetTransactionCount {
-                    chain_id: self.chain_id,
-                    address,
-                    block: self.block_number,
-                },
-                Request::GetCode {
-                    chain_id: self.chain_id,
-                    address,
-                    block: self.block_number,
-                },
-            ])?;
+        // Fetch balance, nonce, and code in a single atomic batch so the
+        // backend can send them as one JSON-RPC batch request.
+        let responses = self.backend.fetch_or_wait(&[
+            Request::GetBalance {
+                chain_id: self.chain_id,
+                address,
+                block: self.block_number,
+            },
+            Request::GetTransactionCount {
+                chain_id: self.chain_id,
+                address,
+                block: self.block_number,
+            },
+            Request::GetCode {
+                chain_id: self.chain_id,
+                address,
+                block: self.block_number,
+            },
+        ])?;
 
-            self.parse_basic_responses(responses)
-        })
+        self.parse_basic_responses(responses)
     }
 
     fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
@@ -171,118 +146,57 @@ impl DatabaseRef for ForkDB {
     }
 
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
-        self.with_retry(|| {
-            let mut responses = self.client.request(&[Request::GetStorageAt {
-                chain_id: self.chain_id,
-                address,
-                slot: index,
-                block: self.block_number,
-            }])?;
-            let response = responses.pop().ok_or_else(|| Error::UnexpectedResponse {
-                message: "expected one response for GetStorageAt".into(),
-            })?;
+        let mut responses = self.backend.fetch_or_wait(&[Request::GetStorageAt {
+            chain_id: self.chain_id,
+            address,
+            slot: index,
+            block: self.block_number,
+        }])?;
+        let response = responses.pop().ok_or_else(|| Error::UnexpectedResponse {
+            message: "expected one response for GetStorageAt".into(),
+        })?;
 
-            match response {
-                Response::StorageAt(v) => Ok(v),
-                _ => Err(Error::UnexpectedResponse {
-                    message: "unexpected response for GetStorageAt".into(),
-                }),
-            }
-        })
+        match response {
+            Response::StorageAt(v) => Ok(v),
+            _ => Err(Error::UnexpectedResponse {
+                message: "unexpected response for GetStorageAt".into(),
+            }),
+        }
     }
 
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-        self.with_retry(|| {
-            let mut responses = self.client.request(&[Request::GetBlockByNumber {
-                chain_id: self.chain_id,
-                block: number,
-                full_tx: false,
-            }])?;
-            let response = responses.pop().ok_or_else(|| Error::UnexpectedResponse {
-                message: "expected one response for GetBlockByNumber".into(),
-            })?;
+        let mut responses = self.backend.fetch_or_wait(&[Request::GetBlockByNumber {
+            chain_id: self.chain_id,
+            block: number,
+            full_tx: false,
+        }])?;
+        let response = responses.pop().ok_or_else(|| Error::UnexpectedResponse {
+            message: "expected one response for GetBlockByNumber".into(),
+        })?;
 
-            match response {
-                Response::BlockByNumber(b) => b.hash.ok_or_else(|| Error::UnexpectedResponse {
-                    message: format!("block {number}: hash missing in GetBlockByNumber response"),
-                }),
-                _ => Err(Error::UnexpectedResponse {
-                    message: "unexpected response for GetBlockByNumber".into(),
-                }),
-            }
-        })
+        match response {
+            Response::BlockByNumber(b) => b.hash.ok_or_else(|| Error::UnexpectedResponse {
+                message: format!("block {number}: hash missing in GetBlockByNumber response"),
+            }),
+            _ => Err(Error::UnexpectedResponse {
+                message: "unexpected response for GetBlockByNumber".into(),
+            }),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
     use anyhow::Result;
 
     use super::*;
     use alloy_primitives::Bytes;
-    use revm::database::CacheDB;
     use serde_json::json;
 
     use crate::evm::forkdb::{Config as ForkdbConfig, MockTransport, Transport};
 
-    /// Regression: ForkDB must retry BatcherRestarted (which needs a new
-    /// channel) but it must NOT sleep the fuzzer thread while doing so.
-    #[test]
-    fn forkdb_retries_batcher_restarted_without_sleep() {
-        #[derive(Debug)]
-        struct PanicOnceTransport {
-            panics_remaining: AtomicUsize,
-        }
-
-        impl Transport for PanicOnceTransport {
-            fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
-                if self.panics_remaining.fetch_sub(1, Ordering::SeqCst) > 0 {
-                    panic!("simulated transport panic");
-                }
-                // Return valid batch response for basic_ref (balance, nonce, code)
-                Ok(json!([
-                    {"jsonrpc":"2.0","id":0,"result":"0x1"},
-                    {"jsonrpc":"2.0","id":1,"result":"0x2"},
-                    {"jsonrpc":"2.0","id":2,"result":"0x6000"}
-                ]))
-            }
-        }
-
-        let transport = PanicOnceTransport {
-            panics_remaining: AtomicUsize::new(1),
-        };
-
-        let config = ForkdbConfig::new("mock://panic")
-            .batch_timeout_ms(0)
-            .retries(0);
-        let client = Client::new_with_transport(config, transport);
-        let fork_db = ForkDB::new(client, 1, 1);
-
-        let start = std::time::Instant::now();
-        let result = fork_db.basic_ref(Address::ZERO);
-        let elapsed = start.elapsed();
-
-        assert!(
-            result.is_ok(),
-            "ForkDB must retry BatcherRestarted and eventually succeed, got: {result:?}"
-        );
-        assert!(
-            elapsed < std::time::Duration::from_millis(30),
-            "ForkDB must not sleep when retrying BatcherRestarted; took {elapsed:?}"
-        );
-        let info = result.unwrap().unwrap();
-        assert_eq!(info.balance, U256::from(1));
-        assert_eq!(info.nonce, 2);
-        let expected_code = Bytecode::new_raw(Bytes::from_static(&[0x60, 0x00]));
-        assert_eq!(info.code, Some(expected_code.clone()));
-        assert_eq!(info.code_hash, expected_code.hash_slow());
-    }
-
-    /// Regression: ForkDB must NOT sleep the fuzzer thread when the batcher
-    /// returns RpcTimeout. The batcher is the sole retry layer; ForkDB should
+    /// Regression: ForkDB must NOT sleep the fuzzer thread when the backend
+    /// returns RpcTimeout. The backend is the sole retry layer; ForkDB should
     /// propagate the error immediately.
     #[test]
     fn forkdb_does_not_sleep_on_rpc_timeout() {
@@ -298,8 +212,8 @@ mod tests {
         let config = ForkdbConfig::new("mock://timeout")
             .batch_timeout_ms(0)
             .retries(0);
-        let client = Client::new_with_transport(config, TimeoutTransport);
-        let fork_db = ForkDB::new(client, 1, 1);
+        let backend = SharedBackend::new_with_transport(config, TimeoutTransport);
+        let fork_db = ForkDB::new(backend, 1, 1);
 
         let start = std::time::Instant::now();
         let result = fork_db.basic_ref(Address::ZERO);
@@ -315,8 +229,8 @@ mod tests {
         );
     }
 
-    /// Regression: ForkDB must NOT sleep the fuzzer thread when the batcher
-    /// returns RateLimited. The batcher is the sole retry layer; ForkDB should
+    /// Regression: ForkDB must NOT sleep the fuzzer thread when the backend
+    /// returns RateLimited. The backend is the sole retry layer; ForkDB should
     /// propagate the error immediately.
     #[test]
     fn forkdb_does_not_sleep_on_rate_limited() {
@@ -332,8 +246,8 @@ mod tests {
         let config = ForkdbConfig::new("mock://ratelimit")
             .batch_timeout_ms(0)
             .retries(0);
-        let client = Client::new_with_transport(config, RateLimitTransport);
-        let fork_db = ForkDB::new(client, 1, 1);
+        let backend = SharedBackend::new_with_transport(config, RateLimitTransport);
+        let fork_db = ForkDB::new(backend, 1, 1);
 
         let start = std::time::Instant::now();
         let result = fork_db.basic_ref(Address::ZERO);
@@ -349,16 +263,16 @@ mod tests {
         );
     }
 
-    /// Regression: ForkDB::basic_ref must not assume that the batcher returns
+    /// Regression: ForkDB::basic_ref must not assume that the backend returns
     /// responses in the same order as the requests.  If the response order
-    /// changes (or a future batcher reorders them), matching by index silently
+    /// changes (or a future backend reorders them), matching by index silently
     /// corrupts account state.
     #[test]
     fn basic_ref_is_order_independent() {
         let transport = MockTransport::default();
         let config = ForkdbConfig::new("mock://test");
-        let client = Client::new_with_transport(config, transport);
-        let fork_db = ForkDB::new(client, 1, 1);
+        let backend = SharedBackend::new_with_transport(config, transport);
+        let fork_db = ForkDB::new(backend, 1, 1);
 
         // Responses arrive in a different order than the requests.
         let responses = vec![
@@ -434,9 +348,9 @@ mod tests {
             }]),
         );
 
-        let config = ForkdbConfig::new(url).batch_timeout_ms(0);
-        let client = Client::new_with_transport(config, transport);
-        let fork_db = ForkDB::new(client, 1, 1);
+        let config = ForkdbConfig::new(url).batch_timeout_ms(0).batch_size(1);
+        let backend = SharedBackend::new_with_transport(config, transport);
+        let fork_db = ForkDB::new(backend, 1, 1);
 
         let result = fork_db.block_hash_ref(1);
         assert!(
@@ -445,47 +359,22 @@ mod tests {
         );
     }
 
-    /// Regression: ForkDB must store Client directly, not Arc<Client>.
-    /// Client is already internally reference-counted (Arc<ClientInner>),
-    /// so wrapping it in another Arc wastes an extra heap allocation and
-    /// forces two pointer chases on every DatabaseRef operation.
+    /// Regression: ForkDB must store SharedBackend directly, not
+    /// Arc<SharedBackend>. SharedBackend is already internally
+    /// reference-counted (Arc<SharedBackendInner>), so wrapping it in another
+    /// Arc wastes an extra heap allocation.
     #[test]
-    fn forkdb_stores_client_directly() {
+    fn forkdb_stores_backend_directly() {
         let transport = MockTransport::default();
         let config = ForkdbConfig::new("mock://test");
-        let client = Client::new_with_transport(config, transport);
+        let backend = SharedBackend::new_with_transport(config, transport);
 
-        // Must be possible to construct ForkDB from a plain Client
+        // Must be possible to construct ForkDB from a plain SharedBackend
         // without wrapping in Arc. This proves we are not double-wrapping.
-        let fork_db = ForkDB::new(client.clone(), 1, 1);
+        let fork_db = ForkDB::new(backend.clone(), 1, 1);
 
-        // Clone must be cheap because Client::clone only increments the
+        // Clone must be cheap because SharedBackend::clone only increments the
         // inner Arc refcount.
         let _fork_db2 = fork_db.clone();
-    }
-
-    /// Regression: dropping all ForkDB (and CacheDB<ForkDB>) handles must
-    /// release the underlying ClientInner so the supervisor thread exits.
-    #[test]
-    fn forkdb_drop_releases_client_inner() {
-        let transport = MockTransport::default();
-        let config = ForkdbConfig::new("mock://test").batch_timeout_ms(0);
-        let client = Client::new_with_transport(config, transport);
-        let weak = Arc::downgrade(&client.inner);
-
-        let fork_db = ForkDB::new(client, 1, 1);
-        let db = CacheDB::new(fork_db);
-        let db2 = db.clone();
-
-        drop(db);
-        drop(db2);
-
-        for _ in 0..40 {
-            if weak.upgrade().is_none() {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        panic!("ClientInner leaked through ForkDB/CacheDB clones");
     }
 }

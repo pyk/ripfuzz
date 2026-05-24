@@ -20,8 +20,8 @@ impl Chain {
     /// Create a new forked EVM pinned to a remote block.
     pub fn fork(config: Config, block_number: u64) -> Result<Self> {
         let url_hash = crate::evm::forkdb::url_hash(&config.url);
-        let client = crate::evm::forkdb::Client::new(config);
-        Self::fork_with_client(client, block_number, url_hash)
+        let backend = crate::evm::forkdb::SharedBackend::new(config);
+        Self::fork_with_backend(backend, block_number, url_hash)
     }
 
     /// Create a forked EVM with a custom transport (used in tests).
@@ -31,18 +31,18 @@ impl Chain {
         block_number: u64,
     ) -> Result<Self> {
         let url_hash = crate::evm::forkdb::url_hash(&config.url);
-        let client = crate::evm::forkdb::Client::new_with_transport(config, transport);
-        Self::fork_with_client(client, block_number, url_hash)
+        let backend = crate::evm::forkdb::SharedBackend::new_with_transport(config, transport);
+        Self::fork_with_backend(backend, block_number, url_hash)
     }
 
-    fn fork_with_client(
-        client: crate::evm::forkdb::Client,
+    fn fork_with_backend(
+        backend: crate::evm::forkdb::SharedBackend,
         block_number: u64,
         url_hash: u64,
     ) -> Result<Self> {
         // Step 1: resolve chain_id so every subsequent cache key is scoped.
-        let mut responses = client
-            .request(&[Request::GetChainId { url_hash }])
+        let mut responses = backend
+            .fetch_or_wait(&[Request::GetChainId { url_hash }])
             .with_context(|| "fetching chain id for fork")?;
         let chain_id = responses
             .pop()
@@ -53,8 +53,8 @@ impl Chain {
             .context("missing ChainId response")?;
 
         // Step 2: fetch the fork block using the real chain_id.
-        let mut responses = client
-            .request(&[Request::GetBlockByNumber {
+        let mut responses = backend
+            .fetch_or_wait(&[Request::GetBlockByNumber {
                 chain_id,
                 block: block_number,
                 full_tx: false,
@@ -86,7 +86,7 @@ impl Chain {
         cfg_env.limit_contract_initcode_size = Some(usize::MAX);
         cfg_env.set_spec_and_mainnet_gas_params(spec_id);
 
-        let fork_db = ForkDB::new(client.clone(), block_number, chain_id);
+        let fork_db = ForkDB::new(backend.clone(), block_number, chain_id);
         let mut database = CacheDB::new(fork_db);
 
         // Pre-cache the fork block hash so the BLOCKHASH opcode does not

@@ -17,13 +17,16 @@ pub struct Config {
 
 impl Config {
     pub fn new(url: impl Into<String>) -> Self {
+        let batch_size = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
         Self {
             url: url.into(),
             retries: 3,
             backoff_ms: 100,
             timeout_ms: 30_000,
-            batch_size: 50,
-            batch_timeout_ms: 5,
+            batch_size,
+            batch_timeout_ms: 50,
             rate_limit: None,
             cache_dir: None,
         }
