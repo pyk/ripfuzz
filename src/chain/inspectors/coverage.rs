@@ -7,8 +7,8 @@ use revm::{
     interpreter::{Interpreter, interpreter::EthInterpreter, interpreter_types::Jumps},
 };
 
-use crate::contract::ContractId;
 use crate::coverage::{LocalContractCoverage, LocalCoverage, edge_marker};
+use alloy_primitives::B256;
 
 /// Convert a U256 stack value to usize without using `ok()`.
 #[allow(clippy::manual_ok_err)]
@@ -26,8 +26,8 @@ fn u256_to_usize(v: revm::primitives::U256) -> Option<usize> {
 pub struct CoverageInspector {
     local: LocalCoverage,
     current_call_depth: u64,
-    current_contract: Option<ContractId>,
-    contract_stack: Vec<Option<ContractId>>,
+    current_contract: Option<B256>,
+    contract_stack: Vec<Option<B256>>,
     last_pc: usize,
 }
 
@@ -72,7 +72,7 @@ impl<CTX> Inspector<CTX, EthInterpreter> for CoverageInspector {
     fn initialize_interp(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
         let hash = interp.bytecode.hash_slow();
         if !hash.is_zero() && !interp.bytecode.is_empty() {
-            let id = ContractId::from(hash);
+            let id = B256::from(hash);
             self.current_contract = Some(id);
             self.local
                 .contracts

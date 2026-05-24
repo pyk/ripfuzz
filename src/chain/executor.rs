@@ -20,9 +20,9 @@ use crate::chain::{
     error::ChainExecutionError,
     init::decode_solidity_error,
     inspectors::{InspectorTuple, MaybeTrace, coverage::CoverageInspector, trace::TraceInspector},
-    output::{CallMeta, CrashInfo, ExecutionOutput},
+    output::{CrashInfo, ExecutionOutput},
 };
-use crate::corpus::Call;
+use crate::corpus::{Call, CallMeta};
 
 /// Something that can execute a sequence of calls and return the outcome.
 pub trait SequenceExecutor: Send + Sync {

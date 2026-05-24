@@ -9,11 +9,15 @@ use anyhow::Result;
 use tracing::{info, instrument};
 
 use crate::contract;
-use crate::corpus::{Call, Corpus, CorpusItem};
+use crate::corpus::{Call, CallMeta, Corpus, CorpusItem};
 use crate::fuzzer::config::FuzzerConfig;
+use crate::target;
 
 pub mod config;
+pub mod factory;
 pub mod mutators;
+
+pub use factory::{DefaultFactory, Factory, FactoryOptions};
 
 /// Result produced by a single fuzzer.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -33,7 +37,7 @@ pub struct Crash {
     pub selector: [u8; 4],
     pub call_sequence: Vec<Call>,
     /// Per-call block number / timestamp captured during execution.
-    pub call_meta: Vec<crate::chain::output::CallMeta>,
+    pub call_meta: Vec<CallMeta>,
 }
 
 /// Format a crash's call sequence as a flat, Medusa-style log.
@@ -144,6 +148,127 @@ pub fn format_failure(
             "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
             n,
             artifact.contract_name,
+            func_name,
+            args,
+            block,
+            time,
+            u64::MAX,
+            sender,
+            delay_suffix,
+        ));
+    }
+    lines.join("\n")
+}
+
+/// Format a crash's call sequence as a flat, Medusa-style log using a
+/// [`target::Contract`] instead of the legacy [`contract::ContractArtifact`].
+pub fn format_failure_target(
+    contract: &target::Contract,
+    failure: &Crash,
+    sender: revm::primitives::Address,
+) -> String {
+    let mut lines = Vec::new();
+    for (i, call) in failure.call_sequence.iter().enumerate() {
+        let n = i + 1;
+
+        let block = failure
+            .call_meta
+            .get(i)
+            .map(|m| m.block_number)
+            .unwrap_or(n as u64);
+        let time = failure
+            .call_meta
+            .get(i)
+            .map(|m| m.block_timestamp)
+            .unwrap_or(n as u64);
+
+        let func = contract
+            .abi
+            .functions()
+            .find(|f| f.selector().as_slice() == call.selector);
+
+        let func_name = if let Some(f) = func {
+            f.name.to_owned()
+        } else {
+            format!("0x{}", hex::encode(call.selector))
+        };
+
+        let mut delay_suffix = String::new();
+        if call.block_number_delay != 0 {
+            delay_suffix.push_str(&format!(", block_number_delay={}", call.block_number_delay));
+        }
+        if call.block_timestamp_delay != 0 {
+            delay_suffix.push_str(&format!(
+                ", block_timestamp_delay={}",
+                call.block_timestamp_delay
+            ));
+        }
+
+        let args = if let Some(func_abi) = func {
+            if call.args.is_empty() {
+                "()".into()
+            } else {
+                let types_result = func_abi
+                    .inputs
+                    .iter()
+                    .map(|p| p.selector_type().parse::<DynSolType>())
+                    .collect();
+                let Ok(types) = types_result else {
+                    let raw = format!("(0x{})", hex::encode(&call.args));
+                    lines.push(format!(
+                        "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
+                        n,
+                        contract.artifact_id.name,
+                        func_name,
+                        raw,
+                        block,
+                        time,
+                        u64::MAX,
+                        sender,
+                        delay_suffix,
+                    ));
+                    continue;
+                };
+
+                let tuple = DynSolType::Tuple(types);
+                let Ok(decoded) = tuple.abi_decode_params(&call.args) else {
+                    let raw = format!("(0x{})", hex::encode(&call.args));
+                    lines.push(format!(
+                        "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
+                        n,
+                        contract.artifact_id.name,
+                        func_name,
+                        raw,
+                        block,
+                        time,
+                        u64::MAX,
+                        sender,
+                        delay_suffix,
+                    ));
+                    continue;
+                };
+
+                let values = match decoded {
+                    DynSolValue::Tuple(v) => v,
+                    other => vec![other],
+                };
+
+                let args_str = values
+                    .iter()
+                    .map(format_dyn_value)
+                    .collect::<Vec<String>>()
+                    .join(", ");
+
+                format!("({})", args_str)
+            }
+        } else {
+            format!("0x{}", hex::encode(&call.args))
+        };
+
+        lines.push(format!(
+            "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
+            n,
+            contract.artifact_id.name,
             func_name,
             args,
             block,
@@ -427,7 +552,7 @@ impl FuzzerEngine for Fuzzer {
     }
 }
 
-fn generate_random_sequence(
+pub(crate) fn generate_random_sequence(
     selectors: &[[u8; 4]],
     rng: &mut fastrand::Rng,
     config: &FuzzerConfig,
@@ -461,9 +586,9 @@ fn generate_random_sequence(
 #[cfg(test)]
 mod tests {
 
-    use crate::chain::output::CallMeta;
     use crate::contract;
     use crate::corpus;
+    use crate::corpus::CallMeta;
     use crate::fuzzer::Crash;
     use crate::fuzzer::format_failure;
 

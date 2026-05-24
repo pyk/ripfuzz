@@ -1,6 +1,6 @@
 //! Target contract definition and validation.
 
-use alloy_json_abi::{Function, StateMutability};
+use alloy_json_abi::{Function, JsonAbi, StateMutability};
 use anyhow::{Result, bail, ensure};
 use revm::primitives::Bytes;
 
@@ -15,6 +15,8 @@ use crate::foundry::{Artifact, ArtifactId, ContractArtifact};
 pub struct Contract {
     /// The unique build artifact identifier.
     pub artifact_id: ArtifactId,
+    /// Full contract ABI (includes all functions).
+    pub abi: JsonAbi,
     /// Functions the fuzzer will call to mutate state.
     pub target_functions: Vec<Function>,
     /// Invariant functions checked after every call sequence.
@@ -84,6 +86,7 @@ impl Contract {
 
         Ok(Self {
             artifact_id,
+            abi: contract.abi.clone(),
             target_functions,
             invariant_functions,
             setup_function,

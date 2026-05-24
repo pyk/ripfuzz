@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use alloy_primitives::B256;
+
 /// Rotate-left by 32 bits, matching Medusa's edge marker encoding.
 pub fn edge_marker(src_pc: usize, dst_pc: usize) -> u64 {
     (src_pc as u64).rotate_left(32) ^ (dst_pc as u64)
@@ -66,7 +68,7 @@ impl ContractCoverage {
 /// Global coverage map keyed by contract bytecode hash.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CoverageMap {
-    pub contracts: HashMap<crate::contract::ContractId, ContractCoverage>,
+    pub contracts: HashMap<B256, ContractCoverage>,
 }
 
 impl CoverageMap {
@@ -175,7 +177,7 @@ impl CoverageMap {
 /// Per-fuzzer local coverage map keyed by contract bytecode hash.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LocalCoverage {
-    pub contracts: HashMap<crate::contract::ContractId, LocalContractCoverage>,
+    pub contracts: HashMap<B256, LocalContractCoverage>,
 }
 
 /// Coverage data for a single contract in a fuzzer's local map.

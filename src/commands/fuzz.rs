@@ -371,6 +371,23 @@ pub fn run(args: Args) -> Result<()> {
         info!("setup completed");
     }
 
+    // Create fuzzer factory
+    info!("creating fuzzer factory");
+    let _fuzzed_selectors: Arc<Vec<[u8; 4]>> = Arc::new(
+        target_contract
+            .target_functions
+            .iter()
+            .map(|f| f.selector().into())
+            .collect(),
+    );
+    let factory_options = crate::fuzzer::factory::FactoryOptions::new()
+        .seed(args.seed)
+        .sequence_length(args.sequence_length)
+        .max_block_number_delay(args.max_block_number_delay)
+        .max_block_timestamp_delay(args.max_block_timestamp_delay)
+        .caller(args.deployer_address);
+    let _factory = crate::fuzzer::factory::DefaultFactory::new(factory_options);
+
     // -----------------------------------------------------------------------
     // NOTE: old env below kept for downstream compatibility until full switch
     // -----------------------------------------------------------------------
