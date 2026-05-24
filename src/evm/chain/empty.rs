@@ -259,4 +259,37 @@ mod tests {
         let code_len = info.code.map(|c| c.len()).unwrap_or(0);
         assert_eq!(code_len, 0x8001, "deployed code must be 32769 bytes");
     }
+
+    /// A target contract with a constructor but no `setup()` function must
+    /// deploy successfully on an empty sandbox chain.
+    #[test]
+    fn deploy_no_setup_succeeds() {
+        let artifact = crate::contract::tests::load_test_artifact(
+            "fixtures/target-contract-deployment",
+            "src/EmptyChainNoSetup.sol",
+        )
+        .unwrap();
+
+        let mut chain = Chain::empty();
+        let (address, result) = chain
+            .deploy(DEFAULT_DEPLOYER, U256::ZERO, artifact.initcode)
+            .unwrap();
+
+        assert!(result.success, "deployment must succeed");
+        assert_ne!(
+            address,
+            Address::ZERO,
+            "must return a valid deployed address"
+        );
+
+        let db = chain.database().expect("database should be available");
+        let info = db
+            .basic_ref(address)
+            .unwrap()
+            .expect("account should exist after deployment");
+        assert!(
+            info.code.as_ref().map(|c| !c.is_empty()).unwrap_or(false),
+            "deployed contract must have non-empty runtime code"
+        );
+    }
 }
