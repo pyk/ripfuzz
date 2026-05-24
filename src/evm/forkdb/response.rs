@@ -80,6 +80,3 @@ impl Response {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {}
