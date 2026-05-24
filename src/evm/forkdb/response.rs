@@ -79,60 +79,7 @@ impl Response {
             }
         }
     }
-
-    /// Serialize back to the raw JSON-RPC `result` shape for caching.
-    pub fn to_json(&self) -> serde_json::Value {
-        match self {
-            Self::ChainId(v) => serde_json::Value::String(format!("0x{v:x}")),
-            Self::BlockByNumber(b) => serde_json::to_value(b).unwrap_or_default(),
-            Self::Balance(v) => serde_json::Value::String(format!("0x{v:x}")),
-            Self::TransactionCount(v) => serde_json::Value::String(format!("0x{v:x}")),
-            Self::Code(v) => serde_json::Value::String(format!("{v}")),
-            Self::StorageAt(v) => serde_json::Value::String(format!("0x{v:x}")),
-        }
-    }
 }
 
 #[cfg(test)]
-mod tests {
-    use alloy_primitives::Bytes;
-
-    use super::Response;
-    use crate::evm::forkdb::Request;
-
-    /// Regression: `Response::to_json` for `Code` must not double-prefix `0x`.
-    /// `alloy_primitives::Bytes` already includes the prefix in its `Display`
-    /// implementation, so `to_json` must use `v.to_string()` instead of
-    /// `format!("0x{v}")`. Otherwise the cached entry fails to parse on
-    /// retrieval and is treated as stale, making the cache unusable.
-    #[test]
-    fn code_roundtrip_to_json() {
-        let req = Request::GetCode {
-            chain_id: 1,
-            address: alloy_primitives::Address::ZERO,
-            block: 1,
-        };
-        let raw = serde_json::Value::String("0x6000".into());
-
-        let parsed = Response::parse(&req, &raw).expect("parsing valid code should succeed");
-        let json = parsed.to_json();
-        let s = json.as_str().expect("to_json must produce a string");
-
-        assert!(
-            s.starts_with("0x"),
-            "code JSON must include the 0x prefix, got: {s}"
-        );
-        assert_eq!(
-            s.matches("0x").count(),
-            1,
-            "code JSON must have exactly one 0x prefix, got: {s}"
-        );
-
-        let reparsed =
-            Response::parse(&req, &json).expect("re-parsing cached code JSON should succeed");
-        assert!(
-            matches!(reparsed, Response::Code(ref b) if *b == Bytes::from_static(&[0x60, 0x00])),
-            "roundtrip must preserve the same Bytes value"
-        );
-    }
-}
+mod tests {}

@@ -299,6 +299,12 @@ mod tests {
         assert!(matches!(timeout, Error::RpcTimeout { .. }));
         assert!(timeout.is_transient());
 
+        let connection = Error::ConnectionError {
+            url: "http://rpc.example".into(),
+        };
+        assert!(matches!(connection, Error::ConnectionError { .. }));
+        assert!(connection.is_transient());
+
         let rate_limited = Error::RateLimited {
             url: "http://rpc.example".into(),
         };

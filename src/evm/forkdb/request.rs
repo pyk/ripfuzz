@@ -1,7 +1,5 @@
 //! Strongly typed JSON-RPC requests for EVM state fetches.
 
-use std::path::PathBuf;
-
 use alloy_primitives::{Address, U256, utils::keccak256};
 use serde_json::json;
 
@@ -138,11 +136,6 @@ impl Request {
                 format!("eth_getStorageAt/{chain_id}/{block}/{address:x}/{slot:x}")
             }
         }
-    }
-
-    /// Relative file path under the cache directory.
-    pub fn cache_path(&self) -> PathBuf {
-        PathBuf::from(self.cache_key()).with_extension("json")
     }
 }
 

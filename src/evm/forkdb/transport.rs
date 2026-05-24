@@ -34,13 +34,11 @@ impl Transport for ureq::Agent {
 }
 
 type ResponseMap = HashMap<(String, String), serde_json::Value>;
-type SequenceMap = HashMap<(String, String), Vec<serde_json::Value>>;
 type CallCountMap = HashMap<(String, String), usize>;
 
 #[derive(Debug, Default, Clone)]
 pub struct MockTransport {
     responses: Arc<Mutex<ResponseMap>>,
-    sequences: Arc<Mutex<SequenceMap>>,
     delay: Arc<Mutex<Option<Duration>>>,
     call_count: Arc<Mutex<CallCountMap>>,
 }
@@ -56,20 +54,6 @@ impl MockTransport {
         let payload_json = serde_json::to_string(payload).unwrap_or_default();
         let mut guard = self.responses.lock();
         guard.insert((url.into(), payload_json), response);
-    }
-
-    /// Register multiple mock responses for a given URL and serialized payload.
-    /// On successive calls with the same key, responses are returned in order;
-    /// the last response repeats once the list is exhausted.
-    pub fn mock_responses(
-        &self,
-        url: &str,
-        payload: &serde_json::Value,
-        responses: Vec<serde_json::Value>,
-    ) {
-        let payload_json = serde_json::to_string(payload).unwrap_or_default();
-        let mut guard = self.sequences.lock();
-        guard.insert((url.into(), payload_json), responses);
     }
 
     /// Set an artificial delay for every `exec` call.
@@ -94,34 +78,17 @@ impl Transport for MockTransport {
         let payload_json = serde_json::to_string(payload).unwrap_or_default();
         let key = (url.into(), payload_json);
 
-        let call_count = {
+        {
             let mut guard = self.call_count.lock();
             let count = guard.entry(key.clone()).or_insert(0);
             *count += 1;
-            *count
-        };
-
-        let mut response = {
-            let guard = self.sequences.lock();
-            if let Some(seq) = guard.get(&key) {
-                let idx = (call_count - 1).min(seq.len().saturating_sub(1));
-                Some(seq[idx].clone())
-            } else {
-                None
-            }
         }
-        .or_else(|| {
+
+        let response = {
             let guard = self.responses.lock();
             guard.get(&key).cloned()
-        })
-        .with_context(|| format!("MockTransport: no response for url={url} payload={payload}"))?;
-
-        // Echo back request id so callers that match on id work correctly.
-        if let Some(id) = payload.get("id").cloned()
-            && let Some(obj) = response.as_object_mut()
-        {
-            obj.insert("id".into(), id);
         }
+        .with_context(|| format!("MockTransport: no response for url={url} payload={payload}"))?;
 
         Ok(response)
     }

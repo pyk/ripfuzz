@@ -3,37 +3,38 @@
 //! ## Design Goal
 //!
 //! Reduce the number of HTTP round-trips during fuzzing by letting the fuzzer
-//! threads themselves batch and deduplicate RPC requests.  There is **no**
+//! threads themselves batch and deduplicate RPC requests. There is **no**
 //! background worker thread.
 //!
 //! ## SharedBackend Initialization Phase
 //!
 //! When a [`SharedBackend`] is created it pre-populates a lock-free
-//! `papaya::HashMap` (the *global cache*) from the on-disk cache directory.
-//! Every fuzzer thread sees the same map, so a value cached by one thread is
-//! instantly visible to all others.
+//! *global cache* from the on-disk cache directory. Every fuzzer thread sees
+//! the same map, so a value cached by one thread is instantly visible to all
+//! others.
 //!
 //! ## SharedBackend Execution Phase
 //!
 //! A fuzzer thread calls [`SharedBackend::fetch_or_wait`] with a slice of
 //! [`Request`]s.
 //!
-//! 1. **Fast path** – every request is already in `global_cache`.  The
-//!    function returns the parsed [`Response`]s immediately without locking.
+//! 1. **Fast path**: every request is already in `global_cache`. The function
+//!    returns the parsed [`Response`]s immediately without locking.
 //!
-//! 2. **Slow path** – at least one request is missing.  The thread acquires
-//!    the global `batch_state` mutex, adds its missing requests to the
-//!    pending set (deduplicated by `cache_key`), and either:
+//! 2. **Slow path**: at least one request is missing. The thread acquires the
+//!    global `batch_state` mutex, adds its missing requests to the pending set
+//!    (deduplicated by `cache_key`), and either:
 //!    * becomes the **fetcher** when `batch_size` is reached or the batch
 //!      deadline (default 50 ms) has expired; or
 //!    * releases the mutex and blocks on a `Condvar` while waiting for a
 //!      fetcher to complete.
 //!
 //!    The fetcher takes ownership of the pending slice, drops the mutex,
-//!    issues a single JSON-RPC batch via `ureq`, retries failed items with
-//!    exponential back-off, inserts successful responses into `global_cache`
-//!    (and writes them to disk), publishes any errors back into `batch_state`,
-//!    and finally wakes all waiting threads with `notify_all`.
+//!    issues a single JSON-RPC batch via `ureq`, retries on transient
+//!    transport errors, and either inserts all responses into `global_cache`
+//!    (and writes them to disk) or publishes a single error back into
+//!    `batch_state` for every key in the batch.  Finally it wakes all
+//!    waiting threads with `notify_all`.
 //!
 //! 3. Waiters wake up, re-check `global_cache`, and return.  If a previous
 //!    batch produced an error for a key, that error is returned immediately.
@@ -48,8 +49,39 @@
 //!   the *next* batch.
 //!
 //! Only one thread can be the fetcher for a given batch, but while the
-//! fetcher performs I/O (mutex released) another thread may become the fetcher
-//! for the subsequent batch.
+//! fetcher performs I/O (mutex released) another thread may become the
+//! fetcher for the subsequent batch.
+//!
+//! ## Batch Processing Specification
+//!
+//! A batch is a **single HTTP POST request** containing all pending JSON-RPC
+//! items.  The request is retried as a whole; there is no per-item retry.
+//!
+//! ### Retry conditions
+//!
+//! The batch is retried (with capped exponential backoff) when the
+//! transport returns:
+//!
+//! * HTTP timeout
+//! * Connection error
+//! * HTTP 429 / 503 / 504
+//!
+//! ### Failure conditions
+//!
+//! If the transport succeeds but the response body is invalid JSON, or the
+//! response array length does not match the number of requests, the batch
+//! fails immediately and the error is returned to every waiting thread.
+//!
+//! If an individual JSON-RPC item in the response contains an `"error"`
+//! object, or if `eth_getBlockByNumber` returns `"result": null` for a
+//! missing block, the entire batch fails and the error is returned to all
+//! waiting threads.
+//!
+//! ### Success
+//!
+//! On success every item is inserted into the lock-free `global_cache`
+//! (visible to all threads immediately) and written to disk **outside**
+//! the mutex.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -101,8 +133,11 @@ struct BatchState {
     pending: Vec<Request>,
     keys: HashSet<String>,
     deadline: Option<Instant>,
-    /// Errors from the most recent batch that have not yet been claimed.
-    errors: HashMap<String, Arc<Error>>,
+    /// Error from the most recent failed batch (shared by all keys in that batch).
+    last_error: Option<Error>,
+    /// Keys that were in the most recent batch so waiters can tell whether
+    /// the failure applies to them.
+    last_batch_keys: HashSet<String>,
     /// `true` while a thread is performing an HTTP call so that other
     /// threads wait instead of spawning a duplicate fetcher.
     fetcher_in_flight: bool,
@@ -135,7 +170,8 @@ impl SharedBackend {
                 pending: Vec::new(),
                 keys: HashSet::new(),
                 deadline: None,
-                errors: HashMap::new(),
+                last_error: None,
+                last_batch_keys: HashSet::new(),
                 fetcher_in_flight: false,
             }),
             batch_condvar: Condvar::new(),
@@ -161,248 +197,261 @@ impl SharedBackend {
         if reqs.is_empty() {
             return Ok(Vec::new());
         }
+        if let Some(results) = self.try_fast_path(reqs)? {
+            return Ok(results);
+        }
+        self.try_slow_path(reqs)
+    }
 
-        // Fast path: try to satisfy everything from the global cache without
-        // locking.
-        {
-            let map = self.inner.global_cache.pin();
-            let mut results = Vec::with_capacity(reqs.len());
-            let mut all_cached = true;
-            for req in reqs {
-                if let Some(value) = map.get(&req.cache_key()) {
-                    results.push(Some(Response::parse(req, value)?));
-                } else {
-                    all_cached = false;
-                    break;
-                }
-            }
-            if all_cached {
-                return Ok(results.into_iter().flatten().collect());
+    // ------------------------------------------------------------------
+    // Fast path
+    // ------------------------------------------------------------------
+
+    /// Try to satisfy every request from the lock-free global cache.
+    ///
+    /// Returns `Ok(Some(_))` when every key is present and parses cleanly.
+    /// Returns `Ok(None)` as soon as the first missing key is found.
+    fn try_fast_path(&self, reqs: &[Request]) -> Result<Option<Vec<Response>>, Error> {
+        let map = self.inner.global_cache.pin();
+        let mut results = Vec::with_capacity(reqs.len());
+        for req in reqs {
+            match map.get(&req.cache_key()) {
+                Some(value) => results.push(Response::parse(req, value)?),
+                None => return Ok(None),
             }
         }
+        Ok(Some(results))
+    }
 
-        // Slow path: coordinate with other threads.
+    // ------------------------------------------------------------------
+    // Slow path
+    // ------------------------------------------------------------------
+
+    /// Coordinate with other threads until every request is resolved.
+    ///
+    /// The loop repeats until all of the caller's requests are resolved.
+    /// A typical caller enqueues once, either fetches or waits, and then
+    /// loops back after waking to collect results or become the next fetcher.
+    fn try_slow_path(&self, reqs: &[Request]) -> Result<Vec<Response>, Error> {
         let mut state = self.inner.batch_state.lock();
-
         loop {
-            // Re-check cache and any unclaimed errors under the lock.
-            let mut all_ready = true;
-            let mut results: Vec<Option<Response>> = Vec::with_capacity(reqs.len());
+            // --- Check global cache ---
+            let map = self.inner.global_cache.pin();
+            let mut results = Vec::with_capacity(reqs.len());
             let mut missing = Vec::new();
 
             for req in reqs {
                 let key = req.cache_key();
-                let map = self.inner.global_cache.pin();
-                match map.get(&key) {
-                    Some(value) => results.push(Some(Response::parse(req, value)?)),
-                    None => {
-                        results.push(None);
-                        all_ready = false;
-                        missing.push(key);
-                    }
+                if let Some(value) = map.get(&key) {
+                    results.push(Response::parse(req, value)?);
+                } else {
+                    missing.push(key);
                 }
             }
 
-            if all_ready {
-                return results
-                    .into_iter()
-                    .map(|o| {
-                        o.ok_or_else(|| Error::UnexpectedResponse {
-                            message: "missing result".into(),
-                        })
-                    })
-                    .collect();
+            if missing.is_empty() {
+                return Ok(results);
             }
 
-            if let Some(key) = missing.iter().find(|k| state.errors.contains_key(*k)) {
-                let key: String = key.into();
-                let err = Self::take_error(&mut state, &key)?;
-                return Err(err);
+            // --- Clear stale errors for keys we are about to retry ---
+            for k in &missing {
+                state.last_batch_keys.remove(k);
+            }
+            if state.last_batch_keys.is_empty() {
+                state.last_error = None;
             }
 
-            // Add missing requests to the current batch, clearing any stale
-            // error so the key is retried.
-            let to_add: Vec<Request> = reqs
-                .iter()
-                .filter(|req| {
-                    let key = req.cache_key();
-                    state.errors.remove(&key);
-                    state.keys.insert(key)
-                })
-                .cloned()
-                .collect();
-            state.pending.extend(to_add);
+            // --- Check whether the most recent batch still failed for any of our keys ---
+            if let Some(ref err) = state.last_error
+                && missing.iter().any(|k| state.last_batch_keys.contains(k))
+            {
+                return Err(err.clone());
+            }
 
+            // --- Enqueue missing requests ---
+            for req in reqs {
+                let key = req.cache_key();
+                if state.keys.insert(key) {
+                    state.pending.push(req.clone());
+                }
+            }
             if state.deadline.is_none() && !state.pending.is_empty() {
                 state.deadline = Some(Instant::now() + self.inner.batch_timeout);
             }
 
-            let now = Instant::now();
+            // --- Decide: fetch or wait ---
+            let size_hit = state.pending.len() >= self.inner.batch_size;
             let deadline_hit = match state.deadline {
-                Some(d) => now >= d,
+                Some(d) => Instant::now() >= d,
                 None => false,
             };
-            let size_hit = state.pending.len() >= self.inner.batch_size;
-
             if (size_hit || deadline_hit) && !state.fetcher_in_flight {
-                // Become the fetcher.
+                // Fetcher role – runs the batch, notifies waiters, and returns directly.
                 state.fetcher_in_flight = true;
                 let batch = std::mem::take(&mut state.pending);
-                state.keys.clear();
+                state.last_batch_keys = std::mem::take(&mut state.keys);
                 state.deadline = None;
-                state.errors.clear();
-                // Drop the lock while performing I/O so other threads can
-                // accumulate the next batch.
+                state.last_error = None;
                 drop(state);
 
-                let (successes, errors) = self.execute_batch(batch)?;
+                match self.execute_batch(batch) {
+                    Ok(successes) => {
+                        let map = self.inner.global_cache.pin();
+                        for (key, value) in successes {
+                            if let Some(ref dir) = self.inner.cache_dir {
+                                let _ = write_disk_cache(dir, &key, &value);
+                            }
+                            map.insert(key, value);
+                        }
 
-                // Re-acquire lock, publish results, and wake waiters.
-                state = self.inner.batch_state.lock();
-                state.fetcher_in_flight = false;
-                for (key, value) in successes {
-                    if let Some(ref dir) = self.inner.cache_dir {
-                        let _ = write_disk_cache(dir, &key, &value);
+                        state = self.inner.batch_state.lock();
+                        state.fetcher_in_flight = false;
+                        self.inner.batch_condvar.notify_all();
+
+                        // Return own results directly from the now-populated cache.
+                        let map = self.inner.global_cache.pin();
+                        let mut results = Vec::with_capacity(reqs.len());
+                        for req in reqs {
+                            let key = req.cache_key();
+                            let Some(value) = map.get(&key) else {
+                                return Err(Error::Internal {
+                                    message: "fetcher inserted all keys".into(),
+                                });
+                            };
+                            results.push(Response::parse(req, value)?);
+                        }
+                        return Ok(results);
                     }
-                    let map = self.inner.global_cache.pin();
-                    map.insert(key, value);
+                    Err(err) => {
+                        state = self.inner.batch_state.lock();
+                        state.last_error = Some(err.clone());
+                        state.fetcher_in_flight = false;
+                        self.inner.batch_condvar.notify_all();
+                        return Err(err);
+                    }
                 }
-                for (key, err) in errors {
-                    state.errors.insert(key, err);
-                }
-                self.inner.batch_condvar.notify_all();
-                // Loop again to collect our own results from cache / errors.
-            } else {
-                // Wait for another thread to finish a batch.
-                let timeout = state.deadline.map_or(self.inner.batch_timeout, |d| {
-                    d.saturating_duration_since(now)
-                });
-                self.inner.batch_condvar.wait_for(&mut state, timeout);
-                // Spurious wakeup or timeout: loop and re-check cache.
             }
+
+            // Waiter role – sleeps until a fetcher finishes or the deadline expires.
+            let timeout = state.deadline.map_or(self.inner.batch_timeout, |d| {
+                d.saturating_duration_since(Instant::now())
+            });
+            self.inner.batch_condvar.wait_for(&mut state, timeout);
+            // After waking the thread loops back to collect results,
+            // receive the batch error, or become the next fetcher.
         }
     }
 
-    /// Remove and return a per-key error from `batch_state`.  If the
-    /// underlying `Arc` is shared with other keys, the error is cloned.
-    fn take_error(state: &mut BatchState, key: &str) -> Result<Error, Error> {
-        let err = state
-            .errors
-            .remove(key)
-            .ok_or_else(|| Error::UnexpectedResponse {
-                message: "stale error key".into(),
-            })?;
-        match Arc::try_unwrap(err) {
-            Ok(e) => Ok(e),
-            Err(e) => Ok((*e).clone()),
-        }
-    }
+    // ------------------------------------------------------------------
+    // Batch execution (pure: no shared mutable state)
+    // ------------------------------------------------------------------
 
-    /// Execute a JSON-RPC batch, retrying failed items individually.
-    #[allow(clippy::type_complexity)]
-    fn execute_batch(
-        &self,
-        batch: Vec<Request>,
-    ) -> Result<(HashMap<String, Value>, HashMap<String, Arc<Error>>), Error> {
-        // Deduplicate by cache key.
-        let mut deduped: Vec<(String, Request)> = Vec::with_capacity(batch.len());
-        let mut seen = HashSet::new();
-        for req in batch {
-            let key = req.cache_key();
-            if seen.insert(key) {
-                deduped.push((req.cache_key(), req));
-            }
-        }
-
-        let mut payload = build_payload(&deduped);
+    /// Execute a JSON-RPC batch.
+    ///
+    /// The batch is sent as a single HTTP POST.  If the transport returns a
+    /// transient error (timeout, connection failure, HTTP 429/503/504) the
+    /// whole batch is retried with capped exponential backoff.  If the
+    /// response is invalid JSON, the array length does not match, or any
+    /// individual item contains an error object, the entire batch fails
+    /// immediately and the error is returned to the caller.
+    fn execute_batch(&self, batch: Vec<Request>) -> Result<HashMap<String, Value>, Error> {
+        let deduped = Self::deduplicate_requests(batch);
+        let payload = build_payload(&deduped);
 
         // Rate limit gate: one HTTP POST == one token regardless of batch size.
         if let Some(ref limiter) = self.inner.limiter {
             limiter.acquire();
         }
 
-        // Live network fetch with exponential backoff retries.
-        let mut all_successes = HashMap::new();
-        let mut all_errors: HashMap<String, Arc<Error>> = HashMap::new();
-        let mut last_err: Option<Error> = None;
         for attempt in 0..=self.inner.retries {
             match self.inner.transport.exec(&self.inner.url, &payload) {
-                Ok(v) => {
-                    let arr: Vec<Value> = if v.is_object() {
-                        vec![v]
-                    } else {
-                        v.as_array().cloned().unwrap_or_default()
-                    };
-
-                    let mut by_id: HashMap<usize, Value> = HashMap::new();
-                    for mut item in arr {
-                        let Some(id) = item.get("id").and_then(|v| v.as_u64()).map(|v| v as usize)
-                        else {
-                            continue;
-                        };
-                        if let Some(err) = item.get("error") {
-                            let code = err.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
-                            let message = err
-                                .get("message")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown RPC error")
-                                .into();
-                            last_err = Some(Error::RpcError { code, message });
-                        } else if let Some(result) =
-                            item.as_object_mut().and_then(|obj| obj.remove("result"))
-                        {
-                            by_id.insert(id, result);
-                        }
-                    }
-
-                    let mut next_batch = Vec::new();
-                    for (idx, (key, req)) in deduped.into_iter().enumerate() {
-                        if let Some(result) = by_id.remove(&idx) {
-                            all_successes.insert(key, result);
-                        } else {
-                            next_batch.push((key, req));
-                        }
-                    }
-
-                    if next_batch.is_empty() {
-                        return Ok((all_successes, all_errors));
-                    }
-
-                    // Some items failed or were missing - retry only them.
-                    deduped = next_batch;
-                    if attempt < self.inner.retries {
-                        payload = build_payload(&deduped);
-                        std::thread::sleep(self.sleep_duration(attempt));
-                        continue;
-                    }
-
-                    // Retries exhausted: return errors for the remaining items.
-                    let err = last_err.unwrap_or_else(|| Error::UnexpectedResponse {
-                        message: "RPC request failed or response missing".into(),
-                    });
-                    let arc_err = Arc::new(err);
-                    for (key, _) in deduped {
-                        all_errors.insert(key, Arc::clone(&arc_err));
-                    }
-                    return Ok((all_successes, all_errors));
-                }
+                Ok(response) => return Self::parse_batch_response(response, deduped),
                 Err(e) => {
-                    last_err = Some(Error::from_anyhow(e, &self.inner.url));
-                    if attempt < self.inner.retries {
-                        std::thread::sleep(self.sleep_duration(attempt));
+                    let err = Error::from_anyhow(e, &self.inner.url);
+                    if !err.is_transient() || attempt >= self.inner.retries {
+                        return Err(err);
                     }
+                    std::thread::sleep(self.sleep_duration(attempt));
                 }
             }
         }
 
-        let err = last_err.unwrap_or_else(|| Error::UnexpectedResponse {
-            message: "RPC request failed".into(),
-        });
-        let arc_err = Arc::new(err);
-        for (key, _) in deduped {
-            all_errors.insert(key, Arc::clone(&arc_err));
+        unreachable!("loop always returns")
+    }
+
+    /// Remove duplicate `cache_key`s from a batch, preserving order.
+    fn deduplicate_requests(batch: Vec<Request>) -> Vec<Request> {
+        let mut out = Vec::with_capacity(batch.len());
+        let mut seen = HashSet::new();
+        for req in batch {
+            let key = req.cache_key();
+            if seen.insert(key) {
+                out.push(req);
+            }
         }
-        Ok((all_successes, all_errors))
+        out
+    }
+
+    /// Parse a JSON-RPC response and validate that every request has a
+    /// matching, successful result.
+    fn parse_batch_response(
+        response: Value,
+        deduped: Vec<Request>,
+    ) -> Result<HashMap<String, Value>, Error> {
+        let arr: Vec<Value> = if response.is_object() && deduped.len() == 1 {
+            vec![response]
+        } else {
+            response
+                .as_array()
+                .cloned()
+                .ok_or_else(|| Error::UnexpectedResponse {
+                    message: "expected JSON array response for batch request".into(),
+                })?
+        };
+
+        if arr.len() != deduped.len() {
+            return Err(Error::UnexpectedResponse {
+                message: format!("expected {} responses, got {}", deduped.len(), arr.len()),
+            });
+        }
+
+        let mut by_id: HashMap<usize, Value> = HashMap::with_capacity(arr.len());
+        for mut item in arr {
+            let Some(id) = item.get("id").and_then(|v| v.as_u64()).map(|v| v as usize) else {
+                return Err(Error::UnexpectedResponse {
+                    message: "missing id in JSON-RPC response item".into(),
+                });
+            };
+            if item.get("error").is_some() {
+                return Err(Error::UnexpectedResponse {
+                    message: "JSON-RPC response contains error object".into(),
+                });
+            }
+            let result = item
+                .as_object_mut()
+                .and_then(|obj| obj.remove("result"))
+                .ok_or_else(|| Error::UnexpectedResponse {
+                    message: "missing result in JSON-RPC response item".into(),
+                })?;
+            by_id.insert(id, result);
+        }
+
+        let mut successes = HashMap::with_capacity(deduped.len());
+        for (idx, req) in deduped.into_iter().enumerate() {
+            let result = by_id
+                .remove(&idx)
+                .ok_or_else(|| Error::UnexpectedResponse {
+                    message: format!("missing response for request id {idx}"),
+                })?;
+            if result.is_null() && matches!(req, Request::GetBlockByNumber { .. }) {
+                return Err(Error::UnexpectedResponse {
+                    message: "block not found (null result)".into(),
+                });
+            }
+            successes.insert(req.cache_key(), result);
+        }
+
+        Ok(successes)
     }
 
     fn sleep_duration(&self, attempt: u32) -> Duration {
@@ -416,11 +465,12 @@ impl SharedBackend {
     }
 }
 
-fn build_payload(batch: &[(String, Request)]) -> Value {
+/// Build a JSON-RPC batch payload from a deduplicated request list.
+fn build_payload(batch: &[Request]) -> Value {
     let array: Vec<Value> = batch
         .iter()
         .enumerate()
-        .map(|(idx, (_, req))| {
+        .map(|(idx, req)| {
             serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": idx,
@@ -455,8 +505,7 @@ fn load_disk_cache(dir: impl AsRef<Path>, cache: &PapayaMap<String, Value>) {
                 Some(k) => k.to_owned(),
                 None => key.into_owned(),
             };
-            let guard = cache.guard();
-            cache.insert(key, value, &guard);
+            cache.pin().insert(key, value);
         }
     }
 }
@@ -479,8 +528,8 @@ fn write_disk_cache(base_dir: impl AsRef<Path>, key: &str, value: &Value) -> Res
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::Barrier;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
     use std::time::Duration;
 
     use alloy_primitives::Address;
@@ -585,69 +634,6 @@ mod tests {
         );
     }
 
-    /// A JSON-RPC batch containing one error and one success must not fail the
-    /// entire batch.  The successful item is cached and only the failed item is
-    /// retried.
-    #[test]
-    fn backend_batch_per_item_retry() {
-        let transport = MockTransport::default();
-        let url = "mock://test";
-        let url_h = url_hash(url);
-
-        let batch_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000000","0x1"]}
-        ]);
-        transport.mock_responses(
-            url,
-            &batch_payload,
-            vec![json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x1"},
-                {"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"bad block"}}
-            ])],
-        );
-
-        let single_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000000","0x1"]}
-        ]);
-        transport.mock_response(
-            url,
-            &single_payload,
-            json!([{"jsonrpc":"2.0","id":0,"result":"0x0"}]),
-        );
-
-        let config = Config::new(url)
-            .batch_size(2)
-            .batch_timeout_ms(100)
-            .retries(1)
-            .backoff_ms(0);
-        let backend = SharedBackend::new_with_transport(config, transport.clone());
-
-        let reqs = &[
-            Request::GetChainId { url_hash: url_h },
-            Request::GetBalance {
-                chain_id: 1,
-                address: Address::ZERO,
-                block: 1,
-            },
-        ];
-        let res = backend.fetch_or_wait(reqs).unwrap();
-        assert_eq!(res.len(), 2);
-        assert!(matches!(&res[0], Response::ChainId(1)));
-        assert!(matches!(&res[1], Response::Balance(v) if v.is_zero()));
-
-        assert_eq!(
-            transport.call_count(url, &batch_payload),
-            1,
-            "full batch should be sent once"
-        );
-        assert_eq!(
-            transport.call_count(url, &single_payload),
-            1,
-            "failed item should be retried individually"
-        );
-    }
-
     /// Regression: when an in-flight request fails after all retries are
     /// exhausted, waiters must receive the error.  They must NOT silently
     /// retry forever.
@@ -688,31 +674,127 @@ mod tests {
         );
     }
 
-    /// Regression: non-compliant RPC servers may return a single JSON object
-    /// instead of a single-element array for a batch of one request.
+    /// A JSON-RPC batch containing an error object must fail the entire batch.
     #[test]
-    fn single_object_batch_response_is_accepted() {
+    fn backend_batch_fails_on_rpc_error() {
         let transport = MockTransport::default();
         let url = "mock://test";
+        let url_h = url_hash(url);
 
         let payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000000","0x1"]}
         ]);
         transport.mock_response(
             url,
             &payload,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 0,
-                "result": "0x1",
-            }),
+            json!([
+                {"jsonrpc":"2.0","id":0,"result":"0x1"},
+                {"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"bad block"}}
+            ]),
         );
 
-        let config = Config::new(url).batch_timeout_ms(0).batch_size(1);
+        let config = Config::new(url)
+            .batch_size(2)
+            .batch_timeout_ms(100)
+            .retries(0);
+        let backend = SharedBackend::new_with_transport(config, transport);
+
+        let reqs = &[
+            Request::GetChainId { url_hash: url_h },
+            Request::GetBalance {
+                chain_id: 1,
+                address: Address::ZERO,
+                block: 1,
+            },
+        ];
+        let res = backend.fetch_or_wait(reqs);
+        assert!(
+            res.is_err(),
+            "batch containing an RPC error must fail entirely"
+        );
+    }
+
+    /// A JSON-RPC batch with a missing response item must fail the entire batch.
+    #[test]
+    fn backend_batch_fails_on_missing_items() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+        let url_h = url_hash(url);
+
+        let payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","id":1,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000000","0x1"]}
+        ]);
+        transport.mock_response(
+            url,
+            &payload,
+            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
+        );
+
+        let config = Config::new(url)
+            .batch_size(2)
+            .batch_timeout_ms(100)
+            .retries(0);
+        let backend = SharedBackend::new_with_transport(config, transport);
+
+        let reqs = &[
+            Request::GetChainId { url_hash: url_h },
+            Request::GetBalance {
+                chain_id: 1,
+                address: Address::ZERO,
+                block: 1,
+            },
+        ];
+        let res = backend.fetch_or_wait(reqs);
+        assert!(
+            res.is_err(),
+            "batch with a missing response item must fail entirely"
+        );
+    }
+
+    /// A transient transport error must trigger a whole-batch retry.
+    #[test]
+    fn backend_retries_on_transient_transport_error() {
+        #[derive(Debug)]
+        struct FailThenSucceed {
+            fail_count: AtomicUsize,
+            max_fail: usize,
+            response: serde_json::Value,
+        }
+
+        impl Transport for FailThenSucceed {
+            fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
+                let count = self.fail_count.fetch_add(1, Ordering::SeqCst);
+                if count < self.max_fail {
+                    Err(anyhow::anyhow!("503 Service Unavailable"))
+                } else {
+                    Ok(self.response.clone())
+                }
+            }
+        }
+
+        let url = "mock://test";
+        let url_h = url_hash(url);
+
+        let _payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
+        ]);
+        let transport = FailThenSucceed {
+            fail_count: AtomicUsize::new(0),
+            max_fail: 2,
+            response: json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
+        };
+
+        let config = Config::new(url)
+            .batch_timeout_ms(0)
+            .batch_size(1)
+            .retries(3)
+            .backoff_ms(0);
         let backend = SharedBackend::new_with_transport(config, transport);
 
         let res = backend
-            .fetch_or_wait(&[Request::GetChainId { url_hash: 0 }])
+            .fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
             .unwrap();
         assert_eq!(res.len(), 1);
         assert!(matches!(&res[0], Response::ChainId(1)));
@@ -832,8 +914,8 @@ mod tests {
         );
     }
 
-    /// Regression: the fetcher thread must be able to wait on itself when it
-    /// becomes a fetcher for a batch that includes its own requests.
+    /// Regression: a single thread calling `fetch_or_wait` must resolve its
+    /// own requests when it becomes the fetcher (batch_size = 1).
     #[test]
     fn fetcher_collects_its_own_results() {
         let transport = MockTransport::default();
