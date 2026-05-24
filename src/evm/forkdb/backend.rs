@@ -239,7 +239,7 @@ impl SharedBackend {
                 || state.last_fetch.elapsed() >= self.inner.batch_timeout;
 
             if should_fetch {
-                let batch = std::mem::take(&mut state.pending);
+                let batch: Vec<Request> = state.pending.drain(..).collect();
                 state.last_fetch = Instant::now();
 
                 match self.execute_batch(batch) {
