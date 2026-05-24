@@ -1024,4 +1024,153 @@ mod tests {
             "exactly 16 unique batch items should be sent to the transport"
         );
     }
+
+    /// 16 parallel threads all submit the exact same request in two phases.
+    /// Phase 1: every thread requests `GetChainId`.
+    /// Phase 2: every thread requests `GetBlockByNumber` for the same block.
+    /// With batch_size = 16 and batch_timeout = 50 ms, each phase must be
+    /// deduplicated into a single batch item and issued as exactly 1 HTTP POST,
+    /// for a total of 2 HTTP requests.
+    #[test]
+    fn batch_16_parallel_threads_same_request_two_phases() {
+        #[derive(Debug)]
+        struct TwoPhaseCountingTransport {
+            call_count: Arc<AtomicUsize>,
+            batch_item_count: Arc<AtomicUsize>,
+        }
+
+        impl Default for TwoPhaseCountingTransport {
+            fn default() -> Self {
+                Self {
+                    call_count: Arc::new(AtomicUsize::new(0)),
+                    batch_item_count: Arc::new(AtomicUsize::new(0)),
+                }
+            }
+        }
+
+        impl Transport for TwoPhaseCountingTransport {
+            fn exec(&self, _url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+
+                let requests = payload
+                    .as_array()
+                    .expect("expected JSON array batch payload");
+                self.batch_item_count
+                    .fetch_add(requests.len(), Ordering::SeqCst);
+
+                assert_eq!(
+                    requests.len(),
+                    1,
+                    "each batch should contain exactly 1 deduped item"
+                );
+
+                let req = &requests[0];
+                let id = req
+                    .get("id")
+                    .and_then(|v| v.as_u64())
+                    .expect("missing id in batch request") as usize;
+                let method = req
+                    .get("method")
+                    .and_then(|v| v.as_str())
+                    .expect("missing method in batch request");
+
+                let result = match method {
+                    "eth_chainId" => json!("0x1"),
+                    "eth_getBlockByNumber" => json!({
+                        "number": "0x1",
+                        "timestamp": "0x0",
+                        "miner": "0x0000000000000000000000000000000000000000",
+                        "gasLimit": "0x0",
+                        "baseFeePerGas": "0x0",
+                        "difficulty": "0x0"
+                    }),
+                    other => panic!("unexpected method: {other}"),
+                };
+
+                Ok(json!([{
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": result,
+                }]))
+            }
+        }
+
+        let transport = TwoPhaseCountingTransport::default();
+        let call_count = transport.call_count.clone();
+        let batch_item_count = transport.batch_item_count.clone();
+
+        let thread_count = 16;
+        let config = Config::new("mock://test")
+            .batch_size(16)
+            .batch_timeout_ms(50);
+        let backend = SharedBackend::new_with_transport(config, transport);
+
+        let url_h = url_hash("mock://test");
+
+        // Phase 1: all threads request GetChainId.
+        let barrier1 = Arc::new(std::sync::Barrier::new(thread_count));
+        let mut handles = Vec::with_capacity(thread_count);
+
+        for _ in 0..thread_count {
+            let backend = backend.clone();
+            let barrier = barrier1.clone();
+            let handle = std::thread::spawn(move || {
+                let req = Request::GetChainId { url_hash: url_h };
+                barrier.wait();
+                let res = backend.fetch_or_wait(&[req]).unwrap();
+                assert_eq!(res.len(), 1);
+                assert!(matches!(res[0], Response::ChainId(1)));
+            });
+            handles.push(handle);
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Phase 2: all threads request GetBlockByNumber for the same block.
+        let barrier2 = Arc::new(std::sync::Barrier::new(thread_count));
+        let mut handles = Vec::with_capacity(thread_count);
+
+        for _ in 0..thread_count {
+            let backend = backend.clone();
+            let barrier = barrier2.clone();
+            let handle = std::thread::spawn(move || {
+                let req = Request::GetBlockByNumber {
+                    chain_id: 1,
+                    block: 1,
+                    full_tx: false,
+                };
+                barrier.wait();
+                let res = backend.fetch_or_wait(&[req]).unwrap();
+                assert_eq!(res.len(), 1);
+                match &res[0] {
+                    Response::BlockByNumber(block) => {
+                        assert_eq!(
+                            block.number.to::<u64>(),
+                            1,
+                            "block number must match request"
+                        );
+                    }
+                    other => panic!("expected BlockByNumber, got {:?}", other),
+                }
+            });
+            handles.push(handle);
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            2,
+            "exactly 2 HTTP POSTs should be performed (one per phase)"
+        );
+        assert_eq!(
+            batch_item_count.load(Ordering::SeqCst),
+            2,
+            "each phase should be deduplicated to 1 batch item"
+        );
+    }
 }
