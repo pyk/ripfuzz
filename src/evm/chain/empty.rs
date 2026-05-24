@@ -312,4 +312,35 @@ mod tests {
             "trace must contain the root create frame"
         );
     }
+
+    /// A target contract that calls a raptor cheatcode in its constructor must
+    /// deploy successfully on an empty sandbox chain.
+    #[test]
+    fn deploy_cheatcode_in_constructor_succeeds() {
+        let artifact = crate::contract::tests::load_test_artifact(
+            "fixtures/target-contract-deployment",
+            "src/EmptyChainCheatcodeInConstructor.sol",
+        )
+        .unwrap();
+
+        let mut chain = Chain::empty();
+        let opts = DeployOptions::new(artifact.initcode);
+        let deployment = chain.deploy(opts).unwrap();
+
+        assert!(
+            deployment.result.success,
+            "deployment must succeed when cheatcode works in constructor"
+        );
+        let address = deployment.address.unwrap();
+
+        let db = chain.database().expect("database should be available");
+        let info = db
+            .basic_ref(address)
+            .unwrap()
+            .expect("account should exist after deployment");
+        assert!(
+            info.code.as_ref().map(|c| !c.is_empty()).unwrap_or(false),
+            "deployed contract must have non-empty runtime code"
+        );
+    }
 }

@@ -338,7 +338,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Deploy target contract
     info!("deploying target contract");
-    let opts = crate::evm::DeployOptions::new(target_contract.initcode.clone())
+    let opts = evm::DeployOptions::new(target_contract.initcode.clone())
         .caller(args.deployer_address)
         .value(args.deploy_value);
     let deployment = chain.deploy(opts)?;

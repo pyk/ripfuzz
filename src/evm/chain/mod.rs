@@ -14,6 +14,7 @@ use revm::{
 use crate::evm::database::Database;
 use crate::evm::result::TransactionResult;
 use crate::evm::trace::{Inspector as TraceInspector, Trace};
+use crate::vm::inspector::CheatcodeInspector;
 
 /// Default deployer address: `address(uint160(uint256(keccak256("raptor deployer"))))`.
 pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1");
@@ -143,8 +144,11 @@ impl Chain {
     }
 
     /// Deploy a contract and return the full [`Deployment`] result.
+    ///
+    /// A [`CheatcodeInspector`] is included so that target contracts can call
+    /// raptor cheatcodes (e.g. `vm.warp`) during constructor execution.
     pub fn deploy(&mut self, opts: DeployOptions) -> Result<Deployment> {
-        let inspector = TraceInspector::new();
+        let inspector = (TraceInspector::new(), CheatcodeInspector::new());
         let tx = TxEnv {
             caller: opts.caller,
             kind: TxKind::Create,
@@ -153,9 +157,9 @@ impl Chain {
             value: opts.value,
             ..Default::default()
         };
-        let (result, inspector) = self.inspect(tx, inspector)?;
+        let (result, (trace_inspector, _)) = self.inspect(tx, inspector)?;
         let address = result.created_address;
-        let trace = inspector.into_trace();
+        let trace = trace_inspector.into_trace();
         Ok(Deployment {
             address,
             result,
