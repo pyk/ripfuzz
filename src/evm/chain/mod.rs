@@ -13,9 +13,62 @@ use revm::{
 
 use crate::evm::database::Database;
 use crate::evm::result::TransactionResult;
+use crate::evm::trace::{Inspector as TraceInspector, Trace};
 
 /// Default deployer address: `address(uint160(uint256(keccak256("raptor deployer"))))`.
 pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1");
+
+/// Configuration for a contract deployment.
+#[derive(Debug, Clone)]
+pub struct DeployOptions {
+    pub caller: Address,
+    pub value: U256,
+    pub initcode: Bytes,
+    pub gas_limit: u64,
+}
+
+impl DeployOptions {
+    /// Create [`DeployOptions`] with the given initcode.
+    ///
+    /// Caller defaults to [`DEFAULT_DEPLOYER`]; override with [`Self::caller`].
+    pub fn new(initcode: Bytes) -> Self {
+        Self {
+            caller: DEFAULT_DEPLOYER,
+            value: U256::ZERO,
+            initcode,
+            gas_limit: u64::MAX,
+        }
+    }
+
+    /// Set the account address used to deploy the contract.
+    pub fn caller(mut self, caller: Address) -> Self {
+        self.caller = caller;
+        self
+    }
+
+    /// Set the wei value sent with the deployment transaction.
+    pub fn value(mut self, value: U256) -> Self {
+        self.value = value;
+        self
+    }
+
+    /// Set the gas limit for the deployment transaction.
+    pub fn gas_limit(mut self, gas_limit: u64) -> Self {
+        self.gas_limit = gas_limit;
+        self
+    }
+}
+
+/// Result of a contract deployment, including the trace.
+///
+/// `address` is `None` when the constructor reverts or halts, but `result`
+/// and `trace` are still populated so the caller can inspect the failure.
+#[derive(Debug, Clone)]
+pub struct Deployment {
+    pub address: Option<Address>,
+    pub result: TransactionResult,
+    pub trace: Trace,
+}
 
 /// EVM Chain state and executor.
 ///
@@ -89,26 +142,25 @@ impl Chain {
         self.database.as_ref()
     }
 
-    /// Deploy a contract and return the deployed address + result.
-    pub fn deploy(
-        &mut self,
-        caller: Address,
-        value: U256,
-        initcode: Bytes,
-    ) -> Result<(Address, TransactionResult)> {
+    /// Deploy a contract and return the full [`Deployment`] result.
+    pub fn deploy(&mut self, opts: DeployOptions) -> Result<Deployment> {
+        let inspector = TraceInspector::new();
         let tx = TxEnv {
-            caller,
+            caller: opts.caller,
             kind: TxKind::Create,
-            data: initcode,
-            gas_limit: u64::MAX,
-            value,
+            data: opts.initcode,
+            gas_limit: opts.gas_limit,
+            value: opts.value,
             ..Default::default()
         };
-        let result = self.transact(tx)?;
-        let address = result
-            .created_address
-            .context("create succeeded but no address")?;
-        Ok((address, result))
+        let (result, inspector) = self.inspect(tx, inspector)?;
+        let address = result.created_address;
+        let trace = inspector.into_trace();
+        Ok(Deployment {
+            address,
+            result,
+            trace,
+        })
     }
 
     /// Execute a CALL against the given target.

@@ -11,13 +11,15 @@
 //!    [`Chain::transact`].
 //! 3. Return pure data structures for traces; never format or print them.
 
-pub use chain::{Chain, DEFAULT_DEPLOYER};
+pub use chain::{Chain, DEFAULT_DEPLOYER, DeployOptions, Deployment};
 pub use database::{Database, DatabaseError};
-pub use result::{CallFrame, Trace, TraceInspector, TransactionResult};
+pub use result::TransactionResult;
 pub use specs::get_spec_id;
+pub use trace::{CallFrame, Inspector, Trace};
 
 pub mod chain;
 pub mod database;
 pub mod forkdb;
 pub mod result;
 pub mod specs;
+pub mod trace;

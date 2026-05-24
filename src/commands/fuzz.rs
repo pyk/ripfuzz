@@ -338,16 +338,19 @@ pub fn run(args: Args) -> Result<()> {
 
     // Deploy target contract
     info!("deploying target contract");
-    let (deployed_address, deploy_result) = chain.deploy(
-        args.deployer_address,
-        args.deploy_value,
-        target_contract.initcode.clone(),
-    )?;
+    let opts = crate::evm::DeployOptions::new(target_contract.initcode.clone())
+        .caller(args.deployer_address)
+        .value(args.deploy_value);
+    let deployment = chain.deploy(opts)?;
     ensure!(
-        deploy_result.success,
-        "target contract deployment failed (output: {:?})",
-        deploy_result.output
+        deployment.result.success,
+        "target contract deployment failed (output: {:?})\n\ntrace:\n{:#?}",
+        deployment.result.output,
+        deployment.trace
     );
+    let deployed_address = deployment
+        .address
+        .context("deployment succeeded but created_address is missing")?;
     info!(%deployed_address, "target contract deployed");
 
     // Run setup if present

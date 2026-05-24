@@ -93,7 +93,7 @@ mod tests {
     use revm::primitives::Bytes;
     use revm::primitives::hardfork::SpecId;
 
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
+    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployOptions};
     use crate::vm::VM_ADDRESS;
 
     #[test]
@@ -146,9 +146,9 @@ mod tests {
             RETURN, // RETURN
         ]);
 
-        let (deployed_address, _) = chain
-            .deploy(DEFAULT_DEPLOYER, U256::ZERO, initcode)
-            .unwrap();
+        let opts = DeployOptions::new(initcode);
+        let deployment = chain.deploy(opts).unwrap();
+        let deployed_address = deployment.address.unwrap();
 
         // Calling from a contract address should succeed when EIP-3607 is disabled.
         let result = chain.call(deployed_address, Address::ZERO, U256::ZERO, Bytes::new());
@@ -236,14 +236,10 @@ mod tests {
         ];
         initcode.extend(std::iter::repeat(0x00).take(0x8001));
 
-        let result = chain.deploy(DEFAULT_DEPLOYER, U256::ZERO, Bytes::from(initcode));
-        assert!(
-            result.is_ok(),
-            "Chain::new must disable code size limit so contracts > 32 KB can deploy"
-        );
-
-        let (address, tx_result) = result.unwrap();
-        assert!(tx_result.success, "large deployment must succeed");
+        let opts = DeployOptions::new(Bytes::from(initcode));
+        let deployment = chain.deploy(opts).unwrap();
+        assert!(deployment.result.success, "large deployment must succeed");
+        let address = deployment.address.unwrap();
         assert_ne!(
             address,
             Address::ZERO,
@@ -271,16 +267,11 @@ mod tests {
         .unwrap();
 
         let mut chain = Chain::empty();
-        let (address, result) = chain
-            .deploy(DEFAULT_DEPLOYER, U256::ZERO, artifact.initcode)
-            .unwrap();
+        let opts = DeployOptions::new(artifact.initcode);
+        let deployment = chain.deploy(opts).unwrap();
 
-        assert!(result.success, "deployment must succeed");
-        assert_ne!(
-            address,
-            Address::ZERO,
-            "must return a valid deployed address"
-        );
+        assert!(deployment.result.success, "deployment must succeed");
+        let address = deployment.address.unwrap();
 
         let db = chain.database().expect("database should be available");
         let info = db
@@ -290,6 +281,35 @@ mod tests {
         assert!(
             info.code.as_ref().map(|c| !c.is_empty()).unwrap_or(false),
             "deployed contract must have non-empty runtime code"
+        );
+    }
+
+    /// A target contract whose constructor reverts must fail deployment on an
+    /// empty sandbox chain.
+    #[test]
+    fn deploy_constructor_revert_fails() {
+        let artifact = crate::contract::tests::load_test_artifact(
+            "fixtures/target-contract-deployment",
+            "src/EmptyChainConstructorRevert.sol",
+        )
+        .unwrap();
+
+        let mut chain = Chain::empty();
+        let opts = DeployOptions::new(artifact.initcode);
+        let deployment = chain.deploy(opts).unwrap();
+
+        assert!(
+            !deployment.result.success,
+            "deployment must fail when constructor reverts"
+        );
+        assert!(
+            deployment.address.is_none(),
+            "no address must be created on revert"
+        );
+        assert_eq!(
+            deployment.trace.roots.len(),
+            1,
+            "trace must contain the root create frame"
         );
     }
 }
