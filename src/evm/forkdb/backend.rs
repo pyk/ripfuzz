@@ -24,38 +24,30 @@
 //! 2. **Slow path**: at least one request is missing. The thread acquires the
 //!    global `batch_state` mutex, adds its missing requests to the pending set
 //!    (deduplicated by `cache_key`), and either:
-//!    * becomes the **fetcher** when `batch_size` is reached or the batch
-//!      deadline (default 50 ms) has expired; or
-//!    * releases the mutex and blocks on a `Condvar` while waiting for a
-//!      fetcher to complete.
+//!    * becomes the **fetcher** when `batch_size` is reached or
+//!      `batch_timeout` has elapsed since the last fetch; or
+//!    * releases the mutex and blocks on a `Condvar` while waiting for the
+//!      fetcher to finish.
 //!
-//!    The fetcher takes ownership of the pending slice, drops the mutex,
-//!    issues a single JSON-RPC batch via `ureq`, retries on transient
+//!    The fetcher takes ownership of the pending slice while still holding the
+//!    mutex, issues a single JSON-RPC batch via `ureq`, retries on transient
 //!    transport errors, and either inserts all responses into `global_cache`
-//!    (and writes them to disk) or publishes a single error back into
-//!    `batch_state` for every key in the batch.  Finally it wakes all
-//!    waiting threads with `notify_all`.
+//!    (and writes them to disk) or returns the error directly.  Finally it
+//!    wakes all waiting threads with `notify_all`.
 //!
-//! 3. Waiters wake up, re-check `global_cache`, and return.  If a previous
-//!    batch produced an error for a key, that error is returned immediately.
-//!    When a key is re-submitted to a new batch its stale error is cleared so
-//!    the key is retried.
+//! 3. Waiters wake up, re-check `global_cache`, and return.
 //!
 //! ## Thread Roles
 //!
-//! * **Waiter** – adds requests to the batch and sleeps on the condvar.
-//! * **Fetcher** – the first thread that fills the buffer or hits the
-//!   timeout.  It runs the HTTP call while other threads continue adding to
-//!   the *next* batch.
-//!
-//! Only one thread can be the fetcher for a given batch, but while the
-//! fetcher performs I/O (mutex released) another thread may become the
-//! fetcher for the subsequent batch.
+//! * **Waiter**: adds requests to the batch and sleeps on the condvar.
+//! * **Fetcher**: the first thread that fills the buffer or hits the
+//!   timeout. It holds the mutex through the entire HTTP call so that only
+//!   one batch is ever in flight at a time.
 //!
 //! ## Batch Processing Specification
 //!
 //! A batch is a **single HTTP POST request** containing all pending JSON-RPC
-//! items.  The request is retried as a whole; there is no per-item retry.
+//! items. The request is retried as a whole; there is no per-item retry.
 //!
 //! ### Retry conditions
 //!
@@ -70,18 +62,17 @@
 //!
 //! If the transport succeeds but the response body is invalid JSON, or the
 //! response array length does not match the number of requests, the batch
-//! fails immediately and the error is returned to every waiting thread.
+//! fails immediately and the error is returned to the fetcher thread.
 //!
 //! If an individual JSON-RPC item in the response contains an `"error"`
 //! object, or if `eth_getBlockByNumber` returns `"result": null` for a
-//! missing block, the entire batch fails and the error is returned to all
-//! waiting threads.
+//! missing block, the entire batch fails and the error is returned to the
+//! fetcher thread.
 //!
 //! ### Success
 //!
 //! On success every item is inserted into the lock-free `global_cache`
-//! (visible to all threads immediately) and written to disk **outside**
-//! the mutex.
+//! (visible to all threads immediately) and written to disk.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -115,7 +106,7 @@ pub struct SharedBackend {
 struct SharedBackendInner {
     /// Lock-free global cache shared by all fuzzer threads.
     global_cache: PapayaMap<String, Value>,
-    /// Coordinates pending batches and unclaimed errors.
+    /// Coordinates pending batches.
     batch_state: Mutex<BatchState>,
     batch_condvar: Condvar,
     batch_size: usize,
@@ -131,35 +122,7 @@ struct SharedBackendInner {
 #[derive(Debug)]
 struct BatchState {
     pending: Vec<Request>,
-    keys: HashSet<String>,
-    deadline: Option<Instant>,
-    /// Error from the most recent failed batch (shared by all keys in that batch).
-    last_error: Option<Error>,
-    /// Keys that were in the most recent batch so waiters can tell whether
-    /// the failure applies to them.
-    last_batch_keys: HashSet<String>,
-    /// `true` while a thread is performing an HTTP call so that other
-    /// threads wait instead of spawning a duplicate fetcher.
-    fetcher_in_flight: bool,
-}
-
-impl BatchState {
-    /// Clone the stored batch error if it applies to any of the given keys.
-    fn clone_last_error_if_applies(&self, missing: &[String]) -> Option<Error> {
-        if self.last_error.is_some() && missing.iter().any(|k| self.last_batch_keys.contains(k)) {
-            self.last_error.clone()
-        } else {
-            None
-        }
-    }
-
-    /// Publish a batch error so waiters can observe it and return a clone to
-    /// the caller.
-    fn publish_error(&mut self, err: Error) -> Error {
-        let clone = err.clone();
-        self.last_error = Some(clone);
-        err
-    }
+    last_fetch: Instant,
 }
 
 impl SharedBackend {
@@ -187,11 +150,7 @@ impl SharedBackend {
             global_cache,
             batch_state: Mutex::new(BatchState {
                 pending: Vec::new(),
-                keys: HashSet::new(),
-                deadline: None,
-                last_error: None,
-                last_batch_keys: HashSet::new(),
-                fetcher_in_flight: false,
+                last_fetch: Instant::now(),
             }),
             batch_condvar: Condvar::new(),
             batch_size: config.batch_size,
@@ -246,73 +205,54 @@ impl SharedBackend {
     // Slow path
     // ------------------------------------------------------------------
 
-    /// Coordinate with other threads until every request is resolved.
+    /// Coordinate with other threads until all pending requests are resolved
+    /// and the global cache is updated.
     ///
-    /// The loop repeats until all of the caller's requests are resolved.
-    /// A typical caller enqueues once, either fetches or waits, and then
-    /// loops back after waking to collect results or become the next fetcher.
+    /// Thread safety model:
+    ///
+    /// * Only **one** thread can be inside this loop at any time because the
+    ///   mutex is acquired before the loop and held for the entire call.
+    /// * That thread may go around the loop multiple times (e.g. wait once,
+    ///   then fetch on the next iteration).
+    /// * Every other thread that reached `try_slow_path` is either:
+    ///   - blocked on `batch_state.lock()` at the very top of the function, or
+    ///   - asleep inside `wait_for` on the condvar (lock released while sleeping).
     fn try_slow_path(&self, reqs: &[Request]) -> Result<Vec<Response>, Error> {
         let mut state = self.inner.batch_state.lock();
+
         loop {
-            // --- Check global cache ---
+            // 1. Enqueue requests that are still missing from cache.
             let map = self.inner.global_cache.pin();
-            let mut results = Vec::with_capacity(reqs.len());
-            let mut missing = Vec::new();
-
-            for req in reqs {
-                let key = req.cache_key();
-                if let Some(value) = map.get(&key) {
-                    results.push(Response::parse(req, value)?);
-                } else {
-                    missing.push(key);
-                }
-            }
-
-            if missing.is_empty() {
-                return Ok(results);
-            }
-
-            // --- Clear stale errors for keys we are about to retry ---
-            for k in &missing {
-                state.last_batch_keys.remove(k);
-            }
-            if state.last_batch_keys.is_empty() {
-                state.last_error = None;
-            }
-
-            // --- Check whether the most recent batch still failed for any of our keys ---
-            if let Some(err) = state.clone_last_error_if_applies(&missing) {
-                return Err(err);
-            }
-
-            // --- Enqueue missing requests ---
-            let to_enqueue: Vec<Request> = reqs
+            let new_pending_requests: Vec<Request> = reqs
                 .iter()
-                .filter(|req| state.keys.insert(req.cache_key()))
+                .filter(|req| map.get(&req.cache_key()).is_none())
                 .cloned()
                 .collect();
-            state.pending.extend(to_enqueue);
-            if state.deadline.is_none() && !state.pending.is_empty() {
-                state.deadline = Some(Instant::now() + self.inner.batch_timeout);
-            }
+            state.pending.extend(new_pending_requests);
 
-            // --- Decide: fetch or wait ---
-            let size_hit = state.pending.len() >= self.inner.batch_size;
-            let deadline_hit = match state.deadline {
-                Some(d) => Instant::now() >= d,
-                None => false,
-            };
-            if (size_hit || deadline_hit) && !state.fetcher_in_flight {
-                // Fetcher role – runs the batch, notifies waiters, and returns directly.
-                state.fetcher_in_flight = true;
+            // 2. Deduplicate pending by cache_key, preserving order.
+            let mut seen = HashSet::new();
+            state.pending.retain(|req| seen.insert(req.cache_key()));
+
+            // 3. Decide: fetch or wait.
+            let should_fetch = state.pending.len() >= self.inner.batch_size
+                || state.last_fetch.elapsed() >= self.inner.batch_timeout;
+
+            if should_fetch {
                 let batch = std::mem::take(&mut state.pending);
-                state.last_batch_keys = std::mem::take(&mut state.keys);
-                state.deadline = None;
-                state.last_error = None;
-                drop(state);
+                state.last_fetch = Instant::now();
 
                 match self.execute_batch(batch) {
                     Ok(successes) => {
+                        let mut results = Vec::with_capacity(reqs.len());
+                        for req in reqs {
+                            let key = req.cache_key();
+                            let value = successes.get(&key).ok_or(Error::Internal {
+                                message: "fetcher did not receive all keys".into(),
+                            })?;
+                            results.push(Response::parse(req, value)?);
+                        }
+
                         let map = self.inner.global_cache.pin();
                         for (key, value) in successes {
                             if let Some(ref dir) = self.inner.cache_dir {
@@ -320,42 +260,27 @@ impl SharedBackend {
                             }
                             map.insert(key, value);
                         }
-
-                        state = self.inner.batch_state.lock();
-                        state.fetcher_in_flight = false;
                         self.inner.batch_condvar.notify_all();
-
-                        // Return own results directly from the now-populated cache.
-                        let map = self.inner.global_cache.pin();
-                        let mut results = Vec::with_capacity(reqs.len());
-                        for req in reqs {
-                            let key = req.cache_key();
-                            let Some(value) = map.get(&key) else {
-                                return Err(Error::Internal {
-                                    message: "fetcher inserted all keys".into(),
-                                });
-                            };
-                            results.push(Response::parse(req, value)?);
-                        }
                         return Ok(results);
                     }
                     Err(err) => {
-                        state = self.inner.batch_state.lock();
-                        let err = state.publish_error(err);
-                        state.fetcher_in_flight = false;
                         self.inner.batch_condvar.notify_all();
                         return Err(err);
                     }
                 }
             }
 
-            // Waiter role – sleeps until a fetcher finishes or the deadline expires.
-            let timeout = state.deadline.map_or(self.inner.batch_timeout, |d| {
-                d.saturating_duration_since(Instant::now())
-            });
-            self.inner.batch_condvar.wait_for(&mut state, timeout);
-            // After waking the thread loops back to collect results,
-            // receive the batch error, or become the next fetcher.
+            // 4. Wait for a fetcher to finish or for the timeout to expire.
+            let remaining = self
+                .inner
+                .batch_timeout
+                .saturating_sub(state.last_fetch.elapsed());
+            self.inner.batch_condvar.wait_for(&mut state, remaining);
+
+            // 5. After waking, check cache before deciding again.
+            if let Some(results) = self.try_fast_path(reqs)? {
+                return Ok(results);
+            }
         }
     }
 
