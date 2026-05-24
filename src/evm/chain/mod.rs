@@ -16,6 +16,9 @@ use crate::evm::database::Database;
 use crate::evm::result::TransactionResult;
 use crate::evm::trace::{Inspector as TraceInspector, Trace};
 
+mod empty;
+mod fork;
+
 /// Default deployer address: `address(uint160(uint256(keccak256("raptor deployer"))))`.
 pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1");
 
@@ -284,6 +287,3 @@ impl Chain {
         Ok((TransactionResult::from(result), evm.inspector))
     }
 }
-
-mod empty;
-mod fork;
