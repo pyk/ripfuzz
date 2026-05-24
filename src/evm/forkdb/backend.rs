@@ -977,4 +977,126 @@ mod tests {
             "only 3 unique batch items should be sent to the transport"
         );
     }
+
+    /// 16 parallel threads each submit 1 unique `GetStorageAt` request.
+    /// With batch_size = 16 and batch_timeout = 50 ms, the backend must
+    /// issue exactly 1 HTTP POST, send 16 unique batch items, and every
+    /// thread must receive the correct response.
+    #[test]
+    fn batch_16_parallel_get_storage_at_single_http_call() {
+        #[derive(Debug)]
+        struct CountingStorageTransport {
+            call_count: Arc<AtomicUsize>,
+            batch_item_count: Arc<AtomicUsize>,
+        }
+
+        impl Default for CountingStorageTransport {
+            fn default() -> Self {
+                Self {
+                    call_count: Arc::new(AtomicUsize::new(0)),
+                    batch_item_count: Arc::new(AtomicUsize::new(0)),
+                }
+            }
+        }
+
+        impl Transport for CountingStorageTransport {
+            fn exec(&self, _url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+
+                let requests = payload
+                    .as_array()
+                    .expect("expected JSON array batch payload");
+                assert_eq!(requests.len(), 16, "batch must contain exactly 16 requests");
+
+                self.batch_item_count
+                    .fetch_add(requests.len(), Ordering::SeqCst);
+
+                let responses: Vec<serde_json::Value> = requests
+                    .iter()
+                    .map(|req| {
+                        let id = req
+                            .get("id")
+                            .and_then(|v| v.as_u64())
+                            .expect("missing id in batch request")
+                            as usize;
+
+                        let slot = req
+                            .get("params")
+                            .and_then(|p| p.as_array())
+                            .and_then(|a| a.get(1))
+                            .and_then(|v| v.as_str())
+                            .expect("missing slot param");
+
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": slot,
+                        })
+                    })
+                    .collect();
+
+                Ok(json!(responses))
+            }
+        }
+
+        let transport = CountingStorageTransport::default();
+        let call_count = transport.call_count.clone();
+        let batch_item_count = transport.batch_item_count.clone();
+
+        let thread_count = 16;
+        let config = Config::new("mock://test")
+            .batch_size(thread_count)
+            .batch_timeout_ms(50);
+        let backend = SharedBackend::new_with_transport(config, transport);
+
+        let barrier = Arc::new(std::sync::Barrier::new(thread_count));
+        let mut handles = Vec::with_capacity(thread_count);
+
+        let address = address!("0x0000000000000000000000000000000000000001");
+        let block = 1_u64;
+        let chain_id = 1_u64;
+
+        for i in 0..thread_count {
+            let backend = backend.clone();
+            let barrier = barrier.clone();
+            let handle = std::thread::spawn(move || {
+                let slot = U256::from(i);
+                let req = Request::GetStorageAt {
+                    chain_id,
+                    address,
+                    slot,
+                    block,
+                };
+                barrier.wait();
+                let res = backend.fetch_or_wait(&[req]).unwrap();
+                assert_eq!(res.len(), 1);
+                match &res[0] {
+                    Response::StorageAt(value) => {
+                        assert_eq!(
+                            *value,
+                            U256::from(i),
+                            "storage value must match request slot"
+                        );
+                    }
+                    other => panic!("expected StorageAt, got {:?}", other),
+                }
+            });
+            handles.push(handle);
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "only 1 HTTP POST should be performed for 16 parallel unique GetStorageAt requests"
+        );
+        assert_eq!(
+            batch_item_count.load(Ordering::SeqCst),
+            16,
+            "exactly 16 unique batch items should be sent to the transport"
+        );
+    }
 }
