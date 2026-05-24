@@ -40,7 +40,7 @@ impl Chain {
         block_number: u64,
         url_hash: u64,
     ) -> Result<Self> {
-        // Step 1: resolve chain_id so every subsequent cache key is scoped.
+        // resolve chain_id so every subsequent cache key is scoped.
         let mut responses = backend
             .fetch_or_wait(&[Request::GetChainId { url_hash }])
             .with_context(|| "fetching chain id for fork")?;
@@ -52,7 +52,7 @@ impl Chain {
             })
             .context("missing ChainId response")?;
 
-        // Step 2: fetch the fork block using the real chain_id.
+        // fetch the fork block using the real chain_id.
         let mut responses = backend
             .fetch_or_wait(&[Request::GetBlockByNumber {
                 chain_id,

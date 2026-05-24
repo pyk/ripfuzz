@@ -1,4 +1,4 @@
-//! Local sandbox chain initialisation.
+//! Empty sandbox chain initialisation.
 
 use alloy_primitives::{Address, B256, U256};
 use revm::{
@@ -12,18 +12,18 @@ use revm::{
 };
 
 use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
-use crate::evm::database::{Database, LocalDB};
+use crate::evm::database::{Database, EmptyDB};
 use crate::vm::VM_ADDRESS;
 
 impl Default for Chain {
     fn default() -> Self {
-        Self::local()
+        Self::empty()
     }
 }
 
 impl Chain {
-    /// Create a new local sandbox EVM.
-    pub fn local() -> Self {
+    /// Create a new empty sandbox EVM.
+    pub fn empty() -> Self {
         let mut cfg_env = CfgEnv::default();
         cfg_env.chain_id = 1;
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);
@@ -50,7 +50,7 @@ impl Chain {
         block_env.blob_excess_gas_and_price =
             Some(BlobExcessGasAndPrice::new_with_spec(0, SpecId::AMSTERDAM));
 
-        let mut db = CacheDB::new(LocalDB::default());
+        let mut db = CacheDB::new(EmptyDB::default());
         let info = AccountInfo {
             balance: U256::MAX,
             nonce: 0,
@@ -75,7 +75,7 @@ impl Chain {
         );
 
         Self {
-            database: Some(Database::Local(db)),
+            database: Some(Database::Empty(db)),
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn chain_new_uses_latest_spec() {
-        let chain = Chain::local();
+        let chain = Chain::empty();
         assert_eq!(
             chain.cfg_env().spec,
             SpecId::AMSTERDAM,
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn chain_new_seeds_deployer_with_max_balance() {
-        let chain = Chain::local();
+        let chain = Chain::empty();
         assert_eq!(
             chain.deployer(),
             DEFAULT_DEPLOYER,
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn chain_new_allows_contract_as_caller() {
-        let mut chain = Chain::local();
+        let mut chain = Chain::empty();
 
         // Initcode that returns 1 byte of runtime code (0x00 STOP) so the
         // deployed address has non-empty code.
@@ -163,7 +163,7 @@ mod tests {
     /// calls cheatcodes during deployment or setup.
     #[test]
     fn chain_new_injects_vm_address() {
-        let chain = Chain::local();
+        let chain = Chain::empty();
         let db = chain.database().unwrap();
         let info = db.basic_ref(VM_ADDRESS).unwrap();
         let info = info.unwrap();
@@ -181,7 +181,7 @@ mod tests {
     /// vs "empty"; every address must be treated as empty.
     #[test]
     fn chain_new_returns_default_account_info_for_unknown_address() {
-        let mut chain = Chain::local();
+        let mut chain = Chain::empty();
         let db = chain.database_mut().expect("database should be available");
         let unknown = address!("0x00000000000000000000000000000000000000ab");
         let info = db.basic(unknown).unwrap();
@@ -199,7 +199,7 @@ mod tests {
     /// `block.timestamp` against deployment time or constant offsets.
     #[test]
     fn chain_new_uses_mainnet_block_one_timestamp() {
-        let chain = Chain::local();
+        let chain = Chain::empty();
         assert_eq!(
             chain.block_env().timestamp,
             U256::from(1_438_269_988_u64),
@@ -211,7 +211,7 @@ mod tests {
     /// that large factory contracts or inlined targets can deploy.
     #[test]
     fn chain_new_allows_unlimited_contract_size() {
-        let mut chain = Chain::local();
+        let mut chain = Chain::empty();
 
         // Build initcode that returns 0x8001 bytes (32769) of runtime code,
         // which is one byte larger than the EIP-7954 limit of 0x8000 (32768)

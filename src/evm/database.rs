@@ -12,7 +12,7 @@ pub use crate::evm::forkdb;
 pub use crate::evm::forkdb::ForkDB;
 
 // ---------------------------------------------------------------------------
-// LocalDB
+// EmptyDB
 // ---------------------------------------------------------------------------
 
 /// Wrapper around `revm::EmptyDB` that returns `Some(AccountInfo::default())`
@@ -26,14 +26,14 @@ pub use crate::evm::forkdb::ForkDB;
 /// address should be treated as empty rather than non-existing.
 ///
 /// Foundry uses the same trick: see `foundry-evm-core::backend::EmptyDBWrapper`.
-/// Local sandbox database backend.
+/// Empty sandbox database backend.
 ///
 /// Returns `Some(AccountInfo::default())` for every address so that `CacheDB`
 /// never marks an account as `AccountState::NotExisting`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LocalDB(revm::database::EmptyDBTyped<std::convert::Infallible>);
+pub struct EmptyDB(revm::database::EmptyDBTyped<std::convert::Infallible>);
 
-impl DatabaseRef for LocalDB {
+impl DatabaseRef for EmptyDB {
     type Error = std::convert::Infallible;
 
     fn basic_ref(&self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
@@ -100,7 +100,7 @@ impl From<std::convert::Infallible> for DatabaseError {
 /// Unified EVM database.
 #[derive(Clone, Debug)]
 pub enum Database {
-    Local(CacheDB<LocalDB>),
+    Empty(CacheDB<EmptyDB>),
     Fork(CacheDB<ForkDB>),
 }
 
@@ -108,7 +108,7 @@ impl Database {
     /// Insert or override account info.
     pub fn insert_account_info(&mut self, address: Address, info: AccountInfo) {
         match self {
-            Self::Local(db) => db.insert_account_info(address, info),
+            Self::Empty(db) => db.insert_account_info(address, info),
             Self::Fork(db) => db.insert_account_info(address, info),
         }
     }
@@ -119,28 +119,28 @@ impl revm::Database for Database {
 
     fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
         match self {
-            Self::Local(db) => db.basic(address).map_err(|e| match e {}),
+            Self::Empty(db) => db.basic(address).map_err(|e| match e {}),
             Self::Fork(db) => db.basic(address).map_err(DatabaseError::from),
         }
     }
 
     fn code_by_hash(&mut self, code_hash: B256) -> Result<Bytecode, Self::Error> {
         match self {
-            Self::Local(db) => db.code_by_hash(code_hash).map_err(|e| match e {}),
+            Self::Empty(db) => db.code_by_hash(code_hash).map_err(|e| match e {}),
             Self::Fork(db) => db.code_by_hash(code_hash).map_err(DatabaseError::from),
         }
     }
 
     fn storage(&mut self, address: Address, index: U256) -> Result<U256, Self::Error> {
         match self {
-            Self::Local(db) => db.storage(address, index).map_err(|e| match e {}),
+            Self::Empty(db) => db.storage(address, index).map_err(|e| match e {}),
             Self::Fork(db) => db.storage(address, index).map_err(DatabaseError::from),
         }
     }
 
     fn block_hash(&mut self, number: u64) -> Result<B256, Self::Error> {
         match self {
-            Self::Local(db) => db.block_hash(number).map_err(|e| match e {}),
+            Self::Empty(db) => db.block_hash(number).map_err(|e| match e {}),
             Self::Fork(db) => db.block_hash(number).map_err(DatabaseError::from),
         }
     }
@@ -152,7 +152,7 @@ impl DatabaseCommit for Database {
         changes: HashMap<Address, revm::state::Account, revm::primitives::map::FbBuildHasher<20>>,
     ) {
         match self {
-            Self::Local(db) => db.commit(changes),
+            Self::Empty(db) => db.commit(changes),
             Self::Fork(db) => db.commit(changes),
         }
     }
@@ -163,28 +163,28 @@ impl DatabaseRef for Database {
 
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
         match self {
-            Self::Local(db) => db.basic_ref(address).map_err(|e| match e {}),
+            Self::Empty(db) => db.basic_ref(address).map_err(|e| match e {}),
             Self::Fork(db) => db.basic_ref(address).map_err(DatabaseError::from),
         }
     }
 
     fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
         match self {
-            Self::Local(db) => db.code_by_hash_ref(code_hash).map_err(|e| match e {}),
+            Self::Empty(db) => db.code_by_hash_ref(code_hash).map_err(|e| match e {}),
             Self::Fork(db) => db.code_by_hash_ref(code_hash).map_err(DatabaseError::from),
         }
     }
 
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
         match self {
-            Self::Local(db) => db.storage_ref(address, index).map_err(|e| match e {}),
+            Self::Empty(db) => db.storage_ref(address, index).map_err(|e| match e {}),
             Self::Fork(db) => db.storage_ref(address, index).map_err(DatabaseError::from),
         }
     }
 
     fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
         match self {
-            Self::Local(db) => db.block_hash_ref(number).map_err(|e| match e {}),
+            Self::Empty(db) => db.block_hash_ref(number).map_err(|e| match e {}),
             Self::Fork(db) => db.block_hash_ref(number).map_err(DatabaseError::from),
         }
     }

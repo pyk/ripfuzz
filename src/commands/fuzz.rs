@@ -7,7 +7,7 @@ use std::sync::Arc;
 use alloy_primitives::Address;
 use anyhow::{Context, Result, bail, ensure};
 use clap::Parser;
-use revm::primitives::U256;
+use revm::primitives::{Bytes, U256};
 use tracing::{debug, info, instrument};
 
 use crate::campaign::CampaignConfig;
@@ -309,12 +309,12 @@ pub fn run(args: Args) -> Result<()> {
     let target_artifact = build_artifacts
         .get(&args.target)
         .context("target artifact not found")?;
-    let _target_contract = target::Contract::try_from(target_artifact)?;
+    let target_contract = target::Contract::try_from(target_artifact)?;
 
     // Create test chain
     info!("creating test chain");
-    let _chain = if args.fork_mode.rpc_url.is_none() {
-        evm::Chain::local()
+    let mut chain = if args.fork_mode.rpc_url.is_none() {
+        evm::Chain::empty()
     } else {
         let cache_dir = project_path.join("raptor").join("cache");
         let block = args
@@ -335,6 +335,38 @@ pub fn run(args: Args) -> Result<()> {
         info!("forking a chain"); // TODO: add chain name, block number etc
         evm::Chain::fork(config, block)?
     };
+
+    // Deploy target contract
+    info!("deploying target contract");
+    let (deployed_address, deploy_result) = chain.deploy(
+        args.deployer_address,
+        args.deploy_value,
+        target_contract.initcode.clone(),
+    )?;
+    ensure!(
+        deploy_result.success,
+        "target contract deployment failed (output: {:?})",
+        deploy_result.output
+    );
+    info!(%deployed_address, "target contract deployed");
+
+    // Run setup if present
+    if let Some(ref setup) = target_contract.setup_function {
+        info!("calling setup");
+        let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
+        let setup_result = chain.call(
+            args.deployer_address,
+            deployed_address,
+            U256::ZERO,
+            setup_data,
+        )?;
+        ensure!(
+            setup_result.success,
+            "setup failed (output: {:?})",
+            setup_result.output
+        );
+        info!("setup completed");
+    }
 
     // -----------------------------------------------------------------------
     // NOTE: old env below kept for downstream compatibility until full switch
