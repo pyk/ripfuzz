@@ -61,6 +61,7 @@ rayon = "1.12"
 crossbeam = "0.8"
 dashmap = "6.2"
 parking_lot = "0.12"
+papaya = "0.2.4"
 
 # Path traversal
 walkdir = "2"
