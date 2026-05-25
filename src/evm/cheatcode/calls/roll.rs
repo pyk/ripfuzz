@@ -20,35 +20,31 @@ pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::{Address, U256};
+    use alloy_primitives::U256;
     use alloy_sol_types::SolCall;
     use revm::MainContext;
     use revm::primitives::Bytes;
 
-    use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER, DeployInput, SetupInput};
-    use crate::evm::cheatcode;
+    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::roll;
     use crate::evm::cheatcode::state::ExecutionState;
-    use crate::evm::result::TransactionResult;
-
     use crate::foundry;
     use crate::target::Contract;
 
     alloy_sol_types::sol! {
         interface RollTarget {
+            function setup() external;
+            function actionRestoreCanonical() external;
+            function actionMutateValue() external;
+            function actionSequence() external;
+            function actionReadBlockNumber() external;
             function getBlockNumber() external view returns (uint256);
             function getStoredBlockNumber() external view returns (uint256);
-            function callRollSameValueTwice() external returns (uint256 first, uint256 second);
-            function callRollSequence() external returns (uint256 first, uint256 second, uint256 third);
-            function callRollAndWarp() external returns (uint256 number, uint256 timestamp);
-            function callRollLargeNumber() external returns (uint256 number);
-            function setup() external;
-            function actionRoll() external;
-            function invariant_roll() external view;
+            function invariant_blockNumberMatch() external view;
         }
     }
 
-    const EXPECTED_NUMBER: U256 = U256::from_limbs([42, 0, 0, 0]);
+    const CANONICAL: U256 = U256::from_limbs([42, 0, 0, 0]);
 
     fn load_fixture(id: &str) -> Contract {
         let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
@@ -58,54 +54,22 @@ mod tests {
         Contract::try_from(artifact).unwrap()
     }
 
-    /// Deploy the fixture and run its `setup` function.
-    fn deploy_and_setup() -> (Chain, Address) {
+    fn deploy_and_setup() -> (Chain, revm::primitives::Address) {
         let contract = load_fixture("src/RollTarget.sol:RollTarget");
         let mut chain = Chain::new(Config::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_opts = SetupInput::new(target);
-        let setup = chain.setup(setup_opts).unwrap();
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
         assert!(setup.result.success, "setup must succeed");
 
         (chain, target)
     }
 
-    /// Execute a CALL with the cheatcode inspector enabled so that `vm.*`
-    /// functions invoked by the target contract are intercepted.
-    fn call_with_cheatcode_inspector(
-        chain: &mut Chain,
-        caller: Address,
-        target: Address,
-        data: Bytes,
-    ) -> TransactionResult {
-        let inspector = cheatcode::Inspector::default();
-        let tx = revm::context::TxEnv {
-            caller,
-            kind: revm::primitives::TxKind::Call(target),
-            data,
-            gas_limit: u64::MAX,
-            value: U256::ZERO,
-            ..Default::default()
-        };
-        let (result, _) = chain.inspect(tx, inspector).unwrap();
-        result
-    }
-
-    /// Call a view/pure function that returns a single `uint256` and decode it.
-    macro_rules! call_uint256_getter {
-        ($chain:expr, $target:expr, $call:ty) => {{
-            let calldata = <$call>::new(()).abi_encode();
-            let result = $chain
-                .call(DEFAULT_DEPLOYER, $target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{} must succeed", <$call>::SIGNATURE);
-            let output = result.output.expect("getter must return output");
-            <$call>::abi_decode_returns(&output).unwrap()
-        }};
-    }
+    // -----------------------------------------------------------------
+    // Handler-level unit tests
+    // -----------------------------------------------------------------
 
     /// vm.roll must set the EVM context block.number and persist it in state.
     #[test]
@@ -142,183 +106,171 @@ mod tests {
         );
     }
 
-    /// The block number stored in contract storage during setup must match.
+    // -----------------------------------------------------------------
+    // Integration tests
+    // -----------------------------------------------------------------
+
+    /// `vm.roll` used during setup must persist into `chain.exec` so that the
+    /// invariant passes without any additional cheatcode calls.
     #[test]
-    fn roll_persists_in_storage() {
+    fn setup_roll_persists_into_exec() {
         let (mut chain, target) = deploy_and_setup();
-        let decoded: U256 =
-            call_uint256_getter!(&mut chain, target, RollTarget::getStoredBlockNumberCall);
-        assert_eq!(
-            decoded, EXPECTED_NUMBER,
-            "stored block number must match the value set in setup"
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            execution.results[0].success,
+            "invariant must pass after setup"
         );
     }
 
-    /// vm.roll with the same value twice in one tx must yield the same
-    /// block.number reading, proving determinism.
+    /// `vm.roll` set during setup must persist through deployment and setup
+    /// so that a plain `block.number` read in the first exec transaction
+    /// returns the canonical value.
     #[test]
-    fn roll_same_value_twice_in_sequence_is_deterministic() {
+    fn block_number_preserved_after_deployment_and_setup() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = RollTarget::callRollSameValueTwiceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callRollSameValueTwice() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = RollTarget::callRollSameValueTwiceCall::abi_decode_returns(&output).unwrap();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            RollTarget::getBlockNumberCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(execution.results[0].success, "getBlockNumber must succeed");
+        let value = RollTarget::getBlockNumberCall::abi_decode_returns(
+            &execution.results[0].output.clone().unwrap(),
+        )
+        .unwrap();
         assert_eq!(
-            ret.first, ret.second,
-            "same roll value must give identical block.number readings"
-        );
-        assert_eq!(ret.first, EXPECTED_NUMBER);
-    }
-
-    /// vm.roll with different values interleaved must produce distinct
-    /// block.number readings, proving the cheatcode is stateful.
-    #[test]
-    fn roll_sequence_returns_consistent_values() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = RollTarget::callRollSequenceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callRollSequence() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = RollTarget::callRollSequenceCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(ret.first, U256::from(1), "first vm.roll(1) must read 1");
-        assert_eq!(
-            ret.second, EXPECTED_NUMBER,
-            "second vm.roll(42) must read 42"
-        );
-        assert_eq!(ret.third, U256::from(5), "third vm.roll(5) must read 5");
-    }
-
-    /// vm.roll must work correctly when combined with vm.warp in the same tx.
-    #[test]
-    fn roll_interacts_with_warp() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = RollTarget::callRollAndWarpCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callRollAndWarp() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = RollTarget::callRollAndWarpCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(
-            ret.number, EXPECTED_NUMBER,
-            "block.number must match rolled value"
-        );
-        assert_eq!(
-            ret.timestamp,
-            U256::from(1_234_567_890u64),
-            "timestamp must match warped value"
+            value, CANONICAL,
+            "block.number must match the canonical value set during setup"
         );
     }
 
-    /// vm.roll to U256::MAX via a contract call must succeed.
+    /// Reading `block.number` without calling any cheatcode in the action
+    /// must still see the canonical value, proving the block environment
+    /// persists across the exec.
     #[test]
-    fn roll_large_number_in_contract() {
+    fn read_block_number_without_cheatcode() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = RollTarget::callRollLargeNumberCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                RollTarget::actionReadBlockNumberCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results[0].success,
+            "actionReadBlockNumber must succeed"
         );
-        assert!(result.success, "callRollLargeNumber() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = RollTarget::callRollLargeNumberCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(ret, U256::MAX, "block.number must be U256::MAX");
+        assert!(
+            execution.results[1].success,
+            "invariant must pass after reading"
+        );
     }
 
-    /// Invariant must pass immediately after setup (fuzzing baseline).
+    /// Re-setting the canonical block number in a later transaction must not
+    /// corrupt the expected value. This is the core property a stateful
+    /// fuzzer relies on when actions need to restore canonical block state.
     #[test]
-    fn invariant_passes_after_setup() {
+    fn restore_block_number_preserves_invariant() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = RollTarget::invariant_rollCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(result.success, "invariant must pass after setup");
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                RollTarget::actionRestoreCanonicalCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results[0].success,
+            "actionRestoreCanonical must succeed"
+        );
+        assert!(
+            execution.results[1].success,
+            "invariant must pass after restoring canonical value"
+        );
     }
 
-    /// A fuzz-like sequence of actions followed by invariants must all succeed.
+    /// Setting a non-canonical block number in an action mutates the stored
+    /// state, so the invariant must fail afterward. This proves the cheatcode
+    /// actually changes observable block state.
     #[test]
-    fn action_sequence_and_invariants() {
+    fn mutate_block_number_breaks_invariant() {
         let (mut chain, target) = deploy_and_setup();
-
-        // Temporarily mutate block number via a sequence that ends on a different value.
-        let calldata = RollTarget::callRollSequenceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                RollTarget::actionMutateValueCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results[0].success,
+            "actionMutateValue must succeed"
         );
-        assert!(result.success, "callRollSequence must succeed");
-
-        // Restore the expected block number with an action.
-        let calldata = RollTarget::actionRollCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
+        assert!(
+            !execution.results[1].success,
+            "invariant must fail after mutating block number"
         );
-        assert!(result.success, "actionRoll must succeed");
-
-        // Invariant must pass after the action restored state.
-        let calldata = RollTarget::invariant_rollCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(result.success, "invariant must pass after action sequence");
     }
 
-    /// vm.roll(42) must set the same value when called in a separate
-    /// transaction after the initial setup, proving cross-transaction determinism.
+    /// A sequence of roll calls inside a single transaction must end on the
+    /// correct canonical value, proving multiple calls in one tx compose
+    /// correctly and do not interfere with each other.
     #[test]
-    fn roll_deterministic_across_transaction_sequence() {
+    fn sequence_returns_correct_final_value() {
         let (mut chain, target) = deploy_and_setup();
-
-        let calldata = RollTarget::actionRollCall::new(()).abi_encode();
-
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata.clone()),
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                RollTarget::actionSequenceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(execution.results[0].success, "actionSequence must succeed");
+        assert!(
+            execution.results[1].success,
+            "invariant must pass after sequence"
         );
-        assert!(result.success, "actionRoll must succeed");
-        let stored: U256 =
-            call_uint256_getter!(&mut chain, target, RollTarget::getStoredBlockNumberCall);
-        assert_eq!(
-            stored, EXPECTED_NUMBER,
-            "stored block number must match after first action"
-        );
+    }
 
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionRoll must succeed on second call");
-        let stored: U256 =
-            call_uint256_getter!(&mut chain, target, RollTarget::getStoredBlockNumberCall);
-        assert_eq!(
-            stored, EXPECTED_NUMBER,
-            "stored block number must still match after second action"
+    /// A cloned chain snapshot must produce the same block number when the
+    /// invariant is executed on the clone. This is critical for parallel
+    /// fuzzing where each worker starts from a cloned state.
+    #[test]
+    fn cloned_chain_preserves_block_number() {
+        let (chain, target) = deploy_and_setup();
+        let mut cloned = chain.clone();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = cloned.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            execution.results[0].success,
+            "invariant must pass on cloned chain"
         );
     }
 }
