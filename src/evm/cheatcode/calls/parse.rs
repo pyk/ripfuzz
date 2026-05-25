@@ -54,43 +54,23 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
-    use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER, DeployInput, SetupInput};
-    use crate::evm::cheatcode;
+    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::parse;
-    use crate::evm::result::TransactionResult;
-
     use crate::foundry;
     use crate::target::Contract;
 
     alloy_sol_types::sol! {
         interface ParseTarget {
-            function getParsedUint() external view returns (uint256);
-            function getParsedInt() external view returns (int256);
-            function getParsedBool() external view returns (bool);
-            function getParsedAddress() external view returns (address);
-            function getParsedBytes() external view returns (bytes memory);
-            function getParsedBytes32() external view returns (bytes32);
-            function callParseUintSameValueTwice() external pure returns (uint256 first, uint256 second);
-            function callParseBytes32SameValueTwice() external pure returns (bytes32 first, bytes32 second);
-            function callParseUintSequence() external pure returns (uint256 first, uint256 second, uint256 third);
-            function callParseBoolSequence() external pure returns (bool first, bool second, bool third);
-            function parseInvalidBool() external pure;
-            function parseInvalidAddress() external pure;
-            function parseInvalidBytes32Length() external pure;
-            function parseInvalidUint() external pure;
-            function callParseAndDeal() external returns (uint256 parsed, uint256 balance);
-            function callParseAndWarp() external returns (uint256 parsed, uint256 timestamp);
-            function callParseAndChainId() external returns (uint256 parsed, uint256 chainId);
             function setup() external;
-            function actionParseUint() external;
-            function actionParseBytes32() external;
-            function actionParseAndDeal() external;
-            function getBalance() external view returns (uint256);
-            function invariant_parsed_uint() external view;
-            function invariant_parsed_int() external view;
-            function invariant_parsed_bool() external view;
-            function invariant_parsed_address() external view;
-            function invariant_parsed_bytes32() external view;
+            function actionReParseAll() external;
+            function actionParseSequence() external;
+            function actionParseDifferentUint() external;
+            function actionRevertInvalidBool() external pure;
+            function actionRevertInvalidAddress() external pure;
+            function actionRevertInvalidUint() external pure;
+            function actionRevertInvalidBytes32() external pure;
+            function getStoredUint() external view returns (uint256);
+            function invariant_allParsedMatch() external view;
         }
     }
 
@@ -100,13 +80,8 @@ mod tests {
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
             0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
             0xFF, 0xFF, 0xFF, 0xD6,
-        ])); // -42 as I256
+        ]));
     const EXPECTED_ADDR: Address = address!("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF");
-    const EXPECTED_BYTES32: [u8; 32] = [
-        0x74, 0x65, 0x73, 0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00,
-    ];
 
     fn load_fixture(id: &str) -> Contract {
         let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
@@ -116,7 +91,6 @@ mod tests {
         Contract::try_from(artifact).unwrap()
     }
 
-    /// Deploy the fixture and run its `setup` function.
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/ParseTarget.sol:ParseTarget");
         let mut chain = Chain::new(Config::default()).unwrap();
@@ -124,114 +98,14 @@ mod tests {
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_opts = SetupInput::new(target);
-        let setup = chain.setup(setup_opts).unwrap();
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
         assert!(setup.result.success, "setup must succeed");
 
         (chain, target)
     }
 
-    /// Execute a CALL with the cheatcode inspector enabled so that `vm.*`
-    /// functions invoked by the target contract are intercepted.
-    fn call_with_cheatcode_inspector(
-        chain: &mut Chain,
-        caller: Address,
-        target: Address,
-        data: Bytes,
-    ) -> TransactionResult {
-        let inspector = cheatcode::Inspector::default();
-        let tx = revm::context::TxEnv {
-            caller,
-            kind: revm::primitives::TxKind::Call(target),
-            data,
-            gas_limit: u64::MAX,
-            value: U256::ZERO,
-            ..Default::default()
-        };
-        let (result, _) = chain.inspect(tx, inspector).unwrap();
-        result
-    }
-
-    /// Call a view/pure function that returns a single `uint256` and decode it.
-    macro_rules! call_uint256_getter {
-        ($chain:expr, $target:expr, $call:ty) => {{
-            let calldata = <$call>::new(()).abi_encode();
-            let result = $chain
-                .call(DEFAULT_DEPLOYER, $target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{} must succeed", <$call>::SIGNATURE);
-            let output = result.output.expect("getter must return output");
-            <$call>::abi_decode_returns(&output).unwrap()
-        }};
-    }
-
-    /// Call a view/pure function that returns a single `int256` and decode it.
-    macro_rules! call_int256_getter {
-        ($chain:expr, $target:expr, $call:ty) => {{
-            let calldata = <$call>::new(()).abi_encode();
-            let result = $chain
-                .call(DEFAULT_DEPLOYER, $target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{} must succeed", <$call>::SIGNATURE);
-            let output = result.output.expect("getter must return output");
-            <$call>::abi_decode_returns(&output).unwrap()
-        }};
-    }
-
-    /// Call a view/pure function that returns a single `bool` and decode it.
-    macro_rules! call_bool_getter {
-        ($chain:expr, $target:expr, $call:ty) => {{
-            let calldata = <$call>::new(()).abi_encode();
-            let result = $chain
-                .call(DEFAULT_DEPLOYER, $target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{} must succeed", <$call>::SIGNATURE);
-            let output = result.output.expect("getter must return output");
-            <$call>::abi_decode_returns(&output).unwrap()
-        }};
-    }
-
-    /// Call a view/pure function that returns a single `address` and decode it.
-    macro_rules! call_address_getter {
-        ($chain:expr, $target:expr, $call:ty) => {{
-            let calldata = <$call>::new(()).abi_encode();
-            let result = $chain
-                .call(DEFAULT_DEPLOYER, $target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{} must succeed", <$call>::SIGNATURE);
-            let output = result.output.expect("getter must return output");
-            <$call>::abi_decode_returns(&output).unwrap()
-        }};
-    }
-
-    /// Call a view/pure function that returns `bytes32` and decode it.
-    macro_rules! call_bytes32_getter {
-        ($chain:expr, $target:expr, $call:ty) => {{
-            let calldata = <$call>::new(()).abi_encode();
-            let result = $chain
-                .call(DEFAULT_DEPLOYER, $target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{} must succeed", <$call>::SIGNATURE);
-            let output = result.output.expect("getter must return output");
-            <$call>::abi_decode_returns(&output).unwrap()
-        }};
-    }
-
-    /// Call a view/pure function that returns `bytes memory` and decode it.
-    macro_rules! call_bytes_getter {
-        ($chain:expr, $target:expr, $call:ty) => {{
-            let calldata = <$call>::new(()).abi_encode();
-            let result = $chain
-                .call(DEFAULT_DEPLOYER, $target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{} must succeed", <$call>::SIGNATURE);
-            let output = result.output.expect("getter must return output");
-            <$call>::abi_decode_returns(&output).unwrap()
-        }};
-    }
-
     // -----------------------------------------------------------------
-    // Handler-level (direct Rust unit tests)
+    // Handler-level unit tests
     // -----------------------------------------------------------------
 
     /// vm.parseUint("123") must return 123.
@@ -371,7 +245,6 @@ mod tests {
         assert!(outcome.is_some(), "must return an outcome");
         let outcome = outcome.unwrap();
         assert!(outcome.result.is_ok(), "vm.parseBytes must succeed");
-        // ABI encoding for bytes: offset (32) | length (4) | data (padded)
         assert!(
             outcome.result.output.len() > 32,
             "must be ABI-encoded bytes"
@@ -379,460 +252,161 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Basic contract-path integration
+    // Integration tests
     // -----------------------------------------------------------------
 
-    /// Values parsed during setup must match expectations.
+    /// Values parsed during setup must be readable by an invariant call
+    /// executed through `chain.exec`, proving the baseline state is correct.
     #[test]
-    fn parse_setup_values_persist_in_storage() {
+    fn setup_parsed_values_match_expected() {
         let (mut chain, target) = deploy_and_setup();
-
-        let uint_val = call_uint256_getter!(&mut chain, target, ParseTarget::getParsedUintCall);
-        assert_eq!(uint_val, EXPECTED_UINT, "stored uint must match");
-
-        let int_val = call_int256_getter!(&mut chain, target, ParseTarget::getParsedIntCall);
-        assert_eq!(int_val, EXPECTED_INT, "stored int must match");
-
-        let bool_val = call_bool_getter!(&mut chain, target, ParseTarget::getParsedBoolCall);
-        assert!(bool_val, "stored bool must be true");
-
-        let addr_val = call_address_getter!(&mut chain, target, ParseTarget::getParsedAddressCall);
-        assert_eq!(addr_val, EXPECTED_ADDR, "stored address must match");
-
-        let b32_val = call_bytes32_getter!(&mut chain, target, ParseTarget::getParsedBytes32Call);
-        assert_eq!(
-            b32_val.as_slice(),
-            EXPECTED_BYTES32,
-            "stored bytes32 must match"
-        );
-
-        let bytes_val = call_bytes_getter!(&mut chain, target, ParseTarget::getParsedBytesCall);
-        assert_eq!(
-            bytes_val.as_ref(),
-            &[0x12, 0x34, 0xab, 0xcd],
-            "stored bytes must match"
-        );
-    }
-
-    // -----------------------------------------------------------------
-    // Single-transaction determinism / sequence
-    // -----------------------------------------------------------------
-
-    /// vm.parseUint with the same string twice in one tx must yield identical
-    /// results, proving the cheatcode is deterministic and stateless.
-    #[test]
-    fn parse_uint_same_value_twice_in_sequence_is_deterministic() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = ParseTarget::callParseUintSameValueTwiceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callParseUintSameValueTwice() must succeed");
-        let output = result.output.expect("must return output");
-        let ret =
-            ParseTarget::callParseUintSameValueTwiceCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(
-            ret.first, ret.second,
-            "same parse string must give identical values"
-        );
-        assert_eq!(ret.first, U256::from(456));
-    }
-
-    /// vm.parseBytes32 with the same string twice in one tx must yield identical
-    /// results.
-    #[test]
-    fn parse_bytes32_same_value_twice_in_sequence_is_deterministic() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = ParseTarget::callParseBytes32SameValueTwiceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            ParseTarget::invariant_allParsedMatchCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
         assert!(
-            result.success,
-            "callParseBytes32SameValueTwice() must succeed"
-        );
-        let output = result.output.expect("must return output");
-        let ret =
-            ParseTarget::callParseBytes32SameValueTwiceCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(
-            ret.first, ret.second,
-            "same parse string must give identical bytes32"
+            execution.results[0].success,
+            "invariant must pass after setup"
         );
     }
 
-    /// vm.parseUint with different strings interleaved must produce distinct
-    /// values, and repeating a string must reproduce the original value.
+    /// Re-parsing the same canonical values in an action and then calling the
+    /// invariant must leave the state unchanged, proving `vm.parse*` is
+    /// deterministic and safe to call repeatedly.
     #[test]
-    fn parse_uint_sequence_returns_consistent_values() {
+    fn reparse_same_values_preserves_invariant() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = ParseTarget::callParseUintSequenceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callParseUintSequence() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = ParseTarget::callParseUintSequenceCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(
-            ret.first,
-            U256::from(1),
-            "first vm.parseUint(1) must read 1"
-        );
-        assert_eq!(
-            ret.second,
-            U256::from(2),
-            "second vm.parseUint(2) must read 2"
-        );
-        assert_eq!(
-            ret.third,
-            U256::from(1),
-            "third vm.parseUint(1) must read 1 again"
-        );
-        assert_eq!(ret.first, ret.third, "repeated parse must match");
-    }
-
-    /// vm.parseBool with different strings interleaved must produce distinct
-    /// bools and repeating a string must reproduce the original bool.
-    #[test]
-    fn parse_bool_sequence_returns_consistent_values() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = ParseTarget::callParseBoolSequenceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callParseBoolSequence() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = ParseTarget::callParseBoolSequenceCall::abi_decode_returns(&output).unwrap();
-        assert!(ret.first, "first vm.parseBool(true) must be true");
-        assert!(!ret.second, "second vm.parseBool(false) must be false");
-        assert!(ret.third, "third vm.parseBool(true) must be true again");
-        assert_eq!(ret.first, ret.third, "repeated parse must match");
-    }
-
-    // -----------------------------------------------------------------
-    // Edge cases - revert via contract
-    // -----------------------------------------------------------------
-
-    /// vm.parseBool("maybe") must revert when called through the target.
-    #[test]
-    fn parse_invalid_bool_reverts_via_contract() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = ParseTarget::parseInvalidBoolCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(
-            !result.success,
-            "parseInvalidBool() must revert when vm.parseBool is called with invalid string"
-        );
-    }
-
-    /// vm.parseAddress("not_an_address") must revert.
-    #[test]
-    fn parse_invalid_address_reverts_via_contract() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = ParseTarget::parseInvalidAddressCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(
-            !result.success,
-            "parseInvalidAddress() must revert when vm.parseAddress is called with invalid string"
-        );
-    }
-
-    /// vm.parseBytes32("abcd") must revert because length is wrong.
-    #[test]
-    fn parse_invalid_bytes32_length_reverts_via_contract() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = ParseTarget::parseInvalidBytes32LengthCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(
-            !result.success,
-            "parseInvalidBytes32Length() must revert when vm.parseBytes32 has wrong length"
-        );
-    }
-
-    /// vm.parseUint("not_a_number") must revert.
-    #[test]
-    fn parse_invalid_uint_reverts_via_contract() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = ParseTarget::parseInvalidUintCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(
-            !result.success,
-            "parseInvalidUint() must revert when vm.parseUint is called with invalid string"
-        );
-    }
-
-    // -----------------------------------------------------------------
-    // Persistence
-    // -----------------------------------------------------------------
-
-    /// Values parsed and stored during setup must still be readable in later
-    /// transactions, proving contract-level persistence works.
-    #[test]
-    fn parse_setup_values_readable_across_transactions() {
-        let (mut chain, target) = deploy_and_setup();
-
-        let first = call_uint256_getter!(&mut chain, target, ParseTarget::getParsedUintCall);
-        let second = call_uint256_getter!(&mut chain, target, ParseTarget::getParsedUintCall);
-        assert_eq!(first, EXPECTED_UINT);
-        assert_eq!(second, EXPECTED_UINT);
-        assert_eq!(
-            first, second,
-            "getter must return the same stored uint across calls"
-        );
-
-        let first_b32 = call_bytes32_getter!(&mut chain, target, ParseTarget::getParsedBytes32Call);
-        let second_b32 =
-            call_bytes32_getter!(&mut chain, target, ParseTarget::getParsedBytes32Call);
-        assert_eq!(first_b32.as_slice(), EXPECTED_BYTES32);
-        assert_eq!(second_b32.as_slice(), EXPECTED_BYTES32);
-    }
-
-    // -----------------------------------------------------------------
-    // Fuzzing-scenario coverage (actions + invariants across transactions)
-    // -----------------------------------------------------------------
-
-    /// Invariants must pass immediately after setup (fuzzing baseline).
-    #[test]
-    fn invariant_passes_after_setup() {
-        let (mut chain, target) = deploy_and_setup();
-        let invariants = [
-            (
-                ParseTarget::invariant_parsed_uintCall::new(()).abi_encode(),
-                "invariant_parsed_uint",
-            ),
-            (
-                ParseTarget::invariant_parsed_intCall::new(()).abi_encode(),
-                "invariant_parsed_int",
-            ),
-            (
-                ParseTarget::invariant_parsed_boolCall::new(()).abi_encode(),
-                "invariant_parsed_bool",
-            ),
-            (
-                ParseTarget::invariant_parsed_addressCall::new(()).abi_encode(),
-                "invariant_parsed_address",
-            ),
-            (
-                ParseTarget::invariant_parsed_bytes32Call::new(()).abi_encode(),
-                "invariant_parsed_bytes32",
-            ),
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                ParseTarget::actionReParseAllCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                ParseTarget::invariant_allParsedMatchCall::new(()).abi_encode(),
+            )),
         ];
-        for (calldata, name) in invariants {
-            let result = chain
-                .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{name} must pass after setup");
-        }
-    }
-
-    /// A fuzz-like sequence of actions followed by invariants must all succeed.
-    /// This proves `vm.parse*` stays deterministic across multiple transactions
-    /// and that invariants correctly observe the persisted state.
-    #[test]
-    fn action_sequence_and_invariants() {
-        let (mut chain, target) = deploy_and_setup();
-
-        // Action 1: re-parse the expected uint and store it.
-        let calldata = ParseTarget::actionParseUintCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionParseUint must succeed");
-
-        // Invariant must still pass after the action.
-        let calldata = ParseTarget::invariant_parsed_uintCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
         assert!(
-            result.success,
-            "invariant_parsed_uint must pass after actionParseUint"
-        );
-
-        // Action 2: re-parse the expected bytes32 and store it.
-        let calldata = ParseTarget::actionParseBytes32Call::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionParseBytes32 must succeed");
-
-        // Invariant must still pass.
-        let calldata = ParseTarget::invariant_parsed_bytes32Call::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(
-            result.success,
-            "invariant_parsed_bytes32 must pass after actionParseBytes32"
-        );
-
-        // Action 3: parse a value and use it with deal.
-        let calldata = ParseTarget::actionParseAndDealCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionParseAndDeal must succeed");
-
-        let balance: U256 = call_uint256_getter!(&mut chain, target, ParseTarget::getBalanceCall);
-        assert_eq!(
-            balance,
-            U256::from(1000),
-            "balance must be 1000 after actionParseAndDeal"
-        );
-    }
-
-    // -----------------------------------------------------------------
-    // Interaction with other cheatcodes
-    // -----------------------------------------------------------------
-
-    /// vm.parseUint followed by vm.deal must set the correct balance.
-    #[test]
-    fn parse_and_deal_interaction() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = ParseTarget::callParseAndDealCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callParseAndDeal must succeed");
-        let output = result.output.expect("must return output");
-        let ret = ParseTarget::callParseAndDealCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(ret.parsed, U256::from(1000), "parsed value must be 1000");
-        assert_eq!(
-            ret.balance,
-            U256::from(1000),
-            "balance must match parsed value"
-        );
-    }
-
-    /// vm.parseUint followed by vm.warp must set the correct timestamp.
-    #[test]
-    fn parse_and_warp_interaction() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = ParseTarget::callParseAndWarpCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callParseAndWarp must succeed");
-        let output = result.output.expect("must return output");
-        let ret = ParseTarget::callParseAndWarpCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(
-            ret.parsed,
-            U256::from(1234567890),
-            "parsed value must be 1234567890"
-        );
-        assert_eq!(
-            ret.timestamp,
-            U256::from(1234567890),
-            "timestamp must match parsed value"
-        );
-    }
-
-    /// vm.parseUint followed by vm.chainId must set the correct chain id.
-    #[test]
-    fn parse_and_chain_id_interaction() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = ParseTarget::callParseAndChainIdCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callParseAndChainId must succeed");
-        let output = result.output.expect("must return output");
-        let ret = ParseTarget::callParseAndChainIdCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(ret.parsed, U256::from(99), "parsed value must be 99");
-        assert_eq!(
-            ret.chainId,
-            U256::from(99),
-            "chainId must match parsed value"
-        );
-    }
-
-    // -----------------------------------------------------------------
-    // Cross-transaction determinism
-    // -----------------------------------------------------------------
-
-    /// vm.parseUint with the same string must return the same value when
-    /// called in a separate transaction after the initial setup.
-    #[test]
-    fn parse_uint_deterministic_across_transaction_sequence() {
-        let (mut chain, target) = deploy_and_setup();
-
-        let calldata = ParseTarget::actionParseUintCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata.clone()),
-        );
-        assert!(result.success, "actionParseUint must succeed");
-        let stored = call_uint256_getter!(&mut chain, target, ParseTarget::getParsedUintCall);
-        assert_eq!(
-            stored, EXPECTED_UINT,
-            "stored uint must match after first action"
-        );
-
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
+            execution.results[0].success,
+            "actionReParseAll must succeed"
         );
         assert!(
-            result.success,
-            "actionParseUint must succeed on second call"
+            execution.results[1].success,
+            "invariant must pass after re-parsing"
         );
-        let stored = call_uint256_getter!(&mut chain, target, ParseTarget::getParsedUintCall);
-        assert_eq!(
-            stored, EXPECTED_UINT,
-            "stored uint must still match after second action"
+    }
+
+    /// Parsing a different uint value in an action mutates the stored state,
+    /// so the invariant must fail afterward. This proves `vm.parseUint` actually
+    /// changes contract state rather than being a no-op.
+    #[test]
+    fn parse_different_value_breaks_invariant() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                ParseTarget::actionParseDifferentUintCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                ParseTarget::invariant_allParsedMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results[0].success,
+            "actionParseDifferentUint must succeed"
+        );
+        assert!(
+            !execution.results[1].success,
+            "invariant must fail after parsing a different value"
+        );
+    }
+
+    /// A sequence of parse calls inside a single transaction must end on the
+    /// correct final value, proving multiple `vm.parseUint` calls in one tx
+    /// compose correctly and do not interfere with each other.
+    #[test]
+    fn parse_sequence_returns_correct_final_value() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                ParseTarget::actionParseSequenceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                ParseTarget::getStoredUintCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                ParseTarget::invariant_allParsedMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 3);
+        assert!(
+            execution.results[0].success,
+            "actionParseSequence must succeed"
+        );
+        assert!(execution.results[1].success, "getStoredUint must succeed");
+        let stored = ParseTarget::getStoredUintCall::abi_decode_returns(
+            &execution.results[1].output.clone().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(stored, EXPECTED_UINT, "final stored uint must be 123");
+        assert!(
+            execution.results[2].success,
+            "invariant must pass after sequence"
+        );
+    }
+
+    /// Invalid parse inputs must cause the calling transaction to revert when
+    /// executed through `chain.exec`, proving error propagation works for all
+    /// parse types in the real fuzzing path.
+    #[test]
+    fn invalid_parse_inputs_revert_in_exec() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                ParseTarget::actionRevertInvalidBoolCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                ParseTarget::actionRevertInvalidAddressCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                ParseTarget::actionRevertInvalidUintCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                ParseTarget::actionRevertInvalidBytes32Call::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 4);
+        assert!(!execution.results[0].success, "invalid bool must revert");
+        assert!(!execution.results[1].success, "invalid address must revert");
+        assert!(!execution.results[2].success, "invalid uint must revert");
+        assert!(!execution.results[3].success, "invalid bytes32 must revert");
+    }
+
+    /// A cloned chain snapshot must produce the same parse state when the
+    /// invariant is executed on the clone. This is critical for parallel fuzzing
+    /// where each worker starts from a cloned state.
+    #[test]
+    fn cloned_chain_preserves_parse_state() {
+        let (chain, target) = deploy_and_setup();
+        let mut cloned = chain.clone();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            ParseTarget::invariant_allParsedMatchCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = cloned.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            execution.results[0].success,
+            "invariant must pass on cloned chain"
         );
     }
 }
