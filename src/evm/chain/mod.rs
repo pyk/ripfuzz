@@ -492,7 +492,6 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
-    use crate::contract;
     use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
     use crate::foundry;
     use crate::target::Contract;
@@ -637,12 +636,15 @@ mod tests {
     /// Execute against a basic target to verify coverage works with initcode.
     #[test]
     fn execute_coverage_on_basic_target() {
-        let artifact =
-            contract::tests::load_test_artifact("fixtures/basic-target", "src/NamedMismatch.sol")
-                .unwrap();
+        let project = foundry::Project::new("fixtures/basic-target");
+        let artifacts = project.load_artifacts().unwrap();
+        let artifact_id =
+            foundry::ArtifactId::try_from("src/NamedMismatch.sol:DifferentName").unwrap();
+        let artifact = artifacts.get(&artifact_id).unwrap();
+        let contract = Contract::try_from(artifact).unwrap();
         let mut chain = Chain::new(Config::default()).unwrap();
         chain.config.coverage = true;
-        let deployment = chain.deploy(DeployInput::new(artifact.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success);
         let target = deployment.address.unwrap();
 
