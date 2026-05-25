@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 
 use alloy_json_abi::JsonAbi;
 use revm::{
-    Database, MainBuilder, MainContext,
+    MainBuilder, MainContext,
     context::{Context, TxEnv},
     inspector::InspectCommitEvm,
     primitives::{Bytes, TxKind, U256},
@@ -77,8 +77,6 @@ pub fn execute(
         labels: local_state.labels.clone(),
         prank: local_state.prank.clone(),
         block: local_state.block_overrides,
-        eth_deals: Vec::new(),
-        nonce_changes: Vec::new(),
     };
     let cheatcode_inspector =
         cheatcode::Inspector::from_state(exec_state).with_shared_labels(shared_labels);
@@ -221,24 +219,7 @@ pub fn execute(
             trace!(idx, "call succeeded");
         } else {
             let inspector = &mut evm.inspector;
-            let db = &mut evm.ctx.journaled_state.database;
             inspector.2.state.block = prev_block;
-            for record in inspector.2.state.eth_deals.drain(..).rev() {
-                let mut info = db
-                    .basic(record.address)
-                    .unwrap_or_default()
-                    .unwrap_or_default();
-                info.balance = record.old_balance;
-                db.insert_account_info(record.address, info);
-            }
-            for record in inspector.2.state.nonce_changes.drain(..).rev() {
-                let mut info = db
-                    .basic(record.address)
-                    .unwrap_or_default()
-                    .unwrap_or_default();
-                info.nonce = record.old_nonce;
-                db.insert_account_info(record.address, info);
-            }
             if let Some(output) = result.output()
                 && is_assert_failure(output)
             {

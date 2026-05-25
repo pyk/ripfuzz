@@ -59,8 +59,6 @@ pub fn setup(
         labels: state.labels.clone(),
         prank: state.prank.clone(),
         block: state.block_overrides,
-        eth_deals: Vec::new(),
-        nonce_changes: Vec::new(),
     };
     let cheatcode_inspector =
         cheatcode::Inspector::from_state(exec_state).with_shared_labels(shared_labels);
@@ -117,7 +115,6 @@ pub fn setup(
     new_state.labels = inspector.state.labels;
     new_state.prank = inspector.state.prank;
     new_state.block_overrides = inspector.state.block;
-    // eth_deals and nonce_changes are NOT copied (dropped with the inspector).
     if let Some(ts) = new_state.block_overrides.timestamp {
         new_state.block_timestamp = u64::try_from(ts).unwrap_or(u64::MAX);
     }

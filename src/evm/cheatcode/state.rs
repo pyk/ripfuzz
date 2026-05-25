@@ -5,20 +5,6 @@ use std::path::PathBuf;
 
 use revm::primitives::{Address, Bytes, U256};
 
-/// Record of a balance change produced by `vm.deal`.
-#[derive(Clone, Debug)]
-pub struct EthDealRecord {
-    pub address: Address,
-    pub old_balance: U256,
-}
-
-/// Record of a nonce change produced by `vm.setNonce`.
-#[derive(Clone, Debug)]
-pub struct NonceChangeRecord {
-    pub address: Address,
-    pub old_nonce: u64,
-}
-
 /// Transient scratchpad for one call sequence.
 #[derive(Clone, Debug, Default)]
 pub struct ExecutionState {
@@ -28,11 +14,10 @@ pub struct ExecutionState {
     pub compiled_contracts: HashMap<String, Bytes>,
     pub project_root: PathBuf,
     pub ffi_enabled: bool,
-    pub eth_deals: Vec<EthDealRecord>,
-    pub nonce_changes: Vec<NonceChangeRecord>,
 }
 
 impl ExecutionState {
+    // TODO(pyk): remove this, Chain owns execution state now
     /// Seed execution state from a [`Config`](crate::evm::cheatcode::Config).
     pub fn from_config(config: &crate::evm::cheatcode::Config) -> Self {
         Self {
