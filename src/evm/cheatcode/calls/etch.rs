@@ -8,14 +8,12 @@ use revm::{
     primitives::{Address, Bytes},
 };
 
-use crate::evm::cheatcode::{outcome, state::ExecutionState};
+use crate::evm::cheatcode::outcome;
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
+    ctx: &mut CTX,
     addr: Address,
     code: Bytes,
-
-    ctx: &mut CTX,
-    _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
     if ctx.journal().precompile_addresses().contains(&addr) {
         return Some(outcome::revert("cannot etch precompile address"));

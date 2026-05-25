@@ -7,15 +7,13 @@ use revm::{
     primitives::{Address, U256},
 };
 
-use crate::evm::cheatcode::{outcome, state::ExecutionState};
+use crate::evm::cheatcode::outcome;
 
 pub fn store<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
+    ctx: &mut CTX,
     addr: Address,
     slot: [u8; 32],
     value: [u8; 32],
-
-    ctx: &mut CTX,
-    _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
     if ctx.journal().precompile_addresses().contains(&addr) {
         return Some(outcome::revert("store: cannot write to precompile"));
@@ -32,11 +30,9 @@ pub fn store<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
 }
 
 pub fn load<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
+    ctx: &mut CTX,
     addr: Address,
     slot: [u8; 32],
-
-    ctx: &mut CTX,
-    _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
     if ctx.journal().precompile_addresses().contains(&addr) {
         return Some(outcome::revert("load: cannot read from precompile"));

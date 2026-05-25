@@ -5,10 +5,9 @@ use revm::{context::BlockEnv, context::ContextSetters, context_interface::Contex
 use crate::evm::cheatcode::{outcome, state::ExecutionState};
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
-    bytes: [u8; 32],
-
     ctx: &mut CTX,
     state: &mut ExecutionState,
+    bytes: [u8; 32],
 ) -> Option<revm::interpreter::CallOutcome> {
     let mut block = ctx.block().clone();
     block.prevrandao = Some(revm::primitives::FixedBytes::from(bytes));

@@ -7,12 +7,7 @@ use crate::evm::cheatcode::{
     state::{ExecutionState, PrankState, StartPrankState},
 };
 
-pub fn prank(
-    addr: Address,
-
-    _ctx: &mut impl revm::context_interface::ContextTr,
-    state: &mut ExecutionState,
-) -> Option<revm::interpreter::CallOutcome> {
+pub fn prank(state: &mut ExecutionState, addr: Address) -> Option<revm::interpreter::CallOutcome> {
     if let Some(ref active) = state.prank.active
         && !active.used
     {
@@ -37,11 +32,9 @@ pub fn prank(
 }
 
 pub fn prank_origin(
+    state: &mut ExecutionState,
     addr: Address,
     origin: Address,
-
-    _ctx: &mut impl revm::context_interface::ContextTr,
-    state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
     let origin = Some(origin);
     if let Some(ref active) = state.prank.active
@@ -68,10 +61,8 @@ pub fn prank_origin(
 }
 
 pub fn start_prank(
-    addr: Address,
-
-    _ctx: &mut impl revm::context_interface::ContextTr,
     state: &mut ExecutionState,
+    addr: Address,
 ) -> Option<revm::interpreter::CallOutcome> {
     if let Some(ref active) = state.prank.active
         && !active.used
@@ -98,11 +89,9 @@ pub fn start_prank(
 }
 
 pub fn start_prank_origin(
+    state: &mut ExecutionState,
     addr: Address,
     origin: Address,
-
-    _ctx: &mut impl revm::context_interface::ContextTr,
-    state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
     let origin = Some(origin);
     if let Some(ref active) = state.prank.active

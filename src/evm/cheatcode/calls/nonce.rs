@@ -7,14 +7,12 @@ use revm::{
     primitives::{Address, U256},
 };
 
-use crate::evm::cheatcode::{outcome, state::ExecutionState};
+use crate::evm::cheatcode::outcome;
 
 pub fn set_nonce<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
+    ctx: &mut CTX,
     addr: Address,
     nonce: u64,
-
-    ctx: &mut CTX,
-    _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
     let current = ctx
         .journal_mut()
@@ -37,10 +35,8 @@ pub fn set_nonce<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
 }
 
 pub fn get_nonce<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
-    addr: Address,
-
     ctx: &mut CTX,
-    _state: &mut ExecutionState,
+    addr: Address,
 ) -> Option<revm::interpreter::CallOutcome> {
     let nonce = ctx
         .journal_mut()

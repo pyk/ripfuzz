@@ -7,10 +7,9 @@ use revm::{
 use crate::evm::cheatcode::{outcome, state::ExecutionState};
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
-    value: U256,
-
     ctx: &mut CTX,
     state: &mut ExecutionState,
+    value: U256,
 ) -> Option<revm::interpreter::CallOutcome> {
     let bytes: [u8; 32] = value.to_be_bytes();
     let mut block = ctx.block().clone();

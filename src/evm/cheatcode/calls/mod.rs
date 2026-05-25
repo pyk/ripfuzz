@@ -94,32 +94,32 @@ where
 {
     match call {
         // Block
-        VmCalls::warp(c) => warp::handle(c.newTimestamp, ctx, state),
-        VmCalls::roll(c) => roll::handle(c.newNumber, ctx, state),
-        VmCalls::fee(c) => fee::handle(c.newBasefee, ctx, state),
+        VmCalls::warp(c) => warp::handle(ctx, state, c.newTimestamp),
+        VmCalls::roll(c) => roll::handle(ctx, state, c.newNumber),
+        VmCalls::fee(c) => fee::handle(ctx, state, c.newBasefee),
         VmCalls::coinbase(c) => coinbase::handle(ctx, state, c.newCoinbase),
-        VmCalls::prevrandao(c) => prevrandao::handle(c.newPrevrandao.into(), ctx, state),
-        VmCalls::difficulty(c) => difficulty::handle(c.newDifficulty, ctx, state),
+        VmCalls::prevrandao(c) => prevrandao::handle(ctx, state, c.newPrevrandao.into()),
+        VmCalls::difficulty(c) => difficulty::handle(ctx, state, c.newDifficulty),
         VmCalls::chainId(c) => chain_id::handle(ctx, state, c.newChainId),
 
         // Account
         VmCalls::deal(c) => deal::handle(ctx, c.account, c.value),
-        VmCalls::etch(c) => etch::handle(c.account, c.code, ctx, state),
-        VmCalls::setNonce(c) => nonce::set_nonce(c.account, c.nonce, ctx, state),
-        VmCalls::getNonce(c) => nonce::get_nonce(c.account, ctx, state),
-        VmCalls::store(c) => storage::store(c.account, c.slot.into(), c.value.into(), ctx, state),
-        VmCalls::load(c) => storage::load(c.account, c.slot.into(), ctx, state),
+        VmCalls::etch(c) => etch::handle(ctx, c.account, c.code),
+        VmCalls::setNonce(c) => nonce::set_nonce(ctx, c.account, c.nonce),
+        VmCalls::getNonce(c) => nonce::get_nonce(ctx, c.account),
+        VmCalls::store(c) => storage::store(ctx, c.account, c.slot.into(), c.value.into()),
+        VmCalls::load(c) => storage::load(ctx, c.account, c.slot.into()),
 
         // Prank
-        VmCalls::prank_0(c) => prank::prank(c.a, ctx, state),
-        VmCalls::prank_1(c) => prank::prank_origin(c.a, c.origin, ctx, state),
-        VmCalls::startPrank_0(c) => prank::start_prank(c.a, ctx, state),
-        VmCalls::startPrank_1(c) => prank::start_prank_origin(c.a, c.origin, ctx, state),
+        VmCalls::prank_0(c) => prank::prank(state, c.a),
+        VmCalls::prank_1(c) => prank::prank_origin(state, c.a, c.origin),
+        VmCalls::startPrank_0(c) => prank::start_prank(state, c.a),
+        VmCalls::startPrank_1(c) => prank::start_prank_origin(state, c.a, c.origin),
         VmCalls::stopPrank(_) => prank::stop_prank(state),
 
         // Label
-        VmCalls::label(c) => label::label(c.account, &c.name, state),
-        VmCalls::getLabel(c) => label::get_label(c.account, state),
+        VmCalls::label(c) => label::label(state, c.account, &c.name),
+        VmCalls::getLabel(c) => label::get_label(state, c.account),
 
         // Conversion
         VmCalls::toString_0(c) => to_string::to_string_address(c.a),
