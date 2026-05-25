@@ -30,6 +30,18 @@ impl fmt::Display for ArtifactId {
     }
 }
 
+impl From<ArtifactId> for String {
+    fn from(id: ArtifactId) -> Self {
+        format!("{}:{}", id.path.display(), id.name)
+    }
+}
+
+impl From<&ArtifactId> for String {
+    fn from(id: &ArtifactId) -> Self {
+        format!("{}:{}", id.path.display(), id.name)
+    }
+}
+
 impl TryFrom<String> for ArtifactId {
     type Error = anyhow::Error;
 
