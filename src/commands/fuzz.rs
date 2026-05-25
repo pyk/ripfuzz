@@ -472,14 +472,12 @@ pub fn run(args: Args) -> Result<()> {
     );
 
     // Build chain
-    let vm = crate::evm::cheatcode::Vm::new(
-        crate::evm::cheatcode::VmConfig::default()
-            .with_ffi(args.ffi)
-            .with_project_root(&project_path),
-    );
+    let cheatcode_config = crate::evm::cheatcode::Config::default()
+        .with_ffi(args.ffi)
+        .with_project_root(&project_path);
     let chain = crate::chain::Chain::for_artifact(&artifact)
         .with_project(&project_path)
-        .with_vm(vm)
+        .with_config(cheatcode_config)
         .with_deploy_value(args.deploy_value)
         .with_deployer(args.deployer_address)
         .with_environment(env)

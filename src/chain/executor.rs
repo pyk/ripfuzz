@@ -79,9 +79,8 @@ pub fn execute(
         eth_deals: Vec::new(),
         nonce_changes: Vec::new(),
     };
-    let cheatcode_inspector =
-        crate::evm::cheatcode::inspector::CheatcodeInspector::from_state(exec_state)
-            .with_shared_labels(shared_labels);
+    let cheatcode_inspector = crate::evm::cheatcode::inspector::Inspector::from_state(exec_state)
+        .with_shared_labels(shared_labels);
 
     let inspector = InspectorTuple::new(
         coverage_inspector,
@@ -97,9 +96,9 @@ pub fn execute(
     ctx.block.number = U256::from(local_state.block_number);
     ctx.block.timestamp = U256::from(local_state.block_timestamp);
 
-    let overrides = inspector.2.state.block_overrides();
+    let overrides = inspector.2.state.block;
     if let Some(fee) = overrides.basefee {
-        ctx.block.basefee = fee;
+        ctx.block.basefee = u64::try_from(fee).unwrap_or_default();
     }
     if let Some(beneficiary) = overrides.beneficiary {
         ctx.block.beneficiary = beneficiary;
@@ -108,7 +107,7 @@ pub fn execute(
         ctx.block.prevrandao = Some(prevrandao);
     }
     if let Some(chain_id) = overrides.chain_id {
-        ctx.cfg.chain_id = chain_id;
+        ctx.cfg.chain_id = u64::try_from(chain_id).unwrap_or_default();
     }
 
     let mut evm = ctx.build_mainnet_with_inspector(inspector);
@@ -138,9 +137,9 @@ pub fn execute(
         evm.ctx.block.number = U256::from(local_state.block_number);
         evm.ctx.block.timestamp = U256::from(local_state.block_timestamp);
 
-        let overrides = evm.inspector.2.state.block_overrides();
+        let overrides = evm.inspector.2.state.block;
         if let Some(fee) = overrides.basefee {
-            evm.ctx.block.basefee = fee;
+            evm.ctx.block.basefee = u64::try_from(fee).unwrap_or_default();
         }
         if let Some(beneficiary) = overrides.beneficiary {
             evm.ctx.block.beneficiary = beneficiary;
@@ -149,7 +148,7 @@ pub fn execute(
             evm.ctx.block.prevrandao = Some(prevrandao);
         }
         if let Some(chain_id) = overrides.chain_id {
-            evm.ctx.cfg.chain_id = chain_id;
+            evm.ctx.cfg.chain_id = u64::try_from(chain_id).unwrap_or_default();
         }
 
         let tx_origin = evm

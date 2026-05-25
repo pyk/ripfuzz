@@ -1,37 +1,71 @@
-//! Persistent cheatcode state types used by [`BaseState`](crate::chain::BaseState)
-//! and [`ExecutionState`](crate::evm::cheatcode::ExecutionState).
+//! Persistent cheatcode state types.
 
-use alloy_primitives::U256;
-use revm::primitives::Address;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
-/// Persistent block-context overrides set by cheatcodes.
+use revm::primitives::{Address, Bytes, U256};
+
+/// Record of a balance change produced by `vm.deal`.
+#[derive(Clone, Debug)]
+pub struct EthDealRecord {
+    pub address: Address,
+    pub old_balance: U256,
+}
+
+/// Record of a nonce change produced by `vm.setNonce`.
+#[derive(Clone, Debug)]
+pub struct NonceChangeRecord {
+    pub address: Address,
+    pub old_nonce: u64,
+}
+
+/// Transient scratchpad for one call sequence.
+#[derive(Clone, Debug, Default)]
+pub struct ExecutionState {
+    pub block: BlockCheatState,
+    pub prank: PrankCheatState,
+    pub labels: HashMap<Address, String>,
+    pub compiled_contracts: HashMap<String, Bytes>,
+    pub project_root: PathBuf,
+    pub ffi_enabled: bool,
+    pub eth_deals: Vec<EthDealRecord>,
+    pub nonce_changes: Vec<NonceChangeRecord>,
+}
+
+impl ExecutionState {
+    /// Seed execution state from a [`Config`](crate::evm::cheatcode::Config).
+    pub fn from_config(config: &crate::evm::cheatcode::Config) -> Self {
+        Self {
+            project_root: config.project_root.clone(),
+            ffi_enabled: config.ffi,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BlockCheatState {
     pub timestamp: Option<U256>,
     pub number: Option<U256>,
     pub basefee: Option<U256>,
     pub beneficiary: Option<Address>,
-    pub prevrandao: Option<[u8; 32]>,
+    pub prevrandao: Option<revm::primitives::FixedBytes<32>>,
     pub chain_id: Option<U256>,
+    pub difficulty: Option<U256>,
 }
 
-/// Persistent prank state set by cheatcodes.
 #[derive(Clone, Debug, Default)]
 pub struct PrankCheatState {
     pub active: Option<PrankState>,
     pub start: Option<StartPrankState>,
-    /// The original `tx.origin` before any prank was applied.
-    /// Stored in prank state so it survives EVM rebuilds.
     pub original_origin: Option<Address>,
 }
 
 impl PrankCheatState {
-    /// Return the caller that should be used for the top-level transaction.
     pub fn caller_for_top_level(&self) -> Option<Address> {
         self.start.as_ref().map(|s| s.caller)
     }
 
-    /// Return the origin that should be used for the top-level transaction.
     pub fn origin_for_top_level(&self, default: Address) -> Address {
         self.start
             .as_ref()
@@ -40,27 +74,13 @@ impl PrankCheatState {
     }
 }
 
-/// Block-context overrides produced from [`BlockCheatState`].
-#[derive(Clone, Debug, Default)]
-pub struct BlockOverrides {
-    pub timestamp: Option<U256>,
-    pub number: Option<U256>,
-    pub basefee: Option<u64>,
-    pub beneficiary: Option<Address>,
-    pub prevrandao: Option<revm::primitives::FixedBytes<32>>,
-    pub chain_id: Option<u64>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PrankState {
     pub caller: Address,
     pub origin: Option<Address>,
     pub single_call: bool,
-    /// Call depth of the frame that configured this prank.
     pub set_depth: u64,
-    /// Address of the contract that called the cheatcode (prank initiator).
     pub prank_caller: Address,
-    /// Whether the prank has been applied at least once.
     pub used: bool,
 }
 
@@ -68,10 +88,7 @@ pub struct PrankState {
 pub struct StartPrankState {
     pub caller: Address,
     pub origin: Option<Address>,
-    /// Call depth at which this prank was set.
     pub set_depth: u64,
-    /// Address of the contract that called the cheatcode (prank initiator).
     pub prank_caller: Address,
-    /// Whether the prank has been applied at least once.
     pub used: bool,
 }

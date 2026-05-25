@@ -8,6 +8,8 @@ use alloy_dyn_abi::{DynSolType, DynSolValue};
 use anyhow::Result;
 use tracing::{info, instrument};
 
+pub use factory::{DefaultFactory, Factory, FactoryOptions};
+
 use crate::contract;
 use crate::corpus::{Call, CallMeta, Corpus, CorpusItem};
 use crate::fuzzer::config::FuzzerConfig;
@@ -16,8 +18,6 @@ use crate::target;
 pub mod config;
 pub mod factory;
 pub mod mutators;
-
-pub use factory::{DefaultFactory, Factory, FactoryOptions};
 
 /// Result produced by a single fuzzer.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

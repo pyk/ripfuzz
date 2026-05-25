@@ -729,10 +729,10 @@ mod tests {
         let artifact =
             crate::contract::tests::load_test_artifact("fixtures/forks", "test/ForkTarget.sol")
                 .unwrap();
-        let vm = crate::evm::cheatcode::Vm::new(crate::evm::cheatcode::VmConfig::default());
+        let cheatcode_config = crate::evm::cheatcode::Config::default();
         let chain = crate::chain::Chain::for_artifact(&artifact)
             .with_project(Path::new("fixtures/forks"))
-            .with_vm(vm)
+            .with_config(cheatcode_config)
             .with_deploy_value(revm::primitives::U256::ZERO)
             .with_deployer(crate::chain::init::DEFAULT_DEPLOYER)
             .with_environment(env)

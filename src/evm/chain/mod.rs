@@ -11,7 +11,7 @@ use revm::{
     state::AccountInfo,
 };
 
-use crate::evm::cheatcode::inspector::CheatcodeInspector;
+use crate::evm::cheatcode::inspector::Inspector as CheatcodeInspector;
 use crate::evm::database::Database;
 use crate::evm::result::TransactionResult;
 use crate::evm::trace::{Inspector as TraceInspector, Trace};
@@ -201,7 +201,7 @@ impl Chain {
     /// A [`CheatcodeInspector`] is included so that target contracts can call
     /// raptor cheatcodes (e.g. `vm.warp`) during constructor execution.
     pub fn deploy(&mut self, opts: DeployOptions) -> Result<Deployment> {
-        let inspector = (TraceInspector::new(), CheatcodeInspector::new());
+        let inspector = (TraceInspector::new(), CheatcodeInspector::default());
         let tx = TxEnv {
             caller: opts.caller,
             kind: TxKind::Create,
@@ -241,7 +241,7 @@ impl Chain {
 
     /// Execute a setup CALL against the given target and return the full result with trace.
     pub fn setup(&mut self, opts: SetupOptions) -> Result<Setup> {
-        let inspector = (TraceInspector::new(), CheatcodeInspector::new());
+        let inspector = (TraceInspector::new(), CheatcodeInspector::default());
         let tx = TxEnv {
             caller: opts.caller,
             kind: TxKind::Call(opts.target),

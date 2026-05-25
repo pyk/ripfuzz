@@ -7,34 +7,45 @@ use revm::{
     context::{BlockEnv, ContextSetters, TxEnv},
     context_interface::ContextTr,
     handler::FrameResult,
-    inspector::Inspector,
     interpreter::{
-        CallInputs, CallOutcome, CreateInputs, CreateOutcome, FrameInput, Interpreter,
-        interpreter::EthInterpreter,
+        CallInputs, CallOutcome, CreateInputs, CreateOutcome, FrameInput, InstructionResult,
+        Interpreter, interpreter::EthInterpreter,
     },
     primitives::Address,
 };
 
-use crate::evm::cheatcode::{
-    ExecutionState, VM_ADDRESS, build_outcome, dispatch_effects,
-    effect::{CheatcodeEffect, apply_effect},
-    revert_outcome,
-};
+use crate::evm::cheatcode::{ExecutionState, VM_ADDRESS};
+
+/// Minimal trait to mutate `chain_id` on generic EVM contexts.
+pub trait CfgMut {
+    fn set_chain_id(&mut self, chain_id: u64);
+}
+
+impl<BLOCK, TX, DB, JOURNAL, CHAIN, LOCAL, SPEC> CfgMut
+    for revm::context::Context<BLOCK, TX, revm::context::CfgEnv<SPEC>, DB, JOURNAL, CHAIN, LOCAL>
+where
+    DB: revm::Database,
+    JOURNAL: revm::context_interface::JournalTr<Database = DB>,
+    LOCAL: revm::context_interface::LocalContextTr,
+{
+    fn set_chain_id(&mut self, chain_id: u64) {
+        self.cfg.chain_id = chain_id;
+    }
+}
 
 /// Inspector that intercepts Foundry-compatible cheatcodes.
 #[derive(Debug)]
-pub struct CheatcodeInspector {
+pub struct Inspector {
     pub state: ExecutionState,
     pub shared_labels: Option<Arc<RwLock<HashMap<Address, String>>>>,
-    /// Current EVM call depth (increments in `frame_start`, decrements in
-    /// `call_end`/`create_end`).
     pub depth: u64,
 }
 
-impl CheatcodeInspector {
-    pub fn new() -> Self {
+impl Inspector {
+    /// Create a new inspector with the given cheatcode [`Config`](crate::evm::cheatcode::Config).
+    pub fn new(config: crate::evm::cheatcode::Config) -> Self {
         Self {
-            state: ExecutionState::default(),
+            state: ExecutionState::from_config(&config),
             shared_labels: None,
             depth: 0,
         }
@@ -51,6 +62,10 @@ impl CheatcodeInspector {
     pub fn with_shared_labels(mut self, labels: Arc<RwLock<HashMap<Address, String>>>) -> Self {
         self.shared_labels = Some(labels);
         self
+    }
+
+    fn with_default_config() -> Self {
+        Self::new(crate::evm::cheatcode::Config::default())
     }
 
     /// Patch `tx.origin` and remember the original so it can be restored.
@@ -84,7 +99,6 @@ impl CheatcodeInspector {
         let curr_depth = self.depth;
         let original_caller = inputs.caller;
 
-        // Collect all info first to avoid borrow issues.
         let start_info = self
             .state
             .prank
@@ -106,7 +120,6 @@ impl CheatcodeInspector {
             })
             .map(|p| (p.caller, p.origin));
 
-        // Apply startPrank.
         if let Some((caller, _)) = start_info {
             inputs.caller = caller;
         }
@@ -114,7 +127,6 @@ impl CheatcodeInspector {
             self.patch_origin(ctx, o);
         }
 
-        // Apply single-call prank.
         if let Some((caller, _)) = prank_info {
             inputs.caller = caller;
         }
@@ -122,9 +134,6 @@ impl CheatcodeInspector {
             self.patch_origin(ctx, o);
         }
 
-        // Mark used after all borrows are dropped.
-        // The prank is *not* cleared here; it stays in `active` so we know
-        // when to restore tx.origin (when the initiator frame exits).
         if start_info.is_some()
             && let Some(ref mut start) = self.state.prank.start
         {
@@ -149,7 +158,6 @@ impl CheatcodeInspector {
         let curr_depth = self.depth;
         let original_caller = inputs.caller();
 
-        // Collect all info first to avoid borrow issues.
         let start_info = self
             .state
             .prank
@@ -166,7 +174,6 @@ impl CheatcodeInspector {
             .filter(|p| original_caller == p.prank_caller && curr_depth > p.set_depth && !p.used)
             .map(|p| (p.caller, p.origin));
 
-        // Apply startPrank.
         if let Some((caller, _)) = start_info {
             inputs.set_call(caller);
         }
@@ -174,7 +181,6 @@ impl CheatcodeInspector {
             self.patch_origin(ctx, o);
         }
 
-        // Apply single-call prank.
         if let Some((caller, _)) = prank_info {
             inputs.set_call(caller);
         }
@@ -182,7 +188,6 @@ impl CheatcodeInspector {
             self.patch_origin(ctx, o);
         }
 
-        // Mark used after all borrows are dropped.
         if start_info.is_some()
             && let Some(ref mut start) = self.state.prank.start
         {
@@ -196,17 +201,17 @@ impl CheatcodeInspector {
     }
 }
 
-impl Default for CheatcodeInspector {
+impl Default for Inspector {
     fn default() -> Self {
-        Self::new()
+        Self::with_default_config()
     }
 }
 
 impl<
     CTX: ContextTr<Block = BlockEnv, Tx = TxEnv>
         + ContextSetters
-        + crate::evm::cheatcode::effect::CfgMut,
-> Inspector<CTX, EthInterpreter> for CheatcodeInspector
+        + crate::evm::cheatcode::inspector::CfgMut,
+> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector
 {
     fn initialize_interp(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
     }
@@ -232,21 +237,14 @@ impl<
         }
 
         let sel: [u8; 4] = crate::result_to_option(input[..4].try_into())?;
-        let effects = dispatch_effects(sel, &input)?;
+        let outcome = crate::evm::cheatcode::functions::dispatch(
+            sel,
+            &input,
+            inputs.gas_limit,
+            ctx,
+            &mut self.state,
+        );
 
-        for effect in &effects {
-            if let Err(reason) = apply_effect(effect, ctx, &mut self.state) {
-                return Some(revert_outcome(&reason));
-            }
-        }
-
-        // Patch prank_caller and set_depth for pranks configured in this
-        // cheatcode call so frame_start knows which parent frame they belong
-        // to and which contract initiated them.
-        // Note: frame_start is called BEFORE call() for inner frames, so
-        // self.depth here is the depth of the inner frame (e.g. the VM
-        // precompile call).  The prank initiator is the parent frame, hence
-        // parent_depth.
         let parent_depth = self.depth.saturating_sub(1);
         match self.state.prank.active.as_mut() {
             Some(p) if p.prank_caller == Address::ZERO => {
@@ -274,29 +272,24 @@ impl<
         }
 
         // If stopPrank was called, restore tx.origin immediately.
-        if effects
-            .iter()
-            .any(|e| matches!(e, CheatcodeEffect::ClearPrank))
+        if let Some(ref o) = outcome
+            && o.result.result == InstructionResult::Stop
+            && (sel == crate::evm::cheatcode::functions::prank::STOP_PRANK)
         {
             self.maybe_restore_origin(ctx);
         }
 
-        // Sync any newly added labels to the shared map used by the trace
-        // inspector.
+        // Sync labels to shared map.
         if let Some(ref shared) = self.shared_labels
             && let Ok(mut guard) = shared.write()
         {
             guard.clone_from(&self.state.labels);
         }
 
-        let mut outcome = build_outcome(&effects, inputs.gas_limit, ctx, &self.state);
-        outcome.memory_offset = inputs.return_memory_offset.clone();
-        Some(outcome)
+        outcome
     }
 
     fn call_end(&mut self, ctx: &mut CTX, _inputs: &CallInputs, _outcome: &mut CallOutcome) {
-        // When the frame that initiated a single-call prank exits, clear the
-        // prank and restore origin if no other prank is active.
         let initiator_exited = self
             .state
             .prank

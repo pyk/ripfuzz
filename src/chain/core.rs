@@ -34,32 +34,26 @@ impl Default for ChainConfig {
 
 /// Builder for constructing a [`Chain`].
 #[derive(Debug)]
-pub struct ChainBuilder<'a, V: crate::evm::cheatcode::VmFactory = crate::evm::cheatcode::Vm> {
+pub struct ChainBuilder<'a> {
     artifact: &'a ContractArtifact,
     project_root: PathBuf,
-    vm: Option<V>,
+    config: Option<crate::evm::cheatcode::Config>,
     deploy_value: U256,
     deployer: Address,
     environment: Option<crate::chain::Environment>,
 }
 
-impl<'a, V: crate::evm::cheatcode::VmFactory> ChainBuilder<'a, V> {
+impl<'a> ChainBuilder<'a> {
     /// Override the Foundry project root directory.
     pub fn with_project(mut self, path: impl AsRef<Path>) -> Self {
         self.project_root = path.as_ref().to_path_buf();
         self
     }
 
-    /// Set the VM component (required).
-    pub fn with_vm<V2: crate::evm::cheatcode::VmFactory>(self, vm: V2) -> ChainBuilder<'a, V2> {
-        ChainBuilder {
-            artifact: self.artifact,
-            project_root: self.project_root,
-            vm: Some(vm),
-            deploy_value: self.deploy_value,
-            deployer: self.deployer,
-            environment: self.environment,
-        }
+    /// Set the cheatcode [`Config`](crate::evm::cheatcode::Config) (required).
+    pub fn with_config(mut self, config: crate::evm::cheatcode::Config) -> Self {
+        self.config = Some(config);
+        self
     }
 
     /// Set the execution environment (sandbox or fork).
@@ -82,17 +76,17 @@ impl<'a, V: crate::evm::cheatcode::VmFactory> ChainBuilder<'a, V> {
 
     /// Deploy the contract, verify deployment success, and return a [`Chain`].
     pub fn init(self) -> Result<Chain, ChainInitError> {
-        let vm = self.vm.ok_or_else(|| {
-            ChainInitError::Other(anyhow::anyhow!("ChainBuilder::with_vm is required"))
+        let config = self.config.ok_or_else(|| {
+            ChainInitError::Other(anyhow::anyhow!("ChainBuilder::with_config is required"))
         })?;
         let env = self
             .environment
             .unwrap_or_else(crate::chain::Environment::sandbox);
         let (contract_address, mut state) =
             initialize(self.artifact, &env, self.deploy_value, self.deployer)?;
-        // Populate persistent VM config fields from the VM and artifact.
-        state.project_root = vm.config().project_root.clone();
-        state.ffi_enabled = vm.config().ffi;
+        // Populate persistent VM config fields from the config and artifact.
+        state.project_root = config.project_root.clone();
+        state.ffi_enabled = config.ffi;
         let initcode_map = self.artifact.initcode_map.clone();
         for (initcode, (name, _abi)) in initcode_map {
             state.compiled_contracts.insert(name, initcode);
@@ -128,7 +122,7 @@ impl Chain {
         ChainBuilder {
             artifact,
             project_root: PathBuf::new(),
-            vm: None,
+            config: None,
             deploy_value: U256::ZERO,
             deployer: crate::chain::init::DEFAULT_DEPLOYER,
             environment: None,
@@ -236,9 +230,7 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::evm::cheatcode::Vm::new(
-                crate::evm::cheatcode::VmConfig::default(),
-            ))
+            .with_config(crate::evm::cheatcode::Config::default())
             .init()
             .unwrap()
             .setup()

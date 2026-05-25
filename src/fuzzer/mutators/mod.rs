@@ -90,9 +90,7 @@ mod tests {
                 .unwrap();
 
         let chain = Chain::for_artifact(&artifact)
-            .with_vm(crate::evm::cheatcode::Vm::new(
-                crate::evm::cheatcode::VmConfig::default(),
-            ))
+            .with_config(crate::evm::cheatcode::Config::default())
             .init()
             .unwrap()
             .setup()

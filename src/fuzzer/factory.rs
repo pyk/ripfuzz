@@ -12,11 +12,12 @@ use revm::{
     inspector::InspectCommitEvm,
     primitives::{Bytes, TxKind},
 };
+use tracing::info;
 
 use crate::corpus::{Call, CallMeta, Corpus, CorpusItem};
 use crate::coverage::LocalCoverage;
 use crate::evm;
-use crate::evm::cheatcode::inspector::CheatcodeInspector;
+use crate::evm::cheatcode::inspector::Inspector;
 use crate::fuzzer::config::FuzzerConfig;
 use crate::fuzzer::mutators::Mutator;
 use crate::fuzzer::{Crash, FuzzerEngine, FuzzerResult};
@@ -177,7 +178,7 @@ impl Engine {
         ctx.cfg.disable_balance_check = true;
         ctx.cfg.tx_gas_limit_cap = Some(u64::MAX);
 
-        let inspector = CheatcodeInspector::new();
+        let inspector = Inspector::default();
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
         let mut total_calls = 0u64;
@@ -245,7 +246,7 @@ impl Engine {
                         .abi
                         .functions()
                         .find(|f| f.selector().as_slice() == call.selector)
-                        .map(|f| f.name.clone())
+                        .map(|f| f.name.to_owned())
                         .unwrap_or_else(|| format!("0x{}", hex::encode(call.selector)));
                     crash = Some(CrashInfo {
                         name,
@@ -297,7 +298,7 @@ impl Engine {
                     block_timestamp: u64::try_from(evm.ctx.block.timestamp).unwrap_or(u64::MAX),
                     gas_used,
                     success,
-                    reason: reason.clone(),
+                    reason: reason.to_owned(),
                 });
 
                 if !success {
@@ -305,7 +306,7 @@ impl Engine {
                         && is_assert_failure(output)
                     {
                         crash = Some(CrashInfo {
-                            name: inv.name.clone(),
+                            name: inv.name.to_owned(),
                             selector: inv.selector().into(),
                         });
                     }
@@ -361,7 +362,7 @@ impl Engine {
         shared_gas: Arc<AtomicU64>,
         shared_failures: Arc<AtomicU64>,
     ) -> Result<FuzzerResult> {
-        tracing::info!(max_runs, fuzzer_id, "fuzzer run starting");
+        info!(max_runs, fuzzer_id, "fuzzer run starting");
 
         let mut rng = fastrand::Rng::with_seed(self.config.seed + fuzzer_id as u64);
         let mut failures = Vec::new();
@@ -497,7 +498,7 @@ impl Engine {
             }
         }
 
-        tracing::info!(runs, fuzzer_id, "fuzzer run finished");
+        info!(runs, fuzzer_id, "fuzzer run finished");
         Ok(FuzzerResult {
             runs,
             failures,
