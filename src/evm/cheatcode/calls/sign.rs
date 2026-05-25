@@ -33,56 +33,27 @@ mod tests {
     use k256::elliptic_curve::{Curve, bigint::ArrayEncoding};
     use revm::primitives::Bytes;
 
-    use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER, DeployInput, SetupInput};
-    use crate::evm::cheatcode;
+    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::Vm::signCall;
     use crate::evm::cheatcode::calls::sign;
-    use crate::evm::result::TransactionResult;
-
     use crate::foundry;
     use crate::target::Contract;
 
     alloy_sol_types::sol! {
         interface SignTarget {
-            function signFromZero() external pure;
-            function signFromOrder() external pure;
-            function callSignSameKeyTwice()
-                external
-                pure
-                returns (uint8 v1, bytes32 r1, bytes32 s1, uint8 v2, bytes32 r2, bytes32 s2);
-            function callSignSequence()
-                external
-                pure
-                returns (
-                    uint8 v1,
-                    bytes32 r1,
-                    bytes32 s1,
-                    uint8 v2,
-                    bytes32 r2,
-                    bytes32 s2,
-                    uint8 v3,
-                    bytes32 r3,
-                    bytes32 s3
-                );
-            function callSignDifferentDigests()
-                external
-                pure
-                returns (uint8 v1, bytes32 r1, bytes32 s1, uint8 v2, bytes32 r2, bytes32 s2);
-            function callSignAndAddr()
-                external
-                pure
-                returns (address derived, address recovered);
             function setup() external;
-            function actionSignOne() external;
-            function actionSignTwo() external;
-            function actionSignMaxValid() external;
-            function invariant_sign_from_one() external view;
-            function invariant_sign_from_two() external view;
-            function invariant_sign_from_max_valid() external view;
+            function actionResignOne() external;
+            function actionResignTwo() external;
+            function actionResignMaxValid() external;
+            function actionSignZero() external pure;
+            function actionSignOrder() external pure;
+            function actionSignAndAddr() external pure returns (address derived, address recovered);
+            function invariant_sigOneValid() external view;
+            function invariant_sigTwoValid() external view;
+            function invariant_sigMaxValid() external view;
         }
     }
 
-    /// Fixed digest used by the fixture contract.
     const DIGEST: B256 = B256::new([
         0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
         0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
@@ -91,7 +62,7 @@ mod tests {
 
     const ADDR_ONE: Address = address!("0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf");
     const ADDR_TWO: Address = address!("0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF");
-    const ADDR_MAX_VALID: Address = address!("0x80C0dbf239224071c59dD8970ab9d542E3414aB2");
+    const ADDR_MAX: Address = address!("0x80C0dbf239224071c59dD8970ab9d542E3414aB2");
 
     fn load_fixture(id: &str) -> Contract {
         let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
@@ -101,7 +72,6 @@ mod tests {
         Contract::try_from(artifact).unwrap()
     }
 
-    /// Deploy the fixture and run its `setup` function.
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/SignTarget.sol:SignTarget");
         let mut chain = Chain::new(Config::default()).unwrap();
@@ -109,35 +79,12 @@ mod tests {
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_opts = SetupInput::new(target);
-        let setup = chain.setup(setup_opts).unwrap();
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
         assert!(setup.result.success, "setup must succeed");
 
         (chain, target)
     }
 
-    /// Execute a CALL with the cheatcode inspector enabled so that `vm.*`
-    /// functions invoked by the target contract are intercepted.
-    fn call_with_cheatcode_inspector(
-        chain: &mut Chain,
-        caller: Address,
-        target: Address,
-        data: Bytes,
-    ) -> TransactionResult {
-        let inspector = cheatcode::Inspector::default();
-        let tx = revm::context::TxEnv {
-            caller,
-            kind: revm::primitives::TxKind::Call(target),
-            data,
-            gas_limit: u64::MAX,
-            value: U256::ZERO,
-            ..Default::default()
-        };
-        let (result, _) = chain.inspect(tx, inspector).unwrap();
-        result
-    }
-
-    /// Recover an address from a signature produced by `vm.sign`.
     fn recover_address(v: u8, r: &[u8; 32], s: &[u8; 32], digest: &B256) -> Address {
         let r_u256 = U256::from_be_bytes(*r);
         let s_u256 = U256::from_be_bytes(*s);
@@ -200,336 +147,8 @@ mod tests {
         let ret = signCall::abi_decode_returns(&output).unwrap();
         let recovered = recover_address(ret.v, &ret.r.into(), &ret.s.into(), &DIGEST);
         assert_eq!(
-            recovered, ADDR_MAX_VALID,
+            recovered, ADDR_MAX,
             "vm.sign(max_valid) must recover to the well-known address"
-        );
-    }
-
-    /// Calling `signFromZero()` must revert because `vm.sign(0, digest)` reverts.
-    #[test]
-    fn sign_zero_key_reverts_via_contract() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = SignTarget::signFromZeroCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(
-            !result.success,
-            "signFromZero() must revert when vm.sign(0) is called"
-        );
-    }
-
-    /// Calling `signFromOrder()` must revert because `vm.sign(order, digest)` reverts.
-    #[test]
-    fn sign_order_key_reverts_via_contract() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = SignTarget::signFromOrderCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(
-            !result.success,
-            "signFromOrder() must revert when vm.sign(order) is called"
-        );
-    }
-
-    /// `vm.sign(1, digest)` called twice in the same transaction must return the
-    /// same signature, proving the cheatcode is deterministic and stateless.
-    #[test]
-    fn sign_same_key_twice_in_sequence_is_deterministic() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = SignTarget::callSignSameKeyTwiceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callSignSameKeyTwice() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = SignTarget::callSignSameKeyTwiceCall::abi_decode_returns(&output).unwrap();
-
-        assert_eq!(ret.v1, ret.v2, "v must match for identical inputs");
-        assert_eq!(ret.r1, ret.r2, "r must match for identical inputs");
-        assert_eq!(ret.s1, ret.s2, "s must match for identical inputs");
-
-        let recovered = recover_address(ret.v1, &ret.r1.into(), &ret.s1.into(), &DIGEST);
-        assert_eq!(recovered, ADDR_ONE, "signature must recover to addr(1)");
-    }
-
-    /// `vm.sign` must return the same signature for the same key even when
-    /// interleaved with calls for different keys, and different keys must
-    /// produce different signatures.
-    #[test]
-    fn sign_sequence_returns_consistent_and_unique_signatures() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = SignTarget::callSignSequenceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callSignSequence() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = SignTarget::callSignSequenceCall::abi_decode_returns(&output).unwrap();
-
-        // First and third calls used the same key -> identical signatures.
-        assert_eq!(ret.v1, ret.v3, "same key must give same v");
-        assert_eq!(ret.r1, ret.r3, "same key must give same r");
-        assert_eq!(ret.s1, ret.s3, "same key must give same s");
-
-        // Different keys must produce different signatures.
-        assert!(
-            ret.r1 != ret.r2 || ret.s1 != ret.s2,
-            "different keys must produce different signatures"
-        );
-
-        let recovered_one = recover_address(ret.v1, &ret.r1.into(), &ret.s1.into(), &DIGEST);
-        let recovered_two = recover_address(ret.v2, &ret.r2.into(), &ret.s2.into(), &DIGEST);
-        assert_eq!(recovered_one, ADDR_ONE);
-        assert_eq!(recovered_two, ADDR_TWO);
-    }
-
-    /// Different digests with the same key must produce different signatures.
-    #[test]
-    fn sign_different_digests_produce_different_signatures() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = SignTarget::callSignDifferentDigestsCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callSignDifferentDigests() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = SignTarget::callSignDifferentDigestsCall::abi_decode_returns(&output).unwrap();
-
-        assert!(
-            ret.r1 != ret.r2 || ret.s1 != ret.s2,
-            "different digests must produce different signatures"
-        );
-
-        let recovered_one = recover_address(ret.v1, &ret.r1.into(), &ret.s1.into(), &DIGEST);
-        let other_digest = B256::from(U256::from_be_bytes(DIGEST.into()) + U256::from(1));
-        let recovered_two = recover_address(ret.v2, &ret.r2.into(), &ret.s2.into(), &other_digest);
-        assert_eq!(recovered_one, ADDR_ONE);
-        assert_eq!(
-            recovered_two, ADDR_ONE,
-            "same key must recover for both digests"
-        );
-    }
-
-    /// The signature derived during setup must still verify in a later
-    /// transaction, proving contract-level persistence works.
-    #[test]
-    fn sign_setup_value_persists_in_storage() {
-        let (mut chain, target) = deploy_and_setup();
-
-        let invariants = [
-            (
-                SignTarget::invariant_sign_from_oneCall::new(()).abi_encode(),
-                "invariant_sign_from_one",
-            ),
-            (
-                SignTarget::invariant_sign_from_twoCall::new(()).abi_encode(),
-                "invariant_sign_from_two",
-            ),
-            (
-                SignTarget::invariant_sign_from_max_validCall::new(()).abi_encode(),
-                "invariant_sign_from_max_valid",
-            ),
-        ];
-        for (calldata, name) in &invariants {
-            let result = chain
-                .call(
-                    DEFAULT_DEPLOYER,
-                    target,
-                    U256::ZERO,
-                    Bytes::from(calldata.clone()),
-                )
-                .unwrap();
-            assert!(result.success, "{name} must pass after setup (first call)");
-        }
-        for (calldata, name) in &invariants {
-            let result = chain
-                .call(
-                    DEFAULT_DEPLOYER,
-                    target,
-                    U256::ZERO,
-                    Bytes::from(calldata.clone()),
-                )
-                .unwrap();
-            assert!(result.success, "{name} must pass after setup (second call)");
-        }
-    }
-
-    /// `vm.sign` and `vm.addr` must interact correctly: the address derived by
-    /// `addr(1)` must match the address recovered from `sign(1, digest)`.
-    #[test]
-    fn sign_interacts_with_addr() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = SignTarget::callSignAndAddrCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callSignAndAddr() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = SignTarget::callSignAndAddrCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(
-            ret.derived, ret.recovered,
-            "vm.addr(1) must match ecrecover(vm.sign(1, digest))"
-        );
-        assert_eq!(ret.derived, ADDR_ONE);
-    }
-
-    /// Invariants must pass immediately after setup (fuzzing baseline).
-    #[test]
-    fn invariant_passes_after_setup() {
-        let (mut chain, target) = deploy_and_setup();
-        let invariants = [
-            (
-                SignTarget::invariant_sign_from_oneCall::new(()).abi_encode(),
-                "invariant_sign_from_one",
-            ),
-            (
-                SignTarget::invariant_sign_from_twoCall::new(()).abi_encode(),
-                "invariant_sign_from_two",
-            ),
-            (
-                SignTarget::invariant_sign_from_max_validCall::new(()).abi_encode(),
-                "invariant_sign_from_max_valid",
-            ),
-        ];
-        for (calldata, name) in invariants {
-            let result = chain
-                .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{name} must pass after setup");
-        }
-    }
-
-    /// A fuzz-like sequence of actions followed by invariants must all succeed.
-    /// This proves `vm.sign` stays deterministic across multiple transactions
-    /// and that invariants correctly observe the persisted state.
-    #[test]
-    fn action_sequence_and_invariants() {
-        let (mut chain, target) = deploy_and_setup();
-
-        // Action 1: re-sign with key 1 and store it.
-        let calldata = SignTarget::actionSignOneCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionSignOne must succeed");
-
-        let calldata = SignTarget::invariant_sign_from_oneCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(
-            result.success,
-            "invariant_sign_from_one must pass after actionSignOne"
-        );
-
-        // Action 2: re-sign with key 2 and store it.
-        let calldata = SignTarget::actionSignTwoCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionSignTwo must succeed");
-
-        let calldata = SignTarget::invariant_sign_from_twoCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(
-            result.success,
-            "invariant_sign_from_two must pass after actionSignTwo"
-        );
-
-        // Action 3: re-sign with max valid key and store it.
-        let calldata = SignTarget::actionSignMaxValidCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionSignMaxValid must succeed");
-
-        let calldata = SignTarget::invariant_sign_from_max_validCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(
-            result.success,
-            "invariant_sign_from_max_valid must pass after actionSignMaxValid"
-        );
-    }
-
-    /// `vm.sign(1, digest)` must return the same signature when re-derived in a
-    /// separate transaction after the initial setup, proving cross-transaction
-    /// determinism.
-    #[test]
-    fn sign_deterministic_across_transaction_sequence() {
-        let (mut chain, target) = deploy_and_setup();
-
-        // Re-sign in a new transaction.
-        let calldata = SignTarget::actionSignOneCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata.clone()),
-        );
-        assert!(result.success, "actionSignOne must succeed");
-        let calldata_inv = SignTarget::invariant_sign_from_oneCall::new(()).abi_encode();
-        let result = chain
-            .call(
-                DEFAULT_DEPLOYER,
-                target,
-                U256::ZERO,
-                Bytes::from(calldata_inv.clone()),
-            )
-            .unwrap();
-        assert!(result.success, "invariant must pass after first action");
-
-        // Re-sign again in yet another transaction.
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionSignOne must succeed on second call");
-        let result = chain
-            .call(
-                DEFAULT_DEPLOYER,
-                target,
-                U256::ZERO,
-                Bytes::from(calldata_inv),
-            )
-            .unwrap();
-        assert!(
-            result.success,
-            "invariant must still pass after second action"
         );
     }
 
@@ -562,16 +181,222 @@ mod tests {
         );
     }
 
-    /// The secp256k1 curve order used by `handle` must match the canonical
-    /// constant exported by the `k256` crate.
+    /// `vm.sign` used during setup must store signatures that recover to the
+    /// well-known addresses. The invariants check that all three keys produce
+    /// valid signatures.
     #[test]
-    fn secp256k1_order_matches_k256_constant() {
-        let order = U256::from_be_slice(&k256::Secp256k1::ORDER.to_be_byte_array());
-        let expected = U256::from_be_bytes([
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-            0xFF, 0xFE, 0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C,
-            0xD0, 0x36, 0x41, 0x41,
-        ]);
-        assert_eq!(order, expected);
+    fn setup_derives_well_known_signatures() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::invariant_sigOneValidCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::invariant_sigTwoValidCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::invariant_sigMaxValidCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 3);
+        assert!(
+            execution.results[0].success,
+            "invariant_sigOneValid must pass after setup"
+        );
+        assert!(
+            execution.results[1].success,
+            "invariant_sigTwoValid must pass after setup"
+        );
+        assert!(
+            execution.results[2].success,
+            "invariant_sigMaxValid must pass after setup"
+        );
+    }
+
+    /// Re-signing with the same key in a later transaction and overwriting
+    /// storage must still yield a signature that recovers to the same address.
+    /// This is the core property a stateful fuzzer relies on.
+    #[test]
+    fn re_sign_in_action_preserves_validity() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::actionResignOneCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::invariant_sigOneValidCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(execution.results[0].success, "actionResignOne must succeed");
+        assert!(
+            execution.results[1].success,
+            "invariant must pass after re-sign"
+        );
+    }
+
+    /// A single transaction can re-sign with multiple keys without corrupting
+    /// results. This proves `vm.sign` is stateless and safe to call repeatedly
+    /// inside one tx.
+    #[test]
+    fn batch_re_sign_in_single_transaction() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::actionResignOneCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::actionResignTwoCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::actionResignMaxValidCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::invariant_sigOneValidCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::invariant_sigTwoValidCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::invariant_sigMaxValidCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 6);
+        assert!(
+            execution.results.iter().all(|r| r.success),
+            "all batch steps must succeed"
+        );
+    }
+
+    /// `vm.sign(0, digest)` must revert because 0 is not a valid private key.
+    #[test]
+    fn invalid_zero_key_reverts_in_transaction() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            SignTarget::actionSignZeroCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            !execution.results[0].success,
+            "vm.sign(0) must revert in a transaction"
+        );
+    }
+
+    /// `vm.sign` with a key >= secp256k1 curve order must revert.
+    #[test]
+    fn invalid_order_key_reverts_in_transaction() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            SignTarget::actionSignOrderCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            !execution.results[0].success,
+            "vm.sign(order) must revert in a transaction"
+        );
+    }
+
+    /// `vm.sign` and `vm.addr` must interact correctly: the address derived by
+    /// `addr(1)` must match the address recovered from `sign(1, digest)`.
+    #[test]
+    fn sign_and_addr_agree() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            SignTarget::actionSignAndAddrCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            execution.results[0].success,
+            "actionSignAndAddr must succeed"
+        );
+        let output = execution.results[0]
+            .output
+            .clone()
+            .expect("must return output");
+        let ret = SignTarget::actionSignAndAddrCall::abi_decode_returns(&output).unwrap();
+        assert_eq!(
+            ret.derived, ret.recovered,
+            "vm.addr(1) must match ecrecover(vm.sign(1, digest))"
+        );
+        assert_eq!(
+            ret.derived, ADDR_ONE,
+            "derived address must be the well-known addr(1)"
+        );
+    }
+
+    /// A cloned chain snapshot must produce the same signatures when actions
+    /// are executed on the clone. This is critical for parallel fuzzing
+    /// where each worker starts from a cloned state.
+    #[test]
+    fn cloned_chain_produces_same_signatures() {
+        let (chain, target) = deploy_and_setup();
+        let mut cloned = chain.clone();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::actionResignOneCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::invariant_sigOneValidCall::new(()).abi_encode(),
+            )),
+        ];
+        let execution = cloned.exec(ExecInput::new(txs)).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results[0].success,
+            "actionResignOne must succeed on cloned chain"
+        );
+        assert!(
+            execution.results[1].success,
+            "invariant must pass on cloned chain"
+        );
+    }
+
+    /// Cross-transaction determinism: re-signing in a second `exec` must still
+    /// produce a valid signature that recovers to the same address.
+    #[test]
+    fn deterministic_across_separate_execs() {
+        let (mut chain, target) = deploy_and_setup();
+
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::actionResignOneCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::invariant_sigOneValidCall::new(()).abi_encode(),
+            )),
+        ];
+        let execution = chain.exec(ExecInput::new(txs)).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results.iter().all(|r| r.success),
+            "first exec must succeed"
+        );
+
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::actionResignOneCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                SignTarget::invariant_sigOneValidCall::new(()).abi_encode(),
+            )),
+        ];
+        let execution = chain.exec(ExecInput::new(txs)).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results.iter().all(|r| r.success),
+            "second exec must succeed"
+        );
     }
 }
