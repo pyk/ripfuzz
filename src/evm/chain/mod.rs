@@ -170,18 +170,27 @@ impl Transaction {
 /// Options for executing a sequence of transactions.
 #[derive(Debug, Clone)]
 pub struct ExecInput {
+    pub transactions: Vec<Transaction>,
     pub trace: bool,
     pub cheatcode: bool,
     pub coverage: bool,
 }
 
-impl Default for ExecInput {
-    fn default() -> Self {
+impl ExecInput {
+    /// Create an [`ExecInput`] with the given transactions and defaults for all options.
+    pub fn new(transactions: Vec<Transaction>) -> Self {
         Self {
+            transactions,
             trace: false,
             cheatcode: true,
             coverage: false,
         }
+    }
+}
+
+impl Default for ExecInput {
+    fn default() -> Self {
+        Self::new(Vec::new())
     }
 }
 
@@ -540,11 +549,11 @@ impl Chain {
     /// The same inspector is reused across all transactions, so cheatcode
     /// effects (e.g. `vm.warp`) and coverage collection persist from one
     /// transaction to the next.
-    pub fn exec(&mut self, transactions: Vec<Transaction>, opts: ExecInput) -> Result<ExecOutput> {
-        let mut inspector = ExecInspector::new(&opts);
-        let mut results = Vec::with_capacity(transactions.len());
+    pub fn exec(&mut self, input: ExecInput) -> Result<ExecOutput> {
+        let mut inspector = ExecInspector::new(&input);
+        let mut results = Vec::with_capacity(input.transactions.len());
 
-        for tx in transactions {
+        for tx in input.transactions {
             let tx_env = TxEnv {
                 caller: tx.caller,
                 kind: TxKind::Call(tx.target),
@@ -672,7 +681,7 @@ mod tests {
             ),
         ];
 
-        let execution = chain.exec(txs, ExecInput::default()).unwrap();
+        let execution = chain.exec(ExecInput::new(txs)).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(execution.results[0].success, "actionWarp must succeed");
         assert!(
@@ -697,11 +706,13 @@ mod tests {
             ),
         ];
 
-        let opts = ExecInput {
-            coverage: true,
-            ..ExecInput::default()
-        };
-        let execution = chain.exec(txs, opts).unwrap();
+        let execution = chain
+            .exec(ExecInput {
+                transactions: txs,
+                coverage: true,
+                ..ExecInput::default()
+            })
+            .unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(execution.results.iter().all(|r| r.success));
 
@@ -722,11 +733,13 @@ mod tests {
             Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
         )];
 
-        let opts = ExecInput {
-            trace: true,
-            ..ExecInput::default()
-        };
-        let execution = chain.exec(txs, opts).unwrap();
+        let execution = chain
+            .exec(ExecInput {
+                transactions: txs,
+                trace: true,
+                ..ExecInput::default()
+            })
+            .unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(execution.results[0].success);
 
@@ -747,7 +760,7 @@ mod tests {
             target,
             Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
         )];
-        let execution = chain.exec(txs, ExecInput::default()).unwrap();
+        let execution = chain.exec(ExecInput::new(txs)).unwrap();
         assert!(execution.results[0].success);
 
         // Clone and run a view call on the clone.
@@ -756,7 +769,7 @@ mod tests {
             target,
             Bytes::from(WarpTarget::getBlockTimestampCall::new(()).abi_encode()),
         )];
-        let view_execution = cloned.exec(view_txs, ExecInput::default()).unwrap();
+        let view_execution = cloned.exec(ExecInput::new(view_txs)).unwrap();
         assert!(view_execution.results[0].success);
         let ts = WarpTarget::getBlockTimestampCall::abi_decode_returns(
             &view_execution.results[0].output.clone().unwrap(),
@@ -783,11 +796,13 @@ mod tests {
             Bytes::from([set_selector.as_slice(), &[0u8; 32]].concat()),
         )];
 
-        let opts = ExecInput {
-            coverage: true,
-            ..ExecInput::default()
-        };
-        let execution = chain.exec(txs, opts).unwrap();
+        let execution = chain
+            .exec(ExecInput {
+                transactions: txs,
+                coverage: true,
+                ..ExecInput::default()
+            })
+            .unwrap();
         assert!(execution.results[0].success);
 
         let coverage = execution.coverage.expect("coverage must be present");
