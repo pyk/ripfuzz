@@ -25,7 +25,10 @@ contract ChainIdTarget {
 
     /// Call vm.chainId with the same value twice in one tx to prove
     /// the cheatcode is deterministic.
-    function callChainIdSameValueTwice() external returns (uint256 first, uint256 second) {
+    function callChainIdSameValueTwice()
+        external
+        returns (uint256 first, uint256 second)
+    {
         vm.chainId(EXPECTED_CHAIN_ID);
         first = block.chainid;
         vm.chainId(EXPECTED_CHAIN_ID);

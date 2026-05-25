@@ -22,7 +22,10 @@ contract DealTarget {
 
     /// Call vm.deal with the same value twice in one tx to prove
     /// the cheatcode is deterministic.
-    function callDealSameValueTwice() external returns (uint256 first, uint256 second) {
+    function callDealSameValueTwice()
+        external
+        returns (uint256 first, uint256 second)
+    {
         vm.deal(address(this), EXPECTED_BALANCE);
         first = address(this).balance;
         vm.deal(address(this), EXPECTED_BALANCE);
@@ -44,7 +47,10 @@ contract DealTarget {
     }
 
     /// Interaction with warp - both cheatcodes in same tx.
-    function callDealAndWarp() external returns (uint256 balance, uint256 timestamp) {
+    function callDealAndWarp()
+        external
+        returns (uint256 balance, uint256 timestamp)
+    {
         vm.deal(address(this), EXPECTED_BALANCE);
         vm.warp(1234567890);
         balance = address(this).balance;

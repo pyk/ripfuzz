@@ -6,7 +6,8 @@ import "./Vm.sol";
 contract CoinbaseTarget {
     Vm constant vm = Vm(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1);
 
-    address constant EXPECTED_COINBASE = 0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF;
+    address constant EXPECTED_COINBASE =
+        0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF;
 
     address public storedCoinbase;
 
@@ -25,7 +26,10 @@ contract CoinbaseTarget {
 
     /// Call vm.coinbase with the same value twice in one tx to prove
     /// the cheatcode is deterministic.
-    function callCoinbaseSameValueTwice() external returns (address first, address second) {
+    function callCoinbaseSameValueTwice()
+        external
+        returns (address first, address second)
+    {
         vm.coinbase(EXPECTED_COINBASE);
         first = block.coinbase;
         vm.coinbase(EXPECTED_COINBASE);

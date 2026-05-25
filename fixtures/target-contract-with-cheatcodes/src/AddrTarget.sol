@@ -48,7 +48,11 @@ contract AddrTarget {
     }
 
     /// Call vm.addr(1) twice in the same transaction to prove determinism.
-    function callAddrSameKeyTwice() external pure returns (address a, address b) {
+    function callAddrSameKeyTwice()
+        external
+        pure
+        returns (address a, address b)
+    {
         a = vm.addr(1);
         b = vm.addr(1);
     }
