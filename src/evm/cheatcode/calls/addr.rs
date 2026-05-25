@@ -64,7 +64,7 @@ mod tests {
     /// Deploy the fixture and run its `setup` function.
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/AddrTarget.sol:AddrTarget");
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::new(Config::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();

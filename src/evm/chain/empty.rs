@@ -23,7 +23,7 @@ impl Default for Chain {
 
 impl Chain {
     /// Create a new empty sandbox EVM with the given [`Config`](super::Config).
-    pub fn empty(config: super::Config) -> Self {
+    pub(crate) fn empty(config: super::Config) -> Self {
         let mut cfg_env = CfgEnv::default();
         cfg_env.chain_id = 1;
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);

@@ -17,17 +17,8 @@ use crate::evm::database::{Database, ForkDB};
 use crate::evm::forkdb::{Config, Request, Response, Transport};
 
 impl Chain {
-    /// Create a new forked EVM pinned to a remote block.
-    pub fn fork(config: Config, block_number: u64) -> Result<Self> {
-        let agent_cfg = ureq::Agent::config_builder()
-            .timeout_global(Some(std::time::Duration::from_millis(config.timeout_ms)))
-            .build();
-        let agent = ureq::Agent::new_with_config(agent_cfg);
-        Self::fork_with_transport(config, agent, block_number)
-    }
-
     /// Create a forked EVM with a custom transport (used in tests).
-    pub fn fork_with_transport(
+    pub(crate) fn fork_with_transport(
         config: Config,
         transport: impl Transport + 'static,
         block_number: u64,

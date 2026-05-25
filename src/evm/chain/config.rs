@@ -2,8 +2,7 @@
 
 use std::path::Path;
 
-/// Campaign-level configuration that controls inspector behavior across
-/// all `deploy`, `setup`, and `exec` calls on a [`Chain`].
+/// Campaign-level configuration that controls chain behaviour.
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Cheatcode inspector configuration (`vm.ffi`, project root, etc.).
@@ -12,6 +11,11 @@ pub struct Config {
     pub trace: bool,
     /// Enable coverage collection.
     pub coverage: bool,
+    /// Fork configuration; when `Some` the chain is forked from a remote
+    /// RPC node instead of starting as an empty sandbox.
+    pub fork: Option<crate::evm::forkdb::Config>,
+    /// Block number to pin the fork to. Required when `fork` is `Some`.
+    pub fork_block_number: Option<u64>,
 }
 
 impl Config {
@@ -21,6 +25,8 @@ impl Config {
             cheatcode: crate::evm::cheatcode::Config::new(project_root),
             trace: false,
             coverage: false,
+            fork: None,
+            fork_block_number: None,
         }
     }
 
@@ -33,6 +39,18 @@ impl Config {
     /// Enable or disable coverage collection.
     pub fn coverage(mut self, enabled: bool) -> Self {
         self.coverage = enabled;
+        self
+    }
+
+    /// Set the fork configuration.
+    pub fn fork(mut self, config: crate::evm::forkdb::Config) -> Self {
+        self.fork = Some(config);
+        self
+    }
+
+    /// Set the fork block number.
+    pub fn fork_block_number(mut self, block_number: u64) -> Self {
+        self.fork_block_number = Some(block_number);
         self
     }
 }

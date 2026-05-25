@@ -283,6 +283,29 @@ impl ForkModeArgs {
     }
 }
 
+/// Build a [`forkdb::Config`](crate::evm::forkdb::Config) and resolve the
+/// target block number from CLI arguments.
+fn build_fork_config(
+    project_path: impl AsRef<Path>,
+    fork_mode: &ForkModeArgs,
+) -> Result<(crate::evm::forkdb::Config, u64)> {
+    let cache_dir = project_path.as_ref().join("raptor").join("cache");
+    let block = fork_mode
+        .rpc_block
+        .context("--rpc-block is required with --rpc-url")?;
+    let url = fork_mode
+        .rpc_url
+        .as_ref()
+        .context("--rpc-url is required")?;
+    let config = crate::evm::forkdb::Config::new(url.clone())
+        .retries(fork_mode.rpc_retries)
+        .backoff_ms(fork_mode.rpc_backoff)
+        .rate_limit(fork_mode.rpc_rate_limit)
+        .timeout_ms(fork_mode.rpc_timeout)
+        .cache_dir(&cache_dir);
+    Ok((config, block))
+}
+
 #[instrument(skip(args), fields(target = ?args.target, threads = args.threads, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
     // Resolve project path
@@ -313,28 +336,14 @@ pub fn run(args: Args) -> Result<()> {
 
     // Create test chain
     info!("creating test chain");
-    let mut chain = if args.fork_mode.rpc_url.is_none() {
-        evm::Chain::empty(evm::chain::Config::new(&project_path))
-    } else {
-        let cache_dir = project_path.join("raptor").join("cache");
-        let block = args
-            .fork_mode
-            .rpc_block
-            .context("--rpc-block is required with --rpc-url")?;
-        let url = args
-            .fork_mode
-            .rpc_url
-            .as_ref()
-            .context("--rpc-url is required")?;
-        let config = crate::evm::forkdb::Config::new(url.clone())
-            .retries(args.fork_mode.rpc_retries)
-            .backoff_ms(args.fork_mode.rpc_backoff)
-            .rate_limit(args.fork_mode.rpc_rate_limit)
-            .timeout_ms(args.fork_mode.rpc_timeout)
-            .cache_dir(&cache_dir);
+    let mut chain_config = evm::chain::Config::new(&project_path);
+    if args.fork_mode.rpc_url.is_some() {
+        let (fork_config, block) = build_fork_config(&project_path, &args.fork_mode)?;
+        chain_config.fork = Some(fork_config);
+        chain_config.fork_block_number = Some(block);
         info!("forking a chain"); // TODO: add chain name, block number etc
-        evm::Chain::fork(config, block)?
-    };
+    }
+    let mut chain = evm::Chain::new(chain_config)?;
 
     // Deploy target contract
     info!("deploying target contract");

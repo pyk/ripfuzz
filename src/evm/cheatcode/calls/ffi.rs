@@ -81,7 +81,7 @@ mod tests {
         let contract = load_fixture("src/FfiTarget.sol:FfiTarget");
         let mut config = Config::default();
         config.cheatcode.ffi = true;
-        let mut chain = Chain::empty(config);
+        let mut chain = Chain::new(config).unwrap();
         let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();

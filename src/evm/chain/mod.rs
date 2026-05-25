@@ -287,6 +287,27 @@ impl Chain {
         self.database.as_ref()
     }
 
+    /// Create a new chain.
+    ///
+    /// When [`Config::fork`](super::Config) is `Some`, the chain is forked
+    /// from a remote RPC node pinned to [`Config::fork_block_number`].
+    /// Otherwise an empty sandbox chain is created.
+    pub fn new(config: Config) -> Result<Self> {
+        match config.fork.clone() {
+            Some(fork_config) => {
+                let block_number = config.fork_block_number.unwrap_or(1);
+                let agent_cfg = ureq::Agent::config_builder()
+                    .timeout_global(Some(std::time::Duration::from_millis(
+                        fork_config.timeout_ms,
+                    )))
+                    .build();
+                let agent = ureq::Agent::new_with_config(agent_cfg);
+                Self::fork_with_transport(fork_config, agent, block_number)
+            }
+            None => Ok(Self::empty(config)),
+        }
+    }
+
     /// Deploy a contract and return the full [`DeployOutput`] result.
     ///
     /// A [`cheatcode::Inspector`] is included so that target contracts can call
@@ -492,7 +513,7 @@ mod tests {
 
     fn deploy_and_setup_warp() -> (Chain, Address) {
         let contract = load_warp_fixture();
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::new(Config::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
@@ -614,7 +635,7 @@ mod tests {
         let artifact =
             contract::tests::load_test_artifact("fixtures/basic-target", "src/NamedMismatch.sol")
                 .unwrap();
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::new(Config::default()).unwrap();
         chain.config.coverage = true;
         let deployment = chain.deploy(DeployInput::new(artifact.initcode)).unwrap();
         assert!(deployment.result.success);

@@ -193,7 +193,7 @@ mod tests {
     fn coverage_inspector_collects_hits_for_deployed_contract() {
         let contract = load_fixture("src/NamedMismatch.sol:DifferentName");
 
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::new(Config::default()).unwrap();
         let inspector = coverage::Inspector::new();
         let tx = TxEnv {
             caller: DEFAULT_DEPLOYER,
