@@ -4,7 +4,7 @@ use revm::{
     context::BlockEnv, context::ContextSetters, context_interface::ContextTr, primitives::U256,
 };
 
-use crate::evm::cheatcode::{state::ExecutionState, util};
+use crate::evm::cheatcode::{outcome, state::ExecutionState};
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     value: U256,
@@ -19,5 +19,5 @@ pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     ctx.set_block(block);
     state.block.difficulty = Some(value);
     state.block.prevrandao = Some(revm::primitives::FixedBytes::from(bytes));
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }

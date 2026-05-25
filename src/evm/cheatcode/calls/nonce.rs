@@ -7,7 +7,7 @@ use revm::{
     primitives::{Address, U256},
 };
 
-use crate::evm::cheatcode::{state::ExecutionState, util};
+use crate::evm::cheatcode::{outcome, state::ExecutionState};
 
 pub fn set_nonce<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     addr: Address,
@@ -23,7 +23,7 @@ pub fn set_nonce<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
         .map(|s| s.data.info.nonce)
         .unwrap_or(0);
     if nonce < current {
-        return Some(util::revert(
+        return Some(outcome::revert(
             &format!("new nonce ({nonce}) must be >= current nonce ({current})"),
             gas_limit,
         ));
@@ -34,7 +34,7 @@ pub fn set_nonce<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
         .map_err(|_| "account load failed")
         .ok()?;
     acc.data.set_nonce(nonce);
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }
 
 pub fn get_nonce<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
@@ -49,5 +49,5 @@ pub fn get_nonce<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
         .ok()
         .map(|s| s.data.info.nonce)
         .unwrap_or(0);
-    Some(util::success_u256(U256::from(nonce), gas_limit))
+    Some(outcome::success_u256(U256::from(nonce), gas_limit))
 }

@@ -2,7 +2,7 @@
 
 use alloy_primitives::{Address, U256};
 
-use crate::evm::cheatcode::util;
+use crate::evm::cheatcode::outcome;
 
 /// secp256k1 curve order (n).
 const SECP256K1_ORDER: U256 = U256::from_be_bytes([
@@ -12,10 +12,10 @@ const SECP256K1_ORDER: U256 = U256::from_be_bytes([
 
 pub fn handle(sk: U256, gas_limit: u64) -> Option<revm::interpreter::CallOutcome> {
     if sk.is_zero() {
-        return Some(util::revert("private key cannot be 0", gas_limit));
+        return Some(outcome::revert("private key cannot be 0", gas_limit));
     }
     if sk >= SECP256K1_ORDER {
-        return Some(util::revert(
+        return Some(outcome::revert(
             &format!("private key must be less than the secp256k1 curve order ({SECP256K1_ORDER})"),
             gas_limit,
         ));
@@ -26,11 +26,11 @@ pub fn handle(sk: U256, gas_limit: u64) -> Option<revm::interpreter::CallOutcome
     let public_key = verifying_key.to_encoded_point(false);
     let pk_bytes = public_key.as_bytes();
     if pk_bytes.len() != 65 {
-        return Some(util::revert("invalid public key length", gas_limit));
+        return Some(outcome::revert("invalid public key length", gas_limit));
     }
     let hash = alloy_primitives::keccak256(&pk_bytes[1..]);
     let address = Address::from_slice(&hash[12..]);
-    Some(util::success_address(address, gas_limit))
+    Some(outcome::success_address(address, gas_limit))
 }
 
 #[cfg(test)]

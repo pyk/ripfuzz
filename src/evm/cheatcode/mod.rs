@@ -11,7 +11,7 @@ pub use state::{BlockCheatState, ExecutionState, PrankCheatState, PrankState, St
 pub mod address;
 pub mod config;
 pub mod inspector;
+pub mod outcome;
 pub mod state;
-pub mod util;
 
 pub mod calls;

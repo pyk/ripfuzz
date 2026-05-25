@@ -2,7 +2,7 @@
 
 use alloy_primitives::U256;
 
-use crate::evm::cheatcode::util;
+use crate::evm::cheatcode::outcome;
 
 /// secp256k1 curve order (n).
 const SECP256K1_ORDER: U256 = U256::from_be_bytes([
@@ -16,10 +16,10 @@ pub fn handle(
     gas_limit: u64,
 ) -> Option<revm::interpreter::CallOutcome> {
     if sk.is_zero() {
-        return Some(util::revert("private key cannot be 0", gas_limit));
+        return Some(outcome::revert("private key cannot be 0", gas_limit));
     }
     if sk >= SECP256K1_ORDER {
-        return Some(util::revert(
+        return Some(outcome::revert(
             &format!("private key must be less than the secp256k1 curve order ({SECP256K1_ORDER})"),
             gas_limit,
         ));
@@ -32,5 +32,5 @@ pub fn handle(
     let v: u8 = if recid.is_y_odd() { 28 } else { 27 };
     let r_arr: [u8; 32] = AsRef::<[u8]>::as_ref(&r).try_into().ok()?;
     let s_arr: [u8; 32] = AsRef::<[u8]>::as_ref(&s).try_into().ok()?;
-    Some(util::success_sign(v, r_arr, s_arr, gas_limit))
+    Some(outcome::success_sign(v, r_arr, s_arr, gas_limit))
 }

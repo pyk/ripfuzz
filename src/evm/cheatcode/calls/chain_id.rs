@@ -4,7 +4,7 @@ use revm::{
     context::BlockEnv, context::ContextSetters, context_interface::ContextTr, primitives::U256,
 };
 
-use crate::evm::cheatcode::{inspector::CfgMut, state::ExecutionState, util};
+use crate::evm::cheatcode::{inspector::CfgMut, outcome, state::ExecutionState};
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut>(
     value: U256,
@@ -15,5 +15,5 @@ pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut>(
     let id = u64::try_from(value).unwrap_or(u64::MAX);
     ctx.set_chain_id(id);
     state.block.chain_id = Some(value);
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }

@@ -4,11 +4,11 @@ use alloy_dyn_abi::DynSolValue;
 use alloy_primitives::I256;
 use revm::primitives::{Address, Bytes, U256};
 
-use crate::evm::cheatcode::util;
+use crate::evm::cheatcode::outcome;
 
 fn to_string_outcome(s: &str, gas_limit: u64) -> Option<revm::interpreter::CallOutcome> {
     let encoded = DynSolValue::String(s.to_owned()).abi_encode();
-    Some(util::success_bytes(encoded, gas_limit))
+    Some(outcome::success_bytes(encoded, gas_limit))
 }
 
 pub fn to_string_address(addr: Address, gas_limit: u64) -> Option<revm::interpreter::CallOutcome> {

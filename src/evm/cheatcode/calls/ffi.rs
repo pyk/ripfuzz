@@ -4,7 +4,7 @@ use std::process::Command;
 
 use alloy_dyn_abi::DynSolValue;
 
-use crate::evm::cheatcode::{state::ExecutionState, util};
+use crate::evm::cheatcode::{outcome, state::ExecutionState};
 
 pub fn handle(
     args: Vec<String>,
@@ -12,18 +12,21 @@ pub fn handle(
     state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
     if !state.ffi_enabled {
-        return Some(util::revert("ffi disabled: use --ffi to enable", gas_limit));
+        return Some(outcome::revert(
+            "ffi disabled: use --ffi to enable",
+            gas_limit,
+        ));
     }
     if args.is_empty() {
-        return Some(util::revert("ffi: empty command", gas_limit));
+        return Some(outcome::revert("ffi: empty command", gas_limit));
     }
 
     let output = match run_ffi(&args, &state.project_root) {
         Ok(out) => out,
-        Err(e) => return Some(util::revert(&e, gas_limit)),
+        Err(e) => return Some(outcome::revert(&e, gas_limit)),
     };
     let encoded = DynSolValue::Bytes(output).abi_encode();
-    Some(util::success_bytes(encoded, gas_limit))
+    Some(outcome::success_bytes(encoded, gas_limit))
 }
 
 fn run_ffi(args: &[String], project_root: &std::path::Path) -> Result<Vec<u8>, String> {

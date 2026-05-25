@@ -4,7 +4,7 @@ use revm::{
     context::BlockEnv, context::ContextSetters, context_interface::ContextTr, primitives::U256,
 };
 
-use crate::evm::cheatcode::{state::ExecutionState, util};
+use crate::evm::cheatcode::{outcome, state::ExecutionState};
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     value: U256,
@@ -16,5 +16,5 @@ pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     block.timestamp = value;
     ctx.set_block(block);
     state.block.timestamp = Some(value);
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }

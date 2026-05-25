@@ -3,8 +3,8 @@
 use revm::primitives::Address;
 
 use crate::evm::cheatcode::{
+    outcome,
     state::{ExecutionState, PrankState, StartPrankState},
-    util,
 };
 
 pub fn prank(
@@ -16,13 +16,13 @@ pub fn prank(
     if let Some(ref active) = state.prank.active
         && !active.used
     {
-        return Some(util::revert(
+        return Some(outcome::revert(
             "prank(address) cannot be called when a prank is already active",
             gas_limit,
         ));
     }
     if state.prank.start.is_some() {
-        return Some(util::revert(
+        return Some(outcome::revert(
             "prank(address) cannot be called when a startPrank is already active",
             gas_limit,
         ));
@@ -35,7 +35,7 @@ pub fn prank(
         single_call: true,
         used: false,
     });
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }
 
 pub fn prank_origin(
@@ -49,13 +49,13 @@ pub fn prank_origin(
     if let Some(ref active) = state.prank.active
         && !active.used
     {
-        return Some(util::revert(
+        return Some(outcome::revert(
             "prank(address) cannot be called when a prank is already active",
             gas_limit,
         ));
     }
     if state.prank.start.is_some() {
-        return Some(util::revert(
+        return Some(outcome::revert(
             "prank(address) cannot be called when a startPrank is already active",
             gas_limit,
         ));
@@ -68,7 +68,7 @@ pub fn prank_origin(
         single_call: true,
         used: false,
     });
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }
 
 pub fn start_prank(
@@ -80,7 +80,7 @@ pub fn start_prank(
     if let Some(ref active) = state.prank.active
         && !active.used
     {
-        return Some(util::revert(
+        return Some(outcome::revert(
             "startPrank(address) cannot be called when a prank is already active",
             gas_limit,
         ));
@@ -88,7 +88,7 @@ pub fn start_prank(
     if let Some(ref start) = state.prank.start
         && !start.used
     {
-        return Some(util::revert(
+        return Some(outcome::revert(
             "startPrank(address) cannot be called when a startPrank is already active",
             gas_limit,
         ));
@@ -100,7 +100,7 @@ pub fn start_prank(
         set_depth: 0,
         used: false,
     });
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }
 
 pub fn start_prank_origin(
@@ -114,7 +114,7 @@ pub fn start_prank_origin(
     if let Some(ref active) = state.prank.active
         && !active.used
     {
-        return Some(util::revert(
+        return Some(outcome::revert(
             "startPrank(address) cannot be called when a prank is already active",
             gas_limit,
         ));
@@ -122,7 +122,7 @@ pub fn start_prank_origin(
     if let Some(ref start) = state.prank.start
         && !start.used
     {
-        return Some(util::revert(
+        return Some(outcome::revert(
             "startPrank(address) cannot be called when a startPrank is already active",
             gas_limit,
         ));
@@ -134,7 +134,7 @@ pub fn start_prank_origin(
         set_depth: 0,
         used: false,
     });
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }
 
 pub fn stop_prank(
@@ -143,5 +143,5 @@ pub fn stop_prank(
 ) -> Option<revm::interpreter::CallOutcome> {
     state.prank.active = None;
     state.prank.start = None;
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }

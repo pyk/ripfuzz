@@ -7,7 +7,7 @@ use revm::{
     primitives::{Address, U256},
 };
 
-use crate::evm::cheatcode::{state::ExecutionState, util};
+use crate::evm::cheatcode::{outcome, state::ExecutionState};
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     addr: Address,
@@ -26,5 +26,5 @@ pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
         .map_err(|_| "account load failed")
         .ok()?;
     acc.data.set_balance(value);
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }

@@ -4,7 +4,7 @@ use revm::{
     context::BlockEnv, context::ContextSetters, context_interface::ContextTr, primitives::Address,
 };
 
-use crate::evm::cheatcode::{state::ExecutionState, util};
+use crate::evm::cheatcode::{outcome, state::ExecutionState};
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     addr: Address,
@@ -16,5 +16,5 @@ pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     block.beneficiary = addr;
     ctx.set_block(block);
     state.block.beneficiary = Some(addr);
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }

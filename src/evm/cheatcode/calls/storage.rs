@@ -7,7 +7,7 @@ use revm::{
     primitives::{Address, U256},
 };
 
-use crate::evm::cheatcode::{state::ExecutionState, util};
+use crate::evm::cheatcode::{outcome, state::ExecutionState};
 
 pub fn store<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     addr: Address,
@@ -18,7 +18,10 @@ pub fn store<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
     if ctx.journal().precompile_addresses().contains(&addr) {
-        return Some(util::revert("store: cannot write to precompile", gas_limit));
+        return Some(outcome::revert(
+            "store: cannot write to precompile",
+            gas_limit,
+        ));
     }
     ctx.journal_mut()
         .load_account(addr)
@@ -28,7 +31,7 @@ pub fn store<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
         .sstore(addr, U256::from_be_bytes(slot), U256::from_be_bytes(value))
         .map_err(|e| format!("failed to store storage slot: {e:?}"))
         .ok()?;
-    Some(util::success(gas_limit))
+    Some(outcome::success(gas_limit))
 }
 
 pub fn load<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
@@ -39,7 +42,10 @@ pub fn load<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
     if ctx.journal().precompile_addresses().contains(&addr) {
-        return Some(util::revert("load: cannot read from precompile", gas_limit));
+        return Some(outcome::revert(
+            "load: cannot read from precompile",
+            gas_limit,
+        ));
     }
     let value = match ctx.journal_mut().load_account_mut(addr) {
         Ok(mut s) => s
@@ -50,5 +56,5 @@ pub fn load<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
             .unwrap_or(U256::ZERO),
         Err(_) => U256::ZERO,
     };
-    Some(util::success_bytes(value.to_be_bytes_vec(), gas_limit))
+    Some(outcome::success_bytes(value.to_be_bytes_vec(), gas_limit))
 }
