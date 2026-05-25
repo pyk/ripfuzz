@@ -5,8 +5,8 @@ import "./Vm.sol";
 
 /// @title ChainIdTarget
 /// @notice Real-world fuzzing target that controls `block.chainid` via the
-///         `vm.chainId` cheatcode.  Setup establishes a canonical chain id and
-///         actions mutate or restore it.  Invariants verify deterministic control.
+///         `vm.chainId` cheatcode. Setup establishes a canonical chain id and
+///         actions mutate or restore it. Invariants verify deterministic control.
 contract ChainIdTarget {
     Vm constant vm = Vm(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1);
 
