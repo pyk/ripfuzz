@@ -94,7 +94,7 @@ mod tests {
     use revm::primitives::Bytes;
     use revm::primitives::hardfork::SpecId;
 
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployOptions};
+    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput};
     use crate::evm::cheatcode::VM_ADDRESS;
 
     #[test]
@@ -147,7 +147,7 @@ mod tests {
             RETURN, // RETURN
         ]);
 
-        let opts = DeployOptions::new(initcode);
+        let opts = DeployInput::new(initcode);
         let deployment = chain.deploy(opts).unwrap();
         let deployed_address = deployment.address.unwrap();
 
@@ -237,7 +237,7 @@ mod tests {
         ];
         initcode.extend(std::iter::repeat(0x00).take(0x8001));
 
-        let opts = DeployOptions::new(Bytes::from(initcode));
+        let opts = DeployInput::new(Bytes::from(initcode));
         let deployment = chain.deploy(opts).unwrap();
         assert!(deployment.result.success, "large deployment must succeed");
         let address = deployment.address.unwrap();
@@ -274,7 +274,7 @@ mod tests {
         let contract = load_fixture("src/EmptyChainNoSetup.sol:EmptyChainNoSetup");
 
         let mut chain = Chain::empty();
-        let opts = DeployOptions::new(contract.initcode);
+        let opts = DeployInput::new(contract.initcode);
         let deployment = chain.deploy(opts).unwrap();
 
         assert!(deployment.result.success, "deployment must succeed");
@@ -299,7 +299,7 @@ mod tests {
             load_fixture("src/EmptyChainConstructorRevert.sol:EmptyChainConstructorRevert");
 
         let mut chain = Chain::empty();
-        let opts = DeployOptions::new(contract.initcode);
+        let opts = DeployInput::new(contract.initcode);
         let deployment = chain.deploy(opts).unwrap();
 
         assert!(
@@ -326,7 +326,7 @@ mod tests {
         );
 
         let mut chain = Chain::empty();
-        let opts = DeployOptions::new(contract.initcode);
+        let opts = DeployInput::new(contract.initcode);
         let deployment = chain.deploy(opts).unwrap();
 
         assert!(
@@ -355,7 +355,7 @@ mod tests {
             load_fixture("src/EmptyChainCheatcodeInSetup.sol:EmptyChainCheatcodeInSetup");
 
         let mut chain = Chain::empty();
-        let deploy_opts = DeployOptions::new(contract.initcode);
+        let deploy_opts = DeployInput::new(contract.initcode);
         let deployment = chain.deploy(deploy_opts).unwrap();
 
         assert!(
@@ -369,7 +369,7 @@ mod tests {
             .as_ref()
             .expect("setup function must exist in ABI");
         let setup_data = Bytes::from(setup_func.selector().as_slice().to_vec());
-        let setup_opts = crate::evm::chain::SetupOptions::new(address, setup_data);
+        let setup_opts = crate::evm::chain::SetupInput::new(address, setup_data);
         let setup = chain.setup(setup_opts).unwrap();
 
         assert!(

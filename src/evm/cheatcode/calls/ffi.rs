@@ -48,7 +48,7 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployOptions};
+    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput};
     use crate::evm::cheatcode;
     use crate::evm::cheatcode::calls::ffi;
     use crate::evm::cheatcode::state::ExecutionState;
@@ -90,7 +90,7 @@ mod tests {
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/FfiTarget.sol:FfiTarget");
         let mut chain = Chain::empty();
-        let deployment = chain.deploy(DeployOptions::new(contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 

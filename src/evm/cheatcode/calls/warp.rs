@@ -25,7 +25,9 @@ mod tests {
     use revm::MainContext;
     use revm::primitives::Bytes;
 
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployOptions, SetupOptions};
+    use crate::evm::chain::{
+        Chain, DEFAULT_DEPLOYER, DeployInput, ExecInput, SetupInput, Transaction,
+    };
     use crate::evm::cheatcode;
     use crate::evm::cheatcode::calls::warp;
     use crate::evm::cheatcode::state::ExecutionState;
@@ -62,12 +64,12 @@ mod tests {
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/WarpTarget.sol:WarpTarget");
         let mut chain = Chain::empty();
-        let deployment = chain.deploy(DeployOptions::new(contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
         let setup_data = Bytes::from(WarpTarget::setupCall::new(()).abi_encode());
-        let setup_opts = SetupOptions::new(target, setup_data);
+        let setup_opts = SetupInput::new(target, setup_data);
         let setup = chain.setup(setup_opts).unwrap();
         assert!(setup.result.success, "setup must succeed");
 
@@ -261,32 +263,32 @@ mod tests {
     fn action_sequence_and_invariants() {
         let (mut chain, target) = deploy_and_setup();
 
-        // Temporarily mutate block timestamp via a sequence that ends on a different value.
-        let calldata = WarpTarget::callWarpSequenceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
+        // Execute a sequence: mutate timestamp, restore it, then check invariant.
+        let txs = vec![
+            Transaction::new(
+                target,
+                Bytes::from(WarpTarget::callWarpSequenceCall::new(()).abi_encode()),
+            ),
+            Transaction::new(
+                target,
+                Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
+            ),
+            Transaction::new(
+                target,
+                Bytes::from(WarpTarget::invariant_warpCall::new(()).abi_encode()),
+            ),
+        ];
+        let execution = chain.exec(txs, ExecInput::default()).unwrap();
+        assert_eq!(execution.results.len(), 3);
+        assert!(
+            execution.results[0].success,
+            "callWarpSequence must succeed"
         );
-        assert!(result.success, "callWarpSequence must succeed");
-
-        // Restore the expected block timestamp with an action.
-        let calldata = WarpTarget::actionWarpCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
+        assert!(execution.results[1].success, "actionWarp must succeed");
+        assert!(
+            execution.results[2].success,
+            "invariant must pass after action sequence"
         );
-        assert!(result.success, "actionWarp must succeed");
-
-        // Invariant must pass after the action restored state.
-        let calldata = WarpTarget::invariant_warpCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(result.success, "invariant must pass after action sequence");
     }
 
     /// vm.warp(expected) must set the same value when called in a separate
@@ -295,31 +297,51 @@ mod tests {
     fn warp_deterministic_across_transaction_sequence() {
         let (mut chain, target) = deploy_and_setup();
 
-        let calldata = WarpTarget::actionWarpCall::new(()).abi_encode();
+        let txs = vec![
+            Transaction::new(
+                target,
+                Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
+            ),
+            Transaction::new(
+                target,
+                Bytes::from(WarpTarget::getStoredBlockTimestampCall::new(()).abi_encode()),
+            ),
+            Transaction::new(
+                target,
+                Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
+            ),
+            Transaction::new(
+                target,
+                Bytes::from(WarpTarget::getStoredBlockTimestampCall::new(()).abi_encode()),
+            ),
+        ];
+        let execution = chain.exec(txs, ExecInput::default()).unwrap();
+        assert_eq!(execution.results.len(), 4);
 
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata.clone()),
-        );
-        assert!(result.success, "actionWarp must succeed");
-        let stored: U256 =
-            call_uint256_getter!(&mut chain, target, WarpTarget::getStoredBlockTimestampCall);
+        assert!(execution.results[0].success, "actionWarp must succeed");
+        let stored: U256 = WarpTarget::getStoredBlockTimestampCall::abi_decode_returns(
+            &execution.results[1]
+                .output
+                .clone()
+                .expect("getter must return output"),
+        )
+        .unwrap();
         assert_eq!(
             stored, EXPECTED_TIMESTAMP,
             "stored block timestamp must match after first action"
         );
 
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
+        assert!(
+            execution.results[2].success,
+            "actionWarp must succeed on second call"
         );
-        assert!(result.success, "actionWarp must succeed on second call");
-        let stored: U256 =
-            call_uint256_getter!(&mut chain, target, WarpTarget::getStoredBlockTimestampCall);
+        let stored: U256 = WarpTarget::getStoredBlockTimestampCall::abi_decode_returns(
+            &execution.results[3]
+                .output
+                .clone()
+                .expect("getter must return output"),
+        )
+        .unwrap();
         assert_eq!(
             stored, EXPECTED_TIMESTAMP,
             "stored block timestamp must still match after second action"

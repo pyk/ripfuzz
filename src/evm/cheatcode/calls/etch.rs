@@ -36,7 +36,7 @@ mod tests {
     use revm::MainContext;
     use revm::primitives::Bytes;
 
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployOptions, SetupOptions};
+    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput, SetupInput};
     use crate::evm::cheatcode;
     use crate::evm::cheatcode::calls::etch;
     use crate::evm::result::TransactionResult;
@@ -72,12 +72,12 @@ mod tests {
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/EtchTarget.sol:EtchTarget");
         let mut chain = Chain::empty();
-        let deployment = chain.deploy(DeployOptions::new(contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
         let setup_data = Bytes::from(EtchTarget::setupCall::new(()).abi_encode());
-        let setup_opts = SetupOptions::new(target, setup_data);
+        let setup_opts = SetupInput::new(target, setup_data);
         let setup = chain.setup(setup_opts).unwrap();
         assert!(setup.result.success, "setup must succeed");
 
