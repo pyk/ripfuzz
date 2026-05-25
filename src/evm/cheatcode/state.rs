@@ -51,7 +51,6 @@ pub struct BlockCheatState {
     pub beneficiary: Option<Address>,
     pub prevrandao: Option<revm::primitives::FixedBytes<32>>,
     pub chain_id: Option<U256>,
-    pub difficulty: Option<U256>,
 }
 
 #[derive(Clone, Debug, Default)]

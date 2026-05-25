@@ -11,7 +11,6 @@ interface Vm {
     function roll(uint256) external;
     function fee(uint256) external;
     function coinbase(address) external;
-    function difficulty(uint256) external;
     function prevrandao(bytes32) external;
     function chainId(uint256) external;
 

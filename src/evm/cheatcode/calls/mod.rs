@@ -14,7 +14,6 @@ pub mod addr;
 pub mod chain_id;
 pub mod coinbase;
 pub mod deal;
-pub mod difficulty;
 pub mod etch;
 pub mod fee;
 pub mod ffi;
@@ -38,7 +37,6 @@ sol! {
         function fee(uint256 newBasefee) external;
         function coinbase(address newCoinbase) external;
         function prevrandao(bytes32 newPrevrandao) external;
-        function difficulty(uint256 newDifficulty) external;
         function chainId(uint256 newChainId) external;
 
         // Account
@@ -99,7 +97,6 @@ where
         VmCalls::fee(c) => fee::handle(ctx, state, c.newBasefee),
         VmCalls::coinbase(c) => coinbase::handle(ctx, state, c.newCoinbase),
         VmCalls::prevrandao(c) => prevrandao::handle(ctx, state, c.newPrevrandao.into()),
-        VmCalls::difficulty(c) => difficulty::handle(ctx, state, c.newDifficulty),
         VmCalls::chainId(c) => chain_id::handle(ctx, state, c.newChainId),
 
         // Account
