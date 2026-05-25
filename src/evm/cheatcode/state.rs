@@ -38,6 +38,7 @@ impl ExecutionState {
         Self {
             project_root: config.project_root.clone(),
             ffi_enabled: config.ffi,
+            compiled_contracts: config.compiled_contracts.clone(),
             ..Self::default()
         }
     }

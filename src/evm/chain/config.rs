@@ -1,6 +1,9 @@
 //! Configuration for [`Chain`](super::Chain) execution behavior.
 
+use std::collections::HashMap;
 use std::path::Path;
+
+use revm::primitives::Bytes;
 
 use crate::evm::cheatcode;
 use crate::evm::forkdb;
@@ -45,6 +48,13 @@ impl Config {
     /// Set the fork configuration.
     pub fn fork(mut self, config: forkdb::Config) -> Self {
         self.fork = Some(config);
+        self
+    }
+
+    /// Seed compiled contract initcode so `vm.getCode` can resolve artifact
+    /// names. Optional; if omitted, `vm.getCode` calls will revert.
+    pub fn with_compiled_contracts(mut self, contracts: HashMap<String, Bytes>) -> Self {
+        self.cheatcode = self.cheatcode.with_compiled_contracts(contracts);
         self
     }
 }

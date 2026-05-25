@@ -8,6 +8,8 @@ import "./AltCounter.sol";
 contract GetCodeTarget {
     Vm constant vm = Vm(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1);
 
+    uint256 constant EXPECTED_VALUE = 42;
+
     uint256 public storedValue;
     address public deployedAddress;
 
@@ -22,26 +24,25 @@ contract GetCodeTarget {
         return Counter(deployedAddress).getValue();
     }
 
-    function getStoredValue() external view returns (uint256) {
-        return storedValue;
-    }
-
-    /// Call vm.getCode with the same artifact twice in one tx to prove
-    /// the cheatcode is deterministic.
-    function callGetCodeSameValueTwice()
-        external
-        returns (uint256 first, uint256 second)
-    {
+    /// Re-fetch Counter initcode, deploy and restore the canonical value.
+    function actionGetCode() external {
         bytes memory code = vm.getCode("src/Counter.sol:Counter");
-        address addr1 = deploy(code);
-        first = Counter(addr1).getValue();
-        address addr2 = deploy(code);
-        second = Counter(addr2).getValue();
+        address addr = deploy(code);
+        deployedAddress = addr;
+        storedValue = Counter(addr).getValue();
     }
 
-    /// Call vm.getCode with different artifacts and interleave to prove
-    /// sequence independence and code uniqueness.
-    function callGetCodeSequence()
+    /// Fetch a different artifact to mutate stored state.
+    function actionMutateGetCode() external {
+        bytes memory code = vm.getCode("src/AltCounter.sol:AltCounter");
+        address addr = deploy(code);
+        deployedAddress = addr;
+        storedValue = AltCounter(addr).getValue();
+    }
+
+    /// Interleave multiple vm.getCode calls with different artifacts,
+    /// ending on the expected value to prove determinism.
+    function actionGetCodeSequence()
         external
         returns (uint256 first, uint256 second, uint256 third)
     {
@@ -58,28 +59,8 @@ contract GetCodeTarget {
         third = Counter(addr3).getValue();
     }
 
-    /// Interaction with warp - both cheatcodes in same tx.
-    function callGetCodeAndWarp()
-        external
-        returns (uint256 value, uint256 timestamp)
-    {
-        bytes memory code = vm.getCode("src/Counter.sol:Counter");
-        address addr = deploy(code);
-        value = Counter(addr).getValue();
-        vm.warp(1234567890);
-        timestamp = block.timestamp;
-    }
-
-    /// Fuzzing action: re-fetch code, deploy and store the result.
-    function actionGetCode() external {
-        bytes memory code = vm.getCode("src/Counter.sol:Counter");
-        address addr = deploy(code);
-        deployedAddress = addr;
-        storedValue = Counter(addr).getValue();
-    }
-
-    function invariant_get_code() external view {
-        assert(storedValue == 42);
+    function invariant_getCode() external view {
+        assert(storedValue == EXPECTED_VALUE);
     }
 
     function deploy(bytes memory code) internal returns (address addr) {

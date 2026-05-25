@@ -1,5 +1,6 @@
 //! `fuzz` CLI command implementation.
 
+use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -334,9 +335,25 @@ pub fn run(args: Args) -> Result<()> {
         .context("target artifact not found")?;
     let target_contract = target::Contract::try_from(target_artifact)?;
 
+    // Build compiled-contract registry for vm.getCode
+    let mut compiled_contracts = HashMap::new();
+    for (id, artifact) in &build_artifacts {
+        let bytecode = match artifact {
+            foundry::Artifact::Contract(c) => &c.bytecode.object,
+            foundry::Artifact::Library(c) => &c.bytecode.object,
+            _ => continue,
+        };
+        let initcode: Bytes = bytecode.parse().unwrap_or_default();
+        if initcode.is_empty() {
+            continue;
+        }
+        compiled_contracts.insert(id.into(), initcode);
+    }
+
     // Create test chain
     info!("creating test chain");
-    let mut chain_config = evm::chain::Config::new(&project_path);
+    let mut chain_config =
+        evm::chain::Config::new(&project_path).with_compiled_contracts(compiled_contracts);
     if args.fork_mode.rpc_url.is_some() {
         let fork_config = build_fork_config(&project_path, &args.fork_mode)?;
         chain_config.fork = Some(fork_config);
