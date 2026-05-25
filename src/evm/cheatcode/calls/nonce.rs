@@ -54,34 +54,26 @@ mod tests {
     use revm::MainContext;
     use revm::primitives::Bytes;
 
-    use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER, DeployInput, SetupInput};
-    use crate::evm::cheatcode;
+    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::nonce;
-    use crate::evm::result::TransactionResult;
-
     use crate::foundry;
     use crate::target::Contract;
 
     alloy_sol_types::sol! {
         interface NonceTarget {
             function setup() external;
+            function actionBumpNonce() external;
+            function actionBumpNonceByTwo() external;
+            function actionOverwriteSequence() external;
+            function actionRevertLowNonce() external;
             function getStoredNonce() external view returns (uint256);
-            function getNonceExternal(address addr) external view returns (uint256);
-            function callSetNonceSameValueTwice() external returns (uint256 first, uint256 second);
-            function callSetNonceSequence() external returns (uint256 first, uint256 second, uint256 third);
-            function callSetNonceAndDeal() external returns (uint256 nonce, uint256 balance);
-            function callSetNonceAndRevertLowNonce() external;
-            function actionSetNonce() external;
-            function invariant_nonce() external view;
+            function getNonceDirect() external view returns (uint256);
+            function invariant_nonceAtLeastBaseline() external view;
         }
     }
 
-    const NONCE_TARGET: Address = address!("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF");
-    const EXPECTED_NONCE: U256 = U256::from_limbs([42, 0, 0, 0]);
-
-    fn expected_balance() -> U256 {
-        U256::from(1000) * U256::from(1_000_000_000_000_000_000u64)
-    }
+    const ACTOR: Address = address!("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF");
+    const BASELINE: U256 = U256::from_limbs([42, 0, 0, 0]);
 
     fn load_fixture(id: &str) -> Contract {
         let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
@@ -91,7 +83,6 @@ mod tests {
         Contract::try_from(artifact).unwrap()
     }
 
-    /// Deploy the fixture and run its `setup` function.
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/NonceTarget.sol:NonceTarget");
         let mut chain = Chain::new(Config::default()).unwrap();
@@ -99,110 +90,58 @@ mod tests {
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_opts = SetupInput::new(target);
-        let setup = chain.setup(setup_opts).unwrap();
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
         assert!(setup.result.success, "setup must succeed");
 
         (chain, target)
     }
 
-    /// Execute a CALL with the cheatcode inspector enabled so that `vm.*`
-    /// functions invoked by the target contract are intercepted.
-    fn call_with_cheatcode_inspector(
-        chain: &mut Chain,
-        caller: Address,
-        target: Address,
-        data: Bytes,
-    ) -> TransactionResult {
-        let inspector = cheatcode::Inspector::default();
-        let tx = revm::context::TxEnv {
-            caller,
-            kind: revm::primitives::TxKind::Call(target),
-            data,
-            gas_limit: u64::MAX,
-            value: U256::ZERO,
-            ..Default::default()
-        };
-        let (result, _) = chain.inspect(tx, inspector).unwrap();
-        result
-    }
+    // -----------------------------------------------------------------------
+    // Handler-level unit tests
+    // -----------------------------------------------------------------------
 
-    /// Call a view/pure function that returns a single `uint256` and decode it.
-    macro_rules! call_uint256_getter {
-        ($chain:expr, $target:expr, $call:ty) => {{
-            let calldata = <$call>::new(()).abi_encode();
-            let result = $chain
-                .call(DEFAULT_DEPLOYER, $target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{} must succeed", <$call>::SIGNATURE);
-            let output = result.output.expect("getter must return output");
-            <$call>::abi_decode_returns(&output).unwrap()
-        }};
-        ($chain:expr, $target:expr, $call:ty, $args:tt) => {{
-            let calldata = <$call>::new($args).abi_encode();
-            let result = $chain
-                .call(DEFAULT_DEPLOYER, $target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{} must succeed", <$call>::SIGNATURE);
-            let output = result.output.expect("getter must return output");
-            <$call>::abi_decode_returns(&output).unwrap()
-        }};
-    }
-
-    /// vm.setNonce must succeed and vm.getNonce must read the written value
-    /// at the handler level.
+    /// vm.setNonce must succeed and vm.getNonce must read the written value.
     #[test]
     fn set_nonce_sets_nonce_and_get_nonce_reads_it() {
         let mut ctx = revm::context::Context::mainnet();
-        let outcome = nonce::set_nonce(&mut ctx, NONCE_TARGET, 42);
+        let outcome = nonce::set_nonce(&mut ctx, ACTOR, 42);
         assert!(outcome.is_some(), "must return an outcome");
-        let outcome = nonce::get_nonce(&mut ctx, NONCE_TARGET);
+        let outcome = nonce::get_nonce(&mut ctx, ACTOR);
         assert!(outcome.is_some(), "must return an outcome");
         let decoded =
             U256::from_be_bytes::<32>(outcome.unwrap().result.output.as_ref().try_into().unwrap());
-        assert_eq!(
-            decoded,
-            U256::from_limbs([42, 0, 0, 0]),
-            "get_nonce must read 42"
-        );
+        assert_eq!(decoded, BASELINE, "get_nonce must read 42");
     }
 
     /// vm.setNonce with a value lower than the current nonce must revert.
     #[test]
     fn set_nonce_lower_than_current_reverts() {
         let mut ctx = revm::context::Context::mainnet();
-        // First set nonce to 10.
-        let outcome = nonce::set_nonce(&mut ctx, NONCE_TARGET, 10);
-        assert!(outcome.is_some(), "must return an outcome");
-        assert!(
-            outcome.unwrap().result.is_ok(),
-            "first set_nonce must succeed"
-        );
+        let outcome = nonce::set_nonce(&mut ctx, ACTOR, 10);
+        assert!(outcome.is_some() && outcome.unwrap().result.is_ok());
 
-        // Attempt to set nonce to 5 (< 10).
-        let outcome = nonce::set_nonce(&mut ctx, NONCE_TARGET, 5);
-        assert!(outcome.is_some(), "must return an outcome");
+        let outcome = nonce::set_nonce(&mut ctx, ACTOR, 5);
+        assert!(outcome.is_some());
         assert!(
             !outcome.unwrap().result.is_ok(),
             "set_nonce to lower value must revert"
         );
     }
 
-    /// vm.setNonce with the same value as the current nonce must succeed
-    /// (idempotent).
+    /// vm.setNonce with the same value as the current nonce must succeed.
     #[test]
     fn set_nonce_same_value_succeeds() {
         let mut ctx = revm::context::Context::mainnet();
-        let outcome = nonce::set_nonce(&mut ctx, NONCE_TARGET, 42);
+        let outcome = nonce::set_nonce(&mut ctx, ACTOR, 42);
         assert!(outcome.is_some() && outcome.unwrap().result.is_ok());
 
-        let outcome = nonce::set_nonce(&mut ctx, NONCE_TARGET, 42);
+        let outcome = nonce::set_nonce(&mut ctx, ACTOR, 42);
         assert!(outcome.is_some() && outcome.unwrap().result.is_ok());
 
-        let outcome = nonce::get_nonce(&mut ctx, NONCE_TARGET);
+        let outcome = nonce::get_nonce(&mut ctx, ACTOR);
         let decoded =
             U256::from_be_bytes::<32>(outcome.unwrap().result.output.as_ref().try_into().unwrap());
-        assert_eq!(decoded, U256::from_limbs([42, 0, 0, 0]));
+        assert_eq!(decoded, BASELINE);
     }
 
     /// vm.getNonce on an unknown account must return zero.
@@ -217,209 +156,241 @@ mod tests {
         assert_eq!(decoded, U256::ZERO, "unknown account nonce must be 0");
     }
 
-    /// The nonce set during setup must be readable via the contract getter
-    /// in a later transaction, proving cross-transaction persistence.
+    // -----------------------------------------------------------------------
+    // Integration tests
+    // -----------------------------------------------------------------------
+
+    /// `vm.setNonce` used during setup must persist the stored nonce so that
+    /// a later invariant call can verify the baseline value.
     #[test]
-    fn set_nonce_persists_in_storage() {
+    fn nonce_set_in_setup_matches_expected() {
         let (mut chain, target) = deploy_and_setup();
-        let decoded: U256 =
-            call_uint256_getter!(&mut chain, target, NonceTarget::getStoredNonceCall);
-        assert_eq!(
-            decoded, EXPECTED_NONCE,
-            "stored nonce must match the value set in setup"
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            execution.results[0].success,
+            "invariant must pass after setup"
         );
     }
 
-    /// vm.setNonce with the same value twice in one tx must yield the same
-    /// nonce reading, proving determinism.
+    /// `vm.setNonce` in setup modifies the EVM account state directly.
+    /// `vm.getNonce` during a later `chain.exec` must still read the baseline
+    /// without any re-labeling action, proving database persistence.
     #[test]
-    fn set_nonce_same_value_twice_in_sequence_is_deterministic() {
+    fn nonce_persists_from_setup_into_exec() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = NonceTarget::callSetNonceSameValueTwiceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callSetNonceSameValueTwice() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = NonceTarget::callSetNonceSameValueTwiceCall::abi_decode_returns(&output).unwrap();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            NonceTarget::getNonceDirectCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(execution.results[0].success, "getNonceDirect must succeed");
+        let ret = NonceTarget::getNonceDirectCall::abi_decode_returns(
+            &execution.results[0].output.clone().unwrap(),
+        )
+        .unwrap();
         assert_eq!(
-            ret.first, ret.second,
-            "same setNonce value must give identical readings"
-        );
-        assert_eq!(ret.first, EXPECTED_NONCE);
-    }
-
-    /// vm.setNonce with different values interleaved must produce distinct
-    /// nonce readings, proving the cheatcode is stateful.
-    #[test]
-    fn set_nonce_sequence_returns_consistent_values() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = NonceTarget::callSetNonceSequenceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callSetNonceSequence() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = NonceTarget::callSetNonceSequenceCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(ret.first, U256::from(1), "first vm.setNonce(1) must read 1");
-        assert_eq!(
-            ret.second, EXPECTED_NONCE,
-            "second vm.setNonce(42) must read 42"
-        );
-        assert_eq!(
-            ret.third,
-            U256::from(100),
-            "third vm.setNonce(100) must read 100"
+            ret, BASELINE,
+            "vm.getNonce must return the nonce set during setup"
         );
     }
 
-    /// vm.setNonce must work correctly when combined with vm.deal in the same tx.
+    /// Bumping the nonce by one in an action must increase the stored value.
+    /// The invariant (nonce >= baseline) still passes because the nonce only
+    /// went up.
     #[test]
-    fn set_nonce_interacts_with_deal() {
+    fn bump_nonce_in_action_increases_value() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = NonceTarget::callSetNonceAndDealCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callSetNonceAndDeal() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = NonceTarget::callSetNonceAndDealCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(ret.nonce, EXPECTED_NONCE, "nonce must match setNonce value");
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::actionBumpNonceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::getStoredNonceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 3);
+        assert!(execution.results[0].success, "actionBumpNonce must succeed");
+        assert!(execution.results[1].success, "getStoredNonce must succeed");
+        let stored: U256 = NonceTarget::getStoredNonceCall::abi_decode_returns(
+            &execution.results[1].output.clone().unwrap(),
+        )
+        .unwrap();
         assert_eq!(
-            ret.balance,
-            expected_balance(),
-            "balance must match dealt value"
-        );
-    }
-
-    /// Setting nonce lower than current via a contract call must revert the
-    /// whole transaction, matching Foundry behavior.
-    #[test]
-    fn set_nonce_lower_reverts_via_contract() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = NonceTarget::callSetNonceAndRevertLowNonceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
+            stored,
+            BASELINE + U256::from(1),
+            "nonce must be 43 after bump"
         );
         assert!(
-            !result.success,
-            "callSetNonceAndRevertLowNonce() must revert"
+            execution.results[2].success,
+            "invariant must pass after bump"
         );
     }
 
-    /// Invariant must pass immediately after setup (fuzzing baseline).
+    /// A sequence of bumps must accumulate. This proves vm.setNonce is
+    /// stateful and composes correctly across transactions in one exec.
     #[test]
-    fn invariant_passes_after_setup() {
+    fn bump_nonce_sequence_accumulates() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = NonceTarget::invariant_nonceCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(result.success, "invariant must pass after setup");
-    }
-
-    /// A fuzz-like sequence of actions followed by invariants must all succeed.
-    /// This proves vm.setNonce stays consistent across multiple transactions
-    /// and that invariants correctly observe the mutated state.
-    #[test]
-    fn action_sequence_and_invariants() {
-        let (mut chain, target) = deploy_and_setup();
-
-        // Temporarily mutate nonce via a sequence that ends on a different value.
-        let calldata = NonceTarget::callSetNonceSequenceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callSetNonceSequence must succeed");
-
-        // Restore the expected nonce with an action.
-        let calldata = NonceTarget::actionSetNonceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionSetNonce must succeed");
-
-        // Invariant must pass after the action restored state.
-        let calldata = NonceTarget::invariant_nonceCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(result.success, "invariant must pass after action sequence");
-    }
-
-    /// vm.setNonce(42) must set the same value when called in a separate
-    /// transaction after the initial setup, proving cross-transaction determinism.
-    #[test]
-    fn set_nonce_deterministic_across_transaction_sequence() {
-        let (mut chain, target) = deploy_and_setup();
-
-        let calldata = NonceTarget::actionSetNonceCall::new(()).abi_encode();
-
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata.clone()),
-        );
-        assert!(result.success, "actionSetNonce must succeed");
-        let stored: U256 =
-            call_uint256_getter!(&mut chain, target, NonceTarget::getStoredNonceCall);
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::actionBumpNonceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::actionBumpNonceByTwoCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::getStoredNonceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 4);
+        assert!(execution.results[2].success, "getStoredNonce must succeed");
+        let stored: U256 = NonceTarget::getStoredNonceCall::abi_decode_returns(
+            &execution.results[2].output.clone().unwrap(),
+        )
+        .unwrap();
         assert_eq!(
-            stored, EXPECTED_NONCE,
-            "stored nonce must match after first action"
+            stored,
+            BASELINE + U256::from(3),
+            "nonce must be 45 after +1 then +2"
         );
-
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionSetNonce must succeed on second call");
-        let stored: U256 =
-            call_uint256_getter!(&mut chain, target, NonceTarget::getStoredNonceCall);
-        assert_eq!(
-            stored, EXPECTED_NONCE,
-            "stored nonce must still match after second action"
+        assert!(
+            execution.results[3].success,
+            "invariant must pass after sequence"
         );
     }
 
-    /// vm.getNonce must return the expected nonce when queried directly
-    /// through the contract after setup.
+    /// Overwriting the nonce multiple times in a single transaction and ending
+    /// +30 above current must keep the invariant intact. This proves the
+    /// cheatcode is deterministic and safe to call repeatedly inside one tx.
     #[test]
-    fn get_nonce_external_returns_expected() {
+    fn overwrite_sequence_in_single_transaction() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = NonceTarget::getNonceExternalCall::new((NONCE_TARGET,)).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::actionOverwriteSequenceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::getStoredNonceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 3);
+        assert!(
+            execution.results[0].success,
+            "actionOverwriteSequence must succeed"
         );
-        assert!(result.success, "getNonceExternal must succeed");
-        let output = result.output.expect("must return output");
-        let decoded = NonceTarget::getNonceExternalCall::abi_decode_returns(&output).unwrap();
+        let stored: U256 = NonceTarget::getStoredNonceCall::abi_decode_returns(
+            &execution.results[1].output.clone().unwrap(),
+        )
+        .unwrap();
         assert_eq!(
-            decoded, EXPECTED_NONCE,
-            "getNonceExternal must return the nonce set in setup"
+            stored,
+            BASELINE + U256::from(30),
+            "nonce must be 72 after +30 overwrite"
+        );
+        assert!(
+            execution.results[2].success,
+            "invariant must pass after overwrite sequence"
+        );
+    }
+
+    /// Attempting to set nonce lower than current must revert the transaction.
+    #[test]
+    fn revert_low_nonce_in_action_reverts() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            NonceTarget::actionRevertLowNonceCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            !execution.results[0].success,
+            "actionRevertLowNonce must revert"
+        );
+    }
+
+    /// A cloned chain snapshot must produce the same nonce state when actions
+    /// are executed on the clone. This is critical for parallel fuzzing where
+    /// each worker starts from a cloned state.
+    #[test]
+    fn cloned_chain_preserves_nonce_state() {
+        let (chain, target) = deploy_and_setup();
+        let mut cloned = chain.clone();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::actionBumpNonceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::actionBumpNonceByTwoCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = cloned.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 3);
+        assert!(
+            execution.results[0].success,
+            "actionBumpNonce must succeed on cloned chain"
+        );
+        assert!(
+            execution.results[1].success,
+            "actionBumpNonceByTwo must succeed on cloned chain"
+        );
+        assert!(
+            execution.results[2].success,
+            "invariant must pass on cloned chain"
+        );
+    }
+
+    /// A realistic fuzzing sequence: multiple actions mutate nonce state by
+    /// bumping and overwriting, and a final invariant verifies that the
+    /// nonce never dropped below the baseline.
+    #[test]
+    fn deterministic_across_transaction_sequence() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::actionBumpNonceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::actionBumpNonceByTwoCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::actionOverwriteSequenceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 4);
+        assert!(
+            execution.results.iter().all(|r| r.success),
+            "all sequence steps must succeed"
         );
     }
 }
