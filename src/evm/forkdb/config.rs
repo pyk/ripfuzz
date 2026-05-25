@@ -13,6 +13,8 @@ pub struct Config {
     pub batch_timeout_ms: u64,
     pub rate_limit: Option<u64>,
     pub cache_dir: Option<PathBuf>,
+    /// Block number to pin the fork to.
+    pub block_number: u64,
 }
 
 impl Config {
@@ -29,6 +31,7 @@ impl Config {
             batch_timeout_ms: 50,
             rate_limit: None,
             cache_dir: None,
+            block_number: 1,
         }
     }
 
@@ -64,6 +67,11 @@ impl Config {
 
     pub fn batch_timeout_ms(mut self, ms: u64) -> Self {
         self.batch_timeout_ms = ms;
+        self
+    }
+
+    pub fn block_number(mut self, n: u64) -> Self {
+        self.block_number = n;
         self
     }
 }

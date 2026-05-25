@@ -11,19 +11,19 @@ use revm::{
     state::AccountInfo,
 };
 
-use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
+use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER};
 use crate::evm::cheatcode::VM_ADDRESS;
 use crate::evm::database::{Database, EmptyDB};
 
 impl Default for Chain {
     fn default() -> Self {
-        Self::empty(super::Config::default())
+        Self::empty(Config::default())
     }
 }
 
 impl Chain {
     /// Create a new empty sandbox EVM with the given [`Config`](super::Config).
-    pub(crate) fn empty(config: super::Config) -> Self {
+    pub fn empty(config: Config) -> Self {
         let mut cfg_env = CfgEnv::default();
         cfg_env.chain_id = 1;
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);

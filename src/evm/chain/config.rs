@@ -2,31 +2,31 @@
 
 use std::path::Path;
 
+use crate::evm::cheatcode;
+use crate::evm::forkdb;
+
 /// Campaign-level configuration that controls chain behaviour.
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Cheatcode inspector configuration (`vm.ffi`, project root, etc.).
-    pub cheatcode: crate::evm::cheatcode::Config,
+    pub cheatcode: cheatcode::Config,
     /// Enable trace collection.
     pub trace: bool,
     /// Enable coverage collection.
     pub coverage: bool,
     /// Fork configuration; when `Some` the chain is forked from a remote
     /// RPC node instead of starting as an empty sandbox.
-    pub fork: Option<crate::evm::forkdb::Config>,
-    /// Block number to pin the fork to. Required when `fork` is `Some`.
-    pub fork_block_number: Option<u64>,
+    pub fork: Option<forkdb::Config>,
 }
 
 impl Config {
     /// Create a new config with the given project root.
     pub fn new(project_root: impl AsRef<Path>) -> Self {
         Self {
-            cheatcode: crate::evm::cheatcode::Config::new(project_root),
+            cheatcode: cheatcode::Config::new(project_root),
             trace: false,
             coverage: false,
             fork: None,
-            fork_block_number: None,
         }
     }
 
@@ -43,14 +43,8 @@ impl Config {
     }
 
     /// Set the fork configuration.
-    pub fn fork(mut self, config: crate::evm::forkdb::Config) -> Self {
+    pub fn fork(mut self, config: forkdb::Config) -> Self {
         self.fork = Some(config);
-        self
-    }
-
-    /// Set the fork block number.
-    pub fn fork_block_number(mut self, block_number: u64) -> Self {
-        self.fork_block_number = Some(block_number);
         self
     }
 }

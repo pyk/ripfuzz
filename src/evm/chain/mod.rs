@@ -295,14 +295,13 @@ impl Chain {
     pub fn new(config: Config) -> Result<Self> {
         match config.fork.clone() {
             Some(fork_config) => {
-                let block_number = config.fork_block_number.unwrap_or(1);
                 let agent_cfg = ureq::Agent::config_builder()
                     .timeout_global(Some(std::time::Duration::from_millis(
                         fork_config.timeout_ms,
                     )))
                     .build();
                 let agent = ureq::Agent::new_with_config(agent_cfg);
-                Self::fork_with_transport(fork_config, agent, block_number)
+                Self::fork_with_transport(fork_config, agent)
             }
             None => Ok(Self::empty(config)),
         }

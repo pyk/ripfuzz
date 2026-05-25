@@ -283,12 +283,11 @@ impl ForkModeArgs {
     }
 }
 
-/// Build a [`forkdb::Config`](crate::evm::forkdb::Config) and resolve the
-/// target block number from CLI arguments.
+/// Build a [`forkdb::Config`](crate::evm::forkdb::Config) from CLI arguments.
 fn build_fork_config(
     project_path: impl AsRef<Path>,
     fork_mode: &ForkModeArgs,
-) -> Result<(crate::evm::forkdb::Config, u64)> {
+) -> Result<evm::forkdb::Config> {
     let cache_dir = project_path.as_ref().join("raptor").join("cache");
     let block = fork_mode
         .rpc_block
@@ -297,13 +296,14 @@ fn build_fork_config(
         .rpc_url
         .as_ref()
         .context("--rpc-url is required")?;
-    let config = crate::evm::forkdb::Config::new(url.clone())
+    let config = evm::forkdb::Config::new(url.clone())
         .retries(fork_mode.rpc_retries)
         .backoff_ms(fork_mode.rpc_backoff)
         .rate_limit(fork_mode.rpc_rate_limit)
         .timeout_ms(fork_mode.rpc_timeout)
-        .cache_dir(&cache_dir);
-    Ok((config, block))
+        .cache_dir(&cache_dir)
+        .block_number(block);
+    Ok(config)
 }
 
 #[instrument(skip(args), fields(target = ?args.target, threads = args.threads, max_runs = args.max_runs))]
@@ -338,9 +338,8 @@ pub fn run(args: Args) -> Result<()> {
     info!("creating test chain");
     let mut chain_config = evm::chain::Config::new(&project_path);
     if args.fork_mode.rpc_url.is_some() {
-        let (fork_config, block) = build_fork_config(&project_path, &args.fork_mode)?;
+        let fork_config = build_fork_config(&project_path, &args.fork_mode)?;
         chain_config.fork = Some(fork_config);
-        chain_config.fork_block_number = Some(block);
         info!("forking a chain"); // TODO: add chain name, block number etc
     }
     let mut chain = evm::Chain::new(chain_config)?;
