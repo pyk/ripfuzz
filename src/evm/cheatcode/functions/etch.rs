@@ -5,20 +5,18 @@ use revm::{
     context::BlockEnv,
     context::ContextSetters,
     context_interface::{ContextTr, JournalTr},
-    primitives::Bytes,
+    primitives::{Address, Bytes},
 };
 
 use crate::evm::cheatcode::{state::ExecutionState, util};
 
-pub const SELECTOR: [u8; 4] = [0xb4, 0xd6, 0xc7, 0x82];
-
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
-    input: &Bytes,
+    addr: Address,
+    code: Bytes,
     gas_limit: u64,
     ctx: &mut CTX,
     _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
-    let (addr, code) = util::decode_address_bytes(input)?;
     if ctx.journal().precompile_addresses().contains(&addr) {
         return Some(util::revert("cannot etch precompile address", gas_limit));
     }

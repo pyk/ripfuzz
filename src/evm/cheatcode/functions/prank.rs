@@ -1,25 +1,18 @@
 //! Prank cheatcodes - `vm.prank`, `vm.startPrank`, `vm.stopPrank`.
 
-use revm::primitives::{Address, Bytes};
+use revm::primitives::Address;
 
 use crate::evm::cheatcode::{
     state::{ExecutionState, PrankState, StartPrankState},
     util,
 };
 
-pub const PRANK_SELECTOR: [u8; 4] = [0xca, 0x66, 0x9f, 0xa7];
-pub const PRANK_ORIGIN_SELECTOR: [u8; 4] = [0x47, 0xe5, 0x0c, 0xce];
-pub const START_PRANK_SELECTOR: [u8; 4] = [0x06, 0x44, 0x7d, 0x56];
-pub const START_PRANK_ORIGIN_SELECTOR: [u8; 4] = [0x45, 0xb5, 0x60, 0x78];
-pub const STOP_PRANK: [u8; 4] = [0x90, 0xc5, 0x01, 0x3b];
-
 pub fn prank(
-    input: &Bytes,
+    addr: Address,
     gas_limit: u64,
     _ctx: &mut impl revm::context_interface::ContextTr,
     state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
-    let addr = util::decode_address(input)?;
     if let Some(ref active) = state.prank.active
         && !active.used
     {
@@ -46,13 +39,13 @@ pub fn prank(
 }
 
 pub fn prank_origin(
-    input: &Bytes,
+    addr: Address,
+    origin: Address,
     gas_limit: u64,
     _ctx: &mut impl revm::context_interface::ContextTr,
     state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
-    let (addr, origin) = util::decode_address_u256(input)?;
-    let origin = Some(revm::primitives::Address::from_word(origin.into()));
+    let origin = Some(origin);
     if let Some(ref active) = state.prank.active
         && !active.used
     {
@@ -79,12 +72,11 @@ pub fn prank_origin(
 }
 
 pub fn start_prank(
-    input: &Bytes,
+    addr: Address,
     gas_limit: u64,
     _ctx: &mut impl revm::context_interface::ContextTr,
     state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
-    let addr = util::decode_address(input)?;
     if let Some(ref active) = state.prank.active
         && !active.used
     {
@@ -112,13 +104,13 @@ pub fn start_prank(
 }
 
 pub fn start_prank_origin(
-    input: &Bytes,
+    addr: Address,
+    origin: Address,
     gas_limit: u64,
     _ctx: &mut impl revm::context_interface::ContextTr,
     state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
-    let (addr, origin) = util::decode_address_u256(input)?;
-    let origin = Some(revm::primitives::Address::from_word(origin.into()));
+    let origin = Some(origin);
     if let Some(ref active) = state.prank.active
         && !active.used
     {

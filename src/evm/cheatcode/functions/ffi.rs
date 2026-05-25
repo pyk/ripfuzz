@@ -2,35 +2,17 @@
 
 use std::process::Command;
 
-use alloy_dyn_abi::{DynSolType, DynSolValue};
-use revm::primitives::Bytes;
+use alloy_dyn_abi::DynSolValue;
 
 use crate::evm::cheatcode::{state::ExecutionState, util};
 
-pub const SELECTOR: [u8; 4] = [0x89, 0x16, 0x04, 0x67];
-
 pub fn handle(
-    input: &Bytes,
+    args: Vec<String>,
     gas_limit: u64,
     state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
     if !state.ffi_enabled {
         return Some(util::revert("ffi disabled: use --ffi to enable", gas_limit));
-    }
-
-    let ty = DynSolType::Tuple(vec![DynSolType::Array(Box::new(DynSolType::String))]);
-    let DynSolValue::Tuple(mut vals) = ty.abi_decode_params(&input[4..]).ok()? else {
-        return Some(util::revert("ffi: failed to decode args", gas_limit));
-    };
-    let DynSolValue::Array(arr) = vals.pop()? else {
-        return Some(util::revert("ffi: expected string[]", gas_limit));
-    };
-    let mut args = Vec::with_capacity(arr.len());
-    for v in arr {
-        let DynSolValue::String(s) = v else {
-            return Some(util::revert("ffi: expected string[]", gas_limit));
-        };
-        args.push(s);
     }
     if args.is_empty() {
         return Some(util::revert("ffi: empty command", gas_limit));

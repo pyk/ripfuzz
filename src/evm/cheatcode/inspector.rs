@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use alloy_sol_types::SolInterface;
 use revm::{
     context::{BlockEnv, ContextSetters, TxEnv},
     context_interface::ContextTr,
@@ -236,10 +237,15 @@ impl<
             return None;
         }
 
-        let sel: [u8; 4] = input[..4].try_into().ok()?;
+        let call =
+            crate::evm::cheatcode::functions::Cheatcodes::CheatcodesCalls::abi_decode(&input)
+                .ok()?;
+        let is_stop_prank = matches!(
+            &call,
+            crate::evm::cheatcode::functions::Cheatcodes::CheatcodesCalls::stopPrank(_)
+        );
         let outcome = crate::evm::cheatcode::functions::dispatch(
-            sel,
-            &input,
+            call,
             inputs.gas_limit,
             ctx,
             &mut self.state,
@@ -274,7 +280,7 @@ impl<
         // If stopPrank was called, restore tx.origin immediately.
         if let Some(ref o) = outcome
             && o.result.result == InstructionResult::Stop
-            && (sel == crate::evm::cheatcode::functions::prank::STOP_PRANK)
+            && is_stop_prank
         {
             self.maybe_restore_origin(ctx);
         }

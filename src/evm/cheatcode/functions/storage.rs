@@ -4,21 +4,19 @@ use revm::{
     context::BlockEnv,
     context::ContextSetters,
     context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
-    primitives::{Bytes, U256},
+    primitives::{Address, U256},
 };
 
 use crate::evm::cheatcode::{state::ExecutionState, util};
 
-pub const STORE_SELECTOR: [u8; 4] = [0x66, 0x7f, 0x9d, 0x70];
-pub const LOAD_SELECTOR: [u8; 4] = [0x70, 0xca, 0x10, 0xbb];
-
 pub fn store<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
-    input: &Bytes,
+    addr: Address,
+    slot: [u8; 32],
+    value: [u8; 32],
     gas_limit: u64,
     ctx: &mut CTX,
     _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
-    let (addr, slot, value) = util::decode_address_bytes32_bytes32(input)?;
     if ctx.journal().precompile_addresses().contains(&addr) {
         return Some(util::revert("store: cannot write to precompile", gas_limit));
     }
@@ -34,12 +32,12 @@ pub fn store<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
 }
 
 pub fn load<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
-    input: &Bytes,
+    addr: Address,
+    slot: [u8; 32],
     gas_limit: u64,
     ctx: &mut CTX,
     _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
-    let (addr, slot) = util::decode_address_bytes32(input)?;
     if ctx.journal().precompile_addresses().contains(&addr) {
         return Some(util::revert("load: cannot read from precompile", gas_limit));
     }

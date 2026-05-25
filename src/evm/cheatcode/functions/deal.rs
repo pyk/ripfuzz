@@ -4,20 +4,18 @@ use revm::{
     context::BlockEnv,
     context::ContextSetters,
     context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
-    primitives::Bytes,
+    primitives::{Address, U256},
 };
 
 use crate::evm::cheatcode::{state::ExecutionState, util};
 
-pub const SELECTOR: [u8; 4] = [0xc8, 0x8a, 0x5e, 0x6d];
-
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
-    input: &Bytes,
+    addr: Address,
+    value: U256,
     gas_limit: u64,
     ctx: &mut CTX,
     _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
-    let (addr, value) = util::decode_address_u256(input)?;
     ctx.journal_mut()
         .load_account(addr)
         .map_err(|_| "account load failed")

@@ -1,11 +1,8 @@
 //! `sign` cheatcode - sign a digest with a private key.
 
 use alloy_primitives::U256;
-use revm::primitives::Bytes;
 
 use crate::evm::cheatcode::util;
-
-pub const SELECTOR: [u8; 4] = [0xe3, 0x41, 0xea, 0xa4];
 
 /// secp256k1 curve order (n).
 const SECP256K1_ORDER: U256 = U256::from_be_bytes([
@@ -13,8 +10,11 @@ const SECP256K1_ORDER: U256 = U256::from_be_bytes([
     0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x41,
 ]);
 
-pub fn handle(input: &Bytes, gas_limit: u64) -> Option<revm::interpreter::CallOutcome> {
-    let (sk, digest) = util::decode_u256_bytes32(input)?;
+pub fn handle(
+    sk: U256,
+    digest: [u8; 32],
+    gas_limit: u64,
+) -> Option<revm::interpreter::CallOutcome> {
     if sk.is_zero() {
         return Some(util::revert("private key cannot be 0", gas_limit));
     }

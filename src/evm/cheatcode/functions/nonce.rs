@@ -4,22 +4,18 @@ use revm::{
     context::BlockEnv,
     context::ContextSetters,
     context_interface::{ContextTr, JournalTr, journaled_state::account::JournaledAccountTr},
-    primitives::{Bytes, U256},
+    primitives::{Address, U256},
 };
 
 use crate::evm::cheatcode::{state::ExecutionState, util};
 
-pub const SET_NONCE_SELECTOR: [u8; 4] = [0xf8, 0xe1, 0x8b, 0x57];
-pub const GET_NONCE_SELECTOR: [u8; 4] = [0x2d, 0x03, 0x35, 0xab];
-
 pub fn set_nonce<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
-    input: &Bytes,
+    addr: Address,
+    nonce: u64,
     gas_limit: u64,
     ctx: &mut CTX,
     _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
-    let (addr, value) = util::decode_address_u256(input)?;
-    let nonce = u64::try_from(value).unwrap_or(0);
     let current = ctx
         .journal_mut()
         .load_account(addr)
@@ -42,12 +38,11 @@ pub fn set_nonce<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
 }
 
 pub fn get_nonce<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
-    input: &Bytes,
+    addr: Address,
     gas_limit: u64,
     ctx: &mut CTX,
     _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
-    let addr = util::decode_address(input)?;
     let nonce = ctx
         .journal_mut()
         .load_account(addr)
