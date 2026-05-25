@@ -81,10 +81,9 @@ mod tests {
 
     /// Create an inspector with ffi enabled and a valid project root.
     fn ffi_enabled_inspector() -> cheatcode::Inspector {
-        let mut state = ExecutionState::default();
-        state.ffi_enabled = true;
-        state.project_root = std::env::current_dir().unwrap_or_default();
-        cheatcode::Inspector::from_state(state)
+        let config =
+            cheatcode::Config::new(std::env::current_dir().unwrap_or_default()).with_ffi(true);
+        cheatcode::Inspector::new(config)
     }
 
     /// Deploy the fixture and run its `setup` function with an FFI-enabled inspector.
