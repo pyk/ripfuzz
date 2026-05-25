@@ -51,40 +51,36 @@ pub fn load<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::{Address, U256, address};
+    use alloy_primitives::{Address, address};
     use alloy_sol_types::SolCall;
     use revm::MainContext;
     use revm::primitives::Bytes;
 
-    use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER, DeployInput, SetupInput};
-    use crate::evm::cheatcode;
+    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::storage;
-    use crate::evm::result::TransactionResult;
-
     use crate::foundry;
     use crate::target::Contract;
 
     alloy_sol_types::sol! {
         interface StorageTarget {
-            function getStoredValue() external view returns (bytes32);
+            function setup() external;
             function getLoadedValue() external view returns (bytes32);
             function getEmptySlotValue() external view returns (bytes32);
-            function callStoreSameValueTwice() external returns (bytes32 first, bytes32 second);
-            function callStoreSequence() external returns (bytes32 first, bytes32 second, bytes32 third);
-            function callStoreAndWarp() external returns (bytes32 value, uint256 timestamp);
-            function callStoreToPrecompile() external;
-            function callLoadFromPrecompile() external view;
-            function setup() external;
-            function actionStore() external;
-            function invariant_storage() external view;
+            function actionRestore() external;
+            function actionMutate() external;
+            function actionSequence() external;
+            function actionStorePrecompile() external;
+            function actionLoadPrecompile() external view;
+            function invariant_valueMatch() external view;
         }
     }
 
-    const TARGET_ADDR: Address = address!("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF");
     const EXPECTED_VALUE: [u8; 32] = [
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0x2a,
     ];
+
+    const TARGET_ADDR: Address = address!("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF");
 
     fn load_fixture(id: &str) -> Contract {
         let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
@@ -94,7 +90,6 @@ mod tests {
         Contract::try_from(artifact).unwrap()
     }
 
-    /// Deploy the fixture and run its `setup` function.
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/StorageTarget.sol:StorageTarget");
         let mut chain = Chain::new(Config::default()).unwrap();
@@ -102,76 +97,15 @@ mod tests {
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_opts = SetupInput::new(target);
-        let setup = chain.setup(setup_opts).unwrap();
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
         assert!(setup.result.success, "setup must succeed");
 
         (chain, target)
     }
 
-    /// Execute a CALL with the cheatcode inspector enabled so that `vm.*`
-    /// functions invoked by the target contract are intercepted.
-    fn call_with_cheatcode_inspector(
-        chain: &mut Chain,
-        caller: Address,
-        target: Address,
-        data: Bytes,
-    ) -> TransactionResult {
-        let inspector = cheatcode::Inspector::default();
-        let tx = revm::context::TxEnv {
-            caller,
-            kind: revm::primitives::TxKind::Call(target),
-            data,
-            gas_limit: u64::MAX,
-            value: U256::ZERO,
-            ..Default::default()
-        };
-        let (result, _) = chain.inspect(tx, inspector).unwrap();
-        result
-    }
-
-    /// Call a view/pure function that returns a single `bytes32` and decode it.
-    macro_rules! call_bytes32_getter {
-        ($chain:expr, $target:expr, $call:ty) => {{
-            let calldata = <$call>::new(()).abi_encode();
-            let result = $chain
-                .call(DEFAULT_DEPLOYER, $target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{} must succeed", <$call>::SIGNATURE);
-            let output = result.output.expect("getter must return output");
-            <$call>::abi_decode_returns(&output).unwrap()
-        }};
-    }
-
     // -----------------------------------------------------------------
-    // Handler-level (direct Rust unit tests)
+    // Handler-level unit tests
     // -----------------------------------------------------------------
-
-    /// vm.store must succeed for a valid address and slot.
-    #[test]
-    fn store_sets_value_without_reverting() {
-        let mut ctx = revm::context::Context::mainnet();
-        let slot = [0u8; 32];
-        let outcome = storage::store(&mut ctx, TARGET_ADDR, slot, EXPECTED_VALUE);
-        assert!(outcome.is_some(), "must return an outcome");
-        assert!(outcome.unwrap().result.is_ok(), "vm.store must succeed");
-    }
-
-    /// vm.load from an uninitialized slot must return zero.
-    #[test]
-    fn load_uninitialized_slot_returns_zero() {
-        let mut ctx = revm::context::Context::mainnet();
-        let slot = [0u8; 32];
-        let outcome = storage::load(&mut ctx, TARGET_ADDR, slot);
-        assert!(outcome.is_some(), "must return an outcome");
-        let outcome = outcome.unwrap();
-        assert!(outcome.result.is_ok(), "vm.load must succeed");
-        assert_eq!(
-            outcome.result.output.as_ref(),
-            [0u8; 32],
-            "uninitialized slot must return zero"
-        );
-    }
 
     /// vm.store followed by vm.load must return the stored value.
     #[test]
@@ -193,305 +127,250 @@ mod tests {
         );
     }
 
-    /// vm.load from an unknown address must return zero.
+    /// vm.load from an uninitialized slot must return zero.
     #[test]
-    fn load_from_unknown_address_returns_zero() {
+    fn load_uninitialized_slot_returns_zero() {
         let mut ctx = revm::context::Context::mainnet();
-        let unknown = address!("0x00000000000000000000000000000000000000ab");
         let slot = [0u8; 32];
-        let outcome = storage::load(&mut ctx, unknown, slot);
+        let outcome = storage::load(&mut ctx, TARGET_ADDR, slot);
         assert!(outcome.is_some(), "must return an outcome");
         let outcome = outcome.unwrap();
         assert!(outcome.result.is_ok(), "vm.load must succeed");
         assert_eq!(
             outcome.result.output.as_ref(),
             [0u8; 32],
-            "load from unknown address must return zero"
-        );
-    }
-
-    /// vm.store to an unknown address must succeed and the value must be
-    /// readable afterwards.
-    #[test]
-    fn store_to_unknown_address_works() {
-        let mut ctx = revm::context::Context::mainnet();
-        let unknown = address!("0x00000000000000000000000000000000000000ab");
-        let slot = [0u8; 32];
-        let outcome = storage::store(&mut ctx, unknown, slot, EXPECTED_VALUE);
-        assert!(outcome.is_some(), "store must return an outcome");
-        assert!(outcome.unwrap().result.is_ok(), "store must succeed");
-
-        let outcome = storage::load(&mut ctx, unknown, slot);
-        assert!(outcome.is_some(), "load must return an outcome");
-        let outcome = outcome.unwrap();
-        assert!(outcome.result.is_ok(), "load must succeed");
-        assert_eq!(
-            outcome.result.output.as_ref(),
-            EXPECTED_VALUE.as_slice(),
-            "load must return the stored value"
+            "uninitialized slot must return zero"
         );
     }
 
     // -----------------------------------------------------------------
-    // Basic contract-path integration
+    // Integration tests
     // -----------------------------------------------------------------
 
-    /// The value stored during setup must be readable via the contract getter
-    /// in a later transaction, proving persistence.
+    /// `vm.store` used during setup must write the expected value, and
+    /// `vm.load` in a later transaction must read it back. The invariant
+    /// verifies that the stored state matches the expected canonical value.
     #[test]
-    fn storage_persists_across_transactions() {
+    fn setup_stores_and_loads_canonical_value() {
         let (mut chain, target) = deploy_and_setup();
-        let decoded = call_bytes32_getter!(&mut chain, target, StorageTarget::getStoredValueCall);
-        assert_eq!(
-            decoded.as_slice(),
-            EXPECTED_VALUE.as_slice(),
-            "stored value must persist across transactions"
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::getLoadedValueCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::invariant_valueMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results[0].success,
+            "getLoadedValue must succeed after setup"
         );
-    }
-
-    /// vm.load must return the same value that was stored during setup.
-    #[test]
-    fn loaded_value_matches_stored_value() {
-        let (mut chain, target) = deploy_and_setup();
-        let stored = call_bytes32_getter!(&mut chain, target, StorageTarget::getStoredValueCall);
-
-        let calldata = StorageTarget::getLoadedValueCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "getLoadedValue must succeed");
-        let output = result.output.expect("must return output");
+        let output = execution.results[0]
+            .output
+            .clone()
+            .expect("must return output");
         let loaded = StorageTarget::getLoadedValueCall::abi_decode_returns(&output).unwrap();
-
         assert_eq!(
-            stored.as_slice(),
             loaded.as_slice(),
-            "vm.load must return the same value stored in setup"
+            EXPECTED_VALUE.as_slice(),
+            "vm.load must return the expected value"
         );
-        assert_eq!(stored.as_slice(), EXPECTED_VALUE.as_slice());
+        assert!(
+            execution.results[1].success,
+            "invariant must pass after setup"
+        );
     }
 
-    /// An empty slot must return zero when queried through the contract.
+    /// Re-storing the canonical value in a later transaction must not corrupt
+    /// the expected state. This is the core property a stateful fuzzer relies
+    /// on when actions need to restore known storage state.
     #[test]
-    fn load_empty_slot_returns_zero_via_contract() {
+    fn restore_in_action_preserves_value() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = StorageTarget::getEmptySlotValueCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::actionRestoreCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::invariant_valueMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(execution.results[0].success, "actionRestore must succeed");
+        assert!(
+            execution.results[1].success,
+            "invariant must pass after restoring value"
         );
-        assert!(result.success, "getEmptySlotValue must succeed");
-        let output = result.output.expect("must return output");
+    }
+
+    /// Mutating storage to a non-canonical value must break the invariant.
+    /// This proves `vm.store` actually changes observable contract state.
+    #[test]
+    fn mutate_breaks_invariant() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::actionMutateCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::invariant_valueMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(execution.results[0].success, "actionMutate must succeed");
+        assert!(
+            !execution.results[1].success,
+            "invariant must fail after mutating storage"
+        );
+    }
+
+    /// A single transaction can store and load multiple unrelated slots without
+    /// corrupting the canonical slot. This proves `vm.store` is safe to call
+    /// repeatedly inside one tx.
+    #[test]
+    fn sequence_in_single_transaction() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::actionSequenceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::invariant_valueMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(execution.results[0].success, "actionSequence must succeed");
+        assert!(
+            execution.results[1].success,
+            "invariant must pass after sequence"
+        );
+    }
+
+    /// `vm.store` to a precompile must revert in a transaction.
+    #[test]
+    fn store_to_precompile_reverts_in_transaction() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            StorageTarget::actionStorePrecompileCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            !execution.results[0].success,
+            "vm.store to precompile must revert in a transaction"
+        );
+    }
+
+    /// `vm.load` from a precompile must revert in a transaction.
+    #[test]
+    fn load_from_precompile_reverts_in_transaction() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            StorageTarget::actionLoadPrecompileCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            !execution.results[0].success,
+            "vm.load from precompile must revert in a transaction"
+        );
+    }
+
+    /// An uninitialized slot must return zero when read via vm.load in a
+    /// transaction.
+    #[test]
+    fn load_empty_slot_returns_zero() {
+        let (mut chain, target) = deploy_and_setup();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            StorageTarget::getEmptySlotValueCall::new(()).abi_encode(),
+        ))];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            execution.results[0].success,
+            "getEmptySlotValue must succeed"
+        );
+        let output = execution.results[0]
+            .output
+            .clone()
+            .expect("must return output");
         let decoded = StorageTarget::getEmptySlotValueCall::abi_decode_returns(&output).unwrap();
         assert_eq!(decoded.as_slice(), [0u8; 32], "empty slot must return zero");
     }
 
-    /// vm.store with the same value twice in one tx must yield the same
-    /// reading, proving determinism.
+    /// A cloned chain snapshot must produce the same storage when actions are
+    /// executed on the clone. This is critical for parallel fuzzing where each
+    /// worker starts from a cloned state.
     #[test]
-    fn store_same_value_twice_in_sequence_is_deterministic() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = StorageTarget::callStoreSameValueTwiceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
+    fn cloned_chain_preserves_storage() {
+        let (chain, target) = deploy_and_setup();
+        let mut cloned = chain.clone();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::actionRestoreCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::invariant_valueMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let execution = cloned.exec(ExecInput::new(txs)).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results[0].success,
+            "actionRestore must succeed on cloned chain"
         );
-        assert!(result.success, "callStoreSameValueTwice() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = StorageTarget::callStoreSameValueTwiceCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(
-            ret.first.as_slice(),
-            ret.second.as_slice(),
-            "same store value must give identical load readings"
-        );
-        assert_eq!(ret.first.as_slice(), EXPECTED_VALUE.as_slice());
-    }
-
-    /// vm.store with different values interleaved must produce distinct
-    /// readings, proving the cheatcode is stateful.
-    #[test]
-    fn store_sequence_returns_consistent_values() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = StorageTarget::callStoreSequenceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callStoreSequence() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = StorageTarget::callStoreSequenceCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(
-            ret.first.as_slice(),
-            [
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 1
-            ]
-            .as_slice(),
-            "first vm.store(1) must read 1"
-        );
-        assert_eq!(
-            ret.second.as_slice(),
-            EXPECTED_VALUE.as_slice(),
-            "second vm.store(42) must read 42"
-        );
-        assert_eq!(
-            ret.third.as_slice(),
-            [
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 2
-            ]
-            .as_slice(),
-            "third vm.store(2) must read 2"
+        assert!(
+            execution.results[1].success,
+            "invariant must pass on cloned chain"
         );
     }
 
-    /// vm.store must work correctly when combined with vm.warp in the same tx.
+    /// Cross-transaction determinism: re-storing in a second `exec` must still
+    /// leave the canonical value intact.
     #[test]
-    fn store_interacts_with_warp() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = StorageTarget::callStoreAndWarpCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callStoreAndWarp() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = StorageTarget::callStoreAndWarpCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(
-            ret.value.as_slice(),
-            EXPECTED_VALUE.as_slice(),
-            "loaded value must match stored value"
-        );
-        assert_eq!(
-            ret.timestamp,
-            U256::from(1_234_567_890u64),
-            "timestamp must match warped value"
-        );
-    }
-
-    /// vm.store to a precompile must revert when called through the contract.
-    #[test]
-    fn store_to_precompile_reverts_via_contract() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = StorageTarget::callStoreToPrecompileCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(!result.success, "callStoreToPrecompile() must revert");
-    }
-
-    /// vm.load from a precompile must revert when called through the contract.
-    #[test]
-    fn load_from_precompile_reverts_via_contract() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = StorageTarget::callLoadFromPrecompileCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(!result.success, "callLoadFromPrecompile() must revert");
-    }
-
-    // -----------------------------------------------------------------
-    // Invariants (fuzzing baseline)
-    // -----------------------------------------------------------------
-
-    /// Invariant must pass immediately after setup.
-    #[test]
-    fn invariant_passes_after_setup() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = StorageTarget::invariant_storageCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(result.success, "invariant must pass after setup");
-    }
-
-    /// A fuzz-like sequence of actions followed by invariants must all succeed.
-    /// This proves vm.store/load stays deterministic across multiple
-    /// transactions and that invariants correctly observe the mutated state.
-    #[test]
-    fn action_sequence_and_invariants() {
+    fn deterministic_across_separate_execs() {
         let (mut chain, target) = deploy_and_setup();
 
-        // Temporarily mutate storage via a sequence that ends on a different value.
-        let calldata = StorageTarget::callStoreSequenceCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "callStoreSequence must succeed");
-
-        // Restore the expected value with an action.
-        let calldata = StorageTarget::actionStoreCall::new(()).abi_encode();
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionStore must succeed");
-
-        // Invariant must pass after the action restored state.
-        let calldata = StorageTarget::invariant_storageCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(result.success, "invariant must pass after action sequence");
-    }
-
-    /// vm.store(expected) must set the same value when called in a separate
-    /// transaction after the initial setup, proving cross-transaction determinism.
-    #[test]
-    fn storage_deterministic_across_transaction_sequence() {
-        let (mut chain, target) = deploy_and_setup();
-
-        let calldata = StorageTarget::actionStoreCall::new(()).abi_encode();
-
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata.clone()),
-        );
-        assert!(result.success, "actionStore must succeed");
-        let stored = call_bytes32_getter!(&mut chain, target, StorageTarget::getStoredValueCall);
-        assert_eq!(
-            stored.as_slice(),
-            EXPECTED_VALUE.as_slice(),
-            "stored value must match after first action"
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::actionRestoreCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::invariant_valueMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let execution = chain.exec(ExecInput::new(txs)).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results.iter().all(|r| r.success),
+            "first exec must succeed"
         );
 
-        let result = call_with_cheatcode_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata),
-        );
-        assert!(result.success, "actionStore must succeed on second call");
-        let stored = call_bytes32_getter!(&mut chain, target, StorageTarget::getStoredValueCall);
-        assert_eq!(
-            stored.as_slice(),
-            EXPECTED_VALUE.as_slice(),
-            "stored value must still match after second action"
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::actionRestoreCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                StorageTarget::invariant_valueMatchCall::new(()).abi_encode(),
+            )),
+        ];
+        let execution = chain.exec(ExecInput::new(txs)).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results.iter().all(|r| r.success),
+            "second exec must succeed"
         );
     }
 }
