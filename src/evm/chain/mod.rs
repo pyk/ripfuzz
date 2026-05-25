@@ -264,6 +264,8 @@ impl Chain {
         let mut evm = ctx.build_mainnet();
         let result = evm.transact_commit(tx).context("transact_commit failed")?;
         self.database = Some(evm.ctx.journaled_state.database);
+        self.block_env = evm.ctx.block;
+        self.cfg_env = evm.ctx.cfg;
         Ok(TransactionResult::from(result))
     }
 
@@ -284,6 +286,8 @@ impl Chain {
             .inspect_tx_commit(tx)
             .context("revm transaction failed")?;
         self.database = Some(evm.ctx.journaled_state.database);
+        self.block_env = evm.ctx.block;
+        self.cfg_env = evm.ctx.cfg;
         Ok((TransactionResult::from(result), evm.inspector))
     }
 }

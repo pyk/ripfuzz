@@ -30,6 +30,7 @@ impl Chain {
         cfg_env.disable_nonce_check = true;
         cfg_env.disable_eip3607 = true;
         cfg_env.disable_base_fee = true;
+        cfg_env.tx_chain_id_check = false;
         cfg_env.limit_contract_code_size = Some(usize::MAX);
         cfg_env.limit_contract_initcode_size = Some(usize::MAX);
         cfg_env.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
