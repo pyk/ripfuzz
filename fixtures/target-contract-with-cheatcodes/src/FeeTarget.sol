@@ -3,70 +3,39 @@ pragma solidity ^0.8.13;
 
 import "./Vm.sol";
 
+/// @title FeeTarget
+/// @notice Real-world fuzzing target that controls `block.basefee` via the
+///         `vm.fee` cheatcode. Setup establishes a canonical basefee and
+///         actions mutate or restore it. Invariants verify deterministic control.
 contract FeeTarget {
     Vm constant vm = Vm(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1);
 
     uint256 constant EXPECTED_BASEFEE = 42;
 
-    uint256 public storedBasefee;
-
     function setup() external {
         vm.fee(EXPECTED_BASEFEE);
-        storedBasefee = block.basefee;
     }
 
-    function getBasefee() external view returns (uint256) {
-        return block.basefee;
-    }
-
-    function getStoredBasefee() external view returns (uint256) {
-        return storedBasefee;
-    }
-
-    /// Call vm.fee with the same value twice in one tx to prove
-    /// the cheatcode is deterministic.
-    function callFeeSameValueTwice()
-        external
-        returns (uint256 first, uint256 second)
-    {
-        vm.fee(EXPECTED_BASEFEE);
-        first = block.basefee;
-        vm.fee(EXPECTED_BASEFEE);
-        second = block.basefee;
-    }
-
-    /// Call vm.fee with different values and interleave to prove
-    /// sequence independence and value uniqueness.
-    function callFeeSequence()
-        external
-        returns (uint256 first, uint256 second, uint256 third)
-    {
-        vm.fee(1);
-        first = block.basefee;
-        vm.fee(EXPECTED_BASEFEE);
-        second = block.basefee;
-        vm.fee(5);
-        third = block.basefee;
-    }
-
-    /// Interaction with warp - both cheatcodes in same tx.
-    function callFeeAndWarp()
-        external
-        returns (uint256 basefee, uint256 timestamp)
-    {
-        vm.fee(EXPECTED_BASEFEE);
-        vm.warp(1234567890);
-        basefee = block.basefee;
-        timestamp = block.timestamp;
-    }
-
-    /// Fuzzing action: re-set the basefee and store it.
-    function actionFee() external {
-        vm.fee(EXPECTED_BASEFEE);
-        storedBasefee = block.basefee;
-    }
-
+    /// Invariant: the live basefee must always match the expected value.
     function invariant_fee() external view {
-        assert(storedBasefee == EXPECTED_BASEFEE);
+        assert(block.basefee == EXPECTED_BASEFEE);
+    }
+
+    /// Action: re-set the basefee to the expected value.
+    function actionRestoreFee() external {
+        vm.fee(EXPECTED_BASEFEE);
+    }
+
+    /// Action: temporarily set a different basefee.
+    function actionMutateFee() external {
+        vm.fee(1337);
+    }
+
+    /// Action: interleave basefee changes inside one tx, ending on expected.
+    function actionFeeSequence() external {
+        vm.fee(1);
+        vm.fee(EXPECTED_BASEFEE);
+        vm.fee(5);
+        vm.fee(EXPECTED_BASEFEE);
     }
 }
