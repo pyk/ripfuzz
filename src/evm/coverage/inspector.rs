@@ -172,56 +172,40 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
 
 #[cfg(test)]
 mod tests {
+    use revm::{context::TxEnv, primitives::TxKind};
 
-    use revm::{
-        MainBuilder, MainContext,
-        context::{Context, TxEnv},
-        database::InMemoryDB,
-        inspector::InspectCommitEvm,
-        primitives::{KECCAK_EMPTY, TxKind, U256},
-        state::AccountInfo,
-    };
-
-    use super::Inspector;
-    use crate::chain::init::CALLER;
-    use crate::contract;
+    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
+    use crate::evm::coverage;
+    use crate::foundry;
+    use crate::target::Contract;
 
     const GAS_LIMIT: u64 = 16_777_216;
 
+    fn load_fixture(id: &str) -> Contract {
+        let project = foundry::Project::new("fixtures/basic-target");
+        let artifacts = project.load_artifacts().unwrap();
+        let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
+        let artifact = artifacts.get(&artifact_id).unwrap();
+        Contract::try_from(artifact).unwrap()
+    }
+
     #[test]
     fn coverage_inspector_collects_hits_for_deployed_contract() {
-        let artifact =
-            contract::tests::load_test_artifact("fixtures/basic-target", "src/NamedMismatch.sol")
-                .unwrap();
+        let contract = load_fixture("src/NamedMismatch.sol:DifferentName");
 
-        let mut db = InMemoryDB::default();
-        db.insert_account_info(
-            CALLER,
-            AccountInfo {
-                balance: U256::from(1_000_000_000_000_000_000u128),
-                nonce: 0,
-                code_hash: KECCAK_EMPTY,
-                code: None,
-                account_id: None,
-            },
-        );
-
-        let inspector = Inspector::new();
-        let ctx = Context::mainnet().with_db(db);
-        let mut evm = ctx.build_mainnet_with_inspector(inspector);
-
+        let mut chain = Chain::empty();
+        let inspector = coverage::Inspector::new();
         let tx = TxEnv {
-            caller: CALLER,
+            caller: DEFAULT_DEPLOYER,
             kind: TxKind::Create,
-            data: artifact.initcode.clone(),
+            data: contract.initcode,
             gas_limit: GAS_LIMIT,
             ..Default::default()
         };
+        let (result, inspector) = chain.inspect(tx, inspector).unwrap();
+        assert!(result.success, "deployment should succeed");
 
-        let result = evm.inspect_tx_commit(tx).unwrap();
-        assert!(result.is_success(), "deployment should succeed");
-
-        let coverage = evm.inspector.into_coverage();
+        let coverage = inspector.into_coverage();
         assert!(
             !coverage.contracts.is_empty(),
             "coverage should contain at least one contract"
