@@ -79,8 +79,8 @@ pub fn execute(
         eth_deals: Vec::new(),
         nonce_changes: Vec::new(),
     };
-    let cheatcode_inspector = crate::evm::cheatcode::inspector::Inspector::from_state(exec_state)
-        .with_shared_labels(shared_labels);
+    let cheatcode_inspector =
+        crate::evm::cheatcode::Inspector::from_state(exec_state).with_shared_labels(shared_labels);
 
     let inspector = InspectorTuple::new(
         coverage_inspector,

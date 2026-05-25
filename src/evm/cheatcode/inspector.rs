@@ -241,7 +241,12 @@ impl<
 
         let call = VmCalls::abi_decode(&input).ok()?;
         let is_stop_prank = matches!(&call, VmCalls::stopPrank(_));
-        let outcome = calls::dispatch(call, inputs.gas_limit, ctx, &mut self.state);
+        let mut outcome = calls::dispatch(call, inputs.gas_limit, ctx, &mut self.state);
+        // Ensure return data is written to the caller's expected memory offset
+        // so Solidity can read it from the returndata buffer.
+        if let Some(ref mut o) = outcome {
+            o.memory_offset = inputs.return_memory_offset.clone();
+        }
 
         let parent_depth = self.depth.saturating_sub(1);
         match self.state.prank.active.as_mut() {

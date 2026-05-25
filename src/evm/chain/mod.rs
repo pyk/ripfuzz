@@ -11,7 +11,7 @@ use revm::{
     state::AccountInfo,
 };
 
-use crate::evm::cheatcode::inspector::Inspector as CheatcodeInspector;
+use crate::evm::cheatcode::Inspector as CheatcodeInspector;
 use crate::evm::database::Database;
 use crate::evm::result::TransactionResult;
 use crate::evm::trace::{Inspector as TraceInspector, Trace};

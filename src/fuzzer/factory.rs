@@ -17,7 +17,7 @@ use tracing::info;
 use crate::corpus::{Call, CallMeta, Corpus, CorpusItem};
 use crate::coverage::LocalCoverage;
 use crate::evm;
-use crate::evm::cheatcode::inspector::Inspector;
+use crate::evm::cheatcode::Inspector;
 use crate::fuzzer::config::FuzzerConfig;
 use crate::fuzzer::mutators::Mutator;
 use crate::fuzzer::{Crash, FuzzerEngine, FuzzerResult};
