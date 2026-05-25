@@ -19,10 +19,11 @@ use crate::chain::{
     base_state::BaseState,
     error::ChainExecutionError,
     init::decode_solidity_error,
-    inspectors::{InspectorTuple, MaybeTrace, coverage::CoverageInspector, trace::TraceInspector},
+    inspectors::{InspectorTuple, MaybeTrace, trace::TraceInspector},
     output::{CrashInfo, ExecutionOutput},
 };
 use crate::corpus::{Call, CallMeta};
+use crate::evm::{cheatcode, coverage};
 
 /// Something that can execute a sequence of calls and return the outcome.
 pub trait SequenceExecutor: Send + Sync {
@@ -60,7 +61,7 @@ pub fn execute(
     let mut local_state = state.clone();
 
     // 2. Build inspectors (owned, no external mutable references).
-    let coverage_inspector = CoverageInspector::new();
+    let coverage_inspector = coverage::Inspector::new();
     let mut trace_inspector = opts
         .trace
         .then(|| TraceInspector::new(initcode_map.clone()));
@@ -80,7 +81,7 @@ pub fn execute(
         nonce_changes: Vec::new(),
     };
     let cheatcode_inspector =
-        crate::evm::cheatcode::Inspector::from_state(exec_state).with_shared_labels(shared_labels);
+        cheatcode::Inspector::from_state(exec_state).with_shared_labels(shared_labels);
 
     let inspector = InspectorTuple::new(
         coverage_inspector,

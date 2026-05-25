@@ -15,9 +15,8 @@ use tracing::{error, info, instrument, trace};
 
 use crate::chain::base_state::BaseState;
 use crate::chain::error::ChainSetupError;
-use crate::chain::inspectors::{
-    InspectorTuple, MaybeTrace, coverage::CoverageInspector, trace::TraceInspector,
-};
+use crate::chain::inspectors::{InspectorTuple, MaybeTrace, trace::TraceInspector};
+use crate::evm::{cheatcode, coverage};
 
 const SETUP_SELECTOR: [u8; 4] = [0xba, 0x0b, 0xba, 0x40];
 
@@ -64,10 +63,10 @@ pub fn setup(
         nonce_changes: Vec::new(),
     };
     let cheatcode_inspector =
-        crate::evm::cheatcode::Inspector::from_state(exec_state).with_shared_labels(shared_labels);
+        cheatcode::Inspector::from_state(exec_state).with_shared_labels(shared_labels);
 
     let inspector = InspectorTuple::new(
-        CoverageInspector::new(),
+        coverage::Inspector::new(),
         MaybeTrace(Some(trace_inspector)),
         cheatcode_inspector,
     );

@@ -22,6 +22,7 @@ pub use trace::{CallFrame, Inspector, Trace};
 
 pub mod chain;
 pub mod cheatcode;
+pub mod coverage;
 pub mod database;
 pub mod forkdb;
 pub mod result;

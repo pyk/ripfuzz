@@ -8,7 +8,6 @@ use revm::{
     primitives::{Address, Log, U256},
 };
 
-pub mod coverage;
 pub mod trace;
 
 /// Local wrapper around an optional [`TraceInspector`] so we can implement

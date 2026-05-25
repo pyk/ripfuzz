@@ -3,7 +3,6 @@
 use alloy_primitives::ruint::UintTryTo;
 use revm::{
     bytecode::opcode::{JUMP, JUMPI},
-    inspector::Inspector,
     interpreter::{Interpreter, interpreter::EthInterpreter, interpreter_types::Jumps},
 };
 
@@ -24,7 +23,7 @@ fn u256_to_usize(v: revm::primitives::U256) -> Option<usize> {
 ///
 /// Owns its `LocalCoverage` buffer and returns it via `into_coverage`.
 #[derive(Debug)]
-pub struct CoverageInspector {
+pub struct Inspector {
     local: LocalCoverage,
     current_call_depth: u64,
     current_contract: Option<B256>,
@@ -32,7 +31,7 @@ pub struct CoverageInspector {
     last_pc: usize,
 }
 
-impl CoverageInspector {
+impl Inspector {
     pub fn new() -> Self {
         Self {
             local: LocalCoverage::new(),
@@ -63,13 +62,13 @@ impl CoverageInspector {
     }
 }
 
-impl Default for CoverageInspector {
+impl Default for Inspector {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<CTX> Inspector<CTX, EthInterpreter> for CoverageInspector {
+impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
     fn initialize_interp(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
         let hash = interp.bytecode.hash_slow();
         if !hash.is_zero() && !interp.bytecode.is_empty() {
@@ -182,7 +181,7 @@ mod tests {
         state::AccountInfo,
     };
 
-    use super::CoverageInspector;
+    use super::Inspector;
     use crate::chain::init::CALLER;
     use crate::contract;
 
@@ -206,7 +205,7 @@ mod tests {
             },
         );
 
-        let inspector = CoverageInspector::new();
+        let inspector = Inspector::new();
         let ctx = Context::mainnet().with_db(db);
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 

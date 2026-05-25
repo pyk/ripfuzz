@@ -17,7 +17,7 @@ use tracing::info;
 use crate::corpus::{Call, CallMeta, Corpus, CorpusItem};
 use crate::coverage::LocalCoverage;
 use crate::evm;
-use crate::evm::cheatcode::Inspector;
+use crate::evm::cheatcode;
 use crate::fuzzer::config::FuzzerConfig;
 use crate::fuzzer::mutators::Mutator;
 use crate::fuzzer::{Crash, FuzzerEngine, FuzzerResult};
@@ -178,7 +178,7 @@ impl Engine {
         ctx.cfg.disable_balance_check = true;
         ctx.cfg.tx_gas_limit_cap = Some(u64::MAX);
 
-        let inspector = Inspector::default();
+        let inspector = cheatcode::Inspector::default();
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
         let mut total_calls = 0u64;

@@ -6,7 +6,7 @@ use revm::{
     MainBuilder, MainContext,
     context::{BlockEnv, CfgEnv, Context, TxEnv},
     handler::ExecuteCommitEvm,
-    inspector::{InspectCommitEvm, Inspector},
+    inspector::{InspectCommitEvm, Inspector as RevmInspector},
     primitives::{Bytes, TxKind},
     state::AccountInfo,
 };
@@ -14,11 +14,7 @@ use revm::{
 use revm::handler::FrameResult;
 use revm::interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, FrameInput};
 
-use crate::chain::inspectors::coverage::CoverageInspector;
-use crate::evm::cheatcode::Inspector as CheatcodeInspector;
-use crate::evm::database::Database;
-use crate::evm::result::TransactionResult;
-use crate::evm::trace::{Inspector as TraceInspector, Trace};
+use crate::evm::{cheatcode, coverage, database, result, trace};
 
 mod empty;
 mod fork;
@@ -74,15 +70,15 @@ impl DeployInput {
 #[derive(Debug, Clone)]
 pub struct DeployOutput {
     pub address: Option<Address>,
-    pub result: TransactionResult,
-    pub trace: Trace,
+    pub result: result::TransactionResult,
+    pub trace: trace::Trace,
 }
 
 /// Result of a setup call, including the trace.
 #[derive(Debug, Clone)]
 pub struct SetupOutput {
-    pub result: TransactionResult,
-    pub trace: Trace,
+    pub result: result::TransactionResult,
+    pub trace: trace::Trace,
 }
 
 /// Configuration for a setup call.
@@ -192,8 +188,8 @@ impl Default for ExecInput {
 /// Result of executing a sequence of transactions.
 #[derive(Debug, Clone)]
 pub struct ExecOutput {
-    pub results: Vec<TransactionResult>,
-    pub trace: Option<Trace>,
+    pub results: Vec<result::TransactionResult>,
+    pub trace: Option<trace::Trace>,
     pub coverage: Option<crate::coverage::LocalCoverage>,
 }
 
@@ -201,26 +197,26 @@ pub struct ExecOutput {
 /// and coverage across a transaction sequence.
 #[derive(Debug)]
 struct ExecInspector {
-    trace: Option<TraceInspector>,
-    cheatcode: Option<CheatcodeInspector>,
-    coverage: Option<CoverageInspector>,
+    trace: Option<trace::Inspector>,
+    cheatcode: Option<cheatcode::Inspector>,
+    coverage: Option<coverage::Inspector>,
 }
 
 impl ExecInspector {
     fn new(opts: &ExecInput) -> Self {
         Self {
             trace: if opts.trace {
-                Some(TraceInspector::new())
+                Some(trace::Inspector::new())
             } else {
                 None
             },
             cheatcode: if opts.cheatcode {
-                Some(CheatcodeInspector::default())
+                Some(cheatcode::Inspector::default())
             } else {
                 None
             },
             coverage: if opts.coverage {
-                Some(CoverageInspector::new())
+                Some(coverage::Inspector::new())
             } else {
                 None
             },
@@ -228,13 +224,21 @@ impl ExecInspector {
     }
 }
 
-impl Inspector<Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database>>>
-    for ExecInspector
+impl
+    RevmInspector<
+        Context<BlockEnv, TxEnv, CfgEnv, database::Database, revm::Journal<database::Database>>,
+    > for ExecInspector
 {
     fn initialize_interp(
         &mut self,
         interp: &mut revm::interpreter::Interpreter<revm::interpreter::interpreter::EthInterpreter>,
-        context: &mut Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database>>,
+        context: &mut Context<
+            BlockEnv,
+            TxEnv,
+            CfgEnv,
+            database::Database,
+            revm::Journal<database::Database>,
+        >,
     ) {
         if let Some(ref mut t) = self.trace {
             t.initialize_interp(interp, context);
@@ -250,7 +254,13 @@ impl Inspector<Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database
     fn step(
         &mut self,
         interp: &mut revm::interpreter::Interpreter<revm::interpreter::interpreter::EthInterpreter>,
-        context: &mut Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database>>,
+        context: &mut Context<
+            BlockEnv,
+            TxEnv,
+            CfgEnv,
+            database::Database,
+            revm::Journal<database::Database>,
+        >,
     ) {
         if let Some(ref mut t) = self.trace {
             t.step(interp, context);
@@ -265,7 +275,13 @@ impl Inspector<Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database
 
     fn frame_start(
         &mut self,
-        context: &mut Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database>>,
+        context: &mut Context<
+            BlockEnv,
+            TxEnv,
+            CfgEnv,
+            database::Database,
+            revm::Journal<database::Database>,
+        >,
         frame_input: &mut FrameInput,
     ) -> Option<FrameResult> {
         let mut result = None;
@@ -287,7 +303,13 @@ impl Inspector<Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database
 
     fn call(
         &mut self,
-        context: &mut Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database>>,
+        context: &mut Context<
+            BlockEnv,
+            TxEnv,
+            CfgEnv,
+            database::Database,
+            revm::Journal<database::Database>,
+        >,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         let mut result = None;
@@ -309,7 +331,13 @@ impl Inspector<Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database
 
     fn call_end(
         &mut self,
-        context: &mut Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database>>,
+        context: &mut Context<
+            BlockEnv,
+            TxEnv,
+            CfgEnv,
+            database::Database,
+            revm::Journal<database::Database>,
+        >,
         inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) {
@@ -326,7 +354,13 @@ impl Inspector<Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database
 
     fn create(
         &mut self,
-        context: &mut Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database>>,
+        context: &mut Context<
+            BlockEnv,
+            TxEnv,
+            CfgEnv,
+            database::Database,
+            revm::Journal<database::Database>,
+        >,
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
         let mut result = None;
@@ -348,7 +382,13 @@ impl Inspector<Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database
 
     fn create_end(
         &mut self,
-        context: &mut Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database>>,
+        context: &mut Context<
+            BlockEnv,
+            TxEnv,
+            CfgEnv,
+            database::Database,
+            revm::Journal<database::Database>,
+        >,
         inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
@@ -367,13 +407,13 @@ impl Inspector<Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database
 /// EVM Chain state and executor.
 ///
 /// Owns EVM state ([`BlockEnv`](revm::context::BlockEnv),
-/// [`CfgEnv`](revm::context::CfgEnv), and a [`Database`]).
+/// [`CfgEnv`](revm::context::CfgEnv), and a [`database::Database`]).
 ///
 /// Cloning a [`Chain`] produces an independent snapshot of state suitable for
 /// isolated fuzzing runs.
 #[derive(Clone, Debug)]
 pub struct Chain {
-    pub database: Option<Database>,
+    pub database: Option<database::Database>,
     pub cfg_env: CfgEnv,
     pub block_env: BlockEnv,
     pub deployer: Address,
@@ -425,23 +465,23 @@ impl Chain {
     ///
     /// Returns `None` if called while a transaction is in flight (the database
     /// is temporarily moved into revm during execution).
-    pub fn database_mut(&mut self) -> Option<&mut Database> {
+    pub fn database_mut(&mut self) -> Option<&mut database::Database> {
         self.database.as_mut()
     }
 
     /// Immutable access to the underlying database.
     ///
     /// Returns `None` if called while a transaction is in flight.
-    pub fn database(&self) -> Option<&Database> {
+    pub fn database(&self) -> Option<&database::Database> {
         self.database.as_ref()
     }
 
     /// Deploy a contract and return the full [`DeployOutput`] result.
     ///
-    /// A [`CheatcodeInspector`] is included so that target contracts can call
+    /// A [`cheatcode::Inspector`] is included so that target contracts can call
     /// raptor cheatcodes (e.g. `vm.warp`) during constructor execution.
     pub fn deploy(&mut self, opts: DeployInput) -> Result<DeployOutput> {
-        let inspector = (TraceInspector::new(), CheatcodeInspector::default());
+        let inspector = (trace::Inspector::new(), cheatcode::Inspector::default());
         let tx = TxEnv {
             caller: opts.caller,
             kind: TxKind::Create,
@@ -467,7 +507,7 @@ impl Chain {
         target: Address,
         value: U256,
         data: Bytes,
-    ) -> Result<TransactionResult> {
+    ) -> Result<result::TransactionResult> {
         let tx = TxEnv {
             caller,
             kind: TxKind::Call(target),
@@ -481,7 +521,7 @@ impl Chain {
 
     /// Execute a setup CALL against the given target and return the full result with trace.
     pub fn setup(&mut self, opts: SetupInput) -> Result<SetupOutput> {
-        let inspector = (TraceInspector::new(), CheatcodeInspector::default());
+        let inspector = (trace::Inspector::new(), cheatcode::Inspector::default());
         let tx = TxEnv {
             caller: opts.caller,
             kind: TxKind::Call(opts.target),
@@ -526,7 +566,7 @@ impl Chain {
     }
 
     /// Execute a raw transaction and commit state changes.
-    pub fn transact(&mut self, tx: TxEnv) -> Result<TransactionResult> {
+    pub fn transact(&mut self, tx: TxEnv) -> Result<result::TransactionResult> {
         let db = self.database.take().context("database unavailable")?;
         let mut ctx = Context::mainnet().with_db(db);
         ctx.block = self.block_env.clone();
@@ -536,16 +576,22 @@ impl Chain {
         self.database = Some(evm.ctx.journaled_state.database);
         self.block_env = evm.ctx.block;
         self.cfg_env = evm.ctx.cfg;
-        Ok(TransactionResult::from(result))
+        Ok(result::TransactionResult::from(result))
     }
 
     /// Execute a raw transaction with an inspector and commit state changes.
     ///
     /// Returns the transaction result and the owned inspector so the caller can
     /// extract collected data (e.g. traces, coverage).
-    pub fn inspect<INSP>(&mut self, tx: TxEnv, inspector: INSP) -> Result<(TransactionResult, INSP)>
+    pub fn inspect<INSP>(
+        &mut self,
+        tx: TxEnv,
+        inspector: INSP,
+    ) -> Result<(result::TransactionResult, INSP)>
     where
-        INSP: Inspector<Context<BlockEnv, TxEnv, CfgEnv, Database, revm::Journal<Database>>>,
+        INSP: RevmInspector<
+            Context<BlockEnv, TxEnv, CfgEnv, database::Database, revm::Journal<database::Database>>,
+        >,
     {
         let db = self.database.take().context("database unavailable")?;
         let mut ctx = Context::mainnet().with_db(db);
@@ -558,7 +604,7 @@ impl Chain {
         self.database = Some(evm.ctx.journaled_state.database);
         self.block_env = evm.ctx.block;
         self.cfg_env = evm.ctx.cfg;
-        Ok((TransactionResult::from(result), evm.inspector))
+        Ok((result::TransactionResult::from(result), evm.inspector))
     }
 }
 
