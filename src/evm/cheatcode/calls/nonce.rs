@@ -161,7 +161,11 @@ mod tests {
         assert!(outcome.is_some(), "must return an outcome");
         let decoded =
             U256::from_be_bytes::<32>(outcome.unwrap().result.output.as_ref().try_into().unwrap());
-        assert_eq!(decoded, U256::from_limbs([42, 0, 0, 0]), "get_nonce must read 42");
+        assert_eq!(
+            decoded,
+            U256::from_limbs([42, 0, 0, 0]),
+            "get_nonce must read 42"
+        );
     }
 
     /// vm.setNonce with a value lower than the current nonce must revert.
