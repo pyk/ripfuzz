@@ -15,6 +15,8 @@ use revm::{
     primitives::Address,
 };
 
+use crate::evm::cheatcode::calls;
+use crate::evm::cheatcode::calls::Vm::VmCalls;
 use crate::evm::cheatcode::{ExecutionState, VM_ADDRESS};
 
 /// Minimal trait to mutate `chain_id` on generic EVM contexts.
@@ -237,19 +239,9 @@ impl<
             return None;
         }
 
-        let call =
-            crate::evm::cheatcode::functions::Cheatcodes::CheatcodesCalls::abi_decode(&input)
-                .ok()?;
-        let is_stop_prank = matches!(
-            &call,
-            crate::evm::cheatcode::functions::Cheatcodes::CheatcodesCalls::stopPrank(_)
-        );
-        let outcome = crate::evm::cheatcode::functions::dispatch(
-            call,
-            inputs.gas_limit,
-            ctx,
-            &mut self.state,
-        );
+        let call = VmCalls::abi_decode(&input).ok()?;
+        let is_stop_prank = matches!(&call, VmCalls::stopPrank(_));
+        let outcome = calls::dispatch(call, inputs.gas_limit, ctx, &mut self.state);
 
         let parent_depth = self.depth.saturating_sub(1);
         match self.state.prank.active.as_mut() {
