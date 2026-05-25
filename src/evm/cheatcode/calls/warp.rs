@@ -265,18 +265,15 @@ mod tests {
 
         // Execute a sequence: mutate timestamp, restore it, then check invariant.
         let txs = vec![
-            Transaction::new(
-                target,
-                Bytes::from(WarpTarget::callWarpSequenceCall::new(()).abi_encode()),
-            ),
-            Transaction::new(
-                target,
-                Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
-            ),
-            Transaction::new(
-                target,
-                Bytes::from(WarpTarget::invariant_warpCall::new(()).abi_encode()),
-            ),
+            Transaction::new(target).calldata(Bytes::from(
+                WarpTarget::callWarpSequenceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                WarpTarget::actionWarpCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                WarpTarget::invariant_warpCall::new(()).abi_encode(),
+            )),
         ];
         let input = ExecInput::new(txs);
         let execution = chain.exec(input).unwrap();
@@ -299,22 +296,18 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
 
         let txs = vec![
-            Transaction::new(
-                target,
-                Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
-            ),
-            Transaction::new(
-                target,
-                Bytes::from(WarpTarget::getStoredBlockTimestampCall::new(()).abi_encode()),
-            ),
-            Transaction::new(
-                target,
-                Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
-            ),
-            Transaction::new(
-                target,
-                Bytes::from(WarpTarget::getStoredBlockTimestampCall::new(()).abi_encode()),
-            ),
+            Transaction::new(target).calldata(Bytes::from(
+                WarpTarget::actionWarpCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                WarpTarget::getStoredBlockTimestampCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                WarpTarget::actionWarpCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                WarpTarget::getStoredBlockTimestampCall::new(()).abi_encode(),
+            )),
         ];
         let input = ExecInput::new(txs);
         let execution = chain.exec(input).unwrap();

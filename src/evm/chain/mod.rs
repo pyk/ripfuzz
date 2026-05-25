@@ -129,23 +129,30 @@ impl SetupInput {
 pub struct Transaction {
     pub caller: Address,
     pub target: Address,
-    pub data: Bytes,
+    pub calldata: Bytes,
     pub value: U256,
     pub gas_limit: u64,
 }
 
 impl Transaction {
-    /// Create a [`Transaction`] for the given target and calldata.
+    /// Create a [`Transaction`] for the given target.
     ///
     /// Caller defaults to [`DEFAULT_DEPLOYER`]; override with [`Self::caller`].
-    pub fn new(target: Address, data: Bytes) -> Self {
+    /// Calldata defaults to empty bytes; override with [`Self::calldata`].
+    pub fn new(target: Address) -> Self {
         Self {
             caller: DEFAULT_DEPLOYER,
             target,
-            data,
+            calldata: Bytes::new(),
             value: U256::ZERO,
             gas_limit: u64::MAX,
         }
+    }
+
+    /// Set the calldata for the transaction.
+    pub fn calldata(mut self, calldata: Bytes) -> Self {
+        self.calldata = calldata;
+        self
     }
 
     /// Set the account address used to send the transaction.
@@ -575,7 +582,7 @@ impl Chain {
             let tx_env = TxEnv {
                 caller: tx.caller,
                 kind: TxKind::Call(tx.target),
-                data: tx.data,
+                data: tx.calldata,
                 gas_limit: tx.gas_limit,
                 value: tx.value,
                 ..Default::default()
@@ -689,14 +696,12 @@ mod tests {
         // First transaction: warp timestamp back to EXPECTED_TIMESTAMP.
         // Second transaction: invariant checks that block.timestamp matches.
         let txs = vec![
-            Transaction::new(
-                target,
-                Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
-            ),
-            Transaction::new(
-                target,
-                Bytes::from(WarpTarget::invariant_warpCall::new(()).abi_encode()),
-            ),
+            Transaction::new(target).calldata(Bytes::from(
+                WarpTarget::actionWarpCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                WarpTarget::invariant_warpCall::new(()).abi_encode(),
+            )),
         ];
 
         let input = ExecInput::new(txs);
@@ -715,14 +720,12 @@ mod tests {
         let (mut chain, target) = deploy_and_setup_warp();
 
         let txs = vec![
-            Transaction::new(
-                target,
-                Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
-            ),
-            Transaction::new(
-                target,
-                Bytes::from(WarpTarget::getBlockTimestampCall::new(()).abi_encode()),
-            ),
+            Transaction::new(target).calldata(Bytes::from(
+                WarpTarget::actionWarpCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                WarpTarget::getBlockTimestampCall::new(()).abi_encode(),
+            )),
         ];
 
         let input = ExecInput::new(txs).with_coverage(true);
@@ -742,10 +745,9 @@ mod tests {
     fn execute_with_trace_collects_calls() {
         let (mut chain, target) = deploy_and_setup_warp();
 
-        let txs = vec![Transaction::new(
-            target,
-            Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
-        )];
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            WarpTarget::actionWarpCall::new(()).abi_encode(),
+        ))];
 
         let input = ExecInput::new(txs).with_trace(true);
         let execution = chain.exec(input).unwrap();
@@ -765,20 +767,18 @@ mod tests {
         let (mut chain, target) = deploy_and_setup_warp();
 
         // Mutate original chain.
-        let txs = vec![Transaction::new(
-            target,
-            Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
-        )];
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            WarpTarget::actionWarpCall::new(()).abi_encode(),
+        ))];
         let input = ExecInput::new(txs);
         let execution = chain.exec(input).unwrap();
         assert!(execution.results[0].success);
 
         // Clone and run a view call on the clone.
         let mut cloned = chain.clone();
-        let view_txs = vec![Transaction::new(
-            target,
-            Bytes::from(WarpTarget::getBlockTimestampCall::new(()).abi_encode()),
-        )];
+        let view_txs = vec![Transaction::new(target).calldata(Bytes::from(
+            WarpTarget::getBlockTimestampCall::new(()).abi_encode(),
+        ))];
         let view_input = ExecInput::new(view_txs);
         let view_execution = cloned.exec(view_input).unwrap();
         assert!(view_execution.results[0].success);
@@ -802,10 +802,10 @@ mod tests {
 
         // `set(uint256)` selector = keccak256("set(uint256)")[:4]
         let set_selector: [u8; 4] = [0x60, 0xfe, 0x47, 0xb1];
-        let txs = vec![Transaction::new(
-            target,
-            Bytes::from([set_selector.as_slice(), &[0u8; 32]].concat()),
-        )];
+        let txs = vec![
+            Transaction::new(target)
+                .calldata(Bytes::from([set_selector.as_slice(), &[0u8; 32]].concat())),
+        ];
 
         let input = ExecInput::new(txs).with_coverage(true);
         let execution = chain.exec(input).unwrap();
