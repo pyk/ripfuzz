@@ -5,14 +5,12 @@ use anyhow::{Context as _, Result};
 use revm::{
     MainBuilder, MainContext,
     context::{BlockEnv, CfgEnv, Context, TxEnv},
+    context_interface::either::Either,
     handler::ExecuteCommitEvm,
-    inspector::{InspectCommitEvm, Inspector as RevmInspector},
+    inspector::{InspectCommitEvm, Inspector as RevmInspector, NoOpInspector},
     primitives::{Bytes, TxKind},
     state::AccountInfo,
 };
-
-use revm::handler::FrameResult;
-use revm::interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, FrameInput};
 
 use crate::evm::{cheatcode, coverage, database, result, trace};
 
@@ -227,217 +225,6 @@ pub struct ExecOutput {
     pub coverage: Option<coverage::map::LocalCoverage>,
 }
 
-/// Composite inspector that optionally collects traces, cheatcode state,
-/// and coverage across a transaction sequence.
-#[derive(Debug)]
-struct ExecInspector {
-    trace: Option<trace::Inspector>,
-    cheatcode: Option<cheatcode::Inspector>,
-    coverage: Option<coverage::Inspector>,
-}
-
-impl ExecInspector {
-    fn new(opts: &ExecInput) -> Self {
-        Self {
-            trace: if opts.trace {
-                Some(trace::Inspector::new())
-            } else {
-                None
-            },
-            cheatcode: if opts.cheatcode {
-                Some(cheatcode::Inspector::default())
-            } else {
-                None
-            },
-            coverage: if opts.coverage {
-                Some(coverage::Inspector::new())
-            } else {
-                None
-            },
-        }
-    }
-}
-
-impl
-    RevmInspector<
-        Context<BlockEnv, TxEnv, CfgEnv, database::Database, revm::Journal<database::Database>>,
-    > for ExecInspector
-{
-    fn initialize_interp(
-        &mut self,
-        interp: &mut revm::interpreter::Interpreter<revm::interpreter::interpreter::EthInterpreter>,
-        context: &mut Context<
-            BlockEnv,
-            TxEnv,
-            CfgEnv,
-            database::Database,
-            revm::Journal<database::Database>,
-        >,
-    ) {
-        if let Some(ref mut t) = self.trace {
-            t.initialize_interp(interp, context);
-        }
-        if let Some(ref mut c) = self.cheatcode {
-            c.initialize_interp(interp, context);
-        }
-        if let Some(ref mut cov) = self.coverage {
-            cov.initialize_interp(interp, context);
-        }
-    }
-
-    fn step(
-        &mut self,
-        interp: &mut revm::interpreter::Interpreter<revm::interpreter::interpreter::EthInterpreter>,
-        context: &mut Context<
-            BlockEnv,
-            TxEnv,
-            CfgEnv,
-            database::Database,
-            revm::Journal<database::Database>,
-        >,
-    ) {
-        if let Some(ref mut t) = self.trace {
-            t.step(interp, context);
-        }
-        if let Some(ref mut c) = self.cheatcode {
-            c.step(interp, context);
-        }
-        if let Some(ref mut cov) = self.coverage {
-            cov.step(interp, context);
-        }
-    }
-
-    fn frame_start(
-        &mut self,
-        context: &mut Context<
-            BlockEnv,
-            TxEnv,
-            CfgEnv,
-            database::Database,
-            revm::Journal<database::Database>,
-        >,
-        frame_input: &mut FrameInput,
-    ) -> Option<FrameResult> {
-        let mut result = None;
-        if let Some(ref mut c) = self.cheatcode {
-            result = c.frame_start(context, frame_input);
-        }
-        if let Some(ref mut t) = self.trace
-            && result.is_none()
-        {
-            result = t.frame_start(context, frame_input);
-        }
-        if let Some(ref mut cov) = self.coverage
-            && result.is_none()
-        {
-            result = cov.frame_start(context, frame_input);
-        }
-        result
-    }
-
-    fn call(
-        &mut self,
-        context: &mut Context<
-            BlockEnv,
-            TxEnv,
-            CfgEnv,
-            database::Database,
-            revm::Journal<database::Database>,
-        >,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
-        let mut result = None;
-        if let Some(ref mut c) = self.cheatcode {
-            result = c.call(context, inputs);
-        }
-        if let Some(ref mut t) = self.trace
-            && result.is_none()
-        {
-            result = t.call(context, inputs);
-        }
-        if let Some(ref mut cov) = self.coverage
-            && result.is_none()
-        {
-            result = cov.call(context, inputs);
-        }
-        result
-    }
-
-    fn call_end(
-        &mut self,
-        context: &mut Context<
-            BlockEnv,
-            TxEnv,
-            CfgEnv,
-            database::Database,
-            revm::Journal<database::Database>,
-        >,
-        inputs: &CallInputs,
-        outcome: &mut CallOutcome,
-    ) {
-        if let Some(ref mut c) = self.cheatcode {
-            c.call_end(context, inputs, outcome);
-        }
-        if let Some(ref mut t) = self.trace {
-            t.call_end(context, inputs, outcome);
-        }
-        if let Some(ref mut cov) = self.coverage {
-            cov.call_end(context, inputs, outcome);
-        }
-    }
-
-    fn create(
-        &mut self,
-        context: &mut Context<
-            BlockEnv,
-            TxEnv,
-            CfgEnv,
-            database::Database,
-            revm::Journal<database::Database>,
-        >,
-        inputs: &mut CreateInputs,
-    ) -> Option<CreateOutcome> {
-        let mut result = None;
-        if let Some(ref mut c) = self.cheatcode {
-            result = c.create(context, inputs);
-        }
-        if let Some(ref mut t) = self.trace
-            && result.is_none()
-        {
-            result = t.create(context, inputs);
-        }
-        if let Some(ref mut cov) = self.coverage
-            && result.is_none()
-        {
-            result = cov.create(context, inputs);
-        }
-        result
-    }
-
-    fn create_end(
-        &mut self,
-        context: &mut Context<
-            BlockEnv,
-            TxEnv,
-            CfgEnv,
-            database::Database,
-            revm::Journal<database::Database>,
-        >,
-        inputs: &CreateInputs,
-        outcome: &mut CreateOutcome,
-    ) {
-        if let Some(ref mut c) = self.cheatcode {
-            c.create_end(context, inputs, outcome);
-        }
-        if let Some(ref mut t) = self.trace {
-            t.create_end(context, inputs, outcome);
-        }
-        if let Some(ref mut cov) = self.coverage {
-            cov.create_end(context, inputs, outcome);
-        }
-    }
-}
-
 /// EVM Chain state and executor.
 ///
 /// Owns EVM state ([`BlockEnv`](revm::context::BlockEnv),
@@ -575,8 +362,32 @@ impl Chain {
     /// effects (e.g. `vm.warp`) and coverage collection persist from one
     /// transaction to the next.
     pub fn exec(&mut self, input: ExecInput) -> Result<ExecOutput> {
-        let mut inspector = ExecInspector::new(&input);
+        let inspector = (
+            if input.cheatcode {
+                Either::Left(cheatcode::Inspector::default())
+            } else {
+                Either::Right(NoOpInspector)
+            },
+            (
+                if input.trace {
+                    Either::Left(trace::Inspector::new())
+                } else {
+                    Either::Right(NoOpInspector)
+                },
+                if input.coverage {
+                    Either::Left(coverage::Inspector::new())
+                } else {
+                    Either::Right(NoOpInspector)
+                },
+            ),
+        );
         let mut results = Vec::with_capacity(input.transactions.len());
+
+        let db = self.database.take().context("database unavailable")?;
+        let mut ctx = Context::mainnet().with_db(db);
+        ctx.block = self.block_env.clone();
+        ctx.cfg = self.cfg_env.clone();
+        let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
         for tx in input.transactions {
             let tx_env = TxEnv {
@@ -587,15 +398,28 @@ impl Chain {
                 value: tx.value,
                 ..Default::default()
             };
-            let (result, insp) = self.inspect(tx_env, inspector)?;
-            inspector = insp;
-            results.push(result);
+            let result = evm
+                .inspect_tx_commit(tx_env)
+                .context("revm transaction failed")?;
+            // TODO: refactor the result module, rename it to transaction.rs or something
+            results.push(result::TransactionResult::from(result));
         }
+
+        let inspector = evm.inspector;
+        self.database = Some(evm.ctx.journaled_state.database);
+        self.block_env = evm.ctx.block;
+        self.cfg_env = evm.ctx.cfg;
 
         Ok(ExecOutput {
             results,
-            trace: inspector.trace.map(|t| t.into_trace()),
-            coverage: inspector.coverage.map(|c| c.into_coverage()),
+            trace: match inspector.1.0 {
+                Either::Left(t) => Some(t.into_trace()),
+                Either::Right(_) => None,
+            },
+            coverage: match inspector.1.1 {
+                Either::Left(c) => Some(c.into_coverage()),
+                Either::Right(_) => None,
+            },
         })
     }
 
