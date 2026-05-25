@@ -7,10 +7,9 @@ use revm::{
 use crate::evm::cheatcode::{inspector::CfgMut, outcome, state::ExecutionState};
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut>(
-    value: U256,
-
     ctx: &mut CTX,
     state: &mut ExecutionState,
+    value: U256,
 ) -> Option<revm::interpreter::CallOutcome> {
     let id = u64::try_from(value).unwrap_or(u64::MAX);
     ctx.set_chain_id(id);
@@ -110,7 +109,7 @@ mod tests {
         let mut ctx = revm::context::Context::mainnet();
         let mut state = ExecutionState::default();
         let value = U256::from(42);
-        let outcome = chain_id::handle(value, &mut ctx, &mut state);
+        let outcome = chain_id::handle(&mut ctx, &mut state, value);
         assert!(outcome.is_some(), "must return an outcome");
         assert_eq!(ctx.cfg.chain_id, 42, "ctx chain_id must be updated");
         assert_eq!(
@@ -126,7 +125,7 @@ mod tests {
         let mut ctx = revm::context::Context::mainnet();
         let mut state = ExecutionState::default();
         let value = U256::from(u64::MAX) + U256::from(1);
-        let outcome = chain_id::handle(value, &mut ctx, &mut state);
+        let outcome = chain_id::handle(&mut ctx, &mut state, value);
         assert!(outcome.is_some(), "must return an outcome");
         assert_eq!(ctx.cfg.chain_id, u64::MAX, "must saturate to u64::MAX");
         assert_eq!(

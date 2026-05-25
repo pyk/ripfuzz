@@ -97,13 +97,13 @@ where
         VmCalls::warp(c) => warp::handle(c.newTimestamp, ctx, state),
         VmCalls::roll(c) => roll::handle(c.newNumber, ctx, state),
         VmCalls::fee(c) => fee::handle(c.newBasefee, ctx, state),
-        VmCalls::coinbase(c) => coinbase::handle(c.newCoinbase, ctx, state),
+        VmCalls::coinbase(c) => coinbase::handle(ctx, state, c.newCoinbase),
         VmCalls::prevrandao(c) => prevrandao::handle(c.newPrevrandao.into(), ctx, state),
         VmCalls::difficulty(c) => difficulty::handle(c.newDifficulty, ctx, state),
-        VmCalls::chainId(c) => chain_id::handle(c.newChainId, ctx, state),
+        VmCalls::chainId(c) => chain_id::handle(ctx, state, c.newChainId),
 
         // Account
-        VmCalls::deal(c) => deal::handle(c.account, c.value, ctx, state),
+        VmCalls::deal(c) => deal::handle(ctx, c.account, c.value),
         VmCalls::etch(c) => etch::handle(c.account, c.code, ctx, state),
         VmCalls::setNonce(c) => nonce::set_nonce(c.account, c.nonce, ctx, state),
         VmCalls::getNonce(c) => nonce::get_nonce(c.account, ctx, state),

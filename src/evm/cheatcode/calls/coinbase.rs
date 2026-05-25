@@ -7,10 +7,9 @@ use revm::{
 use crate::evm::cheatcode::{outcome, state::ExecutionState};
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
-    addr: Address,
-
     ctx: &mut CTX,
     state: &mut ExecutionState,
+    addr: Address,
 ) -> Option<revm::interpreter::CallOutcome> {
     let mut block = ctx.block().clone();
     block.beneficiary = addr;
@@ -113,7 +112,7 @@ mod tests {
         let mut ctx = revm::context::Context::mainnet();
         let mut state = ExecutionState::default();
         let addr = address!("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF");
-        let outcome = coinbase::handle(addr, &mut ctx, &mut state);
+        let outcome = coinbase::handle(&mut ctx, &mut state, addr);
         assert!(outcome.is_some(), "must return an outcome");
         assert_eq!(
             ctx.block.beneficiary, addr,

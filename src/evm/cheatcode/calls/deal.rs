@@ -7,14 +7,12 @@ use revm::{
     primitives::{Address, U256},
 };
 
-use crate::evm::cheatcode::{outcome, state::ExecutionState};
+use crate::evm::cheatcode::outcome;
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
+    ctx: &mut CTX,
     addr: Address,
     value: U256,
-
-    ctx: &mut CTX,
-    _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
     ctx.journal_mut()
         .load_account(addr)
