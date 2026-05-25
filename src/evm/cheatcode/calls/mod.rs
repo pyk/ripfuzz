@@ -85,7 +85,7 @@ sol! {
 /// Dispatch a decoded cheatcode call to its handler.
 pub fn dispatch<CTX>(
     call: VmCalls,
-    gas_limit: u64,
+
     ctx: &mut CTX,
     state: &mut ExecutionState,
 ) -> Option<CallOutcome>
@@ -94,58 +94,51 @@ where
 {
     match call {
         // Block
-        VmCalls::warp(c) => warp::handle(c.newTimestamp, gas_limit, ctx, state),
-        VmCalls::roll(c) => roll::handle(c.newNumber, gas_limit, ctx, state),
-        VmCalls::fee(c) => fee::handle(c.newBasefee, gas_limit, ctx, state),
-        VmCalls::coinbase(c) => coinbase::handle(c.newCoinbase, gas_limit, ctx, state),
-        VmCalls::prevrandao(c) => prevrandao::handle(c.newPrevrandao.into(), gas_limit, ctx, state),
-        VmCalls::difficulty(c) => difficulty::handle(c.newDifficulty, gas_limit, ctx, state),
-        VmCalls::chainId(c) => chain_id::handle(c.newChainId, gas_limit, ctx, state),
+        VmCalls::warp(c) => warp::handle(c.newTimestamp, ctx, state),
+        VmCalls::roll(c) => roll::handle(c.newNumber, ctx, state),
+        VmCalls::fee(c) => fee::handle(c.newBasefee, ctx, state),
+        VmCalls::coinbase(c) => coinbase::handle(c.newCoinbase, ctx, state),
+        VmCalls::prevrandao(c) => prevrandao::handle(c.newPrevrandao.into(), ctx, state),
+        VmCalls::difficulty(c) => difficulty::handle(c.newDifficulty, ctx, state),
+        VmCalls::chainId(c) => chain_id::handle(c.newChainId, ctx, state),
 
         // Account
-        VmCalls::deal(c) => deal::handle(c.account, c.value, gas_limit, ctx, state),
-        VmCalls::etch(c) => etch::handle(c.account, c.code, gas_limit, ctx, state),
-        VmCalls::setNonce(c) => nonce::set_nonce(c.account, c.nonce, gas_limit, ctx, state),
-        VmCalls::getNonce(c) => nonce::get_nonce(c.account, gas_limit, ctx, state),
-        VmCalls::store(c) => storage::store(
-            c.account,
-            c.slot.into(),
-            c.value.into(),
-            gas_limit,
-            ctx,
-            state,
-        ),
-        VmCalls::load(c) => storage::load(c.account, c.slot.into(), gas_limit, ctx, state),
+        VmCalls::deal(c) => deal::handle(c.account, c.value, ctx, state),
+        VmCalls::etch(c) => etch::handle(c.account, c.code, ctx, state),
+        VmCalls::setNonce(c) => nonce::set_nonce(c.account, c.nonce, ctx, state),
+        VmCalls::getNonce(c) => nonce::get_nonce(c.account, ctx, state),
+        VmCalls::store(c) => storage::store(c.account, c.slot.into(), c.value.into(), ctx, state),
+        VmCalls::load(c) => storage::load(c.account, c.slot.into(), ctx, state),
 
         // Prank
-        VmCalls::prank_0(c) => prank::prank(c.a, gas_limit, ctx, state),
-        VmCalls::prank_1(c) => prank::prank_origin(c.a, c.origin, gas_limit, ctx, state),
-        VmCalls::startPrank_0(c) => prank::start_prank(c.a, gas_limit, ctx, state),
-        VmCalls::startPrank_1(c) => prank::start_prank_origin(c.a, c.origin, gas_limit, ctx, state),
-        VmCalls::stopPrank(_) => prank::stop_prank(gas_limit, state),
+        VmCalls::prank_0(c) => prank::prank(c.a, ctx, state),
+        VmCalls::prank_1(c) => prank::prank_origin(c.a, c.origin, ctx, state),
+        VmCalls::startPrank_0(c) => prank::start_prank(c.a, ctx, state),
+        VmCalls::startPrank_1(c) => prank::start_prank_origin(c.a, c.origin, ctx, state),
+        VmCalls::stopPrank(_) => prank::stop_prank(state),
 
         // Label
-        VmCalls::label(c) => label::label(c.account, &c.name, gas_limit, state),
-        VmCalls::getLabel(c) => label::get_label(c.account, gas_limit, state),
+        VmCalls::label(c) => label::label(c.account, &c.name, state),
+        VmCalls::getLabel(c) => label::get_label(c.account, state),
 
         // Conversion
-        VmCalls::toString_0(c) => to_string::to_string_address(c.a, gas_limit),
-        VmCalls::toString_1(c) => to_string::to_string_bool(c.b, gas_limit),
-        VmCalls::toString_2(c) => to_string::to_string_uint(c.v, gas_limit),
-        VmCalls::toString_3(c) => to_string::to_string_int(c.v, gas_limit),
-        VmCalls::toString_4(c) => to_string::to_string_bytes32(c.b.into(), gas_limit),
-        VmCalls::toString_5(c) => to_string::to_string_bytes(c.b, gas_limit),
-        VmCalls::parseUint(c) => parse::parse_uint(&c.s, gas_limit),
-        VmCalls::parseInt(c) => parse::parse_int(&c.s, gas_limit),
-        VmCalls::parseBool(c) => parse::parse_bool(&c.s, gas_limit),
-        VmCalls::parseAddress(c) => parse::parse_address(&c.s, gas_limit),
-        VmCalls::parseBytes(c) => parse::parse_bytes(&c.s, gas_limit),
-        VmCalls::parseBytes32(c) => parse::parse_bytes32(&c.s, gas_limit),
+        VmCalls::toString_0(c) => to_string::to_string_address(c.a),
+        VmCalls::toString_1(c) => to_string::to_string_bool(c.b),
+        VmCalls::toString_2(c) => to_string::to_string_uint(c.v),
+        VmCalls::toString_3(c) => to_string::to_string_int(c.v),
+        VmCalls::toString_4(c) => to_string::to_string_bytes32(c.b.into()),
+        VmCalls::toString_5(c) => to_string::to_string_bytes(c.b),
+        VmCalls::parseUint(c) => parse::parse_uint(&c.s),
+        VmCalls::parseInt(c) => parse::parse_int(&c.s),
+        VmCalls::parseBool(c) => parse::parse_bool(&c.s),
+        VmCalls::parseAddress(c) => parse::parse_address(&c.s),
+        VmCalls::parseBytes(c) => parse::parse_bytes(&c.s),
+        VmCalls::parseBytes32(c) => parse::parse_bytes32(&c.s),
 
         // Code / wallet / ffi
-        VmCalls::getCode(c) => get_code::handle(&c.name, gas_limit, state),
-        VmCalls::addr(c) => addr::handle(c.sk, gas_limit),
-        VmCalls::sign(c) => sign::handle(c.sk, c.digest.into(), gas_limit),
-        VmCalls::ffi(c) => ffi::handle(c.args, gas_limit, state),
+        VmCalls::getCode(c) => get_code::handle(&c.name, state),
+        VmCalls::addr(c) => addr::handle(c.sk),
+        VmCalls::sign(c) => sign::handle(c.sk, c.digest.into()),
+        VmCalls::ffi(c) => ffi::handle(c.args, state),
     }
 }

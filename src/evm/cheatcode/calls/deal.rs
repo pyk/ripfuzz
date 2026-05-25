@@ -12,7 +12,7 @@ use crate::evm::cheatcode::{outcome, state::ExecutionState};
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     addr: Address,
     value: U256,
-    gas_limit: u64,
+
     ctx: &mut CTX,
     _state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
@@ -26,5 +26,5 @@ pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
         .map_err(|_| "account load failed")
         .ok()?;
     acc.data.set_balance(value);
-    Some(outcome::success(gas_limit))
+    Some(outcome::success())
 }

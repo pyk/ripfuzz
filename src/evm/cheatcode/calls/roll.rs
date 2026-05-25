@@ -8,7 +8,7 @@ use crate::evm::cheatcode::{outcome, state::ExecutionState};
 
 pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     value: U256,
-    gas_limit: u64,
+
     ctx: &mut CTX,
     state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
@@ -16,5 +16,5 @@ pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     block.number = value;
     ctx.set_block(block);
     state.block.number = Some(value);
-    Some(outcome::success(gas_limit))
+    Some(outcome::success())
 }

@@ -1,24 +1,20 @@
 //! `addr` cheatcode - derive an address from a private key.
 
 use alloy_primitives::{Address, U256};
+use k256::elliptic_curve::{Curve, bigint::ArrayEncoding};
+use revm::interpreter::CallOutcome;
 
 use crate::evm::cheatcode::outcome;
 
-/// secp256k1 curve order (n).
-const SECP256K1_ORDER: U256 = U256::from_be_bytes([
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
-    0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x41,
-]);
-
-pub fn handle(sk: U256, gas_limit: u64) -> Option<revm::interpreter::CallOutcome> {
+pub fn handle(sk: U256) -> Option<CallOutcome> {
     if sk.is_zero() {
-        return Some(outcome::revert("private key cannot be 0", gas_limit));
+        return Some(outcome::revert("private key cannot be 0"));
     }
-    if sk >= SECP256K1_ORDER {
-        return Some(outcome::revert(
-            &format!("private key must be less than the secp256k1 curve order ({SECP256K1_ORDER})"),
-            gas_limit,
-        ));
+    let order = U256::from_be_slice(&k256::Secp256k1::ORDER.to_be_byte_array());
+    if sk >= order {
+        return Some(outcome::revert(&format!(
+            "private key must be less than the secp256k1 curve order ({order})"
+        )));
     }
     let sk_bytes = sk.to_be_bytes_vec();
     let signing_key = k256::ecdsa::SigningKey::from_slice(&sk_bytes).ok()?;
@@ -26,17 +22,18 @@ pub fn handle(sk: U256, gas_limit: u64) -> Option<revm::interpreter::CallOutcome
     let public_key = verifying_key.to_encoded_point(false);
     let pk_bytes = public_key.as_bytes();
     if pk_bytes.len() != 65 {
-        return Some(outcome::revert("invalid public key length", gas_limit));
+        return Some(outcome::revert("invalid public key length"));
     }
     let hash = alloy_primitives::keccak256(&pk_bytes[1..]);
     let address = Address::from_slice(&hash[12..]);
-    Some(outcome::success_address(address, gas_limit))
+    Some(outcome::success_address(address))
 }
 
 #[cfg(test)]
 mod tests {
     use alloy_primitives::{Address, U256, address};
     use alloy_sol_types::SolCall;
+    use k256::elliptic_curve::{Curve, bigint::ArrayEncoding};
     use revm::primitives::Bytes;
 
     use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployOptions, SetupOptions};
@@ -405,7 +402,7 @@ mod tests {
     /// vm.addr(0) must revert at the handler level.
     #[test]
     fn addr_zero_key_reverts() {
-        let outcome = addr::handle(U256::ZERO, u64::MAX);
+        let outcome = addr::handle(U256::ZERO);
         assert!(outcome.is_some(), "must return an outcome");
         let outcome = outcome.unwrap();
         assert!(
@@ -422,12 +419,25 @@ mod tests {
             0xFF, 0xFE, 0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C,
             0xD0, 0x36, 0x41, 0x41,
         ]);
-        let outcome = addr::handle(bad_key, u64::MAX);
+        let outcome = addr::handle(bad_key);
         assert!(outcome.is_some(), "must return an outcome");
         let outcome = outcome.unwrap();
         assert!(
             !outcome.result.is_ok(),
             "vm.addr with key >= curve order must revert"
         );
+    }
+
+    /// The secp256k1 curve order used by `handle` must match the canonical
+    /// constant exported by the `k256` crate.
+    #[test]
+    fn secp256k1_order_matches_k256_constant() {
+        let order = U256::from_be_slice(&k256::Secp256k1::ORDER.to_be_byte_array());
+        let expected = U256::from_be_bytes([
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFE, 0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C,
+            0xD0, 0x36, 0x41, 0x41,
+        ]);
+        assert_eq!(order, expected);
     }
 }

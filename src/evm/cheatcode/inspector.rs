@@ -9,7 +9,7 @@ use revm::{
     context_interface::ContextTr,
     handler::FrameResult,
     interpreter::{
-        CallInputs, CallOutcome, CreateInputs, CreateOutcome, FrameInput, InstructionResult,
+        CallInputs, CallOutcome, CreateInputs, CreateOutcome, FrameInput, Gas, InstructionResult,
         Interpreter, interpreter::EthInterpreter,
     },
     primitives::Address,
@@ -241,11 +241,12 @@ impl<
 
         let call = VmCalls::abi_decode(&input).ok()?;
         let is_stop_prank = matches!(&call, VmCalls::stopPrank(_));
-        let mut outcome = calls::dispatch(call, inputs.gas_limit, ctx, &mut self.state);
+        let mut outcome = calls::dispatch(call, ctx, &mut self.state);
         // Ensure return data is written to the caller's expected memory offset
         // so Solidity can read it from the returndata buffer.
         if let Some(ref mut o) = outcome {
             o.memory_offset = inputs.return_memory_offset.clone();
+            o.result.gas = Gas::new(inputs.gas_limit);
         }
 
         let parent_depth = self.depth.saturating_sub(1);

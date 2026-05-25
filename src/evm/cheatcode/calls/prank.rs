@@ -9,7 +9,7 @@ use crate::evm::cheatcode::{
 
 pub fn prank(
     addr: Address,
-    gas_limit: u64,
+
     _ctx: &mut impl revm::context_interface::ContextTr,
     state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
@@ -18,13 +18,11 @@ pub fn prank(
     {
         return Some(outcome::revert(
             "prank(address) cannot be called when a prank is already active",
-            gas_limit,
         ));
     }
     if state.prank.start.is_some() {
         return Some(outcome::revert(
             "prank(address) cannot be called when a startPrank is already active",
-            gas_limit,
         ));
     }
     state.prank.active = Some(PrankState {
@@ -35,13 +33,13 @@ pub fn prank(
         single_call: true,
         used: false,
     });
-    Some(outcome::success(gas_limit))
+    Some(outcome::success())
 }
 
 pub fn prank_origin(
     addr: Address,
     origin: Address,
-    gas_limit: u64,
+
     _ctx: &mut impl revm::context_interface::ContextTr,
     state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
@@ -51,13 +49,11 @@ pub fn prank_origin(
     {
         return Some(outcome::revert(
             "prank(address) cannot be called when a prank is already active",
-            gas_limit,
         ));
     }
     if state.prank.start.is_some() {
         return Some(outcome::revert(
             "prank(address) cannot be called when a startPrank is already active",
-            gas_limit,
         ));
     }
     state.prank.active = Some(PrankState {
@@ -68,12 +64,12 @@ pub fn prank_origin(
         single_call: true,
         used: false,
     });
-    Some(outcome::success(gas_limit))
+    Some(outcome::success())
 }
 
 pub fn start_prank(
     addr: Address,
-    gas_limit: u64,
+
     _ctx: &mut impl revm::context_interface::ContextTr,
     state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
@@ -82,7 +78,6 @@ pub fn start_prank(
     {
         return Some(outcome::revert(
             "startPrank(address) cannot be called when a prank is already active",
-            gas_limit,
         ));
     }
     if let Some(ref start) = state.prank.start
@@ -90,7 +85,6 @@ pub fn start_prank(
     {
         return Some(outcome::revert(
             "startPrank(address) cannot be called when a startPrank is already active",
-            gas_limit,
         ));
     }
     state.prank.start = Some(StartPrankState {
@@ -100,13 +94,13 @@ pub fn start_prank(
         set_depth: 0,
         used: false,
     });
-    Some(outcome::success(gas_limit))
+    Some(outcome::success())
 }
 
 pub fn start_prank_origin(
     addr: Address,
     origin: Address,
-    gas_limit: u64,
+
     _ctx: &mut impl revm::context_interface::ContextTr,
     state: &mut ExecutionState,
 ) -> Option<revm::interpreter::CallOutcome> {
@@ -116,7 +110,6 @@ pub fn start_prank_origin(
     {
         return Some(outcome::revert(
             "startPrank(address) cannot be called when a prank is already active",
-            gas_limit,
         ));
     }
     if let Some(ref start) = state.prank.start
@@ -124,7 +117,6 @@ pub fn start_prank_origin(
     {
         return Some(outcome::revert(
             "startPrank(address) cannot be called when a startPrank is already active",
-            gas_limit,
         ));
     }
     state.prank.start = Some(StartPrankState {
@@ -134,14 +126,11 @@ pub fn start_prank_origin(
         set_depth: 0,
         used: false,
     });
-    Some(outcome::success(gas_limit))
+    Some(outcome::success())
 }
 
-pub fn stop_prank(
-    gas_limit: u64,
-    state: &mut ExecutionState,
-) -> Option<revm::interpreter::CallOutcome> {
+pub fn stop_prank(state: &mut ExecutionState) -> Option<revm::interpreter::CallOutcome> {
     state.prank.active = None;
     state.prank.start = None;
-    Some(outcome::success(gas_limit))
+    Some(outcome::success())
 }
