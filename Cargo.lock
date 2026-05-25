@@ -2450,6 +2450,8 @@ dependencies = [
  "alloy-json-abi",
  "alloy-op-hardforks",
  "alloy-primitives",
+ "alloy-sol-macro",
+ "alloy-sol-types",
  "anyhow",
  "clap",
  "clap-verbosity-flag",
