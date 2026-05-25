@@ -1,6 +1,6 @@
 //! Campaign result aggregation.
 
-use crate::coverage::CoverageMap;
+use crate::evm::coverage::map::CoverageMap;
 use crate::fuzzer::Crash;
 
 /// The aggregated output of a fuzzing campaign.

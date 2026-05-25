@@ -15,9 +15,9 @@ use revm::{
 use tracing::info;
 
 use crate::corpus::{Call, CallMeta, Corpus, CorpusItem};
-use crate::coverage::LocalCoverage;
 use crate::evm;
 use crate::evm::cheatcode;
+use crate::evm::coverage::map::LocalCoverage;
 use crate::fuzzer::config::FuzzerConfig;
 use crate::fuzzer::mutators::Mutator;
 use crate::fuzzer::{Crash, FuzzerEngine, FuzzerResult};

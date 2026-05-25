@@ -13,7 +13,7 @@ use crate::campaign::seeds::build_seeds;
 use crate::chain::Chain;
 use crate::contract::ContractArtifact;
 use crate::corpus::Corpus;
-use crate::coverage::CoverageMap;
+use crate::evm::coverage::map::CoverageMap;
 /// Builder for constructing a [`Campaign`].
 #[derive(Debug)]
 pub struct CampaignBuilder {

@@ -8,7 +8,8 @@ use revm::{
 
 use alloy_primitives::B256;
 
-use crate::coverage::{LocalContractCoverage, LocalCoverage, edge_marker};
+use crate::evm::coverage::edge::edge_marker;
+use crate::evm::coverage::map::{LocalContractCoverage, LocalCoverage};
 
 /// Convert a U256 stack value to usize without using `ok()`.
 #[allow(clippy::manual_ok_err)]

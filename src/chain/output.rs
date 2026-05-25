@@ -2,7 +2,7 @@
 
 use crate::chain::inspectors::trace::TraceTree;
 use crate::corpus::CallMeta;
-use crate::coverage::LocalCoverage;
+use crate::evm::coverage::map::LocalCoverage;
 
 /// Result of executing a call sequence against a chain.
 #[derive(Debug, Clone, Default)]

@@ -5,7 +5,6 @@ pub mod chain;
 pub mod commands;
 pub mod contract;
 pub mod corpus;
-pub mod coverage;
 pub mod evm;
 pub mod foundry;
 pub mod fuzzer;

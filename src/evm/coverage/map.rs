@@ -1,16 +1,10 @@
-//! Coverage primitives: edge markers, per-contract coverage maps, and global maps.
+//! Coverage maps: global, local, per-contract, and merge results.
 
 use std::collections::HashMap;
 
 use alloy_primitives::B256;
 
-/// Rotate-left by 32 bits, matching Medusa's edge marker encoding.
-pub fn edge_marker(src_pc: usize, dst_pc: usize) -> u64 {
-    (src_pc as u64).rotate_left(32) ^ (dst_pc as u64)
-}
-
-/// Number of PCs for which call-depth sensitivity is tracked per contract.
-pub const DEPTH_TRACKED_PCS: usize = 1_024;
+use crate::evm::coverage::edge::DEPTH_TRACKED_PCS;
 
 /// AFL-style hitcount bucket for a raw hit count.
 fn afl_bucket(raw: u8) -> u8 {

@@ -190,7 +190,7 @@ impl Default for ExecInput {
 pub struct ExecOutput {
     pub results: Vec<result::TransactionResult>,
     pub trace: Option<trace::Trace>,
-    pub coverage: Option<crate::coverage::LocalCoverage>,
+    pub coverage: Option<coverage::map::LocalCoverage>,
 }
 
 /// Composite inspector that optionally collects traces, cheatcode state,
