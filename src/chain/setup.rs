@@ -38,7 +38,9 @@ pub fn setup(
     }
 
     let mut db = state.db;
-    let nonce = crate::result_to_option(db.basic(deployer))
+    let nonce = db
+        .basic(deployer)
+        .ok()
         .flatten()
         .map(|info| info.nonce)
         .unwrap_or(0);

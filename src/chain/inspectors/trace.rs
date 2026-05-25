@@ -384,7 +384,10 @@ impl<CTX: revm::context_interface::ContextTr> Inspector<CTX> for TraceInspector 
         // Pre-compute and register the created address so inner calls can
         // resolve the contract name before create_end fires.
         let caller = inputs.caller();
-        let nonce = crate::result_to_option(context.db_mut().basic(caller))
+        let nonce = context
+            .db_mut()
+            .basic(caller)
+            .ok()
             .flatten()
             .map(|info| info.nonce)
             .unwrap_or(0);
@@ -488,7 +491,7 @@ fn format_address(addr: Address) -> String {
 }
 
 fn find_function_name(abi: &JsonAbi, selector: &[u8]) -> Option<String> {
-    let sel: [u8; 4] = crate::result_to_option(selector.try_into())?;
+    let sel: [u8; 4] = selector.try_into().ok()?;
     let f = abi.functions().find(|f| f.selector() == sel)?;
     Some(f.name.clone())
 }
@@ -501,22 +504,22 @@ fn decode_call_args(
     if data.len() < 4 {
         return Some("()".into());
     }
-    let sel: [u8; 4] = crate::result_to_option(data[..4].try_into())?;
+    let sel: [u8; 4] = data[..4].try_into().ok()?;
     let func = abi.functions().find(|f| f.selector() == sel)?;
 
     if func.inputs.is_empty() {
         return Some("()".into());
     }
 
-    let types: Vec<DynSolType> = crate::result_to_option(
-        func.inputs
-            .iter()
-            .map(|p| p.selector_type().parse::<DynSolType>())
-            .collect(),
-    )?;
+    let types: Vec<DynSolType> = func
+        .inputs
+        .iter()
+        .map(|p| p.selector_type().parse::<DynSolType>())
+        .collect::<Result<Vec<DynSolType>, alloy_dyn_abi::Error>>()
+        .ok()?;
 
     let tuple = DynSolType::Tuple(types);
-    let decoded = crate::result_to_option(tuple.abi_decode_params(&data[4..]))?;
+    let decoded = tuple.abi_decode_params(&data[4..]).ok()?;
     let values = match decoded {
         DynSolValue::Tuple(v) => v,
         other => vec![other],
@@ -537,22 +540,22 @@ fn decode_return(
     output: &Bytes,
     labels: &HashMap<Address, String>,
 ) -> Option<String> {
-    let sel: [u8; 4] = crate::result_to_option(selector.try_into())?;
+    let sel: [u8; 4] = selector.try_into().ok()?;
     let func = abi.functions().find(|f| f.selector() == sel)?;
 
     if func.outputs.is_empty() {
         return None;
     }
 
-    let types: Vec<DynSolType> = crate::result_to_option(
-        func.outputs
-            .iter()
-            .map(|p| p.selector_type().parse::<DynSolType>())
-            .collect(),
-    )?;
+    let types: Vec<DynSolType> = func
+        .outputs
+        .iter()
+        .map(|p| p.selector_type().parse::<DynSolType>())
+        .collect::<Result<Vec<DynSolType>, alloy_dyn_abi::Error>>()
+        .ok()?;
 
     let tuple = DynSolType::Tuple(types);
-    let decoded = crate::result_to_option(tuple.abi_decode_params(output))?;
+    let decoded = tuple.abi_decode_params(output).ok()?;
     let values = match decoded {
         DynSolValue::Tuple(v) => v,
         other => vec![other],
@@ -589,7 +592,7 @@ fn decode_solidity_error(output: &Bytes) -> Option<String> {
         return None;
     }
     let string_type = DynSolType::String;
-    let decoded = crate::result_to_option(string_type.abi_decode_params(&output[4..]))?;
+    let decoded = string_type.abi_decode_params(&output[4..]).ok()?;
     match decoded {
         DynSolValue::String(s) => Some(s),
         _ => None,
@@ -604,23 +607,22 @@ fn decode_custom_error(
     if output.len() < 4 {
         return None;
     }
-    let sel: [u8; 4] = crate::result_to_option(output[..4].try_into())?;
+    let sel: [u8; 4] = output[..4].try_into().ok()?;
     let error = abi.errors().find(|e| e.selector() == sel)?;
 
     if error.inputs.is_empty() {
         return Some(format!("{}()", error.name));
     }
 
-    let types: Vec<DynSolType> = crate::result_to_option(
-        error
-            .inputs
-            .iter()
-            .map(|p| p.selector_type().parse::<DynSolType>())
-            .collect(),
-    )?;
+    let types: Vec<DynSolType> = error
+        .inputs
+        .iter()
+        .map(|p| p.selector_type().parse::<DynSolType>())
+        .collect::<Result<Vec<DynSolType>, alloy_dyn_abi::Error>>()
+        .ok()?;
 
     let tuple = DynSolType::Tuple(types);
-    let decoded = crate::result_to_option(tuple.abi_decode_params(&output[4..]))?;
+    let decoded = tuple.abi_decode_params(&output[4..]).ok()?;
     let values = match decoded {
         DynSolValue::Tuple(v) => v,
         other => vec![other],

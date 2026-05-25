@@ -63,7 +63,7 @@ pub fn decode_solidity_error(output: &Bytes) -> Option<String> {
     }
 
     let string_type = alloy_dyn_abi::DynSolType::String;
-    let decoded = crate::result_to_option(string_type.abi_decode_params(&output[4..]))?;
+    let decoded = string_type.abi_decode_params(&output[4..]).ok()?;
 
     match decoded {
         alloy_dyn_abi::DynSolValue::String(s) => Some(s),

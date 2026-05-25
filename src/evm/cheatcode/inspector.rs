@@ -236,7 +236,7 @@ impl<
             return None;
         }
 
-        let sel: [u8; 4] = crate::result_to_option(input[..4].try_into())?;
+        let sel: [u8; 4] = input[..4].try_into().ok()?;
         let outcome = crate::evm::cheatcode::functions::dispatch(
             sel,
             &input,
