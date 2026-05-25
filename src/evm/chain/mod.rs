@@ -228,6 +228,12 @@ pub struct Chain {
     pub block_env: BlockEnv,
     pub deployer: Address,
     pub config: Config,
+    /// Snapshotted cheatcode inspector state after deploy and setup.
+    ///
+    /// Required so that `vm.label`, `vm.prank`, `vm.warp`, and other
+    /// cheatcodes that mutate inspector state during setup are visible
+    /// to actions and invariants during `chain.exec`.
+    pub cheatcode_state: cheatcode::ExecutionState,
 }
 
 impl Chain {
@@ -314,7 +320,7 @@ impl Chain {
     pub fn deploy(&mut self, opts: DeployInput) -> Result<DeployOutput> {
         let inspector = (
             trace::Inspector::new(),
-            cheatcode::Inspector::new(self.config.cheatcode.clone()),
+            cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
         );
         let tx = TxEnv {
             caller: opts.caller,
@@ -324,7 +330,8 @@ impl Chain {
             value: opts.value,
             ..Default::default()
         };
-        let (result, (trace_inspector, _)) = self.inspect(tx, inspector)?;
+        let (result, (trace_inspector, cheatcode_inspector)) = self.inspect(tx, inspector)?;
+        self.cheatcode_state = cheatcode_inspector.state;
         let address = result.created_address;
         let trace = trace_inspector.into_trace();
         Ok(DeployOutput {
@@ -357,7 +364,7 @@ impl Chain {
     pub fn setup(&mut self, opts: SetupInput) -> Result<SetupOutput> {
         let inspector = (
             trace::Inspector::new(),
-            cheatcode::Inspector::new(self.config.cheatcode.clone()),
+            cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
         );
         let tx = TxEnv {
             caller: opts.caller,
@@ -367,7 +374,8 @@ impl Chain {
             value: opts.value,
             ..Default::default()
         };
-        let (result, (trace_inspector, _)) = self.inspect(tx, inspector)?;
+        let (result, (trace_inspector, cheatcode_inspector)) = self.inspect(tx, inspector)?;
+        self.cheatcode_state = cheatcode_inspector.state;
         let trace = trace_inspector.into_trace();
         Ok(SetupOutput { result, trace })
     }
@@ -379,9 +387,7 @@ impl Chain {
     /// transaction to the next.
     pub fn exec(&mut self, input: ExecInput) -> Result<ExecOutput> {
         let inspector = (
-            Either::Left::<cheatcode::Inspector, NoOpInspector>(cheatcode::Inspector::new(
-                self.config.cheatcode.clone(),
-            )),
+            cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
             (
                 if self.config.trace {
                     Either::Left(trace::Inspector::new())

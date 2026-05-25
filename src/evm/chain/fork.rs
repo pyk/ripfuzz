@@ -126,12 +126,14 @@ impl Chain {
             },
         );
 
+        let config = super::Config::default();
         Ok(Self {
             database: Some(Database::Fork(database)),
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,
-            config: super::Config::default(),
+            config: config.clone(),
+            cheatcode_state: crate::evm::cheatcode::ExecutionState::from_config(&config.cheatcode),
         })
     }
 }

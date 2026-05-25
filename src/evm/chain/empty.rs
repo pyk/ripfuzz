@@ -80,7 +80,8 @@ impl Chain {
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,
-            config,
+            config: config.clone(),
+            cheatcode_state: crate::evm::cheatcode::ExecutionState::from_config(&config.cheatcode),
         }
     }
 }

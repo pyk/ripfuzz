@@ -6,78 +6,69 @@ import "./Vm.sol";
 contract LabelTarget {
     Vm constant vm = Vm(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1);
 
-    address constant LABEL_ADDR = 0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF;
-    string constant EXPECTED_LABEL = "DeadBeef";
+    address constant ADMIN = 0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF;
+    address constant USER = 0xCafEBAbECAFEbAbEcaFEbabECAfebAbEcAFEBaBe;
 
-    string public storedLabel;
+    string constant ADMIN_LABEL = "admin";
+    string constant USER_LABEL = "user";
+
+    string public adminLabel;
+    string public userLabel;
 
     function setup() external {
-        vm.label(LABEL_ADDR, EXPECTED_LABEL);
-        storedLabel = vm.getLabel(LABEL_ADDR);
+        vm.label(ADMIN, ADMIN_LABEL);
+        vm.label(USER, USER_LABEL);
+        adminLabel = vm.getLabel(ADMIN);
+        userLabel = vm.getLabel(USER);
     }
 
-    function getLabelFor(
-        address addr
-    ) external view returns (string memory label) {
-        label = vm.getLabel(addr);
+    /// Relabel admin to a non-canonical value and store it.
+    function actionRelabelAdmin() external {
+        vm.label(ADMIN, "attacker");
+        adminLabel = vm.getLabel(ADMIN);
     }
 
-    function getStoredLabel() external view returns (string memory label) {
-        label = storedLabel;
+    /// Restore canonical labels for both addresses.
+    function actionRestoreLabels() external {
+        vm.label(ADMIN, ADMIN_LABEL);
+        vm.label(USER, USER_LABEL);
+        adminLabel = vm.getLabel(ADMIN);
+        userLabel = vm.getLabel(USER);
     }
 
-    /// Call vm.label with the same value twice in one tx to prove
-    /// the cheatcode is deterministic.
-    function callLabelSameValueTwice()
-        external
-        returns (string memory first, string memory second)
-    {
-        vm.label(address(this), "Self");
-        first = vm.getLabel(address(this));
-        second = vm.getLabel(address(this));
+    /// Overwrite admin label multiple times, ending on the canonical value.
+    function actionOverwriteAdmin() external {
+        vm.label(ADMIN, "temp1");
+        vm.label(ADMIN, "temp2");
+        vm.label(ADMIN, ADMIN_LABEL);
+        adminLabel = vm.getLabel(ADMIN);
     }
 
-    /// Call vm.label with different values and interleave to prove
-    /// sequence independence and value uniqueness.
-    function callLabelSequence()
-        external
-        returns (string memory first, string memory second, string memory third)
-    {
-        vm.label(address(this), "First");
-        first = vm.getLabel(address(this));
-        vm.label(address(this), "Second");
-        second = vm.getLabel(address(this));
-        vm.label(address(this), "First");
-        third = vm.getLabel(address(this));
+    /// Relabel user to a non-canonical value and store it.
+    function actionRelabelUser() external {
+        vm.label(USER, "hacker");
+        userLabel = vm.getLabel(USER);
     }
 
-    /// Interaction with warp - both cheatcodes in same tx.
-    function callLabelAndWarp()
-        external
-        returns (string memory label, uint256 timestamp)
-    {
-        vm.label(address(this), "Labeled");
-        vm.warp(1234567890);
-        label = vm.getLabel(address(this));
-        timestamp = block.timestamp;
+    /// Restore only the user label.
+    function actionRestoreUser() external {
+        vm.label(USER, USER_LABEL);
+        userLabel = vm.getLabel(USER);
     }
 
-    /// Fuzzing action: re-label the expected address and store the result.
-    function actionLabel() external {
-        vm.label(LABEL_ADDR, EXPECTED_LABEL);
-        storedLabel = vm.getLabel(LABEL_ADDR);
+    /// Read the admin label directly from the cheatcode inspector.
+    /// Used to prove that vm.label set in setup persists into exec.
+    function getAdminLabelDirect() external view returns (string memory) {
+        return vm.getLabel(ADMIN);
     }
 
-    /// Edge case: getLabel on an unlabeled address must return empty string.
-    function getUnlabeled(
-        address addr
-    ) external view returns (string memory label) {
-        label = vm.getLabel(addr);
-    }
-
-    function invariant_label() external view {
+    /// Invariant: both stored labels must match their canonical values.
+    function invariant_labelsMatch() external view {
         assert(
-            keccak256(bytes(storedLabel)) == keccak256(bytes(EXPECTED_LABEL))
+            keccak256(bytes(adminLabel)) == keccak256(bytes(ADMIN_LABEL))
+        );
+        assert(
+            keccak256(bytes(userLabel)) == keccak256(bytes(USER_LABEL))
         );
     }
 }
