@@ -291,7 +291,7 @@ mod tests {
     }
 
     /// Regression: Chain::fork must derive the EVM spec from the forked
-    /// block number and timestamp instead of hardcoding AMSTERDAM.  A
+    /// block number and timestamp instead of hardcoding AMSTERDAM. A
     /// mainnet block past Cancun activation must use SpecId::CANCUN.
     #[test]
     fn chain_fork_uses_correct_spec_for_mainnet_cancun() {
@@ -447,7 +447,7 @@ mod tests {
 
     /// Regression: Chain::fork must derive the blob base fee update fraction from
     /// the resolved `SpecId` instead of hardcoding the Cancun mainnet value
-    /// (`3338477`).  Forking a Prague block on mainnet should use the Prague
+    /// (`3338477`). Forking a Prague block on mainnet should use the Prague
     /// fraction (`5007716`), which produces a different blob gasprice for the same
     /// excess blob gas.
     #[test]

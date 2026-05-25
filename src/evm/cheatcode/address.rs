@@ -6,7 +6,7 @@ use revm::primitives::Address;
 ///
 /// Derived from `address(uint160(uint256(keccak256("raptor vm"))))`.
 ///
-/// NOTE: The raptor VM is **not** Foundry VM compatible.  It does not
+/// NOTE: The raptor VM is **not** Foundry VM compatible. It does not
 /// implement all Foundry cheatcodes - only the subset documented in the
 /// raptor cheatcode module.
 pub const VM_ADDRESS: Address = Address::new([

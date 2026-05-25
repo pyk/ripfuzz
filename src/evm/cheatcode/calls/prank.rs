@@ -237,8 +237,7 @@ mod tests {
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_data = Bytes::from(PrankTarget::setupCall::new(()).abi_encode());
-        let setup_opts = SetupInput::new(target, setup_data);
+        let setup_opts = SetupInput::new(target);
         let setup = chain.setup(setup_opts).unwrap();
         assert!(setup.result.success, "setup must succeed");
 
@@ -753,7 +752,7 @@ mod tests {
         assert_eq!(
             inner_sender,
             // The `inner` contract address is not known at compile time in the
-            // Solidity target, so we cannot assert an exact value.  Instead we
+            // Solidity target, so we cannot assert an exact value. Instead we
             // assert it is NOT the nested prank address, proving the prank did
             // not leak.
             call_address_getter!(&mut chain, target, PrankTarget::getInnerSenderCall),

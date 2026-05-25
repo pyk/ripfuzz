@@ -32,7 +32,7 @@
 //!    The fetcher takes ownership of the pending slice while still holding the
 //!    mutex, issues a single JSON-RPC batch via `ureq`, retries on transient
 //!    transport errors, and either inserts all responses into `global_cache`
-//!    (and writes them to disk) or returns the error directly.  Finally it
+//!    (and writes them to disk) or returns the error directly. Finally it
 //!    wakes all waiting threads with `notify_all`.
 //!
 //! 3. Waiters wake up, re-check `global_cache`, and return.
@@ -290,9 +290,9 @@ impl SharedBackend {
 
     /// Execute a JSON-RPC batch.
     ///
-    /// The batch is sent as a single HTTP POST.  If the transport returns a
+    /// The batch is sent as a single HTTP POST. If the transport returns a
     /// transient error (timeout, connection failure, HTTP 429/503/504) the
-    /// whole batch is retried with capped exponential backoff.  If the
+    /// whole batch is retried with capped exponential backoff. If the
     /// response is invalid JSON, the array length does not match, or any
     /// individual item contains an error object, the entire batch fails
     /// immediately and the error is returned to the caller.

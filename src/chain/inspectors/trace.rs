@@ -253,7 +253,7 @@ impl<CTX: revm::context_interface::ContextTr> Inspector<CTX> for TraceInspector 
         let input = inputs.input.bytes_local(context.local());
 
         // Intercept VM-address calls and push a dummy marker so that
-        // call_end can balance the stack.  The actual cheatcode logic
+        // call_end can balance the stack. The actual cheatcode logic
         // lives in `CheatcodeInspector`; we only maintain trace state.
         if inputs.target_address == VM_ADDRESS {
             self.stack.push(CallNode {
@@ -287,7 +287,7 @@ impl<CTX: revm::context_interface::ContextTr> Inspector<CTX> for TraceInspector 
 
         // For DELEGATECALL / CALLCODE the code being executed lives at
         // `bytecode_address`, while `target_address` is the caller's
-        // address (storage context).  Use the code address for name and
+        // address (storage context). Use the code address for name and
         // ABI lookup so we show the real function signature.
         let lookup_addr = if inputs.scheme.is_delegate_call() || inputs.scheme.is_call_code() {
             inputs.bytecode_address

@@ -99,8 +99,7 @@ mod tests {
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_data = Bytes::from(NonceTarget::setupCall::new(()).abi_encode());
-        let setup_opts = SetupInput::new(target, setup_data);
+        let setup_opts = SetupInput::new(target);
         let setup = chain.setup(setup_opts).unwrap();
         assert!(setup.result.success, "setup must succeed");
 

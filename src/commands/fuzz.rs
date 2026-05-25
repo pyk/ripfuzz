@@ -356,11 +356,9 @@ pub fn run(args: Args) -> Result<()> {
     // Run setup if present
     if let Some(ref setup) = target_contract.setup_function {
         info!("calling setup");
-        let setup_opts = evm::SetupInput::new(
-            deployed_address,
-            Bytes::from(setup.selector().as_slice().to_vec()),
-        )
-        .caller(args.deployer_address);
+        let setup_opts = evm::SetupInput::new(deployed_address)
+            .calldata(Bytes::from(setup.selector().as_slice().to_vec()))
+            .caller(args.deployer_address);
         let setup_output = chain.setup(setup_opts)?;
         ensure!(
             setup_output.result.success,

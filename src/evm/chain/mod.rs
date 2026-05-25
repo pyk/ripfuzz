@@ -1,6 +1,7 @@
 //! EVM chain state and executor.
 
 use alloy_primitives::{Address, U256, address};
+use alloy_sol_types::SolCall;
 use anyhow::{Context as _, Result};
 use revm::{
     MainBuilder, MainContext,
@@ -79,28 +80,40 @@ pub struct SetupOutput {
     pub trace: trace::Trace,
 }
 
+alloy_sol_types::sol! {
+    interface Setup {
+        function setup() external;
+    }
+}
+
 /// Configuration for a setup call.
 #[derive(Debug, Clone)]
 pub struct SetupInput {
     pub caller: Address,
     pub target: Address,
-    pub data: Bytes,
+    pub calldata: Bytes,
     pub value: U256,
     pub gas_limit: u64,
 }
 
 impl SetupInput {
-    /// Create [`SetupInput`] for the given target and calldata.
+    /// Create [`SetupInput`] for the given target with the default `setup()` selector.
     ///
     /// Caller defaults to [`DEFAULT_DEPLOYER`]; override with [`Self::caller`].
-    pub fn new(target: Address, data: Bytes) -> Self {
+    pub fn new(target: Address) -> Self {
         Self {
             caller: DEFAULT_DEPLOYER,
             target,
-            data,
+            calldata: Bytes::from(Setup::setupCall::new(()).abi_encode()),
             value: U256::ZERO,
             gas_limit: u64::MAX,
         }
+    }
+
+    /// Set the calldata for the setup transaction.
+    pub fn calldata(mut self, calldata: Bytes) -> Self {
+        self.calldata = calldata;
+        self
     }
 
     /// Set the account address used to send the setup transaction.
@@ -346,7 +359,7 @@ impl Chain {
         let tx = TxEnv {
             caller: opts.caller,
             kind: TxKind::Call(opts.target),
-            data: opts.data,
+            data: opts.calldata,
             gas_limit: opts.gas_limit,
             value: opts.value,
             ..Default::default()
@@ -503,8 +516,7 @@ mod tests {
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_data = Bytes::from(WarpTarget::setupCall::new(()).abi_encode());
-        let setup_opts = SetupInput::new(target, setup_data);
+        let setup_opts = SetupInput::new(target);
         let setup = chain.setup(setup_opts).unwrap();
         assert!(setup.result.success, "setup must succeed");
 

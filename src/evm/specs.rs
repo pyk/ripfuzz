@@ -42,7 +42,7 @@ fn spec_id_from_ethereum_hardfork(hardfork: EthereumHardfork) -> SpecId {
 /// Map an [`OpHardfork`] into the closest corresponding [`SpecId`].
 ///
 /// Optimism hardforks bundle Ethereum hardforks (e.g. Canyon brings
-/// Shanghai, Ecotone brings Cancun).  This mapping selects the bundled
+/// Shanghai, Ecotone brings Cancun). This mapping selects the bundled
 /// Ethereum spec so that opcode behaviour, gas costs, and validation
 /// rules are correct for fuzzing.
 fn spec_id_from_op_hardfork(hardfork: OpHardfork) -> SpecId {

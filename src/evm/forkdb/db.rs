@@ -32,7 +32,7 @@ impl ForkDB {
     }
 
     /// Parse the heterogeneous batch responses for `basic_ref` into an
-    /// `AccountInfo`.  The responses may arrive in any order; we match by
+    /// `AccountInfo`. The responses may arrive in any order; we match by
     /// variant rather than by index so that `db.rs` is decoupled from the
     /// backend's ordering guarantees.
     fn parse_basic_responses(
@@ -264,7 +264,7 @@ mod tests {
     }
 
     /// Regression: ForkDB::basic_ref must not assume that the backend returns
-    /// responses in the same order as the requests.  If the response order
+    /// responses in the same order as the requests. If the response order
     /// changes (or a future backend reorders them), matching by index silently
     /// corrupts account state.
     #[test]

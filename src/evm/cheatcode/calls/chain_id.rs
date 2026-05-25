@@ -52,15 +52,14 @@ mod tests {
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_data = Bytes::from(ChainIdTarget::setupCall::new(()).abi_encode());
-        let setup = chain.setup(SetupInput::new(target, setup_data)).unwrap();
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
         assert!(setup.result.success, "setup must succeed");
 
         (chain, target)
     }
 
     /// `vm.chainId(42)` used during setup must persist in both EVM config
-    /// state and contract storage.  The invariant checks that the stored
+    /// state and contract storage. The invariant checks that the stored
     /// value matches the expected canonical chain id.
     #[test]
     fn chain_id_set_in_setup_matches_expected() {
@@ -78,7 +77,7 @@ mod tests {
     }
 
     /// Re-setting the chain id in a later transaction must not corrupt the
-    /// expected value.  This is the core property a stateful fuzzer relies
+    /// expected value. This is the core property a stateful fuzzer relies
     /// on when actions need to restore canonical network state.
     #[test]
     fn restore_chain_id_in_action_preserves_value() {
@@ -105,7 +104,7 @@ mod tests {
     }
 
     /// A single transaction can interleave multiple `vm.chainId` calls and
-    /// end on the expected value without corrupting state.  This proves the
+    /// end on the expected value without corrupting state. This proves the
     /// cheatcode is deterministic and safe to call repeatedly inside one tx.
     #[test]
     fn batch_sequence_in_single_transaction() {
@@ -132,7 +131,7 @@ mod tests {
     }
 
     /// Mutating chain id and then restoring it in a sequence must leave the
-    /// invariant intact.  This mirrors how a stateful fuzzer would explore
+    /// invariant intact. This mirrors how a stateful fuzzer would explore
     /// state mutations and then recover canonical values.
     #[test]
     fn mutate_and_restore_preserves_invariant() {
@@ -166,7 +165,7 @@ mod tests {
     }
 
     /// A cloned chain snapshot must produce the same chain id when actions
-    /// are executed on the clone.  This is critical for parallel fuzzing
+    /// are executed on the clone. This is critical for parallel fuzzing
     /// where each worker starts from a cloned state.
     #[test]
     fn cloned_chain_preserves_chain_id() {
@@ -195,7 +194,7 @@ mod tests {
 
     /// A realistic fuzzing sequence: multiple actions mutate storage by
     /// changing chain id, and a final invariant verifies that the canonical
-    /// value is still intact.  This mirrors how a stateful fuzzer would use
+    /// value is still intact. This mirrors how a stateful fuzzer would use
     /// `vm.chainId` across a campaign.
     #[test]
     fn deterministic_across_transaction_sequence() {

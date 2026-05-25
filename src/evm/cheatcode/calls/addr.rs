@@ -69,8 +69,7 @@ mod tests {
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_data = Bytes::from(AddrTarget::setupCall::new(()).abi_encode());
-        let setup = chain.setup(SetupInput::new(target, setup_data)).unwrap();
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
         assert!(setup.result.success, "setup must succeed");
 
         (chain, target)
@@ -148,7 +147,7 @@ mod tests {
     }
 
     /// Interleaving different private keys in the same transaction must not
-    /// cause cross-key pollution.  Each key must still map to its correct
+    /// cause cross-key pollution. Each key must still map to its correct
     /// address.
     #[test]
     fn interleaved_keys_produce_consistent_results() {
@@ -207,7 +206,7 @@ mod tests {
     }
 
     /// A cloned chain snapshot must produce the same addresses when actions
-    /// are executed on the clone.  This is critical for parallel fuzzing
+    /// are executed on the clone. This is critical for parallel fuzzing
     /// where each worker starts from a cloned state.
     #[test]
     fn cloned_chain_produces_same_addresses() {
@@ -235,7 +234,7 @@ mod tests {
 
     /// A realistic fuzzing sequence: multiple actions mutate storage by
     /// refreshing different actors, and a final invariant verifies that
-    /// all identities are still intact.  This mirrors how a stateful fuzzer
+    /// all identities are still intact. This mirrors how a stateful fuzzer
     /// would use `vm.addr` across a campaign.
     #[test]
     fn deterministic_across_transaction_sequence() {

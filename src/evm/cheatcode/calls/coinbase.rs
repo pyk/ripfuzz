@@ -53,8 +53,7 @@ mod tests {
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_data = Bytes::from(CoinbaseTarget::setupCall::new(()).abi_encode());
-        let setup = chain.setup(SetupInput::new(target, setup_data)).unwrap();
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
         assert!(setup.result.success, "setup must succeed");
 
         (chain, target)
@@ -106,7 +105,7 @@ mod tests {
     }
 
     /// A single transaction can interleave multiple `vm.coinbase` calls and
-    /// end on the expected address without corrupting state.  This proves the
+    /// end on the expected address without corrupting state. This proves the
     /// cheatcode is deterministic and safe to call repeatedly inside one tx.
     #[test]
     fn batch_sequence_in_single_transaction() {
@@ -133,7 +132,7 @@ mod tests {
     }
 
     /// Mutating coinbase and then restoring it in a sequence must leave the
-    /// invariant intact.  This mirrors how a stateful fuzzer would explore
+    /// invariant intact. This mirrors how a stateful fuzzer would explore
     /// state mutations and then recover canonical values.
     #[test]
     fn mutate_and_restore_preserves_invariant() {
@@ -167,7 +166,7 @@ mod tests {
     }
 
     /// A cloned chain snapshot must produce the same coinbase when actions
-    /// are executed on the clone.  This is critical for parallel fuzzing
+    /// are executed on the clone. This is critical for parallel fuzzing
     /// where each worker starts from a cloned state.
     #[test]
     fn cloned_chain_preserves_coinbase() {
@@ -196,7 +195,7 @@ mod tests {
 
     /// A realistic fuzzing sequence: multiple actions mutate block state by
     /// changing coinbase, and a final invariant verifies that the canonical
-    /// address is still intact.  This mirrors how a stateful fuzzer would
+    /// address is still intact. This mirrors how a stateful fuzzer would
     /// use `vm.coinbase` across a campaign.
     #[test]
     fn deterministic_across_transaction_sequence() {

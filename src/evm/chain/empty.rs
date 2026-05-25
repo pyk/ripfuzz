@@ -176,7 +176,7 @@ mod tests {
     }
 
     /// Chain::new must use a database that returns `Some(AccountInfo::default())`
-    /// for never-seen addresses.  If `Database::basic` returns `None`,
+    /// for never-seen addresses. If `Database::basic` returns `None`,
     /// revm's `CacheDB` marks the account as `AccountState::NotExisting`.
     /// A sandbox has no state trie, so there is no concept of "non-existing"
     /// vs "empty"; every address must be treated as empty.
@@ -369,7 +369,7 @@ mod tests {
             .as_ref()
             .expect("setup function must exist in ABI");
         let setup_data = Bytes::from(setup_func.selector().as_slice().to_vec());
-        let setup_opts = crate::evm::chain::SetupInput::new(address, setup_data);
+        let setup_opts = crate::evm::chain::SetupInput::new(address).calldata(setup_data);
         let setup = chain.setup(setup_opts).unwrap();
 
         assert!(
