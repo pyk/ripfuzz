@@ -186,6 +186,24 @@ impl ExecInput {
             coverage: false,
         }
     }
+
+    /// Enable or disable trace collection.
+    pub fn with_trace(mut self, trace: bool) -> Self {
+        self.trace = trace;
+        self
+    }
+
+    /// Enable or disable cheatcode handling.
+    pub fn with_cheatcode(mut self, cheatcode: bool) -> Self {
+        self.cheatcode = cheatcode;
+        self
+    }
+
+    /// Enable or disable coverage collection.
+    pub fn with_coverage(mut self, coverage: bool) -> Self {
+        self.coverage = coverage;
+        self
+    }
 }
 
 impl Default for ExecInput {
@@ -681,7 +699,8 @@ mod tests {
             ),
         ];
 
-        let execution = chain.exec(ExecInput::new(txs)).unwrap();
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(execution.results[0].success, "actionWarp must succeed");
         assert!(
@@ -706,13 +725,8 @@ mod tests {
             ),
         ];
 
-        let execution = chain
-            .exec(ExecInput {
-                transactions: txs,
-                coverage: true,
-                ..ExecInput::default()
-            })
-            .unwrap();
+        let input = ExecInput::new(txs).with_coverage(true);
+        let execution = chain.exec(input).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(execution.results.iter().all(|r| r.success));
 
@@ -733,13 +747,8 @@ mod tests {
             Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
         )];
 
-        let execution = chain
-            .exec(ExecInput {
-                transactions: txs,
-                trace: true,
-                ..ExecInput::default()
-            })
-            .unwrap();
+        let input = ExecInput::new(txs).with_trace(true);
+        let execution = chain.exec(input).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(execution.results[0].success);
 
@@ -760,7 +769,8 @@ mod tests {
             target,
             Bytes::from(WarpTarget::actionWarpCall::new(()).abi_encode()),
         )];
-        let execution = chain.exec(ExecInput::new(txs)).unwrap();
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
         assert!(execution.results[0].success);
 
         // Clone and run a view call on the clone.
@@ -769,7 +779,8 @@ mod tests {
             target,
             Bytes::from(WarpTarget::getBlockTimestampCall::new(()).abi_encode()),
         )];
-        let view_execution = cloned.exec(ExecInput::new(view_txs)).unwrap();
+        let view_input = ExecInput::new(view_txs);
+        let view_execution = cloned.exec(view_input).unwrap();
         assert!(view_execution.results[0].success);
         let ts = WarpTarget::getBlockTimestampCall::abi_decode_returns(
             &view_execution.results[0].output.clone().unwrap(),
@@ -796,13 +807,8 @@ mod tests {
             Bytes::from([set_selector.as_slice(), &[0u8; 32]].concat()),
         )];
 
-        let execution = chain
-            .exec(ExecInput {
-                transactions: txs,
-                coverage: true,
-                ..ExecInput::default()
-            })
-            .unwrap();
+        let input = ExecInput::new(txs).with_coverage(true);
+        let execution = chain.exec(input).unwrap();
         assert!(execution.results[0].success);
 
         let coverage = execution.coverage.expect("coverage must be present");

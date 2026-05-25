@@ -278,7 +278,8 @@ mod tests {
                 Bytes::from(WarpTarget::invariant_warpCall::new(()).abi_encode()),
             ),
         ];
-        let execution = chain.exec(ExecInput::new(txs)).unwrap();
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
         assert_eq!(execution.results.len(), 3);
         assert!(
             execution.results[0].success,
@@ -315,7 +316,8 @@ mod tests {
                 Bytes::from(WarpTarget::getStoredBlockTimestampCall::new(()).abi_encode()),
             ),
         ];
-        let execution = chain.exec(ExecInput::new(txs)).unwrap();
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
         assert_eq!(execution.results.len(), 4);
 
         assert!(execution.results[0].success, "actionWarp must succeed");
