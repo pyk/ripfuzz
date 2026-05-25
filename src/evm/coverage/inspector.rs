@@ -174,7 +174,7 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
 mod tests {
     use revm::{context::TxEnv, primitives::TxKind};
 
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
+    use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER};
     use crate::evm::coverage;
     use crate::foundry;
     use crate::target::Contract;
@@ -193,7 +193,7 @@ mod tests {
     fn coverage_inspector_collects_hits_for_deployed_contract() {
         let contract = load_fixture("src/NamedMismatch.sol:DifferentName");
 
-        let mut chain = Chain::empty();
+        let mut chain = Chain::empty(Config::default());
         let inspector = coverage::Inspector::new();
         let tx = TxEnv {
             caller: DEFAULT_DEPLOYER,

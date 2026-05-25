@@ -314,7 +314,7 @@ pub fn run(args: Args) -> Result<()> {
     // Create test chain
     info!("creating test chain");
     let mut chain = if args.fork_mode.rpc_url.is_none() {
-        evm::Chain::empty()
+        evm::Chain::empty(evm::chain::Config::new(&project_path))
     } else {
         let cache_dir = project_path.join("raptor").join("cache");
         let block = args

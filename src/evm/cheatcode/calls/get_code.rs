@@ -23,7 +23,7 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput};
+    use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER, DeployInput};
     use crate::evm::cheatcode;
     use crate::evm::cheatcode::calls::get_code;
     use crate::evm::cheatcode::state::ExecutionState;
@@ -92,7 +92,7 @@ mod tests {
     /// Deploy the fixture and run its `setup` function with a getCode-enabled inspector.
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/GetCodeTarget.sol:GetCodeTarget");
-        let mut chain = Chain::empty();
+        let mut chain = Chain::empty(Config::default());
         let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();

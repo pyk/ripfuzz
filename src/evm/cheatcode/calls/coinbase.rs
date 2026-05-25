@@ -24,7 +24,7 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
-    use crate::evm::chain::{Chain, DeployInput, ExecInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
     use crate::foundry;
     use crate::target::Contract;
 
@@ -48,7 +48,7 @@ mod tests {
 
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/CoinbaseTarget.sol:CoinbaseTarget");
-        let mut chain = Chain::empty();
+        let mut chain = Chain::empty(Config::default());
         let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();

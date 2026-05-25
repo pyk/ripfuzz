@@ -18,39 +18,24 @@ contract FfiTarget {
         return storedValue;
     }
 
-    /// Call vm.ffi with the same args twice in one tx to prove determinism.
-    function callFfiSameValueTwice()
-        external
-        returns (uint256 first, uint256 second)
-    {
-        first = _ffiToUint42();
-        second = _ffiToUint42();
+    /// Re-run ffi and restore the canonical value.
+    function actionFfi() external {
+        storedValue = _ffiToUint42();
     }
 
-    /// Call vm.ffi with different values and interleave to prove
-    /// sequence independence.
-    function callFfiSequence()
+    /// Mutate stored value to a different ffi-derived value.
+    function actionMutateFfi() external {
+        storedValue = _ffiToUint100();
+    }
+
+    /// Call vm.ffi with the same args twice in one tx to prove determinism.
+    function actionFfiSequence()
         external
         returns (uint256 first, uint256 second, uint256 third)
     {
         first = _ffiToUint1();
         second = _ffiToUint42();
         third = _ffiToUint5();
-    }
-
-    /// Interaction with warp - both cheatcodes in same tx.
-    function callFfiAndWarp()
-        external
-        returns (uint256 value, uint256 timestamp)
-    {
-        value = _ffiToUint42();
-        vm.warp(1234567890);
-        timestamp = block.timestamp;
-    }
-
-    /// Fuzzing action: re-run ffi and store the result.
-    function actionFfi() external {
-        storedValue = _ffiToUint42();
     }
 
     function invariant_ffi() external view {

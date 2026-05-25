@@ -13,8 +13,10 @@ use revm::{
     state::AccountInfo,
 };
 
+pub use crate::evm::chain::config::Config;
 use crate::evm::{cheatcode, coverage, database, result, trace};
 
+pub mod config;
 mod empty;
 mod fork;
 
@@ -189,38 +191,12 @@ impl Transaction {
 #[derive(Debug, Clone)]
 pub struct ExecInput {
     pub transactions: Vec<Transaction>,
-    pub trace: bool,
-    pub cheatcode: bool,
-    pub coverage: bool,
 }
 
 impl ExecInput {
-    /// Create an [`ExecInput`] with the given transactions and defaults for all options.
+    /// Create an [`ExecInput`] with the given transactions.
     pub fn new(transactions: Vec<Transaction>) -> Self {
-        Self {
-            transactions,
-            trace: false,
-            cheatcode: true,
-            coverage: false,
-        }
-    }
-
-    /// Enable or disable trace collection.
-    pub fn with_trace(mut self, trace: bool) -> Self {
-        self.trace = trace;
-        self
-    }
-
-    /// Enable or disable cheatcode handling.
-    pub fn with_cheatcode(mut self, cheatcode: bool) -> Self {
-        self.cheatcode = cheatcode;
-        self
-    }
-
-    /// Enable or disable coverage collection.
-    pub fn with_coverage(mut self, coverage: bool) -> Self {
-        self.coverage = coverage;
-        self
+        Self { transactions }
     }
 }
 
@@ -251,6 +227,7 @@ pub struct Chain {
     pub cfg_env: CfgEnv,
     pub block_env: BlockEnv,
     pub deployer: Address,
+    pub config: Config,
 }
 
 impl Chain {
@@ -315,7 +292,10 @@ impl Chain {
     /// A [`cheatcode::Inspector`] is included so that target contracts can call
     /// raptor cheatcodes (e.g. `vm.warp`) during constructor execution.
     pub fn deploy(&mut self, opts: DeployInput) -> Result<DeployOutput> {
-        let inspector = (trace::Inspector::new(), cheatcode::Inspector::default());
+        let inspector = (
+            trace::Inspector::new(),
+            cheatcode::Inspector::new(self.config.cheatcode.clone()),
+        );
         let tx = TxEnv {
             caller: opts.caller,
             kind: TxKind::Create,
@@ -355,7 +335,10 @@ impl Chain {
 
     /// Execute a setup CALL against the given target and return the full result with trace.
     pub fn setup(&mut self, opts: SetupInput) -> Result<SetupOutput> {
-        let inspector = (trace::Inspector::new(), cheatcode::Inspector::default());
+        let inspector = (
+            trace::Inspector::new(),
+            cheatcode::Inspector::new(self.config.cheatcode.clone()),
+        );
         let tx = TxEnv {
             caller: opts.caller,
             kind: TxKind::Call(opts.target),
@@ -376,18 +359,16 @@ impl Chain {
     /// transaction to the next.
     pub fn exec(&mut self, input: ExecInput) -> Result<ExecOutput> {
         let inspector = (
-            if input.cheatcode {
-                Either::Left(cheatcode::Inspector::default())
-            } else {
-                Either::Right(NoOpInspector)
-            },
+            Either::Left::<cheatcode::Inspector, NoOpInspector>(cheatcode::Inspector::new(
+                self.config.cheatcode.clone(),
+            )),
             (
-                if input.trace {
+                if self.config.trace {
                     Either::Left(trace::Inspector::new())
                 } else {
                     Either::Right(NoOpInspector)
                 },
-                if input.coverage {
+                if self.config.coverage {
                     Either::Left(coverage::Inspector::new())
                 } else {
                     Either::Right(NoOpInspector)
@@ -486,7 +467,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::contract;
-    use crate::evm::chain::{Chain, DeployInput, ExecInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
     use crate::foundry;
     use crate::target::Contract;
 
@@ -511,7 +492,7 @@ mod tests {
 
     fn deploy_and_setup_warp() -> (Chain, Address) {
         let contract = load_warp_fixture();
-        let mut chain = Chain::empty();
+        let mut chain = Chain::empty(Config::default());
         let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
@@ -554,6 +535,7 @@ mod tests {
     #[test]
     fn execute_with_coverage_collects_across_sequence() {
         let (mut chain, target) = deploy_and_setup_warp();
+        chain.config.coverage = true;
 
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
@@ -564,7 +546,7 @@ mod tests {
             )),
         ];
 
-        let input = ExecInput::new(txs).with_coverage(true);
+        let input = ExecInput::new(txs);
         let execution = chain.exec(input).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(execution.results.iter().all(|r| r.success));
@@ -580,12 +562,13 @@ mod tests {
     #[test]
     fn execute_with_trace_collects_calls() {
         let (mut chain, target) = deploy_and_setup_warp();
+        chain.config.trace = true;
 
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             WarpTarget::actionWarpCall::new(()).abi_encode(),
         ))];
 
-        let input = ExecInput::new(txs).with_trace(true);
+        let input = ExecInput::new(txs);
         let execution = chain.exec(input).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(execution.results[0].success);
@@ -631,7 +614,8 @@ mod tests {
         let artifact =
             contract::tests::load_test_artifact("fixtures/basic-target", "src/NamedMismatch.sol")
                 .unwrap();
-        let mut chain = Chain::empty();
+        let mut chain = Chain::empty(Config::default());
+        chain.config.coverage = true;
         let deployment = chain.deploy(DeployInput::new(artifact.initcode)).unwrap();
         assert!(deployment.result.success);
         let target = deployment.address.unwrap();
@@ -643,7 +627,7 @@ mod tests {
                 .calldata(Bytes::from([set_selector.as_slice(), &[0u8; 32]].concat())),
         ];
 
-        let input = ExecInput::new(txs).with_coverage(true);
+        let input = ExecInput::new(txs);
         let execution = chain.exec(input).unwrap();
         assert!(execution.results[0].success);
 

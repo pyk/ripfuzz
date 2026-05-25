@@ -140,6 +140,7 @@ impl Chain {
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,
+            config: super::Config::default(),
         })
     }
 }

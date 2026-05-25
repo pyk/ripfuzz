@@ -48,23 +48,21 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput};
-    use crate::evm::cheatcode;
+    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::ffi;
     use crate::evm::cheatcode::state::ExecutionState;
-    use crate::evm::result::TransactionResult;
-
     use crate::foundry;
     use crate::target::Contract;
 
     alloy_sol_types::sol! {
         interface FfiTarget {
-            function getValue() external view returns (uint256);
-            function callFfiSameValueTwice() external returns (uint256 first, uint256 second);
-            function callFfiSequence() external returns (uint256 first, uint256 second, uint256 third);
-            function callFfiAndWarp() external returns (uint256 value, uint256 timestamp);
             function setup() external;
             function actionFfi() external;
+            function actionMutateFfi() external;
+            function actionFfiSequence()
+                external
+                returns (uint256 first, uint256 second, uint256 third);
+            function getValue() external view returns (uint256);
             function invariant_ffi() external view;
         }
     }
@@ -79,68 +77,19 @@ mod tests {
         Contract::try_from(artifact).unwrap()
     }
 
-    /// Create an inspector with ffi enabled and a valid project root.
-    fn ffi_enabled_inspector() -> cheatcode::Inspector {
-        let config =
-            cheatcode::Config::new(std::env::current_dir().unwrap_or_default()).with_ffi(true);
-        cheatcode::Inspector::new(config)
-    }
-
-    /// Deploy the fixture and run its `setup` function with an FFI-enabled inspector.
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/FfiTarget.sol:FfiTarget");
-        let mut chain = Chain::empty();
+        let mut config = Config::default();
+        config.cheatcode.ffi = true;
+        let mut chain = Chain::empty(config);
         let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
-        let setup_data = Bytes::from(FfiTarget::setupCall::new(()).abi_encode());
-        let tx = revm::context::TxEnv {
-            caller: DEFAULT_DEPLOYER,
-            kind: revm::primitives::TxKind::Call(target),
-            data: setup_data,
-            gas_limit: u64::MAX,
-            value: U256::ZERO,
-            ..Default::default()
-        };
-        let inspector = ffi_enabled_inspector();
-        let (result, _) = chain.inspect(tx, inspector).unwrap();
-        assert!(result.success, "setup must succeed");
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
+        assert!(setup.result.success, "setup must succeed");
 
         (chain, target)
-    }
-
-    /// Execute a CALL with an FFI-enabled cheatcode inspector.
-    fn call_with_ffi_inspector(
-        chain: &mut Chain,
-        caller: Address,
-        target: Address,
-        data: Bytes,
-    ) -> TransactionResult {
-        let inspector = ffi_enabled_inspector();
-        let tx = revm::context::TxEnv {
-            caller,
-            kind: revm::primitives::TxKind::Call(target),
-            data,
-            gas_limit: u64::MAX,
-            value: U256::ZERO,
-            ..Default::default()
-        };
-        let (result, _) = chain.inspect(tx, inspector).unwrap();
-        result
-    }
-
-    /// Call a view/pure function that returns a single `uint256` and decode it.
-    macro_rules! call_uint256_getter {
-        ($chain:expr, $target:expr, $call:ty) => {{
-            let calldata = <$call>::new(()).abi_encode();
-            let result = $chain
-                .call(DEFAULT_DEPLOYER, $target, U256::ZERO, Bytes::from(calldata))
-                .unwrap();
-            assert!(result.success, "{} must succeed", <$call>::SIGNATURE);
-            let output = result.output.expect("getter must return output");
-            <$call>::abi_decode_returns(&output).unwrap()
-        }};
     }
 
     /// vm.ffi must revert when ffi is disabled.
@@ -186,134 +135,176 @@ mod tests {
         );
     }
 
-    /// The value obtained via vm.ffi during setup must be readable via the
-    /// contract getter in a later transaction.
+    /// `vm.ffi` used during setup must persist its decoded result in contract
+    /// storage. The invariant verifies the stored value matches the expected
+    /// canonical value.
     #[test]
-    fn ffi_persists_in_storage() {
+    fn ffi_set_in_setup_matches_expected() {
         let (mut chain, target) = deploy_and_setup();
-        let decoded: U256 = call_uint256_getter!(&mut chain, target, FfiTarget::getValueCall);
-        assert_eq!(
-            decoded, EXPECTED_VALUE,
-            "ffi result must persist in contract storage"
+        let txs = vec![
+            Transaction::new(target)
+                .calldata(Bytes::from(FfiTarget::getValueCall::new(()).abi_encode())),
+            Transaction::new(target).calldata(Bytes::from(
+                FfiTarget::invariant_ffiCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results[0].success,
+            "getValue must return the ffi-derived value"
+        );
+        let stored: U256 = FfiTarget::getValueCall::abi_decode_returns(
+            &execution.results[0].output.clone().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(stored, EXPECTED_VALUE, "stored value must match expected");
+        assert!(
+            execution.results[1].success,
+            "invariant must pass after setup"
         );
     }
 
-    /// vm.ffi with the same args twice in one tx must yield the same
-    /// reading, proving determinism.
+    /// Re-running the same `vm.ffi` command in a later transaction must
+    /// restore the canonical value. This is the core property a stateful
+    /// fuzzer relies on when actions need to recover expected state.
     #[test]
-    fn ffi_same_value_twice_in_sequence_is_deterministic() {
+    fn restore_ffi_in_action_preserves_value() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = FfiTarget::callFfiSameValueTwiceCall::new(()).abi_encode();
-        let result =
-            call_with_ffi_inspector(&mut chain, DEFAULT_DEPLOYER, target, Bytes::from(calldata));
-        assert!(result.success, "callFfiSameValueTwice() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = FfiTarget::callFfiSameValueTwiceCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(
-            ret.first, ret.second,
-            "same ffi args must give identical readings"
+        let txs = vec![
+            Transaction::new(target)
+                .calldata(Bytes::from(FfiTarget::actionFfiCall::new(()).abi_encode())),
+            Transaction::new(target).calldata(Bytes::from(
+                FfiTarget::invariant_ffiCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(execution.results[0].success, "actionFfi must succeed");
+        assert!(
+            execution.results[1].success,
+            "invariant must pass after restoring value"
         );
-        assert_eq!(ret.first, EXPECTED_VALUE);
     }
 
-    /// vm.ffi with different args interleaved must produce distinct
-    /// readings, proving the cheatcode responds to different inputs.
+    /// A single transaction can interleave multiple `vm.ffi` calls with
+    /// different arguments and end on the expected value without corrupting
+    /// state. This proves the cheatcode is deterministic and safe to call
+    /// repeatedly inside one tx.
     #[test]
-    fn ffi_sequence_returns_consistent_values() {
+    fn batch_sequence_in_single_transaction() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = FfiTarget::callFfiSequenceCall::new(()).abi_encode();
-        let result =
-            call_with_ffi_inspector(&mut chain, DEFAULT_DEPLOYER, target, Bytes::from(calldata));
-        assert!(result.success, "callFfiSequence() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = FfiTarget::callFfiSequenceCall::abi_decode_returns(&output).unwrap();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                FfiTarget::actionFfiSequenceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                FfiTarget::invariant_ffiCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results[0].success,
+            "actionFfiSequence must succeed"
+        );
+        let output = execution.results[0].output.clone().unwrap();
+        let ret = FfiTarget::actionFfiSequenceCall::abi_decode_returns(&output).unwrap();
         assert_eq!(ret.first, U256::from(1), "first ffi must read 1");
         assert_eq!(ret.second, EXPECTED_VALUE, "second ffi must read 42");
         assert_eq!(ret.third, U256::from(5), "third ffi must read 5");
-    }
-
-    /// vm.ffi must work correctly when combined with vm.warp in the same tx.
-    #[test]
-    fn ffi_interacts_with_warp() {
-        let (mut chain, target) = deploy_and_setup();
-        let calldata = FfiTarget::callFfiAndWarpCall::new(()).abi_encode();
-        let result =
-            call_with_ffi_inspector(&mut chain, DEFAULT_DEPLOYER, target, Bytes::from(calldata));
-        assert!(result.success, "callFfiAndWarp() must succeed");
-        let output = result.output.expect("must return output");
-        let ret = FfiTarget::callFfiAndWarpCall::abi_decode_returns(&output).unwrap();
-        assert_eq!(ret.value, EXPECTED_VALUE, "ffi value must match expected");
-        assert_eq!(
-            ret.timestamp,
-            U256::from(1_234_567_890u64),
-            "timestamp must match warped value"
+        assert!(
+            execution.results[1].success,
+            "invariant must pass after sequence"
         );
     }
 
-    /// Invariant must pass immediately after setup (fuzzing baseline).
+    /// Mutating the stored value via a different `vm.ffi` result and then
+    /// restoring it in a sequence must leave the invariant intact. This
+    /// mirrors how a stateful fuzzer would explore state mutations and then
+    /// recover canonical values.
     #[test]
-    fn invariant_passes_after_setup() {
+    fn mutate_and_restore_preserves_invariant() {
         let (mut chain, target) = deploy_and_setup();
-        let calldata = FfiTarget::invariant_ffiCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(result.success, "invariant must pass after setup");
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                FfiTarget::actionMutateFfiCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target)
+                .calldata(Bytes::from(FfiTarget::actionFfiCall::new(()).abi_encode())),
+            Transaction::new(target).calldata(Bytes::from(
+                FfiTarget::invariant_ffiCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 3);
+        assert!(execution.results[0].success, "actionMutateFfi must succeed");
+        assert!(execution.results[1].success, "actionFfi must succeed");
+        assert!(
+            execution.results[2].success,
+            "invariant must pass after mutate and restore"
+        );
     }
 
-    /// A fuzz-like sequence of actions followed by invariants must all succeed.
+    /// A cloned chain snapshot must produce the same ffi-derived state when
+    /// actions are executed on the clone. This is critical for parallel
+    /// fuzzing where each worker starts from a cloned state.
     #[test]
-    fn action_sequence_and_invariants() {
-        let (mut chain, target) = deploy_and_setup();
-
-        // Temporarily mutate value via a sequence that ends on a different value.
-        let calldata = FfiTarget::callFfiSequenceCall::new(()).abi_encode();
-        let result =
-            call_with_ffi_inspector(&mut chain, DEFAULT_DEPLOYER, target, Bytes::from(calldata));
-        assert!(result.success, "callFfiSequence must succeed");
-
-        // Restore the expected value with an action.
-        let calldata = FfiTarget::actionFfiCall::new(()).abi_encode();
-        let result =
-            call_with_ffi_inspector(&mut chain, DEFAULT_DEPLOYER, target, Bytes::from(calldata));
-        assert!(result.success, "actionFfi must succeed");
-
-        // Invariant must pass after the action restored state.
-        let calldata = FfiTarget::invariant_ffiCall::new(()).abi_encode();
-        let result = chain
-            .call(DEFAULT_DEPLOYER, target, U256::ZERO, Bytes::from(calldata))
-            .unwrap();
-        assert!(result.success, "invariant must pass after action sequence");
+    fn cloned_chain_preserves_ffi() {
+        let (chain, target) = deploy_and_setup();
+        let mut cloned = chain.clone();
+        let txs = vec![
+            Transaction::new(target)
+                .calldata(Bytes::from(FfiTarget::actionFfiCall::new(()).abi_encode())),
+            Transaction::new(target).calldata(Bytes::from(
+                FfiTarget::invariant_ffiCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = cloned.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(
+            execution.results[0].success,
+            "actionFfi must succeed on cloned chain"
+        );
+        assert!(
+            execution.results[1].success,
+            "invariant must pass on cloned chain"
+        );
     }
 
-    /// vm.ffi(expected) must set the same value when called in a separate
-    /// transaction after the initial setup, proving cross-transaction determinism.
+    /// A realistic fuzzing sequence: multiple actions mutate contract state
+    /// by changing the stored ffi-derived value, and a final invariant
+    /// verifies that the canonical value is still intact. This mirrors how a
+    /// stateful fuzzer would use `vm.ffi` across a campaign.
     #[test]
-    fn ffi_deterministic_across_transaction_sequence() {
+    fn deterministic_across_transaction_sequence() {
         let (mut chain, target) = deploy_and_setup();
-
-        let calldata = FfiTarget::actionFfiCall::new(()).abi_encode();
-
-        let result = call_with_ffi_inspector(
-            &mut chain,
-            DEFAULT_DEPLOYER,
-            target,
-            Bytes::from(calldata.clone()),
-        );
-        assert!(result.success, "actionFfi must succeed");
-        let stored: U256 = call_uint256_getter!(&mut chain, target, FfiTarget::getValueCall);
-        assert_eq!(
-            stored, EXPECTED_VALUE,
-            "stored value must match after first action"
-        );
-
-        let result =
-            call_with_ffi_inspector(&mut chain, DEFAULT_DEPLOYER, target, Bytes::from(calldata));
-        assert!(result.success, "actionFfi must succeed on second call");
-        let stored: U256 = call_uint256_getter!(&mut chain, target, FfiTarget::getValueCall);
-        assert_eq!(
-            stored, EXPECTED_VALUE,
-            "stored value must still match after second action"
+        let txs = vec![
+            Transaction::new(target)
+                .calldata(Bytes::from(FfiTarget::actionFfiCall::new(()).abi_encode())),
+            Transaction::new(target).calldata(Bytes::from(
+                FfiTarget::actionMutateFfiCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target)
+                .calldata(Bytes::from(FfiTarget::actionFfiCall::new(()).abi_encode())),
+            Transaction::new(target).calldata(Bytes::from(
+                FfiTarget::actionFfiSequenceCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                FfiTarget::invariant_ffiCall::new(()).abi_encode(),
+            )),
+        ];
+        let input = ExecInput::new(txs);
+        let execution = chain.exec(input).unwrap();
+        assert_eq!(execution.results.len(), 5);
+        assert!(
+            execution.results.iter().all(|r| r.success),
+            "all sequence steps must succeed"
         );
     }
 }

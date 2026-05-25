@@ -26,7 +26,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::chain::{
-        Chain, DEFAULT_DEPLOYER, DeployInput, ExecInput, SetupInput, Transaction,
+        Chain, Config, DEFAULT_DEPLOYER, DeployInput, ExecInput, SetupInput, Transaction,
     };
     use crate::evm::cheatcode;
     use crate::evm::cheatcode::calls::warp;
@@ -63,7 +63,7 @@ mod tests {
     /// Deploy the fixture and run its `setup` function.
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/WarpTarget.sol:WarpTarget");
-        let mut chain = Chain::empty();
+        let mut chain = Chain::empty(Config::default());
         let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
