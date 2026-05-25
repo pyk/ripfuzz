@@ -3,89 +3,77 @@ pragma solidity ^0.8.13;
 
 import "./Vm.sol";
 
+/// @title AddrTarget
+/// @notice Real-world fuzzing target that derives actor addresses from private
+///         keys during setup and re-derives them in actions. Invariants verify
+///         that `vm.addr` remains deterministic across the campaign.
 contract AddrTarget {
     Vm constant vm = Vm(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1);
 
-    /// secp256k1 curve order - 1 (largest valid private key).
+    /// Largest valid secp256k1 private key (curve order - 1).
     uint256 constant MAX_VALID_KEY =
         0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140;
 
-    address public addrFromOne;
-    address public addrFromTwo;
-    address public addrFromMaxValid;
+    address public admin;
+    address public voter;
+    address public proposer;
 
     function setup() external {
-        addrFromOne = vm.addr(1);
-        addrFromTwo = vm.addr(2);
-        addrFromMaxValid = vm.addr(MAX_VALID_KEY);
+        admin = vm.addr(1);
+        voter = vm.addr(2);
+        proposer = vm.addr(MAX_VALID_KEY);
     }
 
-    function invariant_addr_from_one() external view {
-        assert(addrFromOne == 0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf);
+    /// Invariant: all stored actor addresses must match the well-known
+    /// addresses derived from their respective private keys.
+    function invariant_actorsMatch() external view {
+        assert(admin == 0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf);
+        assert(voter == 0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF);
+        assert(proposer == 0x80C0dbf239224071c59dD8970ab9d542E3414aB2);
     }
 
-    function invariant_addr_from_two() external view {
-        assert(addrFromTwo == 0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF);
+    /// Action: re-derive admin address and overwrite storage.
+    /// Fuzzer uses this to prove `vm.addr(1)` is deterministic across txs.
+    function actionRefreshAdmin() external {
+        admin = vm.addr(1);
     }
 
-    function invariant_addr_from_max_valid() external view {
-        assert(addrFromMaxValid == 0x80C0dbf239224071c59dD8970ab9d542E3414aB2);
+    /// Action: re-derive voter address and overwrite storage.
+    function actionRefreshVoter() external {
+        voter = vm.addr(2);
     }
 
-    /// Call vm.addr(0) - must revert.
-    function addrFromZero() external pure {
+    /// Action: re-derive proposer address and overwrite storage.
+    function actionRefreshProposer() external {
+        proposer = vm.addr(MAX_VALID_KEY);
+    }
+
+    /// Action: re-derive all actor addresses in one transaction.
+    function actionRefreshAll() external {
+        admin = vm.addr(1);
+        voter = vm.addr(2);
+        proposer = vm.addr(MAX_VALID_KEY);
+    }
+
+    /// Action: interleave different keys to prove no internal corruption.
+    function actionRefreshInterleaved() external {
+        address a = vm.addr(1);
+        address b = vm.addr(2);
+        address c = vm.addr(1);
+        address d = vm.addr(MAX_VALID_KEY);
+        admin = a;
+        voter = b;
+        proposer = d;
+        assert(c == a);
+    }
+
+    /// Action: call `vm.addr(0)` which must revert.
+    function actionInvalidZero() external pure {
         vm.addr(0);
     }
 
-    /// Call vm.addr with the curve order - must revert.
-    function addrFromOrder() external pure {
+    /// Action: call `vm.addr` with a key >= curve order which must revert.
+    function actionInvalidOrder() external pure {
         vm.addr(MAX_VALID_KEY + 1);
-    }
-
-    /// Getter for the max-valid-key address.
-    function getAddrFromMaxValid() external view returns (address) {
-        return addrFromMaxValid;
-    }
-
-    /// Call vm.addr(1) twice in the same transaction to prove determinism.
-    function callAddrSameKeyTwice()
-        external
-        pure
-        returns (address a, address b)
-    {
-        a = vm.addr(1);
-        b = vm.addr(1);
-    }
-
-    /// Call vm.addr with different keys and interleave the same key
-    /// to prove sequence independence and key uniqueness.
-    function callAddrSequence()
-        external
-        pure
-        returns (address first, address second, address third)
-    {
-        first = vm.addr(1);
-        second = vm.addr(2);
-        third = vm.addr(1);
-    }
-
-    // -----------------------------------------------------------------
-    // Fuzzing-target action functions (called in call sequences)
-    // -----------------------------------------------------------------
-
-    /// Re-derive addr(1) and store it.  Fuzzer can call this in a sequence
-    /// to prove `vm.addr` stays deterministic across transactions.
-    function actionAddrOne() external {
-        addrFromOne = vm.addr(1);
-    }
-
-    /// Re-derive addr(2) and store it.
-    function actionAddrTwo() external {
-        addrFromTwo = vm.addr(2);
-    }
-
-    /// Re-derive addr(max) and store it.
-    function actionAddrMaxValid() external {
-        addrFromMaxValid = vm.addr(MAX_VALID_KEY);
     }
 }
