@@ -1,373 +1,127 @@
-//! Fuzzer factory: constructs per-thread fuzzer engines.
+//! Fuzzer factory: owns the chain and creates per-thread [`Fuzzer`] instances.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use alloy_primitives::{Address, U256};
-use anyhow::{Context as _, Result};
-use revm::{
-    MainBuilder, MainContext,
-    context::{Context, TxEnv},
-    inspector::InspectCommitEvm,
-    primitives::{Bytes, TxKind},
-};
-use tracing::info;
+use alloy_primitives::Address;
+use anyhow::Result;
+use tracing::{info, instrument};
 
-use crate::corpus::{Call, CallMeta, Corpus, CorpusItem};
+use crate::corpus::{Call, CorpusItem};
 use crate::evm;
-use crate::evm::cheatcode;
-use crate::evm::coverage::map::LocalCoverage;
-use crate::fuzzer::config::FuzzerConfig;
+use crate::fuzzer::config::Config;
+use crate::fuzzer::corpus::SharedCorpus;
+use crate::fuzzer::engine;
+use crate::fuzzer::metrics::SharedMetrics;
 use crate::fuzzer::mutators::Mutator;
-use crate::fuzzer::{Crash, FuzzerEngine, FuzzerResult};
 use crate::target;
 
-/// Options for configuring a [`Factory`].
-#[derive(Debug, Clone, Copy)]
-pub struct FactoryOptions {
-    pub seed: u64,
-    pub sequence_length: usize,
-    pub max_block_number_delay: u64,
-    pub max_block_timestamp_delay: u64,
-    pub caller: Address,
+/// Result produced by a single fuzzer thread.
+#[derive(Debug, Clone)]
+pub struct FuzzerResult {
+    pub runs: u64,
+    pub failures: Vec<Crash>,
+    pub total_calls: u64,
+    pub total_gas: u64,
 }
 
-impl FactoryOptions {
-    pub fn new() -> Self {
+/// A single crash (assert panic) discovered during fuzzing.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Crash {
+    pub function_name: String,
+    pub selector: [u8; 4],
+    pub call_sequence: Vec<Call>,
+    pub call_meta: Vec<crate::corpus::CallMeta>,
+}
+
+/// Factory that owns the base chain state and spawns [`Fuzzer`] instances.
+///
+/// The factory holds the post-deployment, post-setup chain snapshot.
+/// Each [`Fuzzer`] receives an independent clone of this snapshot so
+/// sequences execute against isolated state.
+#[derive(Debug, Clone)]
+pub struct Factory {
+    chain: evm::Chain,
+    contract: Arc<target::Contract>,
+    deployed_address: Address,
+    config: Config,
+    fuzzed_selectors: Arc<Vec<[u8; 4]>>,
+    caller: Address,
+    corpus: SharedCorpus,
+    metrics: SharedMetrics,
+}
+
+impl Factory {
+    /// Create a new factory.
+    pub fn new(
+        chain: evm::Chain,
+        contract: target::Contract,
+        deployed_address: Address,
+        config: Config,
+    ) -> Self {
+        let fuzzed_selectors: Vec<[u8; 4]> = contract
+            .target_functions
+            .iter()
+            .map(|f| f.selector().into())
+            .collect();
+
         Self {
-            seed: 0,
-            sequence_length: 32,
-            max_block_number_delay: 5,
-            max_block_timestamp_delay: 5,
+            chain,
+            contract: Arc::new(contract),
+            deployed_address,
+            config,
+            fuzzed_selectors: Arc::new(fuzzed_selectors),
             caller: evm::chain::DEFAULT_DEPLOYER,
+            corpus: SharedCorpus::new(),
+            metrics: SharedMetrics::new(),
         }
     }
 
-    pub fn seed(mut self, seed: u64) -> Self {
-        self.seed = seed;
-        self
-    }
-
-    pub fn sequence_length(mut self, len: usize) -> Self {
-        self.sequence_length = len;
-        self
-    }
-
-    pub fn max_block_number_delay(mut self, delay: u64) -> Self {
-        self.max_block_number_delay = delay;
-        self
-    }
-
-    pub fn max_block_timestamp_delay(mut self, delay: u64) -> Self {
-        self.max_block_timestamp_delay = delay;
-        self
-    }
-
-    pub fn caller(mut self, caller: Address) -> Self {
+    /// Set the default caller address used for fuzz transactions.
+    pub fn with_caller(mut self, caller: Address) -> Self {
         self.caller = caller;
         self
     }
-}
 
-impl Default for FactoryOptions {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Something that can construct per-thread fuzzer engines.
-pub trait Factory: Send + Sync + std::fmt::Debug + 'static {
-    fn create(
-        &self,
-        contract: Arc<target::Contract>,
-        chain: evm::Chain,
-        deployed_address: Address,
-        config: FuzzerConfig,
-        fuzzed_selectors: Arc<Vec<[u8; 4]>>,
-    ) -> Box<dyn FuzzerEngine>;
-}
-
-/// The default fuzzer factory that produces [`Engine`] instances.
-#[derive(Debug, Clone)]
-pub struct DefaultFactory {
-    pub options: FactoryOptions,
-}
-
-impl DefaultFactory {
-    pub fn new(options: FactoryOptions) -> Self {
-        Self { options }
-    }
-}
-
-impl Factory for DefaultFactory {
-    fn create(
-        &self,
-        contract: Arc<target::Contract>,
-        chain: evm::Chain,
-        deployed_address: Address,
-        config: FuzzerConfig,
-        fuzzed_selectors: Arc<Vec<[u8; 4]>>,
-    ) -> Box<dyn FuzzerEngine> {
-        Box::new(Engine::new(
-            contract,
-            chain,
-            deployed_address,
-            config,
-            fuzzed_selectors,
-            self.options.caller,
-        ))
-    }
-}
-
-/// Details about an assert panic crash detected during execution.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CrashInfo {
-    pub name: String,
-    pub selector: [u8; 4],
-}
-
-/// Outcome of executing a single call sequence.
-#[derive(Debug, Clone, Default)]
-pub struct ExecutionOutcome {
-    pub coverage: LocalCoverage,
-    pub call_meta: Vec<CallMeta>,
-    pub all_ok: bool,
-    pub total_calls: u64,
-    pub total_gas: u64,
-    pub crash: Option<CrashInfo>,
-}
-
-/// EVM-powered fuzzer engine that executes call sequences against a cloned
-/// [`evm::Chain`] and a deployed [`target::Contract`].
-#[derive(Debug)]
-pub struct Engine {
-    contract: Arc<target::Contract>,
-    chain: evm::Chain,
-    deployed_address: Address,
-    config: FuzzerConfig,
-    fuzzed_selectors: Arc<Vec<[u8; 4]>>,
-    caller: Address,
-}
-
-impl Engine {
-    pub fn new(
-        contract: Arc<target::Contract>,
-        chain: evm::Chain,
-        deployed_address: Address,
-        config: FuzzerConfig,
-        fuzzed_selectors: Arc<Vec<[u8; 4]>>,
-        caller: Address,
-    ) -> Self {
-        Self {
-            contract,
-            chain,
-            deployed_address,
-            config,
-            fuzzed_selectors,
-            caller,
-        }
+    /// Provide a pre-built shared corpus.
+    pub fn with_corpus(mut self, corpus: SharedCorpus) -> Self {
+        self.corpus = corpus;
+        self
     }
 
-    fn execute_sequence(&self, calls: &[Call]) -> Result<ExecutionOutcome> {
-        let mut chain = self.chain.clone();
-        let db = chain.database.take().context("database unavailable")?;
-        let mut ctx = Context::mainnet().with_db(db);
-        ctx.block = chain.block_env.clone();
-        ctx.cfg = chain.cfg_env.clone();
-        ctx.cfg.disable_balance_check = true;
-        ctx.cfg.tx_gas_limit_cap = Some(u64::MAX);
-
-        let inspector = cheatcode::Inspector::default();
-        let mut evm = ctx.build_mainnet_with_inspector(inspector);
-
-        let mut total_calls = 0u64;
-        let mut total_gas = 0u64;
-        let mut all_ok = true;
-        let mut call_meta = Vec::new();
-        let mut crash = None;
-
-        for call in calls {
-            let current_number = u64::try_from(evm.ctx.block.number).unwrap_or(u64::MAX);
-            let current_timestamp = u64::try_from(evm.ctx.block.timestamp).unwrap_or(u64::MAX);
-            let new_number = current_number.saturating_add(call.block_number_delay);
-            let new_timestamp = current_timestamp.saturating_add(call.block_timestamp_delay);
-            evm.ctx.block.number = U256::from(new_number);
-            evm.ctx.block.timestamp = U256::from(new_timestamp);
-
-            let tx_origin = evm.inspector.state.prank.origin_for_top_level(self.caller);
-
-            let tx = TxEnv {
-                caller: tx_origin,
-                kind: TxKind::Call(self.deployed_address),
-                data: Bytes::from(call.encode()),
-                gas_limit: u64::MAX,
-                value: U256::ZERO,
-                ..Default::default()
-            };
-
-            let result = evm
-                .inspect_tx_commit(tx)
-                .context("revm transaction failed")?;
-
-            total_calls += 1;
-            let gas_used = result.tx_gas_used();
-            total_gas += gas_used;
-
-            let success = result.is_success();
-            let reason = if !success {
-                match &result {
-                    revm::context::result::ExecutionResult::Halt { reason, .. } => {
-                        Some(format!("halted: {reason}"))
-                    }
-                    revm::context::result::ExecutionResult::Revert { .. } => {
-                        Some("reverted".into())
-                    }
-                    _ => Some("failed".into()),
-                }
-            } else {
-                None
-            };
-
-            call_meta.push(CallMeta {
-                block_number: new_number,
-                block_timestamp: new_timestamp,
-                gas_used,
-                success,
-                reason,
-            });
-
-            if !success {
-                if let Some(output) = result.output()
-                    && is_assert_failure(output)
-                {
-                    let name = self
-                        .contract
-                        .abi
-                        .functions()
-                        .find(|f| f.selector().as_slice() == call.selector)
-                        .map(|f| f.name.to_owned())
-                        .unwrap_or_else(|| format!("0x{}", hex::encode(call.selector)));
-                    crash = Some(CrashInfo {
-                        name,
-                        selector: call.selector,
-                    });
-                }
-                all_ok = false;
-                break;
-            }
-        }
-
-        // Check invariants
-        if all_ok {
-            for inv in &self.contract.invariant_functions {
-                let tx_origin = evm.inspector.state.prank.origin_for_top_level(self.caller);
-                let tx = TxEnv {
-                    caller: tx_origin,
-                    kind: TxKind::Call(self.deployed_address),
-                    data: Bytes::from(inv.selector().as_slice().to_vec()),
-                    gas_limit: u64::MAX,
-                    value: U256::ZERO,
-                    ..Default::default()
-                };
-                let result = evm
-                    .inspect_tx_commit(tx)
-                    .context("revm transaction failed")?;
-
-                total_calls += 1;
-                let gas_used = result.tx_gas_used();
-                total_gas += gas_used;
-
-                let success = result.is_success();
-                let reason = if !success {
-                    match &result {
-                        revm::context::result::ExecutionResult::Halt { reason, .. } => {
-                            Some(format!("halted: {reason}"))
-                        }
-                        revm::context::result::ExecutionResult::Revert { .. } => {
-                            Some("reverted".into())
-                        }
-                        _ => Some("failed".into()),
-                    }
-                } else {
-                    None
-                };
-
-                call_meta.push(CallMeta {
-                    block_number: u64::try_from(evm.ctx.block.number).unwrap_or(u64::MAX),
-                    block_timestamp: u64::try_from(evm.ctx.block.timestamp).unwrap_or(u64::MAX),
-                    gas_used,
-                    success,
-                    reason: reason.to_owned(),
-                });
-
-                if !success {
-                    if let Some(output) = result.output()
-                        && is_assert_failure(output)
-                    {
-                        crash = Some(CrashInfo {
-                            name: inv.name.to_owned(),
-                            selector: inv.selector().into(),
-                        });
-                    }
-                    all_ok = false;
-                    break;
-                }
-            }
-        }
-
-        chain.database = Some(evm.ctx.journaled_state.database);
-
-        Ok(ExecutionOutcome {
-            coverage: LocalCoverage::default(),
-            call_meta,
-            all_ok,
-            total_calls,
-            total_gas,
-            crash,
-        })
+    /// Provide shared metrics.
+    pub fn with_metrics(mut self, metrics: SharedMetrics) -> Self {
+        self.metrics = metrics;
+        self
     }
 
-    fn mutate_corpus_item(
-        &self,
-        corpus: &Arc<std::sync::RwLock<Corpus>>,
-        mutators: &mut [Box<dyn Mutator>],
-        rng: &mut fastrand::Rng,
-        idx: usize,
-        base: CorpusItem,
-    ) -> (Vec<Call>, crate::fuzzer::mutators::MutationResult) {
-        let mut calls = base.calls;
-        let idx_mut = rng.usize(0..mutators.len());
-        let m = &mut mutators[idx_mut];
-        let result = m.mutate(rng, &mut calls);
-        if result == crate::fuzzer::mutators::MutationResult::Mutated
-            && let Ok(mut c) = corpus.write()
-            && let Some(base_item) = c.items.get_mut(idx)
-        {
-            base_item.total_mutations += 1;
-        }
-        (calls, result)
+    /// Access the shared corpus.
+    pub fn corpus(&self) -> &SharedCorpus {
+        &self.corpus
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn run(
-        &self,
-        corpus: Arc<std::sync::RwLock<Corpus>>,
-        max_runs: u64,
-        fuzzer_id: usize,
-        start: Instant,
-        timeout: Option<Duration>,
-        shared_runs: Arc<AtomicU64>,
-        shared_calls: Arc<AtomicU64>,
-        shared_gas: Arc<AtomicU64>,
-        shared_failures: Arc<AtomicU64>,
-    ) -> Result<FuzzerResult> {
-        info!(max_runs, fuzzer_id, "fuzzer run starting");
+    /// Access the shared metrics.
+    pub fn metrics(&self) -> &SharedMetrics {
+        &self.metrics
+    }
 
-        let mut rng = fastrand::Rng::with_seed(self.config.seed + fuzzer_id as u64);
-        let mut failures = Vec::new();
+    /// Validate all pending corpus items by replaying them.
+    pub fn validate_corpus(&self) {
+        let chain = self.chain.clone();
+        let contract = Arc::clone(&self.contract);
+        let deployed_address = self.deployed_address;
+        let caller = self.caller;
 
-        let mut mutators: Vec<Box<dyn Mutator>> = vec![
+        self.corpus.validate_pending(|calls| {
+            engine::execute_sequence(&chain, &contract, deployed_address, caller, calls)
+                .unwrap_or_default()
+        });
+    }
+
+    /// Create a new [`Fuzzer`] for the given thread id.
+    pub fn create(&self, fuzzer_id: usize) -> Fuzzer {
+        let corpus_arc = self.corpus.to_arc();
+        let mutators: Vec<Box<dyn Mutator>> = vec![
             Box::new(crate::fuzzer::mutators::SequenceSwapMutator),
             Box::new(crate::fuzzer::mutators::SequenceInsertMutator::new(
                 self.fuzzed_selectors.to_vec(),
@@ -376,16 +130,16 @@ impl Engine {
             )),
             Box::new(crate::fuzzer::mutators::SequenceDeleteMutator),
             Box::new(crate::fuzzer::mutators::SequenceSpliceMutator::new(
-                corpus.clone(),
+                Arc::clone(&corpus_arc),
             )),
             Box::new(crate::fuzzer::mutators::SequenceInterleaveMutator::new(
-                corpus.clone(),
+                Arc::clone(&corpus_arc),
             )),
             Box::new(crate::fuzzer::mutators::SequenceHeadMutator::new(
-                corpus.clone(),
+                Arc::clone(&corpus_arc),
             )),
             Box::new(crate::fuzzer::mutators::SequenceTailMutator::new(
-                corpus.clone(),
+                Arc::clone(&corpus_arc),
             )),
             Box::new(crate::fuzzer::mutators::SequenceArgMutator::new(
                 self.contract.abi.clone(),
@@ -396,150 +150,338 @@ impl Engine {
             )),
         ];
 
+        Fuzzer {
+            chain: self.chain.clone(),
+            contract: Arc::clone(&self.contract),
+            deployed_address: self.deployed_address,
+            config: Config {
+                seed: self.config.seed.wrapping_add(fuzzer_id as u64),
+                ..self.config
+            },
+            fuzzed_selectors: Arc::clone(&self.fuzzed_selectors),
+            caller: self.caller,
+            corpus: self.corpus.clone(),
+            metrics: self.metrics.clone(),
+            mutators,
+        }
+    }
+}
+
+/// Per-thread fuzzer that executes call sequences and reports results.
+///
+/// Created by [`Factory::create`] and run via [`Fuzzer::run`].
+pub struct Fuzzer {
+    chain: evm::Chain,
+    contract: Arc<target::Contract>,
+    deployed_address: Address,
+    config: Config,
+    fuzzed_selectors: Arc<Vec<[u8; 4]>>,
+    caller: Address,
+    corpus: SharedCorpus,
+    metrics: SharedMetrics,
+    mutators: Vec<Box<dyn Mutator>>,
+}
+
+impl std::fmt::Debug for Fuzzer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Fuzzer")
+            .field("chain", &self.chain)
+            .field("contract", &self.contract)
+            .field("deployed_address", &self.deployed_address)
+            .field("config", &self.config)
+            .field("fuzzed_selectors", &self.fuzzed_selectors)
+            .field("caller", &self.caller)
+            .field("corpus", &self.corpus)
+            .field("metrics", &self.metrics)
+            .field(
+                "mutators",
+                &format_args!("[{} mutators]", self.mutators.len()),
+            )
+            .finish()
+    }
+}
+
+impl Fuzzer {
+    /// Run the fuzzer for up to `max_runs` iterations.
+    ///
+    /// The fuzzer loop uses the shared corpus for mutation and the shared
+    /// metrics for counters. It stops early if `timeout` is reached.
+    #[instrument(skip(self), fields(max_runs))]
+    pub fn run(&mut self, max_runs: u64, timeout: Option<Duration>) -> Result<FuzzerResult> {
+        let start = Instant::now();
+        let mut rng = fastrand::Rng::with_seed(self.config.seed);
+        let mut local_failures = Vec::new();
         let mut runs = 0u64;
         let mut total_calls = 0u64;
         let mut total_gas = 0u64;
 
         for _ in 0..max_runs {
-            if let Some(timeout) = timeout
-                && start.elapsed() > timeout
+            if let Some(t) = timeout
+                && start.elapsed() > t
             {
                 break;
             }
 
-            let item = {
-                let Ok(mut corpus_guard) = corpus.write() else {
-                    break;
-                };
-                corpus_guard.pop_pending_item()
-            };
+            if let Some(snapshot) = self.metrics.maybe_print() {
+                info!(
+                    elapsed = ?snapshot.elapsed,
+                    runs = snapshot.runs,
+                    calls = snapshot.calls,
+                    gas = snapshot.gas,
+                    failures = snapshot.failures,
+                    "fuzz metrics",
+                );
+            }
 
+            let item = self.corpus.pop_pending();
             let is_replay = item.is_some();
             let mut base_idx = None;
             let calls = if let Some(item) = item {
                 item.calls
             } else {
-                let has_entries = if let Ok(c) = corpus.read() {
-                    c.has_entries()
-                } else {
-                    false
-                };
+                let has_entries = self.corpus.has_entries();
                 if rng.bool() && has_entries {
-                    let picked = if let Ok(c) = corpus.read() {
-                        c.random_item_for_mutation_with_index(&mut rng)
-                    } else {
-                        None
-                    };
-                    if let Some((idx, base)) = picked {
-                        base_idx = Some(idx);
-                        let (calls, _) =
-                            self.mutate_corpus_item(&corpus, &mut mutators, &mut rng, idx, base);
-                        calls
-                    } else {
-                        crate::fuzzer::generate_random_sequence(
-                            &self.fuzzed_selectors,
-                            &mut rng,
-                            &self.config,
-                        )
+                    match self.corpus.pick_for_mutation(&mut rng) {
+                        Some((idx, base)) => {
+                            base_idx = Some(idx);
+                            let mut calls = base.calls;
+                            let m_idx = rng.usize(0..self.mutators.len());
+                            let _ = self.mutators[m_idx].mutate(&mut rng, &mut calls);
+                            calls
+                        }
+                        None => {
+                            generate_random_sequence(&self.fuzzed_selectors, &mut rng, &self.config)
+                        }
                     }
                 } else {
-                    crate::fuzzer::generate_random_sequence(
-                        &self.fuzzed_selectors,
-                        &mut rng,
-                        &self.config,
-                    )
+                    generate_random_sequence(&self.fuzzed_selectors, &mut rng, &self.config)
                 }
             };
 
-            let outcome = self.execute_sequence(&calls)?;
+            let outcome = engine::execute_sequence(
+                &self.chain,
+                &self.contract,
+                self.deployed_address,
+                self.caller,
+                &calls,
+            )?;
+
             total_calls += outcome.total_calls;
             total_gas += outcome.total_gas;
-            let all_ok = outcome.all_ok;
-            let local_coverage = outcome.coverage;
+            self.metrics.record(outcome.total_calls, outcome.total_gas);
 
-            let mut item = CorpusItem::new(calls);
-            if all_ok {
-                let Ok(mut corpus_guard) = corpus.write() else {
-                    continue;
-                };
-                let added = corpus_guard.check_and_update_coverage(&local_coverage, &item);
-                if added
-                    && let Some(idx) = base_idx
-                    && let Some(base_item) = corpus_guard.items.get_mut(idx)
-                {
-                    base_item.new_finds_produced += 1;
+            if outcome.all_ok {
+                // checkrs: allow(clone_in_loops)
+                let item = CorpusItem::new(calls.clone());
+                let added = self.corpus.record_interesting(item, &outcome.coverage);
+                match (base_idx, added) {
+                    (Some(idx), true) => {
+                        self.corpus.record_new_find(idx);
+                        self.corpus.record_mutation(idx);
+                    }
+                    (Some(idx), false) => {
+                        self.corpus.record_mutation(idx);
+                    }
+                    (None, _) => {}
                 }
                 if is_replay && !added {
-                    corpus_guard.add_item_for_mutation(&item);
+                    self.corpus
+                        // checkrs: allow(clone_in_loops)
+                        .add_item_for_mutation(CorpusItem::new(calls.clone()));
                 }
             }
 
-            if let Some(crash) = outcome.crash {
-                let call_sequence = std::mem::take(&mut item.calls);
-                failures.push(Crash {
-                    function_name: crash.name,
-                    selector: crash.selector,
-                    call_sequence,
+            if let Some(crash_info) = outcome.crash {
+                local_failures.push(Crash {
+                    function_name: crash_info.name,
+                    selector: crash_info.selector,
+                    call_sequence: calls,
                     call_meta: outcome.call_meta,
                 });
-                shared_failures.fetch_add(1, Ordering::Relaxed);
+                self.metrics.record_failure();
             }
 
             runs += 1;
-            shared_runs.fetch_add(1, Ordering::Relaxed);
-            shared_calls.fetch_add(outcome.total_calls, Ordering::Relaxed);
-            shared_gas.fetch_add(outcome.total_gas, Ordering::Relaxed);
         }
 
-        // Sync discovered failures into the shared corpus for persistence.
-        if let Ok(mut c) = corpus.write() {
-            for failure in &failures {
-                c.add_failure(CorpusItem::new(failure.call_sequence.as_slice().to_vec()));
-            }
+        // Sync failures into shared corpus for persistence.
+        for failure in &local_failures {
+            self.corpus
+                // checkrs: allow(clone_in_loops)
+                .record_failure(CorpusItem::new(failure.call_sequence.clone()));
         }
 
-        info!(runs, fuzzer_id, "fuzzer run finished");
+        info!(runs, "fuzzer run finished");
         Ok(FuzzerResult {
             runs,
-            failures,
+            failures: local_failures,
             total_calls,
             total_gas,
         })
     }
 }
 
-impl FuzzerEngine for Engine {
-    #[allow(clippy::too_many_arguments)]
-    fn run(
-        &self,
-        corpus: Arc<std::sync::RwLock<Corpus>>,
-        max_runs: u64,
-        fuzzer_id: usize,
-        start: Instant,
-        timeout: Option<Duration>,
-        shared_runs: Arc<AtomicU64>,
-        shared_calls: Arc<AtomicU64>,
-        shared_gas: Arc<AtomicU64>,
-        shared_failures: Arc<AtomicU64>,
-    ) -> Result<FuzzerResult> {
-        self.run(
-            corpus,
-            max_runs,
-            fuzzer_id,
-            start,
-            timeout,
-            shared_runs,
-            shared_calls,
-            shared_gas,
-            shared_failures,
-        )
+/// Generate a random call sequence from the fuzzed selectors.
+pub(crate) fn generate_random_sequence(
+    selectors: &[[u8; 4]],
+    rng: &mut fastrand::Rng,
+    config: &Config,
+) -> Vec<Call> {
+    let len = rng.usize(1..=config.sequence_length.max(1));
+    let mut calls = Vec::with_capacity(len);
+    for _ in 0..len {
+        if selectors.is_empty() {
+            break;
+        }
+        let sel_idx = rng.usize(0..selectors.len());
+        let mut call = Call {
+            selector: selectors[sel_idx],
+            args: vec![0u8; 32 * 3],
+            block_number_delay: 0,
+            block_timestamp_delay: 0,
+            ..Default::default()
+        };
+        if config.max_block_number_delay > 0 {
+            call.block_number_delay = rng.u64(0..config.max_block_number_delay + 1);
+        }
+        if config.max_block_timestamp_delay > 0 {
+            call.block_timestamp_delay = rng.u64(0..config.max_block_timestamp_delay + 1);
+        }
+        call.cap_delays();
+        calls.push(call);
     }
+    calls
 }
 
-/// Solidity `Panic(uint256)` selector: keccak256("Panic(uint256)")[:4]
-const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
+/// Format a crash's call sequence as a flat, Medusa-style log.
+pub fn format_failure(
+    contract: &target::Contract,
+    failure: &Crash,
+    sender: revm::primitives::Address,
+) -> String {
+    let mut lines = Vec::new();
+    for (i, call) in failure.call_sequence.iter().enumerate() {
+        let n = i + 1;
 
-/// Detect a Solidity `assert` failure (`Panic(0x01)`) in revert output.
-fn is_assert_failure(output: &Bytes) -> bool {
-    output.len() >= 36 && output[..4] == PANIC_SELECTOR && output[35] == 0x01
+        let block = failure
+            .call_meta
+            .get(i)
+            .map(|m| m.block_number)
+            .unwrap_or(n as u64);
+        let time = failure
+            .call_meta
+            .get(i)
+            .map(|m| m.block_timestamp)
+            .unwrap_or(n as u64);
+
+        let func = contract
+            .abi
+            .functions()
+            .find(|f| f.selector().as_slice() == call.selector);
+
+        let func_name = if let Some(f) = func {
+            f.name.to_owned()
+        } else {
+            format!("0x{}", hex::encode(call.selector))
+        };
+
+        let mut delay_suffix = String::new();
+        if call.block_number_delay != 0 {
+            delay_suffix.push_str(&format!(", block_number_delay={}", call.block_number_delay));
+        }
+        if call.block_timestamp_delay != 0 {
+            delay_suffix.push_str(&format!(
+                ", block_timestamp_delay={}",
+                call.block_timestamp_delay
+            ));
+        }
+
+        let args = if let Some(func_abi) = func {
+            if call.args.is_empty() {
+                "()".into()
+            } else {
+                let types_result = func_abi
+                    .inputs
+                    .iter()
+                    .map(|p| p.selector_type().parse::<alloy_dyn_abi::DynSolType>())
+                    .collect();
+                let Ok(types) = types_result else {
+                    let raw = format!("(0x{})", hex::encode(&call.args));
+                    lines.push(format!(
+                        "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
+                        n,
+                        contract.artifact_id.name,
+                        func_name,
+                        raw,
+                        block,
+                        time,
+                        u64::MAX,
+                        sender,
+                        delay_suffix,
+                    ));
+                    continue;
+                };
+
+                let tuple = alloy_dyn_abi::DynSolType::Tuple(types);
+                let Ok(decoded) = tuple.abi_decode_params(&call.args) else {
+                    let raw = format!("(0x{})", hex::encode(&call.args));
+                    lines.push(format!(
+                        "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
+                        n,
+                        contract.artifact_id.name,
+                        func_name,
+                        raw,
+                        block,
+                        time,
+                        u64::MAX,
+                        sender,
+                        delay_suffix,
+                    ));
+                    continue;
+                };
+
+                let values = match decoded {
+                    alloy_dyn_abi::DynSolValue::Tuple(v) => v,
+                    other => vec![other],
+                };
+
+                let args_str = values
+                    .iter()
+                    .map(format_dyn_value)
+                    .collect::<Vec<String>>()
+                    .join(", ");
+
+                format!("({})", args_str)
+            }
+        } else {
+            format!("0x{}", hex::encode(&call.args))
+        };
+
+        lines.push(format!(
+            "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
+            n,
+            contract.artifact_id.name,
+            func_name,
+            args,
+            block,
+            time,
+            u64::MAX,
+            sender,
+            delay_suffix,
+        ));
+    }
+    lines.join("\n")
+}
+
+fn format_dyn_value(v: &alloy_dyn_abi::DynSolValue) -> String {
+    match v {
+        alloy_dyn_abi::DynSolValue::Bool(b) => format!("{}", b),
+        alloy_dyn_abi::DynSolValue::Int(i, _) => format!("{}", i),
+        alloy_dyn_abi::DynSolValue::Uint(u, _) => format!("{}", u),
+        alloy_dyn_abi::DynSolValue::Address(a) => format!("{:?}", a),
+        alloy_dyn_abi::DynSolValue::String(s) => format!("\"{}\"", s),
+        alloy_dyn_abi::DynSolValue::Bytes(b) => format!("0x{}", hex::encode(b)),
+        alloy_dyn_abi::DynSolValue::FixedBytes(b, _) => format!("0x{}", hex::encode(b)),
+        _ => format!("{:?}", v),
+    }
 }

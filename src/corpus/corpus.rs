@@ -174,6 +174,11 @@ impl Corpus {
         &self.coverage
     }
 
+    /// Replace the global coverage map.
+    pub fn set_coverage(&mut self, coverage: CoverageMap) {
+        self.coverage = coverage;
+    }
+
     /// Merge local coverage and add item if interesting.
     pub fn check_and_update_coverage(&mut self, local: &LocalCoverage, item: &CorpusItem) -> bool {
         let update = self.coverage.merge(local);

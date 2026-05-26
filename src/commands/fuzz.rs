@@ -6,23 +6,30 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use alloy_primitives::Address;
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use revm::primitives::{Bytes, U256};
 use tracing::{debug, info, instrument};
 
-use crate::campaign::CampaignConfig;
-use crate::chain::Environment;
-use crate::contract::resolve_coverage_to_source;
 use crate::evm;
 use crate::foundry;
-use crate::rpc::RpcClient;
 use crate::target;
 
 fn default_threads() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1)
+}
+
+fn format_duration(d: std::time::Duration) -> String {
+    let secs = d.as_secs();
+    if secs >= 3600 {
+        format!("{}h{}m{}s", secs / 3600, (secs % 3600) / 60, secs % 60)
+    } else if secs >= 60 {
+        format!("{}m{}s", secs / 60, secs % 60)
+    } else {
+        format!("{}s", secs)
+    }
 }
 
 fn parse_threads(s: &str) -> Result<usize, String> {
@@ -96,7 +103,7 @@ pub struct Args {
     /// Account address used to deploy the target contract.
     #[arg(
         long = "deployer",
-        default_value_t = crate::chain::init::DEFAULT_DEPLOYER,
+        default_value_t = crate::evm::chain::DEFAULT_DEPLOYER,
         value_parser = parse_address,
         value_name = "ADDRESS",
         help_heading = "Project & Deployment"
@@ -243,46 +250,7 @@ impl Default for ForkModeArgs {
     }
 }
 
-impl ForkModeArgs {
-    /// Validate the RPC URL by fetching its chain_id.
-    pub fn validate_chain_id(&self, project_path: impl AsRef<Path>) -> Result<u64> {
-        let project_path = project_path.as_ref();
-        let url = self.rpc_url.as_ref().context("no RPC URL configured")?;
-        info!(%url, timeout = "5s", "Fetching chain_id");
-        let url_t0 = std::time::Instant::now();
-        let chain_id = crate::rpc::get_chain_id(project_path, url)?;
-        let url_elapsed = url_t0.elapsed();
-        info!(%url, chain_id, took = %format!("{}ms", url_elapsed.as_millis()), "OK");
-        Ok(chain_id)
-    }
-
-    /// Build the RPC client and validate the fork block.
-    pub fn build_rpc(&self, chain_id: u64) -> Result<(Arc<dyn RpcClient>, u64)> {
-        let block = self
-            .rpc_block
-            .context("--rpc-block is required with --rpc-url")?;
-        let url = self.rpc_url.as_ref().context("--rpc-url is required")?;
-        let rpc_instance = crate::rpc::Rpc::with_urls(std::slice::from_ref(url))
-            .with_retries(self.rpc_retries)
-            .with_retry_backoff(std::time::Duration::from_millis(self.rpc_backoff))
-            .with_requests_per_second(self.rpc_rate_limit)
-            .with_timeout(std::time::Duration::from_millis(self.rpc_timeout))
-            .with_chain_id(chain_id)
-            .build()?;
-        info!(%url, "Fetching latest block");
-        let t0 = std::time::Instant::now();
-        let latest = rpc_instance
-            .latest_block_number()
-            .context("failed to query latest block")?;
-        let elapsed = t0.elapsed();
-        info!(block = latest, took = %format!("{}ms", elapsed.as_millis()), "OK");
-        if block > latest {
-            bail!("--rpc-block ({block}) exceeds remote latest block ({latest})");
-        }
-        info!(%url, block = block, "Forking");
-        Ok((Arc::new(rpc_instance), block))
-    }
-}
+impl ForkModeArgs {}
 
 /// Build a [`forkdb::Config`](crate::evm::forkdb::Config) from CLI arguments.
 fn build_fork_config(
@@ -396,243 +364,173 @@ pub fn run(args: Args) -> Result<()> {
 
     // Create fuzzer factory
     info!("creating fuzzer factory");
-    let _fuzzed_selectors: Arc<Vec<[u8; 4]>> = Arc::new(
-        target_contract
-            .target_functions
-            .iter()
-            .map(|f| f.selector().into())
-            .collect(),
-    );
-    let factory_options = crate::fuzzer::factory::FactoryOptions::new()
-        .seed(args.seed)
-        .sequence_length(args.sequence_length)
-        .max_block_number_delay(args.max_block_number_delay)
-        .max_block_timestamp_delay(args.max_block_timestamp_delay)
-        .caller(args.deployer_address);
-    let _factory = crate::fuzzer::factory::DefaultFactory::new(factory_options);
-
-    // -----------------------------------------------------------------------
-    // NOTE: old env below kept for downstream compatibility until full switch
-    // -----------------------------------------------------------------------
-
-    let env = if args.fork_mode.rpc_url.is_none() {
-        info!("sandbox environment resolved");
-        Environment::sandbox()
-    } else {
-        let chain_id = args.fork_mode.validate_chain_id(&project_path)?;
-        let (rpc, block) = args.fork_mode.build_rpc(chain_id)?;
-        let cache_dir = project_path.join("raptor").join("cache");
-        info!("fork environment resolved");
-        Environment::fork(rpc, block, &cache_dir)
-    };
-
-    // Create chain based on the environment
-
-    // Deploy target contract
-
-    // Run setup function
-
-    // Create Fuzzer
-
-    // Run campaign
-
-    // Report results
-
-    let crate::foundry::Artifact::Contract(target) = &target_artifact else {
-        bail!("target `{}` is not a deployable contract", args.target);
-    };
-    let artifact = crate::contract::ContractArtifact::from_foundry_artifact(
-        target,
-        &build_artifacts,
-        &project_path,
-    )?;
-
-    // Validate artifact
-    let targets: Vec<String> = artifact.target_functions().map(|f| f.signature()).collect();
-    ensure!(
-        !targets.is_empty(),
-        "No target functions found in target contract"
-    );
-    let target_list = targets
-        .iter()
-        .enumerate()
-        .map(|(i, s)| format!("         {}. {s}", i + 1))
-        .collect::<Vec<String>>()
-        .join("\n");
-    info!("Found {} target functions\n{}", targets.len(), target_list);
-
-    let invariant_list = artifact
-        .invariants
-        .iter()
-        .enumerate()
-        .map(|(i, (_, name))| format!("         {}. {name}()", i + 1))
-        .collect::<Vec<String>>()
-        .join("\n");
-    info!(
-        "Found {} invariants\n{}",
-        artifact.invariants.len(),
-        invariant_list
-    );
-
-    // Build environment
-    let config = CampaignConfig {
-        threads: args.threads,
-        max_runs: args.max_runs,
-        timeout_secs: args.timeout_secs,
-        sequence_length: args.sequence_length,
+    let fuzzer_config = crate::fuzzer::Config {
         seed: args.seed,
+        sequence_length: args.sequence_length,
         max_block_number_delay: args.max_block_number_delay,
         max_block_timestamp_delay: args.max_block_timestamp_delay,
     };
+    let factory = crate::fuzzer::Factory::new(
+        chain,
+        target_contract.clone(),
+        deployed_address,
+        fuzzer_config,
+    )
+    .with_caller(args.deployer_address);
 
-    info!(
-        threads = args.threads,
-        seed = args.seed,
-        max_runs = args.max_runs,
-        seq_length = args.sequence_length,
-        timeout_secs = args.timeout_secs.unwrap_or(0),
-        "Fuzzing configuration"
-    );
+    let fuzzers = args.threads;
+    let start = std::time::Instant::now();
+    let timeout = args.timeout_secs.map(std::time::Duration::from_secs);
 
-    // Build chain
-    let cheatcode_config = crate::evm::cheatcode::Config::default()
-        .with_ffi(args.ffi)
-        .with_project_root(&project_path);
-    let chain = crate::chain::Chain::for_artifact(&artifact)
-        .with_project(&project_path)
-        .with_config(cheatcode_config)
-        .with_deploy_value(args.deploy_value)
-        .with_deployer(args.deployer_address)
-        .with_environment(env)
-        .init()?
-        .setup()?;
+    info!("Fuzzing campaign started");
 
-    // Build campaign
-    let sequence_length = config.sequence_length;
-    let mut builder = crate::campaign::CampaignBuilder::new()
-        .with_chain(chain)
-        .with_config(config)
-        .with_fuzzer(crate::fuzzer::DefaultFuzzerFactory);
+    let fuzzers_u64 = fuzzers as u64;
+    let base_runs = args.max_runs / fuzzers_u64;
+    let remainder = (args.max_runs % fuzzers_u64) as usize;
 
-    if let Some(ref dir) = args.corpus_dir {
-        let seeds = crate::campaign::build_seeds(&artifact, sequence_length);
-        let corpus = match crate::corpus::Corpus::load(dir) {
-            Ok(mut c) => {
-                c.set_storage_dir(dir);
-                c
+    // Validate corpus before fuzzing.
+    factory.validate_corpus();
+
+    // Progress reporting thread.
+    let progress_shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let metrics = factory.metrics().clone();
+    let corpus = factory.corpus().clone();
+    let progress_handle = {
+        let shutdown = Arc::clone(&progress_shutdown);
+        std::thread::spawn(move || {
+            let mut last_calls = 0u64;
+            let mut last_gas = 0u64;
+            let mut last_time = std::time::Instant::now();
+            while !shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                let now = std::time::Instant::now();
+                let elapsed = now.duration_since(start);
+                let interval_secs = now.duration_since(last_time).as_secs_f64().max(1e-6);
+
+                let snapshot = metrics.aggregate();
+                let calls_delta = snapshot.calls.saturating_sub(last_calls);
+                let gas_delta = snapshot.gas.saturating_sub(last_gas);
+                let calls_per_sec = (calls_delta as f64 / interval_secs) as u64;
+                let gas_per_sec = (gas_delta as f64 / interval_secs) as u64;
+                let elapsed_str = format_duration(elapsed);
+                let calls_str = format!("{}({}/s)", snapshot.calls, calls_per_sec);
+
+                info!(
+                    elapsed = %elapsed_str,
+                    runs = snapshot.runs,
+                    calls = %calls_str,
+                    corpus = corpus.item_count(),
+                    coverage = corpus.coverage_hits(),
+                    failures = snapshot.failures,
+                    gas_per_sec = gas_per_sec,
+                    "fuzz:"
+                );
+
+                last_calls = snapshot.calls;
+                last_gas = snapshot.gas;
+                last_time = now;
             }
-            Err(_) => {
-                let mut c = crate::corpus::Corpus::with_seeds(seeds);
-                c.set_storage_dir(dir);
-                c
-            }
+        })
+    };
+
+    let mut handles = Vec::with_capacity(fuzzers);
+    for fuzzer_id in 0..fuzzers {
+        let local_max_runs = if fuzzer_id < remainder {
+            base_runs + 1
+        } else {
+            base_runs
         };
-        builder = builder.with_corpus(Arc::new(std::sync::RwLock::new(corpus)));
+        let mut fuzzer = factory.create(fuzzer_id);
+        let handle = std::thread::spawn(move || fuzzer.run(local_max_runs, timeout));
+        handles.push((fuzzer_id, handle));
     }
 
-    let campaign = builder.with_artifact(artifact).build()?;
+    let mut total_runs = 0u64;
+    let mut total_calls = 0u64;
+    let mut total_gas = 0u64;
+    let mut all_failures = Vec::new();
+    for (fuzzer_id, handle) in handles {
+        match handle.join() {
+            Ok(Ok(result)) => {
+                total_runs += result.runs;
+                total_calls += result.total_calls;
+                total_gas += result.total_gas;
+                all_failures.extend(result.failures);
+            }
+            Ok(Err(e)) => {
+                tracing::error!(fuzzer_id, %e, "fuzzer failed");
+            }
+            Err(e) => {
+                tracing::error!(fuzzer_id, ?e, "fuzzer panicked");
+            }
+        }
+    }
 
-    // Run campaign
-    let result = campaign.run()?;
+    progress_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = progress_handle.join();
 
-    let artifact = campaign.artifact();
+    let corpus = factory.corpus();
+    let coverage = corpus.coverage_map().unwrap_or_default();
+    if let Err(e) = corpus.flush_to_disk(&project_path) {
+        tracing::error!(%e, "failed to flush corpus to disk");
+    }
 
-    // Aggregate results
-    let elapsed_secs = result.elapsed_secs;
+    info!(
+        runs = total_runs,
+        failures = all_failures.len(),
+        "Campaign complete"
+    );
+
+    let elapsed_secs = start.elapsed().as_secs_f64();
     let calls_per_sec = if elapsed_secs > 0.0 {
-        result.total_calls as f64 / elapsed_secs
+        total_calls as f64 / elapsed_secs
     } else {
         0.0
     };
-    let avg_gas_per_call = if result.total_calls > 0 {
-        result.total_gas as f64 / result.total_calls as f64
+    let avg_gas_per_call = if total_calls > 0 {
+        total_gas as f64 / total_calls as f64
     } else {
         0.0
     };
 
     // Report campaign result
-    info!(
-        runs = result.runs,
-        calls = result.total_calls,
-        "Fuzzing completed"
-    );
+    info!(runs = total_runs, calls = total_calls, "Fuzzing completed");
     info!(calls_per_sec = calls_per_sec, "Throughput");
     info!(avg_gas_per_call = avg_gas_per_call, "Average gas per call");
-    if result.failures.is_empty() {
+    if all_failures.is_empty() {
         info!("All invariants passed");
     } else {
-        for failure in &result.failures {
+        for failure in &all_failures {
             info!("");
-            info!(contract = %artifact.contract_name, test = %failure.function_name, "[FAILED] Invariant Test");
-            info!(contract = %artifact.contract_name, test = %failure.function_name, "Test failed after the following call sequence");
+            info!(contract = %target_contract.artifact_id.name, test = %failure.function_name, "[FAILED] Invariant Test");
+            info!(contract = %target_contract.artifact_id.name, test = %failure.function_name, "Test failed after the following call sequence");
             info!("[Call Sequence]");
             info!(
                 "{}",
-                crate::fuzzer::format_failure(artifact, failure, args.deployer_address)
+                crate::fuzzer::format_failure(&target_contract, failure, args.deployer_address)
             );
         }
-        let total = artifact.invariants.len();
-        let failed = result.failures.len();
+        let total = target_contract.invariant_functions.len();
+        let failed = all_failures.len();
         let passed = total.saturating_sub(failed);
         info!("");
         info!(passed = passed, failed = failed, "Test summary");
     }
 
-    let report = resolve_coverage_to_source(&result.coverage, artifact);
-    if report.hit_count() > 0 {
-        info!(hits = report.hit_count(), "Coverage summary");
+    if coverage.hit_count() > 0 {
+        info!(hits = coverage.hit_count(), "Coverage summary");
     } else {
         info!(hits = 0, "Coverage summary");
     }
 
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
-    use std::collections::hash_map::DefaultHasher;
-    use std::fs::{create_dir_all, write};
-    use std::hash::{Hash, Hasher};
-    use std::path::Path;
-
     use alloy_primitives::Address;
     use revm::primitives::U256;
 
-    use super::{ForkModeArgs, parse_address, parse_balance};
-
-    fn seed_chain_id_cache(project_path: impl AsRef<Path>, url: &str, chain_id: u64) {
-        let project_path = project_path.as_ref();
-        let mut hasher = DefaultHasher::new();
-        url.hash(&mut hasher);
-        let url_hash = format!("{:x}", hasher.finish());
-
-        let cache_dir = project_path.join("raptor").join("cache").join("chain_id");
-        create_dir_all(&cache_dir).unwrap();
-        write(cache_dir.join(&url_hash), format!("0x{:x}", chain_id)).unwrap();
-    }
-
-    #[test]
-    fn validate_chain_id_success() {
-        let tmp = tempfile::tempdir().unwrap();
-        let args = ForkModeArgs {
-            rpc_url: Some("http://a.com".into()),
-            rpc_block: Some(1),
-            ..ForkModeArgs::default()
-        };
-        seed_chain_id_cache(tmp.path(), "http://a.com", 1);
-        assert_eq!(args.validate_chain_id(tmp.path()).unwrap(), 1);
-    }
-
-    #[test]
-    fn validate_chain_id_no_url_fails() {
-        let tmp = tempfile::tempdir().unwrap();
-        let args = ForkModeArgs {
-            rpc_url: None,
-            ..ForkModeArgs::default()
-        };
-        let err = args.validate_chain_id(tmp.path()).unwrap_err();
-        assert!(err.to_string().contains("no RPC URL configured"));
-    }
+    use super::{parse_address, parse_balance};
 
     #[test]
     fn parse_balance_empty() {

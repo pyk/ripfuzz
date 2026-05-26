@@ -24,19 +24,29 @@ pub enum MutationResult {
 }
 
 /// Trait for mutators that operate on a call sequence.
-pub trait Mutator {
+pub trait Mutator: Send {
     /// Mutate `calls` in place.
     fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult;
 }
 
 #[cfg(test)]
 mod tests {
+    use revm::primitives::Bytes;
 
-    use crate::chain::Chain;
-    use crate::contract;
     use crate::corpus;
+    use crate::evm::chain::{Chain, Config as ChainConfig, DeployInput, SetupInput};
+    use crate::foundry;
     use crate::fuzzer::mutators;
     use crate::fuzzer::mutators::Mutator;
+    use crate::target::Contract;
+
+    fn load_fixture(contract_id: &str) -> Contract {
+        let project = foundry::Project::new("fixtures/challenges");
+        let artifacts = project.load_artifacts().unwrap();
+        let id = foundry::ArtifactId::try_from(contract_id).unwrap();
+        let artifact = artifacts.get(&id).unwrap();
+        Contract::try_from(artifact).unwrap()
+    }
 
     #[test]
     fn sequence_delay_mutator_respects_cap_invariant() {
@@ -85,34 +95,39 @@ mod tests {
 
     #[test]
     fn mutated_sequence_advances_blocks_when_zero_delay_follows_nonzero() {
-        let artifact =
-            contract::tests::load_test_artifact("fixtures/challenges", "src/L1SimpleKnob.sol")
-                .unwrap();
+        let contract = load_fixture("src/L1SimpleKnob.sol:SimpleKnob");
 
-        let chain = Chain::for_artifact(&artifact)
-            .with_config(crate::evm::cheatcode::Config::default())
-            .init()
-            .unwrap()
-            .setup()
+        let mut chain = Chain::new(ChainConfig::default()).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(contract.initcode.clone()))
             .unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        let deployed_address = deployment.address.unwrap();
 
-        let one = artifact
-            .abi
-            .functions()
+        if let Some(ref setup) = contract.setup_function {
+            let setup_opts = SetupInput::new(deployed_address)
+                .calldata(Bytes::from(setup.selector().as_slice().to_vec()));
+            let setup_output = chain.setup(setup_opts).unwrap();
+            assert!(setup_output.result.success, "setup must succeed");
+        }
+
+        let one = contract
+            .target_functions
+            .iter()
             .find(|f| f.name == "one")
             .unwrap()
             .selector()
             .into();
-        let two = artifact
-            .abi
-            .functions()
+        let two = contract
+            .target_functions
+            .iter()
             .find(|f| f.name == "two")
             .unwrap()
             .selector()
             .into();
-        let three = artifact
-            .abi
-            .functions()
+        let three = contract
+            .target_functions
+            .iter()
             .find(|f| f.name == "three")
             .unwrap()
             .selector()
@@ -157,7 +172,14 @@ mod tests {
             );
         }
 
-        let res = chain.execute(&calls).unwrap();
+        let res = crate::fuzzer::engine::execute_sequence(
+            &chain,
+            &contract,
+            deployed_address,
+            crate::evm::chain::DEFAULT_DEPLOYER,
+            &calls,
+        )
+        .unwrap();
         assert!(
             res.crash.is_some(),
             "invariant should be triggered (assert panic)"

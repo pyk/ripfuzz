@@ -1,8 +1,8 @@
 //! Fuzzer configuration.
 
-/// Configuration specific to a single fuzzer instance.
+/// Per-fuzzer configuration.
 #[derive(Debug, Clone, Copy)]
-pub struct FuzzerConfig {
+pub struct Config {
     pub seed: u64,
     pub sequence_length: usize,
     pub max_block_number_delay: u64,
