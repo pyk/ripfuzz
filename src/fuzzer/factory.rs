@@ -184,7 +184,7 @@ impl Fuzzer {
 
             if outcome.all_ok {
                 // checkrs: allow(clone_in_loops)
-                let _ = self.corpus.add(Item::new(calls.clone()));
+                let _ = self.corpus.add(Item::from(calls.clone()));
             }
 
             if let Some(crash_info) = outcome.crash {

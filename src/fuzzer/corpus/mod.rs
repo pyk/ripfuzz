@@ -221,12 +221,11 @@ impl SharedCorpus {
     /// result. If the corpus is empty, a random sequence is generated.
     pub fn take(&self, rng: &mut fastrand::Rng, config: &Config) -> Item {
         let Ok(mut corpus) = self.inner.corpus.write() else {
-            return Item::new(generate_random_sequence(&self.inner.selectors, rng, config));
+            return Item::from(generate_random_sequence(&self.inner.selectors, rng, config));
         };
 
         // 1. Pending replay
-        if let Some(mut item) = corpus.pop_pending_item() {
-            item.is_replay = true;
+        if let Some(item) = corpus.pop_pending_item() {
             return item;
         }
         drop(corpus);
@@ -249,7 +248,7 @@ impl SharedCorpus {
         drop(map);
 
         // 3. Generate a fresh random sequence
-        Item::new(generate_random_sequence(&self.inner.selectors, rng, config))
+        Item::from(generate_random_sequence(&self.inner.selectors, rng, config))
     }
 
     /// Add a corpus item to the collection.
@@ -369,7 +368,7 @@ mod tests {
         };
         let corpus = SharedCorpus::new(tmp.path(), contract, config);
 
-        let item = Item::new(vec![Call {
+        let item = Item::from(vec![Call {
             selector: [0x12, 0x34, 0x56, 0x78],
             args: vec![0u8; 32],
             ..Default::default()
