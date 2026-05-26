@@ -28,7 +28,7 @@ pub mod mutators;
 #[cfg(test)]
 mod tests {
     use crate::foundry;
-    use crate::fuzzer::corpus::{Call, CallMeta};
+    use crate::fuzzer::corpus::Call;
     use crate::fuzzer::{Crash, format_failure};
     use crate::target::Contract;
 
@@ -63,23 +63,6 @@ mod tests {
             function_name: "invariant_caught".into(),
             selector: alloy_primitives::Selector::ZERO,
             call_sequence: calls,
-            call_meta: vec![
-                CallMeta {
-                    block_number: 0,
-                    block_timestamp: 0,
-                    ..Default::default()
-                },
-                CallMeta {
-                    block_number: 1,
-                    block_timestamp: 1,
-                    ..Default::default()
-                },
-                CallMeta {
-                    block_number: 2,
-                    block_timestamp: 2,
-                    ..Default::default()
-                },
-            ],
         };
 
         let output = format_failure(&contract, &failure, crate::evm::chain::DEFAULT_DEPLOYER);

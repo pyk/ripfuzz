@@ -30,7 +30,6 @@ pub struct Crash {
     pub function_name: String,
     pub selector: Selector,
     pub call_sequence: Vec<Call>,
-    pub call_meta: Vec<crate::fuzzer::corpus::CallMeta>,
 }
 
 /// Factory that owns the base chain state and spawns [`Fuzzer`] instances.
@@ -192,7 +191,6 @@ impl Fuzzer {
                     function_name: crash_info.name,
                     selector: crash_info.selector,
                     call_sequence: calls,
-                    call_meta: outcome.call_meta,
                 });
                 self.metrics.record_failure();
             }
@@ -220,18 +218,10 @@ pub fn format_failure(
     for (i, call) in failure.call_sequence.iter().enumerate() {
         let n = i + 1;
 
-        let block = failure
-            .call_meta
-            .get(i)
-            .map(|m| m.block_number)
-            .unwrap_or(n as u64);
-        let time = failure
-            .call_meta
-            .get(i)
-            .map(|m| m.block_timestamp)
-            .unwrap_or(n as u64);
+        let block = n as u64;
+        let time = n as u64;
 
-        let func_name = call.function.name.clone();
+        let func_name = call.function.name.as_str();
         let args = match &call.args {
             alloy_dyn_abi::DynSolValue::Tuple(v) if v.is_empty() => "()".into(),
             alloy_dyn_abi::DynSolValue::Tuple(v) => {

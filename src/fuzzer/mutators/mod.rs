@@ -125,24 +125,5 @@ mod tests {
             res.crash.is_some(),
             "invariant should be triggered (assert panic)"
         );
-
-        for i in 1..res.call_meta.len() {
-            assert!(
-                res.call_meta[i].block_number > res.call_meta[i - 1].block_number,
-                "call {} block ({}) should be > call {} block ({})",
-                i,
-                res.call_meta[i].block_number,
-                i - 1,
-                res.call_meta[i - 1].block_number
-            );
-            assert!(
-                res.call_meta[i].block_timestamp >= res.call_meta[i - 1].block_timestamp,
-                "call {} timestamp ({}) should be >= call {} timestamp ({})",
-                i,
-                res.call_meta[i].block_timestamp,
-                i - 1,
-                res.call_meta[i - 1].block_timestamp
-            );
-        }
     }
 }

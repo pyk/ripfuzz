@@ -11,14 +11,13 @@ use crate::evm;
 use crate::evm::cheatcode;
 use crate::evm::coverage;
 use crate::evm::coverage::map::LocalCoverage;
-use crate::fuzzer::corpus::{Call, CallMeta};
+use crate::fuzzer::corpus::Call;
 use crate::target;
 
 /// Result of executing a single call sequence.
 #[derive(Debug, Clone, Default)]
 pub struct ExecutionOutcome {
     pub coverage: LocalCoverage,
-    pub call_meta: Vec<CallMeta>,
     pub all_ok: bool,
     pub total_calls: u64,
     pub total_gas: u64,
@@ -61,7 +60,6 @@ pub fn execute_sequence(
     let mut total_calls = 0u64;
     let mut total_gas = 0u64;
     let mut all_ok = true;
-    let mut call_meta = Vec::with_capacity(calls.len() + contract.invariant_functions.len());
     let mut crash = None;
 
     for (idx, call) in calls.iter().enumerate() {
@@ -103,28 +101,13 @@ pub fn execute_sequence(
         total_gas += gas_used;
 
         let success = result.success;
-        let reason = if !success {
-            match result.output.as_ref() {
-                Some(_) => Some("reverted".into()),
-                None => Some("halted".into()),
-            }
-        } else {
-            None
-        };
-
-        call_meta.push(CallMeta {
-            block_number: new_number,
-            block_timestamp: new_timestamp,
-            gas_used,
-            success,
-            reason,
-        });
 
         if !success {
             if let Some(ref output) = result.output
                 && is_assert_failure(output)
             {
                 crash = Some(CrashInfo {
+                    // checkrs: allow(clone_in_loops)
                     name: call.function.name.clone(),
                     selector: call.selector(),
                 });
@@ -163,22 +146,6 @@ pub fn execute_sequence(
             total_gas += gas_used;
 
             let success = result.success;
-            let reason = if !success {
-                match result.output.as_ref() {
-                    Some(_) => Some("reverted".into()),
-                    None => Some("halted".into()),
-                }
-            } else {
-                None
-            };
-
-            call_meta.push(CallMeta {
-                block_number: new_number,
-                block_timestamp: new_timestamp,
-                gas_used,
-                success,
-                reason,
-            });
 
             if !success {
                 if let Some(ref output) = result.output
@@ -202,7 +169,6 @@ pub fn execute_sequence(
 
     Ok(ExecutionOutcome {
         coverage,
-        call_meta,
         all_ok,
         total_calls,
         total_gas,

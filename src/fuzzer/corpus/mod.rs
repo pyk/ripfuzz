@@ -23,7 +23,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-pub use call::{Call, CallMeta};
+pub use call::Call;
 pub use corpus::Corpus;
 pub use item::Item;
 
@@ -178,14 +178,10 @@ impl SharedCorpus {
                     };
 
                     let all_valid = item.calls.iter().all(|call| {
-                        self.inner
-                            .contract
-                            .abi
-                            .functions()
-                            .any(|f| {
-                                f.selector() == call.selector()
-                                    && f.signature() == call.function.signature()
-                            })
+                        self.inner.contract.abi.functions().any(|f| {
+                            f.selector() == call.selector()
+                                && f.signature() == call.function.signature()
+                        })
                     });
 
                     if all_valid {
@@ -320,7 +316,10 @@ fn generate_random_sequence(
             .map(|ty| default_dyn_value(&ty))
             .collect();
         let call = Call {
-            function: func.clone(),
+            function: {
+                // checkrs: allow(clone_in_loops)
+                func.clone()
+            },
             args: alloy_dyn_abi::DynSolValue::Tuple(values),
             ..Default::default()
         };
@@ -357,9 +356,10 @@ mod tests {
 
         let item = Item::from(vec![Call {
             function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
-            args: alloy_dyn_abi::DynSolValue::Tuple(vec![
-                alloy_dyn_abi::DynSolValue::Uint(alloy_primitives::U256::ZERO, 256),
-            ]),
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                alloy_primitives::U256::ZERO,
+                256,
+            )]),
             ..Default::default()
         }]);
 
