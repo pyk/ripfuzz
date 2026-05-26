@@ -51,7 +51,7 @@ pub struct Stats {
 pub struct SharedCorpusInner {
     pub corpus_dir: PathBuf,
     pub items: papaya::HashMap<String, Item>,
-    pub contract: Arc<Contract>,
+    pub contract: Contract,
 }
 
 impl std::fmt::Debug for SharedCorpusInner {
@@ -79,7 +79,7 @@ impl SharedCorpus {
         let inner = Arc::new(SharedCorpusInner {
             corpus_dir: dir.as_ref().to_path_buf(),
             items: papaya::HashMap::new(),
-            contract: Arc::new(contract),
+            contract,
         });
 
         Self { inner }
