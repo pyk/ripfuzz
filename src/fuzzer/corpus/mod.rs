@@ -21,14 +21,20 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use alloy_dyn_abi::{DynSolType, DynSolValue, Specifier};
+use alloy_primitives::{Address, FixedBytes, I256, U256};
 use anyhow::Result;
+
 pub use call::Call;
+pub use extractor::{ExtractedLiterals, extract_literals};
 pub use item::Item;
 
 use crate::target::Contract;
 
 pub mod call;
+pub mod extractor;
 pub mod item;
 
 /// Statistics produced by loading a corpus from disk.
@@ -52,6 +58,9 @@ pub struct SharedCorpusInner {
     pub corpus_dir: PathBuf,
     pub items: papaya::HashMap<String, Item>,
     pub contract: Contract,
+    pub max_calls_length: usize,
+    pub seed: AtomicU64,
+    pub literals: ExtractedLiterals,
 }
 
 impl std::fmt::Debug for SharedCorpusInner {
@@ -75,11 +84,19 @@ impl SharedCorpus {
     /// Create an empty corpus backed by `dir` for the given target contract.
     ///
     /// No disk I/O is performed until [`Self::load`] is called.
-    pub fn new(dir: impl AsRef<Path>, contract: Contract) -> Self {
+    pub fn new(
+        dir: impl AsRef<Path>,
+        contract: Contract,
+        max_calls_length: usize,
+        literals: ExtractedLiterals,
+    ) -> Self {
         let inner = Arc::new(SharedCorpusInner {
             corpus_dir: dir.as_ref().to_path_buf(),
             items: papaya::HashMap::new(),
             contract,
+            max_calls_length,
+            seed: AtomicU64::new(0),
+            literals,
         });
 
         Self { inner }
@@ -146,17 +163,21 @@ impl SharedCorpus {
     /// Take a corpus item for execution.
     ///
     /// Picks a random existing item and returns a clone.
-    /// If the corpus is empty, an empty item is returned.
-    pub fn take(&self, rng: &mut fastrand::Rng) -> Item {
+    /// If the corpus is empty, a freshly generated random sequence is returned.
+    pub fn take(&self) -> Item {
         let map = self.inner.items.pin();
         let count = map.len();
         if count > 0 {
             let items: Vec<Item> = map.values().cloned().collect();
+            let seed = self.inner.seed.fetch_add(1, Ordering::Relaxed);
+            let mut rng = fastrand::Rng::with_seed(seed);
             let idx = rng.usize(0..items.len());
             return items[idx].clone();
         }
 
-        Item::from(Vec::new())
+        let seed = self.inner.seed.fetch_add(1, Ordering::Relaxed);
+        let mut rng = fastrand::Rng::with_seed(seed);
+        Item::from(self.generate_random_sequence(&mut rng))
     }
 
     /// Add a corpus item to the collection.
@@ -199,6 +220,168 @@ impl SharedCorpus {
     }
 }
 
+impl SharedCorpus {
+    fn generate_random_sequence(&self, rng: &mut fastrand::Rng) -> Vec<Call> {
+        let functions = &self.inner.contract.target_functions;
+        let max_len = self.inner.max_calls_length.max(1);
+        let len = rng.usize(1..=max_len);
+        let mut calls = Vec::with_capacity(len);
+
+        for _ in 0..len {
+            if functions.is_empty() {
+                break;
+            }
+            let idx = rng.usize(0..functions.len());
+            let func = &functions[idx];
+            let values: Vec<DynSolValue> = func
+                .inputs
+                .iter()
+                .filter_map(|p| p.resolve().ok())
+                .map(|ty| random_dyn_value(&ty, rng, &self.inner.literals))
+                .collect();
+            let call = Call {
+                function: {
+                    // checkrs: allow(clone_in_loops)
+                    func.clone()
+                },
+                args: DynSolValue::Tuple(values),
+                ..Default::default()
+            };
+            calls.push(call);
+        }
+        calls
+    }
+}
+
+fn pick_random<T: Clone>(items: &[T], rng: &mut fastrand::Rng) -> Option<T> {
+    if items.is_empty() {
+        None
+    } else {
+        Some(items[rng.usize(0..items.len())].clone())
+    }
+}
+
+fn parse_number_literal(val: &str) -> Option<U256> {
+    let trimmed = val.trim();
+    if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+        U256::from_str_radix(&trimmed[2..], 16).ok()
+    } else {
+        U256::from_str_radix(trimmed, 10).ok()
+    }
+}
+
+fn random_dyn_value(
+    ty: &DynSolType,
+    rng: &mut fastrand::Rng,
+    literals: &ExtractedLiterals,
+) -> DynSolValue {
+    match ty {
+        DynSolType::Bool => {
+            if let Some(val) = pick_random(&literals.bools, rng) {
+                return DynSolValue::Bool(val == "true");
+            }
+            DynSolValue::Bool(rng.bool())
+        }
+        DynSolType::Uint(sz) => {
+            if let Some(val) = pick_random(&literals.numbers, rng)
+                && let Some(u) = parse_number_literal(&val)
+            {
+                return DynSolValue::Uint(u, *sz);
+            }
+            let low = rng.u128(..);
+            let high = rng.u128(..);
+            let value = U256::from(low) | (U256::from(high) << 128);
+            DynSolValue::Uint(value, *sz)
+        }
+        DynSolType::Int(sz) => {
+            if let Some(val) = pick_random(&literals.numbers, rng)
+                && let Ok(i) = val.parse::<i128>()
+                && let Ok(signed) = I256::try_from(i)
+            {
+                return DynSolValue::Int(signed, *sz);
+            }
+            let value = I256::try_from(rng.i128(..)).unwrap_or(I256::ZERO);
+            DynSolValue::Int(value, *sz)
+        }
+        DynSolType::FixedBytes(sz) => {
+            if let Some(val) = pick_random(&literals.hex_strings, rng)
+                && let Ok(bytes) = hex::decode(&val)
+            {
+                let mut word = [0u8; 32];
+                let len = bytes.len().min(32);
+                word[..len].copy_from_slice(&bytes);
+                return DynSolValue::FixedBytes(FixedBytes::from(word), *sz);
+            }
+            let mut word = [0u8; 32];
+            rng.fill(&mut word);
+            DynSolValue::FixedBytes(FixedBytes::from(word), *sz)
+        }
+        DynSolType::Address => {
+            if let Some(val) = pick_random(&literals.hex_strings, rng)
+                && let Ok(bytes) = hex::decode(&val)
+                && bytes.len() == 20
+            {
+                return DynSolValue::Address(Address::from_slice(&bytes));
+            }
+            if let Some(val) = pick_random(&literals.numbers, rng) {
+                let hex = val.trim_start_matches("0x").trim_start_matches("0X");
+                if let Ok(bytes) = hex::decode(hex)
+                    && bytes.len() == 20
+                {
+                    return DynSolValue::Address(Address::from_slice(&bytes));
+                }
+            }
+            let mut bytes = [0u8; 20];
+            rng.fill(&mut bytes);
+            DynSolValue::Address(Address::from_slice(&bytes))
+        }
+        DynSolType::Bytes => {
+            if let Some(val) = pick_random(&literals.hex_strings, rng)
+                && let Ok(bytes) = hex::decode(&val)
+            {
+                return DynSolValue::Bytes(bytes);
+            }
+            let len = rng.usize(0..=64);
+            let mut bytes = vec![0u8; len];
+            rng.fill(&mut bytes);
+            DynSolValue::Bytes(bytes)
+        }
+        DynSolType::String => {
+            if let Some(val) = pick_random(&literals.strings, rng) {
+                return DynSolValue::String(val);
+            }
+            let len = rng.usize(0..=32);
+            let s: String = (0..len).map(|_| rng.alphabetic()).collect();
+            DynSolValue::String(s)
+        }
+        DynSolType::Function => {
+            let mut bytes = [0u8; 24];
+            rng.fill(&mut bytes);
+            DynSolValue::Function(alloy_primitives::Function::from_slice(&bytes))
+        }
+        DynSolType::Array(inner) => {
+            let len = rng.usize(0..=4);
+            let arr: Vec<DynSolValue> = (0..len)
+                .map(|_| random_dyn_value(inner, rng, literals))
+                .collect();
+            DynSolValue::Array(arr)
+        }
+        DynSolType::FixedArray(inner, len) => {
+            let arr: Vec<DynSolValue> = (0..*len)
+                .map(|_| random_dyn_value(inner, rng, literals))
+                .collect();
+            DynSolValue::FixedArray(arr)
+        }
+        DynSolType::Tuple(types) => {
+            let values: Vec<DynSolValue> = types
+                .iter()
+                .map(|t| random_dyn_value(t, rng, literals))
+                .collect();
+            DynSolValue::Tuple(values)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -223,7 +406,7 @@ mod tests {
             initcode: Bytes::new(),
         };
 
-        let corpus = SharedCorpus::new(tmp.path(), contract);
+        let corpus = SharedCorpus::new(tmp.path(), contract, 4, ExtractedLiterals::default());
 
         let item = Item::from(vec![Call {
             function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),

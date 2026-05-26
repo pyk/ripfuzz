@@ -142,7 +142,6 @@ impl Fuzzer {
     #[instrument(skip(self), fields(max_runs))]
     pub fn run(&mut self, max_runs: u64, timeout: Option<Duration>) -> Result<FuzzerResult> {
         let start = Instant::now();
-        let mut rng = fastrand::Rng::with_seed(self.config.seed);
         let mut local_failures = Vec::new();
         let mut runs = 0u64;
         let mut total_calls = 0u64;
@@ -166,7 +165,7 @@ impl Fuzzer {
                 );
             }
 
-            let item = self.corpus.take(&mut rng);
+            let item = self.corpus.take();
             let calls = item.calls;
 
             let outcome = engine::execute_sequence(
