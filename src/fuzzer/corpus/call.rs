@@ -10,10 +10,6 @@ pub struct Call {
     pub selector: [u8; 4],
     /// ABI-encoded arguments (0 or more 32-byte words).
     pub args: Vec<u8>,
-    /// How many blocks to advance before this call is executed.
-    pub block_number_delay: u64,
-    /// How many seconds to advance before this call is executed.
-    pub block_timestamp_delay: u64,
     /// Human-readable function name (empty when the selector is unknown).
     pub method_name: String,
     /// Full function signature, e.g. `transfer(address,uint256)`.
@@ -38,29 +34,15 @@ impl Call {
 
     /// Deterministic Keccak256 hash of the fields that affect EVM execution.
     ///
-    /// Matches Medusa's approach: hashes the encoded calldata together with
-    /// block delays. Human-readable metadata (`method_name`, `method_signature`,
+    /// Matches Medusa's approach: hashes the encoded calldata.
+    /// Human-readable metadata (`method_name`, `method_signature`,
     /// `input_values`) is intentionally excluded because it is derived from
     /// `selector` + `args` and does not change the state transition.
     pub fn content_hash(&self) -> [u8; 32] {
-        let mut buf = Vec::with_capacity(self.encoded_size() + 16);
+        let mut buf = Vec::with_capacity(self.encoded_size());
         buf.extend_from_slice(&self.selector);
         buf.extend_from_slice(&self.args);
-        buf.extend_from_slice(&self.block_number_delay.to_le_bytes());
-        buf.extend_from_slice(&self.block_timestamp_delay.to_le_bytes());
         keccak256(&buf).into()
-    }
-
-    /// Cap block number delay so it never exceeds timestamp delay.
-    /// Medusa invariant: each block must have a unique timestamp.
-    pub fn cap_delays(&mut self) {
-        if self.block_number_delay > self.block_timestamp_delay {
-            if self.block_timestamp_delay == 0 {
-                self.block_number_delay = 0;
-            } else {
-                self.block_number_delay %= self.block_timestamp_delay;
-            }
-        }
     }
 
     /// Create an owned copy of this call without using `Clone::clone`.
@@ -68,8 +50,6 @@ impl Call {
         Self {
             selector: self.selector,
             args: self.args.to_vec(),
-            block_number_delay: self.block_number_delay,
-            block_timestamp_delay: self.block_timestamp_delay,
             method_name: self.method_name.clone(),
             method_signature: self.method_signature.clone(),
             input_values: self.input_values.clone(),

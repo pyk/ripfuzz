@@ -227,8 +227,6 @@ mod tests {
         let mut calls = vec![corpus::Call {
             selector: unknown_selector,
             args: vec![0u8; 32],
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
             ..Default::default()
         }];
         let original_args = calls[0].args.clone();
@@ -250,8 +248,6 @@ mod tests {
             let mut calls = vec![corpus::Call {
                 selector,
                 args: vec![0u8; 32],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
                 ..Default::default()
             }];
             let original_args = calls[0].args.clone();
@@ -286,8 +282,6 @@ mod tests {
             let mut calls = vec![corpus::Call {
                 selector,
                 args: full_arg.clone(),
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
                 ..Default::default()
             }];
 
@@ -320,8 +314,6 @@ mod tests {
         let mut calls = vec![corpus::Call {
             selector,
             args: args.clone(),
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
             ..Default::default()
         }];
 
@@ -356,8 +348,6 @@ mod tests {
                 v[31] = 1; // true
                 v
             },
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
             ..Default::default()
         }];
 
@@ -376,8 +366,6 @@ mod tests {
         let mut calls = vec![corpus::Call {
             selector,
             args: vec![0u8; 32],
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
             ..Default::default()
         }];
         let original_args = calls[0].args.clone();
@@ -398,8 +386,6 @@ mod tests {
             let mut calls = vec![corpus::Call {
                 selector,
                 args: vec![0u8; 32],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
                 ..Default::default()
             }];
 
@@ -425,8 +411,6 @@ mod tests {
         let mut calls = vec![corpus::Call {
             selector,
             args: vec![0u8; 96],
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
             ..Default::default()
         }];
         let original_args = calls[0].args.clone();
@@ -448,8 +432,6 @@ mod tests {
             let mut calls = vec![corpus::Call {
                 selector,
                 args: vec![0u8; 32],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
                 ..Default::default()
             }];
             mutator.mutate(&mut rng, &mut calls);
@@ -474,8 +456,6 @@ mod tests {
         let mut calls = vec![corpus::Call {
             selector,
             args: args.clone(),
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
             ..Default::default()
         }];
 
@@ -503,8 +483,6 @@ mod tests {
             let mut calls = vec![corpus::Call {
                 selector,
                 args: vec![0u8; 32],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
                 ..Default::default()
             }];
             let original_args = calls[0].args.clone();
@@ -539,8 +517,6 @@ mod tests {
             let mut calls = vec![corpus::Call {
                 selector,
                 args: args.clone(),
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
                 ..Default::default()
             }];
             mutator.mutate(&mut rng, &mut calls);
@@ -564,8 +540,6 @@ mod tests {
         let mut calls = vec![corpus::Call {
             selector,
             args: args.clone(),
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
             ..Default::default()
         }];
 
@@ -601,8 +575,6 @@ mod tests {
             let mut calls = vec![corpus::Call {
                 selector,
                 args: args.clone(),
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
                 ..Default::default()
             }];
             mutator.mutate(&mut rng, &mut calls);

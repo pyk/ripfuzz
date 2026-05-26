@@ -15,11 +15,6 @@ pub struct Item {
 
 impl Item {
     /// Unique identifier derived from the call sequence.
-    ///
-    /// Computes a Keccak256 hash over the concatenated content hashes of
-    /// each call, matching Medusa's `CallSequence.Hash()` approach. This
-    /// makes the ID deterministic, stable across restarts, and collision
-    /// resistant compared with the previous 64-bit SipHash.
     pub fn id(&self) -> String {
         let mut buf = Vec::with_capacity(self.calls.len() * 32);
         for call in &self.calls {
@@ -55,8 +50,8 @@ mod tests {
 
     use super::*;
 
-    /// Known Keccak256 ID for the fixture
-    const STABLE_ID: &str = "4ff511692f34d70433734c4e39052681dc4db935a7871b2ab78e0d185dbb9e6f";
+    /// Known Keccak256 ID for a simple call sequence without delays.
+    const STABLE_ID: &str = "cc96c76ff9f65a76f89d6d183d49b098c20cec1c8d2b731f02256ce8877b21e9";
 
     #[test]
     fn item_id_is_unique_for_different_calls() {
@@ -100,8 +95,6 @@ mod tests {
         let item_a = Item::from(vec![Call {
             selector: [0x12, 0x34, 0x56, 0x78],
             args: vec![0u8; 32],
-            block_number_delay: 2,
-            block_timestamp_delay: 3,
             method_name: "foo".into(),
             method_signature: "foo(uint256)".into(),
             input_values: vec![serde_json::json!(42)],
@@ -109,8 +102,6 @@ mod tests {
         let item_b = Item::from(vec![Call {
             selector: [0x12, 0x34, 0x56, 0x78],
             args: vec![0u8; 32],
-            block_number_delay: 2,
-            block_timestamp_delay: 3,
             method_name: "bar".into(),
             method_signature: "bar(uint256)".into(),
             input_values: vec![serde_json::json!(99)],
@@ -128,8 +119,6 @@ mod tests {
         let item = Item::from(vec![Call {
             selector: [0x12, 0x34, 0x56, 0x78],
             args: vec![0u8; 32],
-            block_number_delay: 2,
-            block_timestamp_delay: 3,
             method_name: "foo".into(),
             method_signature: "foo(uint256)".into(),
             input_values: vec![serde_json::json!(42)],

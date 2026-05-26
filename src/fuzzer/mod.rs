@@ -44,22 +44,16 @@ mod tests {
             Call {
                 selector: [0x0a, 0x92, 0x54, 0xe4],
                 args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
                 ..Default::default()
             },
             Call {
                 selector: [0x0a, 0x92, 0x54, 0xe4],
                 args: vec![],
-                block_number_delay: 3,
-                block_timestamp_delay: 4,
                 ..Default::default()
             },
             Call {
                 selector: [0x0a, 0x92, 0x54, 0xe4],
                 args: vec![],
-                block_number_delay: 0,
-                block_timestamp_delay: 0,
                 ..Default::default()
             },
         ];
@@ -75,13 +69,13 @@ mod tests {
                     ..Default::default()
                 },
                 CallMeta {
-                    block_number: 3,
-                    block_timestamp: 4,
+                    block_number: 1,
+                    block_timestamp: 1,
                     ..Default::default()
                 },
                 CallMeta {
-                    block_number: 4,
-                    block_timestamp: 5,
+                    block_number: 2,
+                    block_timestamp: 2,
                     ..Default::default()
                 },
             ],
@@ -99,23 +93,13 @@ mod tests {
             output
         );
         assert!(
-            !output.contains("block=0") && !output.contains("block=3"),
+            !output.contains("block=0") && !output.contains("block=1"),
             "output should not use old block= label:\n{}",
             output
         );
         assert!(
-            !output.contains("time=1") && !output.contains("time=5"),
+            !output.contains("time=1") && !output.contains("time=2"),
             "output should not use old time= label:\n{}",
-            output
-        );
-        assert!(
-            output.contains("block_number_delay=3"),
-            "output should show block_number_delay:\n{}",
-            output
-        );
-        assert!(
-            output.contains("block_timestamp_delay=4"),
-            "output should show block_timestamp_delay:\n{}",
             output
         );
     }

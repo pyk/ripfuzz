@@ -242,17 +242,6 @@ pub fn format_failure(
             format!("0x{}", hex::encode(call.selector))
         };
 
-        let mut delay_suffix = String::new();
-        if call.block_number_delay != 0 {
-            delay_suffix.push_str(&format!(", block_number_delay={}", call.block_number_delay));
-        }
-        if call.block_timestamp_delay != 0 {
-            delay_suffix.push_str(&format!(
-                ", block_timestamp_delay={}",
-                call.block_timestamp_delay
-            ));
-        }
-
         let args = if let Some(func_abi) = func {
             if call.args.is_empty() {
                 "()".into()
@@ -265,7 +254,7 @@ pub fn format_failure(
                 let Ok(types) = types_result else {
                     let raw = format!("(0x{})", hex::encode(&call.args));
                     lines.push(format!(
-                        "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
+                        "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?})",
                         n,
                         contract.artifact_id.name,
                         func_name,
@@ -274,7 +263,6 @@ pub fn format_failure(
                         time,
                         u64::MAX,
                         sender,
-                        delay_suffix,
                     ));
                     continue;
                 };
@@ -283,7 +271,7 @@ pub fn format_failure(
                 let Ok(decoded) = tuple.abi_decode_params(&call.args) else {
                     let raw = format!("(0x{})", hex::encode(&call.args));
                     lines.push(format!(
-                        "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
+                        "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?})",
                         n,
                         contract.artifact_id.name,
                         func_name,
@@ -292,7 +280,6 @@ pub fn format_failure(
                         time,
                         u64::MAX,
                         sender,
-                        delay_suffix,
                     ));
                     continue;
                 };
@@ -315,7 +302,7 @@ pub fn format_failure(
         };
 
         lines.push(format!(
-            "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?}{})",
+            "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?})",
             n,
             contract.artifact_id.name,
             func_name,
@@ -324,7 +311,6 @@ pub fn format_failure(
             time,
             u64::MAX,
             sender,
-            delay_suffix,
         ));
     }
     lines.join("\n")

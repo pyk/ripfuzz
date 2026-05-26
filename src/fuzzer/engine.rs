@@ -67,17 +67,17 @@ pub fn execute_sequence(
     for (idx, call) in calls.iter().enumerate() {
         let current_number = u64::try_from(chain.block_env().number).unwrap_or(u64::MAX);
         let current_timestamp = u64::try_from(chain.block_env().timestamp).unwrap_or(u64::MAX);
-        // Medusa-style: each subsequent call must advance at least 1 block
-        // and 1 timestamp so every call has a unique block context.
+        // Medusa-style: each subsequent call advances 1 block and 1
+        // timestamp so every call has a unique block context.
         let new_number = if idx > 0 {
-            current_number.saturating_add(call.block_number_delay.max(1))
+            current_number.saturating_add(1)
         } else {
-            current_number.saturating_add(call.block_number_delay)
+            current_number
         };
         let new_timestamp = if idx > 0 {
-            current_timestamp.saturating_add(call.block_timestamp_delay.max(1))
+            current_timestamp.saturating_add(1)
         } else {
-            current_timestamp.saturating_add(call.block_timestamp_delay)
+            current_timestamp
         };
         chain.block_env_mut().number = U256::from(new_number);
         chain.block_env_mut().timestamp = U256::from(new_timestamp);

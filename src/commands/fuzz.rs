@@ -151,24 +151,6 @@ pub struct Args {
     )]
     pub seed: u64,
 
-    /// Maximum block number delay between calls.
-    #[arg(
-        long = "max-block-delay",
-        default_value = "5",
-        value_name = "N",
-        help_heading = "Fuzzing Parameters"
-    )]
-    pub max_block_number_delay: u64,
-
-    /// Maximum block timestamp delay between calls.
-    #[arg(
-        long = "max-time-delay",
-        default_value = "5",
-        value_name = "N",
-        help_heading = "Fuzzing Parameters"
-    )]
-    pub max_block_timestamp_delay: u64,
-
     // Corpus
     /// Directory to load and persist coverage-guided corpus files.
     #[arg(long = "corpus-dir", value_name = "DIR", help_heading = "Corpus")]
@@ -364,15 +346,13 @@ pub fn run(args: Args) -> Result<()> {
     let fuzzer_config = fuzzer::Config {
         seed: args.seed,
         sequence_length: args.sequence_length,
-        max_block_number_delay: args.max_block_number_delay,
-        max_block_timestamp_delay: args.max_block_timestamp_delay,
     };
 
     // Initialize shared corpus
     let corpus_dir = args
         .corpus_dir
         .unwrap_or_else(|| project_path.join("raptor").join("corpus"));
-    let corpus = fuzzer::SharedCorpus::new(&corpus_dir, target_contract.clone(), fuzzer_config);
+    let corpus = fuzzer::SharedCorpus::new(&corpus_dir, target_contract.clone());
     let corpus_stats = corpus.load()?;
     info!(
         total = corpus_stats.total_count,

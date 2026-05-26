@@ -92,7 +92,7 @@ impl SharedCorpus {
     /// Create an empty corpus backed by `dir` for the given target contract.
     ///
     /// No disk I/O is performed until [`Self::load`] is called.
-    pub fn new(dir: impl AsRef<Path>, contract: Contract, config: Config) -> Self {
+    pub fn new(dir: impl AsRef<Path>, contract: Contract) -> Self {
         let selectors: Vec<[u8; 4]> = contract
             .target_functions
             .iter()
@@ -107,8 +107,6 @@ impl SharedCorpus {
                 Box::new(crate::fuzzer::mutators::SequenceSwapMutator),
                 Box::new(crate::fuzzer::mutators::SequenceInsertMutator::new(
                     selectors.clone(),
-                    config.max_block_number_delay,
-                    config.max_block_timestamp_delay,
                 )),
                 Box::new(crate::fuzzer::mutators::SequenceDeleteMutator),
                 Box::new(crate::fuzzer::mutators::SequenceSpliceMutator::new(
@@ -125,10 +123,6 @@ impl SharedCorpus {
                 )),
                 Box::new(crate::fuzzer::mutators::SequenceArgMutator::new(
                     contract.abi.clone(),
-                )),
-                Box::new(crate::fuzzer::mutators::SequenceDelayMutator::new(
-                    config.max_block_number_delay,
-                    config.max_block_timestamp_delay,
                 )),
             ];
 
@@ -317,20 +311,11 @@ fn generate_random_sequence(
             break;
         }
         let sel_idx = rng.usize(0..selectors.len());
-        let mut call = Call {
+        let call = Call {
             selector: selectors[sel_idx],
             args: vec![0u8; 32 * 3],
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
             ..Default::default()
         };
-        if config.max_block_number_delay > 0 {
-            call.block_number_delay = rng.u64(0..config.max_block_number_delay + 1);
-        }
-        if config.max_block_timestamp_delay > 0 {
-            call.block_timestamp_delay = rng.u64(0..config.max_block_timestamp_delay + 1);
-        }
-        call.cap_delays();
         calls.push(call);
     }
     calls
@@ -360,13 +345,7 @@ mod tests {
             initcode: Bytes::new(),
         };
 
-        let config = Config {
-            seed: 0,
-            sequence_length: 4,
-            max_block_number_delay: 0,
-            max_block_timestamp_delay: 0,
-        };
-        let corpus = SharedCorpus::new(tmp.path(), contract, config);
+        let corpus = SharedCorpus::new(tmp.path(), contract);
 
         let item = Item::from(vec![Call {
             selector: [0x12, 0x34, 0x56, 0x78],
