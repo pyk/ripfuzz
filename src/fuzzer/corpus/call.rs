@@ -7,6 +7,8 @@ use revm::primitives::Bytes;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize};
 
+use crate::evm::chain;
+
 /// A single call in a sequence.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Call {
@@ -54,9 +56,7 @@ impl<'de> Deserialize<'de> for Call {
         struct CallHelper {
             sig: String,
             args: serde_json::Value,
-            #[serde(default)]
             value: U256,
-            #[serde(default = "default_deployer")]
             caller: Address,
         }
 
@@ -72,7 +72,7 @@ impl<'de> Deserialize<'de> for Call {
             })
             .collect::<Result<Vec<DynSolType>, D::Error>>()?;
         let tuple = DynSolType::Tuple(types);
-        let args = json_to_dyn_value(&helper.args, &tuple).map_err(serde::de::Error::custom)?;
+        let args = json_to_dyn_value(&tuple, &helper.args).map_err(serde::de::Error::custom)?;
 
         Ok(Self {
             function,
@@ -107,7 +107,7 @@ fn dyn_value_to_json(value: &DynSolValue) -> serde_json::Value {
 
 /// Parse a human-friendly JSON value back into a [`DynSolValue`] using the
 /// expected Solidity type.
-fn json_to_dyn_value(json: &serde_json::Value, ty: &DynSolType) -> Result<DynSolValue, String> {
+fn json_to_dyn_value(ty: &DynSolType, json: &serde_json::Value) -> Result<DynSolValue, String> {
     match (ty, json) {
         (DynSolType::Bool, serde_json::Value::Bool(b)) => Ok(DynSolValue::Bool(*b)),
         (DynSolType::Uint(sz), serde_json::Value::String(s)) => {
@@ -156,7 +156,7 @@ fn json_to_dyn_value(json: &serde_json::Value, ty: &DynSolType) -> Result<DynSol
         (DynSolType::Array(inner), serde_json::Value::Array(arr)) => {
             let values = arr
                 .iter()
-                .map(|v| json_to_dyn_value(v, inner))
+                .map(|v| json_to_dyn_value(inner, v))
                 .collect::<Result<Vec<DynSolValue>, String>>()?;
             Ok(DynSolValue::Array(values))
         }
@@ -166,7 +166,7 @@ fn json_to_dyn_value(json: &serde_json::Value, ty: &DynSolType) -> Result<DynSol
             }
             let values = arr
                 .iter()
-                .map(|v| json_to_dyn_value(v, inner))
+                .map(|v| json_to_dyn_value(inner, v))
                 .collect::<Result<Vec<DynSolValue>, String>>()?;
             Ok(DynSolValue::FixedArray(values))
         }
@@ -181,7 +181,7 @@ fn json_to_dyn_value(json: &serde_json::Value, ty: &DynSolType) -> Result<DynSol
             let values = arr
                 .iter()
                 .zip(types.iter())
-                .map(|(v, t)| json_to_dyn_value(v, t))
+                .map(|(v, t)| json_to_dyn_value(t, v))
                 .collect::<Result<Vec<DynSolValue>, String>>()?;
             Ok(DynSolValue::Tuple(values))
         }
@@ -218,16 +218,12 @@ impl Call {
 
     /// Convert this call into an EVM [`Transaction`](crate::evm::chain::Transaction)
     /// directed at `target`.
-    pub fn into_transaction(&self, target: Address) -> crate::evm::chain::Transaction {
-        crate::evm::chain::Transaction::new(target)
+    pub fn into_transaction(&self, target: Address) -> chain::Transaction {
+        chain::Transaction::new(target)
             .caller(self.caller)
             .calldata(self.calldata())
             .value(self.value)
     }
-}
-
-fn default_deployer() -> Address {
-    crate::evm::chain::DEFAULT_DEPLOYER
 }
 
 /// Generate a default [`DynSolValue`] for the given type.
@@ -317,14 +313,6 @@ mod tests {
         let json = serde_json::to_string(&original).unwrap();
         let roundtrip: Call = serde_json::from_str(&json).unwrap();
         assert_eq!(original.content_hash(), roundtrip.content_hash());
-    }
-
-    #[test]
-    fn serde_defaults_for_missing_value_and_caller() {
-        let json = r#"{"sig":"foo()","args":[]}"#;
-        let call: Call = serde_json::from_str(json).unwrap();
-        assert_eq!(call.value, U256::ZERO);
-        assert_eq!(call.caller, crate::evm::chain::DEFAULT_DEPLOYER);
     }
 
     #[test]
