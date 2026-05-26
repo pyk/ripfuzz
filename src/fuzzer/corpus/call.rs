@@ -1,9 +1,10 @@
 //! A single call in a fuzzing sequence.
 
+use alloy_primitives::keccak256;
 use serde::{Deserialize, Serialize};
 
 /// A single call in a sequence.
-#[derive(Clone, Debug, Default, Hash, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Call {
     /// 4-byte function selector.
     pub selector: [u8; 4],
@@ -33,6 +34,21 @@ impl Call {
         buf.extend_from_slice(&self.selector);
         buf.extend_from_slice(&self.args);
         buf
+    }
+
+    /// Deterministic Keccak256 hash of the fields that affect EVM execution.
+    ///
+    /// Matches Medusa's approach: hashes the encoded calldata together with
+    /// block delays. Human-readable metadata (`method_name`, `method_signature`,
+    /// `input_values`) is intentionally excluded because it is derived from
+    /// `selector` + `args` and does not change the state transition.
+    pub fn content_hash(&self) -> [u8; 32] {
+        let mut buf = Vec::with_capacity(self.encoded_size() + 16);
+        buf.extend_from_slice(&self.selector);
+        buf.extend_from_slice(&self.args);
+        buf.extend_from_slice(&self.block_number_delay.to_le_bytes());
+        buf.extend_from_slice(&self.block_timestamp_delay.to_le_bytes());
+        keccak256(&buf).into()
     }
 
     /// Cap block number delay so it never exceeds timestamp delay.
