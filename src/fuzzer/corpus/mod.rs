@@ -19,25 +19,23 @@
 //!   discovered during execution.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
 pub use call::Call;
-pub use corpus::Corpus;
 pub use item::Item;
 
 use alloy_dyn_abi::Specifier;
 use alloy_json_abi::Function;
 
+use crate::evm::coverage::map::CoverageMap;
 use crate::fuzzer::config::Config;
 use crate::fuzzer::corpus::call::default_dyn_value;
 use crate::fuzzer::mutators::Mutator;
 use crate::target::Contract;
 
 pub mod call;
-#[allow(clippy::module_inception)]
-pub mod corpus;
 pub mod item;
 
 /// Statistics produced by loading a corpus from disk.
@@ -59,10 +57,12 @@ pub struct Stats {
 
 /// Inner state of [`SharedCorpus`].
 ///
-/// All mutable data is protected by the `corpus` lock; `mutators` is
-/// read-only after construction so it can be accessed lock-free.
+/// `pending` is protected by a `Mutex`; `mutators` is read-only after
+/// construction so it can be accessed lock-free.
 pub struct SharedCorpusInner {
-    pub corpus: std::sync::RwLock<Corpus>,
+    pub pending: std::sync::Mutex<Vec<Item>>,
+    pub coverage: CoverageMap,
+    pub storage_dir: Option<PathBuf>,
     pub items: papaya::HashMap<String, Item>,
     pub contract: Arc<Contract>,
     pub functions: Vec<Function>,
@@ -71,8 +71,9 @@ pub struct SharedCorpusInner {
 
 impl std::fmt::Debug for SharedCorpusInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let pending_len = self.pending.lock().map(|g| g.len()).unwrap_or(0);
         f.debug_struct("SharedCorpusInner")
-            .field("corpus", &self.corpus)
+            .field("pending", &format_args!("[{} pending]", pending_len))
             .field("items", &format_args!("[{} items]", self.items.pin().len()))
             .field("contract", &self.contract)
             .field("functions", &self.functions)
@@ -99,9 +100,6 @@ impl SharedCorpus {
     pub fn new(dir: impl AsRef<Path>, contract: Contract) -> Self {
         let functions: Vec<Function> = contract.target_functions.clone();
 
-        let mut corpus = Corpus::new();
-        corpus.set_storage_dir(dir);
-
         let inner = Arc::new_cyclic(|weak| {
             let mutators: Vec<Box<dyn Mutator>> = vec![
                 Box::new(crate::fuzzer::mutators::SequenceSwapMutator),
@@ -125,7 +123,9 @@ impl SharedCorpus {
             ];
 
             SharedCorpusInner {
-                corpus: std::sync::RwLock::new(corpus),
+                pending: std::sync::Mutex::new(Vec::new()),
+                coverage: CoverageMap::default(),
+                storage_dir: Some(dir.as_ref().to_path_buf()),
                 items: papaya::HashMap::new(),
                 contract: Arc::new(contract),
                 functions,
@@ -147,14 +147,7 @@ impl SharedCorpus {
         let mut invalid_call_count = 0usize;
         let mut valid_count = 0usize;
 
-        let dir = {
-            let guard = self
-                .inner
-                .corpus
-                .read()
-                .map_err(|_| anyhow::anyhow!("corpus lock poisoned"))?;
-            guard.storage_dir().clone()
-        };
+        let dir = self.inner.storage_dir.clone();
 
         if let Some(dir) = dir
             && dir.exists()
@@ -186,10 +179,10 @@ impl SharedCorpus {
 
                     if all_valid {
                         valid_count += 1;
-                        let Ok(mut guard) = self.inner.corpus.write() else {
+                        let Ok(mut guard) = self.inner.pending.lock() else {
                             continue;
                         };
-                        guard.pending.push(item);
+                        guard.push(item);
                     } else {
                         invalid_call_count += 1;
                     }
@@ -211,22 +204,21 @@ impl SharedCorpus {
     /// existing item, applies a random mutator, and returns the
     /// result. If the corpus is empty, a random sequence is generated.
     pub fn take(&self, rng: &mut fastrand::Rng, config: &Config) -> Item {
-        let Ok(mut corpus) = self.inner.corpus.write() else {
-            return Item::from(generate_random_sequence(&self.inner.functions, rng, config));
-        };
-
         // 1. Pending replay
-        if let Some(item) = corpus.pop_pending_item() {
-            return item;
+        {
+            let Ok(mut pending) = self.inner.pending.lock() else {
+                return Item::from(generate_random_sequence(&self.inner.functions, rng, config));
+            };
+            if !pending.is_empty() {
+                return pending.remove(0);
+            }
         }
-        drop(corpus);
 
         // 2. Random pick from the lock-free map + mutate
         let map = self.inner.items.pin();
         let count = map.len();
         if count > 0 && rng.bool() {
             let items: Vec<Item> = map.values().cloned().collect();
-            drop(map);
 
             let idx = rng.usize(0..items.len());
             let mut item = items[idx].clone();
@@ -236,7 +228,6 @@ impl SharedCorpus {
             let _ = self.inner.mutators[m_idx].mutate(rng, calls);
             return item;
         }
-        drop(map);
 
         // 3. Generate a fresh random sequence
         Item::from(generate_random_sequence(&self.inner.functions, rng, config))
@@ -244,54 +235,44 @@ impl SharedCorpus {
 
     /// Add a corpus item to the collection.
     ///
-    /// Deduplicates by [`Item::id`]. If the item already exists the
-    /// function returns `false`. Otherwise it inserts the item into the
-    /// lock-free map and writes it to disk.
-    pub fn add(&self, item: Item) -> bool {
+    /// Deduplicates by [`Item::id`]. Returns `Ok(())` whether the item
+    /// already exists or was newly inserted. Only the thread that wins the
+    /// atomic insert performs disk I/O, so the same item is never written
+    /// twice even under concurrent calls.
+    pub fn add(&self, item: Item) -> Result<()> {
         let id = item.id();
 
-        let map = self.inner.items.pin();
-        if map.contains_key(&id) {
-            return false;
+        // Only the first thread to successfully insert runs the closure
+        // and reaches the disk-write code below. All other racing threads
+        // receive `Err` from `try_insert_with` and return early.
+        {
+            let map = self.inner.items.pin();
+            if map.try_insert_with(id, || item.clone()).is_err() {
+                return Ok(());
+            }
         }
-        drop(map);
-
-        let map = self.inner.items.pin();
-        let old = map.insert(id, item.clone());
-        if old.is_some() {
-            return false;
-        }
-        drop(map);
 
         // Write to disk
-        if let Ok(guard) = self.inner.corpus.read()
-            && let Some(dir) = guard.storage_dir()
-        {
-            let path = item.path(dir, &self.inner.contract.artifact_id);
-            if let Some(parent) = path.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            if let Ok(json) = serde_json::to_string(&item) {
-                let _ = fs::write(&path, json);
-            }
+        let Some(dir) = &self.inner.storage_dir else {
+            return Ok(());
+        };
+        let path = item.path(dir, &self.inner.contract.artifact_id);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
         }
+        let json = serde_json::to_string(&item)?;
+        fs::write(&path, json)?;
 
-        true
+        Ok(())
     }
 
     /// Runtime statistics for the corpus.
     pub fn stats(&self) -> Stats {
         let item_count = self.inner.items.pin().len();
-        let Ok(guard) = self.inner.corpus.read() else {
-            return Stats {
-                item_count,
-                ..Stats::default()
-            };
-        };
         Stats {
             item_count,
             failure_count: 0,
-            coverage_hits: guard.coverage().hit_count(),
+            coverage_hits: self.inner.coverage.hit_count(),
         }
     }
 }
@@ -377,14 +358,15 @@ mod tests {
             }));
         }
 
-        let mut added = 0usize;
         for handle in handles {
-            if handle.join().unwrap() {
-                added += 1;
-            }
+            handle.join().unwrap().expect("add should succeed");
         }
 
-        assert_eq!(added, 1, "exactly one thread should win the race to add");
+        assert_eq!(
+            corpus.inner.items.pin().len(),
+            1,
+            "exactly one item should be in the map"
+        );
 
         let expected_path = item.path(tmp.path(), &corpus.inner.contract.artifact_id);
         assert!(

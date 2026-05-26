@@ -54,7 +54,7 @@ mod tests {
 
     use super::*;
 
-    /// Known Keccak256 ID for a simple call sequence without delays.
+    /// Known Keccak256 ID for a simple call sequence.
     const STABLE_ID: &str = "2880aa420481e25bf9a99f197c9de9b3b641089ed62fca21630b55a6dd6bbbd3";
 
     #[test]
