@@ -170,7 +170,7 @@ impl SequenceArgMutator {
 }
 
 impl Mutator for SequenceArgMutator {
-    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+    fn mutate(&self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
         if calls.is_empty() {
             return MutationResult::Skipped;
         }
@@ -209,7 +209,7 @@ mod tests {
     fn empty_sequence_is_skipped() {
         let mut rng = fastrand::Rng::with_seed(42);
         let abi = abi_with("function set(uint256 x)");
-        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mutator = abi::SequenceArgMutator::new(abi);
         let mut calls = Vec::new();
 
         let result = mutator.mutate(&mut rng, &mut calls);
@@ -222,7 +222,7 @@ mod tests {
         let target_abi = abi_with("function set(uint256 x)");
         let other_abi = abi_with("function transfer(address to)");
         let unknown_selector = selector_of(&other_abi, "transfer");
-        let mut mutator = abi::SequenceArgMutator::new(target_abi);
+        let mutator = abi::SequenceArgMutator::new(target_abi);
 
         let mut calls = vec![corpus::Call {
             selector: unknown_selector,
@@ -246,7 +246,7 @@ mod tests {
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new(abi.clone());
             let mut calls = vec![corpus::Call {
                 selector,
                 args: vec![0u8; 32],
@@ -282,7 +282,7 @@ mod tests {
         let mut any_low_changed = false;
         for seed in [1u64, 2, 3, 42, 99, 123, 456, 789, 1000, 2000] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new(abi.clone());
             let mut calls = vec![corpus::Call {
                 selector,
                 args: full_arg.clone(),
@@ -316,7 +316,7 @@ mod tests {
         args[65] = 0xcd; // data byte 1
 
         let mut rng = fastrand::Rng::with_seed(42);
-        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mutator = abi::SequenceArgMutator::new(abi);
         let mut calls = vec![corpus::Call {
             selector,
             args: args.clone(),
@@ -347,7 +347,7 @@ mod tests {
         let mut rng = fastrand::Rng::with_seed(42);
         let abi = abi_with("function toggle(bool b)");
         let selector = selector_of(&abi, "toggle");
-        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mutator = abi::SequenceArgMutator::new(abi);
 
         let mut calls = vec![corpus::Call {
             selector,
@@ -371,7 +371,7 @@ mod tests {
         let mut rng = fastrand::Rng::with_seed(42);
         let abi = abi_with("function transfer(address to)");
         let selector = selector_of(&abi, "transfer");
-        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mutator = abi::SequenceArgMutator::new(abi);
 
         let mut calls = vec![corpus::Call {
             selector,
@@ -394,7 +394,7 @@ mod tests {
 
         for seed in [1u64, 2, 3, 42, 99, 123, 456, 789, 1000, 2000] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new(abi.clone());
             let mut calls = vec![corpus::Call {
                 selector,
                 args: vec![0u8; 32],
@@ -420,7 +420,7 @@ mod tests {
         let mut rng = fastrand::Rng::with_seed(123);
         let abi = abi_with("function multi(uint256 a, bool b, address c)");
         let selector = selector_of(&abi, "multi");
-        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mutator = abi::SequenceArgMutator::new(abi);
 
         let mut calls = vec![corpus::Call {
             selector,
@@ -444,7 +444,7 @@ mod tests {
         let mut values = Vec::new();
         for seed in [1u64, 2, 3, 4, 5] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new(abi.clone());
             let mut calls = vec![corpus::Call {
                 selector,
                 args: vec![0u8; 32],
@@ -470,7 +470,7 @@ mod tests {
             DynSolValue::Tuple(vec![DynSolValue::Uint(U256::from(255), 8)]).abi_encode_params();
 
         let mut rng = fastrand::Rng::with_seed(1);
-        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mutator = abi::SequenceArgMutator::new(abi);
         let mut calls = vec![corpus::Call {
             selector,
             args: args.clone(),
@@ -499,7 +499,7 @@ mod tests {
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new(abi.clone());
             let mut calls = vec![corpus::Call {
                 selector,
                 args: vec![0u8; 32],
@@ -535,7 +535,7 @@ mod tests {
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new(abi.clone());
             let mut calls = vec![corpus::Call {
                 selector,
                 args: args.clone(),
@@ -560,7 +560,7 @@ mod tests {
             DynSolValue::Tuple(vec![DynSolValue::String("hello".into())]).abi_encode_params();
 
         let mut rng = fastrand::Rng::with_seed(42);
-        let mut mutator = abi::SequenceArgMutator::new(abi);
+        let mutator = abi::SequenceArgMutator::new(abi);
         let mut calls = vec![corpus::Call {
             selector,
             args: args.clone(),
@@ -597,7 +597,7 @@ mod tests {
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mut mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new(abi.clone());
             let mut calls = vec![corpus::Call {
                 selector,
                 args: args.clone(),

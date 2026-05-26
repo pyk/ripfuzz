@@ -1,7 +1,16 @@
 //! Coverage-guided, mutational stateful fuzzer.
 //!
-//! `crate::fuzzer` owns the EVM chain and orchestrates parallel fuzzing
-//! threads via [`Factory`](factory::Factory) and [`Fuzzer`](factory::Fuzzer).
+//! ## Separation of concerns
+//!
+//! * [`SharedCorpus`](corpus::SharedCorpus) owns the corpus lifecycle:
+//!   loading from disk, serialization, weighted random selection, mutation,
+//!   and coverage-driven insertion.
+//! * [`Fuzzer`](factory::Fuzzer) owns the execution loop: calling
+//!   [`take`](corpus::SharedCorpus::take) to obtain an input, executing it
+//!   against a cloned chain, and calling [`add`](corpus::SharedCorpus::add)
+//!   when the input is interesting.
+//! * [`Factory`](factory::Factory) creates per-thread [`Fuzzer`] instances
+//!   from the post-setup chain snapshot.
 
 pub use config::Config;
 pub use corpus::SharedCorpus;

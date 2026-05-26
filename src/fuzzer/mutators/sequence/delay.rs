@@ -20,7 +20,7 @@ impl SequenceDelayMutator {
 }
 
 impl Mutator for SequenceDelayMutator {
-    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+    fn mutate(&self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
         if calls.is_empty() {
             return MutationResult::Skipped;
         }

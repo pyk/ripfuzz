@@ -1,25 +1,28 @@
 //! Corpus mutator that splices two sequences together.
 
-use std::sync::{Arc, RwLock};
+use std::sync::Weak;
 
-use crate::fuzzer::corpus::{Call, Corpus};
+use crate::fuzzer::corpus::{Call, SharedCorpusInner};
 use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Splice two corpus sequences: take the head from one and tail from another.
 #[derive(Debug)]
 pub struct SequenceSpliceMutator {
-    corpus: Arc<RwLock<Corpus>>,
+    inner: Weak<SharedCorpusInner>,
 }
 
 impl SequenceSpliceMutator {
-    pub fn new(corpus: Arc<RwLock<Corpus>>) -> Self {
-        Self { corpus }
+    pub fn new(inner: Weak<SharedCorpusInner>) -> Self {
+        Self { inner }
     }
 }
 
 impl Mutator for SequenceSpliceMutator {
-    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
-        let Ok(corpus) = self.corpus.read() else {
+    fn mutate(&self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+        let Some(inner) = self.inner.upgrade() else {
+            return MutationResult::Skipped;
+        };
+        let Ok(corpus) = inner.corpus.read() else {
             return MutationResult::Skipped;
         };
         let count = corpus.items.len();

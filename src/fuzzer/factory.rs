@@ -13,7 +13,6 @@ use crate::fuzzer::corpus::SharedCorpus;
 use crate::fuzzer::corpus::{Call, CorpusItem};
 use crate::fuzzer::engine;
 use crate::fuzzer::metrics::SharedMetrics;
-use crate::fuzzer::mutators::Mutator;
 use crate::target;
 
 /// Result produced by a single fuzzer thread.
@@ -45,7 +44,6 @@ pub struct Factory {
     contract: Arc<target::Contract>,
     deployed_address: Address,
     config: Config,
-    fuzzed_selectors: Arc<Vec<[u8; 4]>>,
     caller: Address,
     corpus: SharedCorpus,
     metrics: SharedMetrics,
@@ -60,18 +58,11 @@ impl Factory {
         config: Config,
         corpus: SharedCorpus,
     ) -> Self {
-        let fuzzed_selectors: Vec<[u8; 4]> = contract
-            .target_functions
-            .iter()
-            .map(|f| f.selector().into())
-            .collect();
-
         Self {
             chain,
             contract: Arc::new(contract),
             deployed_address,
             config,
-            fuzzed_selectors: Arc::new(fuzzed_selectors),
             caller: evm::chain::DEFAULT_DEPLOYER,
             corpus,
             metrics: SharedMetrics::new(),
@@ -100,51 +91,8 @@ impl Factory {
         &self.metrics
     }
 
-    /// Validate all pending corpus items by replaying them.
-    pub fn validate_corpus(&self) {
-        let chain = self.chain.clone();
-        let contract = Arc::clone(&self.contract);
-        let deployed_address = self.deployed_address;
-        let caller = self.caller;
-
-        self.corpus.validate_pending(|calls| {
-            engine::execute_sequence(&chain, &contract, deployed_address, caller, calls)
-                .unwrap_or_default()
-        });
-    }
-
     /// Create a new [`Fuzzer`] for the given thread id.
     pub fn create(&self, fuzzer_id: usize) -> Fuzzer {
-        let corpus_arc = self.corpus.to_arc();
-        let mutators: Vec<Box<dyn Mutator>> = vec![
-            Box::new(crate::fuzzer::mutators::SequenceSwapMutator),
-            Box::new(crate::fuzzer::mutators::SequenceInsertMutator::new(
-                self.fuzzed_selectors.to_vec(),
-                self.config.max_block_number_delay,
-                self.config.max_block_timestamp_delay,
-            )),
-            Box::new(crate::fuzzer::mutators::SequenceDeleteMutator),
-            Box::new(crate::fuzzer::mutators::SequenceSpliceMutator::new(
-                Arc::clone(&corpus_arc),
-            )),
-            Box::new(crate::fuzzer::mutators::SequenceInterleaveMutator::new(
-                Arc::clone(&corpus_arc),
-            )),
-            Box::new(crate::fuzzer::mutators::SequenceHeadMutator::new(
-                Arc::clone(&corpus_arc),
-            )),
-            Box::new(crate::fuzzer::mutators::SequenceTailMutator::new(
-                Arc::clone(&corpus_arc),
-            )),
-            Box::new(crate::fuzzer::mutators::SequenceArgMutator::new(
-                self.contract.abi.clone(),
-            )),
-            Box::new(crate::fuzzer::mutators::SequenceDelayMutator::new(
-                self.config.max_block_number_delay,
-                self.config.max_block_timestamp_delay,
-            )),
-        ];
-
         Fuzzer {
             chain: self.chain.clone(),
             contract: Arc::clone(&self.contract),
@@ -153,11 +101,9 @@ impl Factory {
                 seed: self.config.seed.wrapping_add(fuzzer_id as u64),
                 ..self.config
             },
-            fuzzed_selectors: Arc::clone(&self.fuzzed_selectors),
             caller: self.caller,
             corpus: self.corpus.clone(),
             metrics: self.metrics.clone(),
-            mutators,
         }
     }
 }
@@ -170,11 +116,9 @@ pub struct Fuzzer {
     contract: Arc<target::Contract>,
     deployed_address: Address,
     config: Config,
-    fuzzed_selectors: Arc<Vec<[u8; 4]>>,
     caller: Address,
     corpus: SharedCorpus,
     metrics: SharedMetrics,
-    mutators: Vec<Box<dyn Mutator>>,
 }
 
 impl std::fmt::Debug for Fuzzer {
@@ -184,14 +128,9 @@ impl std::fmt::Debug for Fuzzer {
             .field("contract", &self.contract)
             .field("deployed_address", &self.deployed_address)
             .field("config", &self.config)
-            .field("fuzzed_selectors", &self.fuzzed_selectors)
             .field("caller", &self.caller)
             .field("corpus", &self.corpus)
             .field("metrics", &self.metrics)
-            .field(
-                "mutators",
-                &format_args!("[{} mutators]", self.mutators.len()),
-            )
             .finish()
     }
 }
@@ -228,30 +167,8 @@ impl Fuzzer {
                 );
             }
 
-            let item = self.corpus.pop_pending();
-            let is_replay = item.is_some();
-            let mut base_idx = None;
-            let calls = if let Some(item) = item {
-                item.calls
-            } else {
-                let has_entries = self.corpus.has_entries();
-                if rng.bool() && has_entries {
-                    match self.corpus.pick_for_mutation(&mut rng) {
-                        Some((idx, base)) => {
-                            base_idx = Some(idx);
-                            let mut calls = base.calls;
-                            let m_idx = rng.usize(0..self.mutators.len());
-                            let _ = self.mutators[m_idx].mutate(&mut rng, &mut calls);
-                            calls
-                        }
-                        None => {
-                            generate_random_sequence(&self.fuzzed_selectors, &mut rng, &self.config)
-                        }
-                    }
-                } else {
-                    generate_random_sequence(&self.fuzzed_selectors, &mut rng, &self.config)
-                }
-            };
+            let item = self.corpus.take(&mut rng, &self.config);
+            let calls = item.calls;
 
             let outcome = engine::execute_sequence(
                 &self.chain,
@@ -267,23 +184,10 @@ impl Fuzzer {
 
             if outcome.all_ok {
                 // checkrs: allow(clone_in_loops)
-                let item = CorpusItem::new(calls.clone());
-                let added = self.corpus.record_interesting(item, &outcome.coverage);
-                match (base_idx, added) {
-                    (Some(idx), true) => {
-                        self.corpus.record_new_find(idx);
-                        self.corpus.record_mutation(idx);
-                    }
-                    (Some(idx), false) => {
-                        self.corpus.record_mutation(idx);
-                    }
-                    (None, _) => {}
-                }
-                if is_replay && !added {
-                    self.corpus
-                        // checkrs: allow(clone_in_loops)
-                        .add_item_for_mutation(CorpusItem::new(calls.clone()));
-                }
+                let added = self
+                    .corpus
+                    .add(CorpusItem::new(calls.clone()), &outcome.coverage);
+                let _ = added;
             }
 
             if let Some(crash_info) = outcome.crash {
@@ -299,13 +203,6 @@ impl Fuzzer {
             runs += 1;
         }
 
-        // Sync failures into shared corpus for persistence.
-        for failure in &local_failures {
-            self.corpus
-                // checkrs: allow(clone_in_loops)
-                .record_failure(CorpusItem::new(failure.call_sequence.clone()));
-        }
-
         info!(runs, "fuzzer run finished");
         Ok(FuzzerResult {
             runs,
@@ -314,38 +211,6 @@ impl Fuzzer {
             total_gas,
         })
     }
-}
-
-/// Generate a random call sequence from the fuzzed selectors.
-pub(crate) fn generate_random_sequence(
-    selectors: &[[u8; 4]],
-    rng: &mut fastrand::Rng,
-    config: &Config,
-) -> Vec<Call> {
-    let len = rng.usize(1..=config.sequence_length.max(1));
-    let mut calls = Vec::with_capacity(len);
-    for _ in 0..len {
-        if selectors.is_empty() {
-            break;
-        }
-        let sel_idx = rng.usize(0..selectors.len());
-        let mut call = Call {
-            selector: selectors[sel_idx],
-            args: vec![0u8; 32 * 3],
-            block_number_delay: 0,
-            block_timestamp_delay: 0,
-            ..Default::default()
-        };
-        if config.max_block_number_delay > 0 {
-            call.block_number_delay = rng.u64(0..config.max_block_number_delay + 1);
-        }
-        if config.max_block_timestamp_delay > 0 {
-            call.block_timestamp_delay = rng.u64(0..config.max_block_timestamp_delay + 1);
-        }
-        call.cap_delays();
-        calls.push(call);
-    }
-    calls
 }
 
 /// Format a crash's call sequence as a flat, Medusa-style log.

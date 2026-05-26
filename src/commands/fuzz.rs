@@ -360,11 +360,19 @@ pub fn run(args: Args) -> Result<()> {
         info!("setup completed");
     }
 
+    // Create fuzzer config first so the corpus can own mutators.
+    let fuzzer_config = fuzzer::Config {
+        seed: args.seed,
+        sequence_length: args.sequence_length,
+        max_block_number_delay: args.max_block_number_delay,
+        max_block_timestamp_delay: args.max_block_timestamp_delay,
+    };
+
     // Initialize shared corpus
     let corpus_dir = args
         .corpus_dir
         .unwrap_or_else(|| project_path.join("raptor").join("corpus"));
-    let corpus = fuzzer::SharedCorpus::new(&corpus_dir, target_contract.clone());
+    let corpus = fuzzer::SharedCorpus::new(&corpus_dir, target_contract.clone(), fuzzer_config);
     let corpus_stats = corpus.load()?;
     info!(
         total = corpus_stats.total_count,
@@ -376,12 +384,6 @@ pub fn run(args: Args) -> Result<()> {
 
     // Create fuzzer factory
     info!("creating fuzzer factory");
-    let fuzzer_config = fuzzer::Config {
-        seed: args.seed,
-        sequence_length: args.sequence_length,
-        max_block_number_delay: args.max_block_number_delay,
-        max_block_timestamp_delay: args.max_block_timestamp_delay,
-    };
     let factory = fuzzer::Factory::new(
         chain,
         target_contract.clone(),
@@ -400,9 +402,6 @@ pub fn run(args: Args) -> Result<()> {
     let fuzzers_u64 = fuzzers as u64;
     let base_runs = args.max_runs / fuzzers_u64;
     let remainder = (args.max_runs % fuzzers_u64) as usize;
-
-    // Validate corpus before fuzzing.
-    factory.validate_corpus();
 
     // Progress reporting thread.
     let progress_shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -427,13 +426,14 @@ pub fn run(args: Args) -> Result<()> {
                 let gas_per_sec = (gas_delta as f64 / interval_secs) as u64;
                 let elapsed_str = format_duration(elapsed);
                 let calls_str = format!("{}({}/s)", snapshot.calls, calls_per_sec);
+                let corpus_stats = corpus.stats();
 
                 info!(
                     elapsed = %elapsed_str,
                     runs = snapshot.runs,
                     calls = %calls_str,
-                    corpus = corpus.item_count(),
-                    coverage = corpus.coverage_hits(),
+                    corpus = corpus_stats.item_count,
+                    coverage = corpus_stats.coverage_hits,
                     failures = snapshot.failures,
                     gas_per_sec = gas_per_sec,
                     "fuzz:"
@@ -482,12 +482,6 @@ pub fn run(args: Args) -> Result<()> {
     progress_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
     let _ = progress_handle.join();
 
-    let corpus = factory.corpus();
-    let coverage = corpus.coverage_map().unwrap_or_default();
-    if let Err(e) = corpus.flush_to_disk(&project_path) {
-        tracing::error!(%e, "failed to flush corpus to disk");
-    }
-
     info!(
         runs = total_runs,
         failures = all_failures.len(),
@@ -528,12 +522,6 @@ pub fn run(args: Args) -> Result<()> {
         let passed = total.saturating_sub(failed);
         info!("");
         info!(passed = passed, failed = failed, "Test summary");
-    }
-
-    if coverage.hit_count() > 0 {
-        info!(hits = coverage.hit_count(), "Coverage summary");
-    } else {
-        info!(hits = 0, "Coverage summary");
     }
 
     Ok(())

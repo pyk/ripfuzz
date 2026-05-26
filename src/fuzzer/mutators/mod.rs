@@ -24,9 +24,9 @@ pub enum MutationResult {
 }
 
 /// Trait for mutators that operate on a call sequence.
-pub trait Mutator: Send {
+pub trait Mutator: Send + Sync + std::fmt::Debug {
     /// Mutate `calls` in place.
-    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult;
+    fn mutate(&self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult;
 }
 
 #[cfg(test)]
@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn sequence_delay_mutator_respects_cap_invariant() {
         let mut rng = fastrand::Rng::with_seed(42);
-        let mut mutator = mutators::SequenceDelayMutator::new(10, 10);
+        let mutator = mutators::SequenceDelayMutator::new(10, 10);
 
         let mut calls = vec![corpus::Call {
             selector: [0x12, 0x34, 0x56, 0x78],
@@ -77,7 +77,7 @@ mod tests {
     fn sequence_insert_mutator_respects_cap_invariant() {
         let mut rng = fastrand::Rng::with_seed(42);
         let selectors: Vec<[u8; 4]> = vec![[0x12, 0x34, 0x56, 0x78]];
-        let mut mutator = mutators::SequenceInsertMutator::new(selectors, 10, 10);
+        let mutator = mutators::SequenceInsertMutator::new(selectors, 10, 10);
 
         let mut calls = Vec::new();
         let result = mutator.mutate(&mut rng, &mut calls);
@@ -158,7 +158,7 @@ mod tests {
         ];
 
         let mut rng = fastrand::Rng::with_seed(12345);
-        let mut mutator = mutators::SequenceDelayMutator::new(5, 5);
+        let mutator = mutators::SequenceDelayMutator::new(5, 5);
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, mutators::MutationResult::Mutated);
 

@@ -1,25 +1,28 @@
 //! Corpus mutator that keeps the tail of a sequence.
 
-use std::sync::{Arc, RwLock};
+use std::sync::Weak;
 
-use crate::fuzzer::corpus::{Call, Corpus};
+use crate::fuzzer::corpus::{Call, SharedCorpusInner};
 use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Take the tail of a corpus sequence and keep it, discarding the rest.
 #[derive(Debug)]
 pub struct SequenceTailMutator {
-    corpus: Arc<RwLock<Corpus>>,
+    inner: Weak<SharedCorpusInner>,
 }
 
 impl SequenceTailMutator {
-    pub fn new(corpus: Arc<RwLock<Corpus>>) -> Self {
-        Self { corpus }
+    pub fn new(inner: Weak<SharedCorpusInner>) -> Self {
+        Self { inner }
     }
 }
 
 impl Mutator for SequenceTailMutator {
-    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
-        let Ok(corpus) = self.corpus.read() else {
+    fn mutate(&self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+        let Some(inner) = self.inner.upgrade() else {
+            return MutationResult::Skipped;
+        };
+        let Ok(corpus) = inner.corpus.read() else {
             return MutationResult::Skipped;
         };
         let count = corpus.items.len();

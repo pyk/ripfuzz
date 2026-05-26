@@ -22,7 +22,7 @@ impl SequenceInsertMutator {
 }
 
 impl Mutator for SequenceInsertMutator {
-    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+    fn mutate(&self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
         if self.selectors.is_empty() {
             return MutationResult::Skipped;
         }

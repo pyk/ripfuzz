@@ -8,7 +8,7 @@ use crate::fuzzer::mutators::{MutationResult, Mutator};
 pub struct SequenceDeleteMutator;
 
 impl Mutator for SequenceDeleteMutator {
-    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+    fn mutate(&self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
         if calls.is_empty() {
             return MutationResult::Skipped;
         }

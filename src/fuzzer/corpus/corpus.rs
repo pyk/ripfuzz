@@ -19,6 +19,10 @@ pub struct CorpusItem {
     pub total_mutations: u64,
     #[serde(default)]
     pub new_finds_produced: u64,
+    #[serde(skip, default)]
+    pub(crate) base_idx: Option<usize>,
+    #[serde(skip, default)]
+    pub(crate) is_replay: bool,
 }
 
 impl CorpusItem {
@@ -28,7 +32,36 @@ impl CorpusItem {
             weight: 1,
             total_mutations: 0,
             new_finds_produced: 0,
+            base_idx: None,
+            is_replay: false,
         }
+    }
+
+    /// Convert this corpus item into an [`ExecInput`] for the given caller
+    /// and target address.
+    pub fn into_exec_input(
+        self,
+        caller: alloy_primitives::Address,
+        target: alloy_primitives::Address,
+    ) -> crate::evm::chain::ExecInput {
+        use crate::evm::chain::{ExecInput, Transaction};
+        use revm::primitives::Bytes;
+        ExecInput::new(
+            self.calls
+                .into_iter()
+                .map(|call| {
+                    Transaction::new(target)
+                        .caller(caller)
+                        .calldata(Bytes::from(call.encode()))
+                })
+                .collect(),
+        )
+    }
+}
+
+impl From<Vec<Call>> for CorpusItem {
+    fn from(calls: Vec<Call>) -> Self {
+        Self::new(calls)
     }
 }
 
@@ -222,7 +255,7 @@ impl Corpus {
         }
     }
 
-    /// Persist all corpus items and failures to disk.
+    /// Persist all corpus items and failures to disk using compact JSON.
     pub fn flush_to_disk(&self) -> Result<()> {
         let Some(dir) = &self.storage_dir else {
             return Ok(());
@@ -232,14 +265,14 @@ impl Corpus {
         for item in &self.items {
             let name = format!("{}.json", uuid::Uuid::new_v4());
             let path = dir.join(&name);
-            let json = serde_json::to_string_pretty(item)?;
+            let json = serde_json::to_string(item)?;
             fs::write(&path, json)?;
         }
 
         for item in &self.failures {
             let name = format!("failure-{}.json", uuid::Uuid::new_v4());
             let path = dir.join(&name);
-            let json = serde_json::to_string_pretty(item)?;
+            let json = serde_json::to_string(item)?;
             fs::write(&path, json)?;
         }
 

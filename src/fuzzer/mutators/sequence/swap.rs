@@ -8,7 +8,7 @@ use crate::fuzzer::mutators::{MutationResult, Mutator};
 pub struct SequenceSwapMutator;
 
 impl Mutator for SequenceSwapMutator {
-    fn mutate(&mut self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
+    fn mutate(&self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
         if calls.len() < 2 {
             return MutationResult::Skipped;
         }
