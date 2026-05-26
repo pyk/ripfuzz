@@ -40,7 +40,8 @@ impl Mutator for SequenceInsertMutator {
             .collect();
         let call = Call {
             function: func.clone(),
-            values: DynSolValue::Tuple(values),
+            args: DynSolValue::Tuple(values),
+            ..Default::default()
         };
         calls.insert(idx, call);
         MutationResult::Mutated

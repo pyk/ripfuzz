@@ -321,7 +321,8 @@ fn generate_random_sequence(
             .collect();
         let call = Call {
             function: func.clone(),
-            values: alloy_dyn_abi::DynSolValue::Tuple(values),
+            args: alloy_dyn_abi::DynSolValue::Tuple(values),
+            ..Default::default()
         };
         calls.push(call);
     }
@@ -356,9 +357,10 @@ mod tests {
 
         let item = Item::from(vec![Call {
             function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
-            values: alloy_dyn_abi::DynSolValue::Tuple(vec![
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![
                 alloy_dyn_abi::DynSolValue::Uint(alloy_primitives::U256::ZERO, 256),
             ]),
+            ..Default::default()
         }]);
 
         let threads = 16;

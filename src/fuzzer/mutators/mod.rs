@@ -98,15 +98,18 @@ mod tests {
         let calls = vec![
             corpus::Call {
                 function: one,
-                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                ..Default::default()
             },
             corpus::Call {
                 function: two,
-                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                ..Default::default()
             },
             corpus::Call {
                 function: three,
-                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                ..Default::default()
             },
         ];
 

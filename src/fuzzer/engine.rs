@@ -87,7 +87,7 @@ pub fn execute_sequence(
         let tx = TxEnv {
             caller: tx_origin,
             kind: TxKind::Call(deployed_address),
-            data: Bytes::from(call.encode()),
+            data: call.calldata(),
             gas_limit: u64::MAX,
             value: U256::ZERO,
             ..Default::default()

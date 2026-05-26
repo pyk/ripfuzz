@@ -55,17 +55,19 @@ mod tests {
     use super::*;
 
     /// Known Keccak256 ID for a simple call sequence without delays.
-    const STABLE_ID: &str = "ef855bb072a176bdd059bb50ced9798201fc9bfd4714e9adf535f6a7b21a38cc";
+    const STABLE_ID: &str = "2880aa420481e25bf9a99f197c9de9b3b641089ed62fca21630b55a6dd6bbbd3";
 
     #[test]
     fn item_id_is_unique_for_different_calls() {
         let item1 = Item::from(vec![Call {
             function: Function::parse("foo(uint256)").unwrap(),
-            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            args: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            ..Default::default()
         }]);
         let item2 = Item::from(vec![Call {
             function: Function::parse("bar(uint256)").unwrap(),
-            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            args: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            ..Default::default()
         }]);
         assert_ne!(item1.id(), item2.id());
     }
@@ -74,7 +76,8 @@ mod tests {
     fn item_path_is_correct() {
         let item = Item::from(vec![Call {
             function: Function::parse("foo(uint256)").unwrap(),
-            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            args: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            ..Default::default()
         }]);
         let artifact_id = crate::foundry::ArtifactId {
             path: PathBuf::from("src/Counter.sol"),
@@ -98,11 +101,13 @@ mod tests {
 
         let item_a = Item::from(vec![Call {
             function: Function::parse("foo(uint256)").unwrap(),
-            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            args: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            ..Default::default()
         }]);
         let item_b = Item::from(vec![Call {
             function: func_b,
-            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            args: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            ..Default::default()
         }]);
         assert_eq!(item_a.id(), item_b.id());
     }
@@ -116,7 +121,8 @@ mod tests {
         // 1. Build an item in memory with known execution data.
         let item = Item::from(vec![Call {
             function: Function::parse("foo(uint256)").unwrap(),
-            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            args: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+            ..Default::default()
         }]);
         let id_before = item.id();
         assert_eq!(

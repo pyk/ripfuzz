@@ -44,15 +44,18 @@ mod tests {
         let calls = vec![
             Call {
                 function: func.clone(),
-                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                ..Default::default()
             },
             Call {
                 function: func.clone(),
-                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                ..Default::default()
             },
             Call {
                 function: func.clone(),
-                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+                ..Default::default()
             },
         ];
 

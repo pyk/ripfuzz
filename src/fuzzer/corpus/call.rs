@@ -2,7 +2,8 @@
 
 use alloy_dyn_abi::{DynSolType, DynSolValue, Specifier};
 use alloy_json_abi::Function;
-use alloy_primitives::{keccak256, FixedBytes, Selector};
+use alloy_primitives::{keccak256, Address, FixedBytes, Selector, U256};
+use revm::primitives::Bytes;
 use serde::{Deserialize, Serialize};
 
 /// A single call in a sequence.
@@ -12,7 +13,11 @@ pub struct Call {
     pub function: Function,
     /// Concrete argument values. Always a [`DynSolValue::Tuple`] whose
     /// elements match `function.inputs` in order.
-    pub values: DynSolValue,
+    pub args: DynSolValue,
+    /// Wei value sent with this call.
+    pub value: U256,
+    /// Account address that sends this call.
+    pub caller: Address,
 }
 
 impl Default for Call {
@@ -24,7 +29,9 @@ impl Default for Call {
                 outputs: vec![],
                 state_mutability: alloy_json_abi::StateMutability::NonPayable,
             },
-            values: DynSolValue::Tuple(vec![]),
+            args: DynSolValue::Tuple(vec![]),
+            value: U256::ZERO,
+            caller: crate::evm::chain::DEFAULT_DEPLOYER,
         }
     }
 }
@@ -32,9 +39,11 @@ impl Default for Call {
 impl Serialize for Call {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(Some(2))?;
+        let mut map = serializer.serialize_map(Some(4))?;
         map.serialize_entry("sig", &self.function.signature())?;
-        map.serialize_entry("args", &hex::encode(self.values.abi_encode_params()))?;
+        map.serialize_entry("args", &hex::encode(self.args.abi_encode_params()))?;
+        map.serialize_entry("value", &self.value)?;
+        map.serialize_entry("caller", &self.caller)?;
         map.end()
     }
 }
@@ -45,11 +54,15 @@ impl<'de> Deserialize<'de> for Call {
         struct CallHelper {
             sig: String,
             args: String,
+            #[serde(default)]
+            value: U256,
+            #[serde(default = "default_deployer")]
+            caller: Address,
         }
 
         let helper = CallHelper::deserialize(deserializer)?;
         let function = Function::parse(&helper.sig).map_err(serde::de::Error::custom)?;
-        let args = alloy_primitives::hex::decode(helper.args.trim_start_matches("0x"))
+        let raw_args = alloy_primitives::hex::decode(helper.args.trim_start_matches("0x"))
             .map_err(serde::de::Error::custom)?;
 
         let types: Vec<DynSolType> = function
@@ -61,11 +74,16 @@ impl<'de> Deserialize<'de> for Call {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let tuple = DynSolType::Tuple(types);
-        let values = tuple
-            .abi_decode_params(&args)
+        let args = tuple
+            .abi_decode_params(&raw_args)
             .map_err(|e| serde::de::Error::custom(e.to_string()))?;
 
-        Ok(Self { function, values })
+        Ok(Self {
+            function,
+            args,
+            value: helper.value,
+            caller: helper.caller,
+        })
     }
 }
 
@@ -75,32 +93,49 @@ impl Call {
         self.function.selector()
     }
 
-    /// Encode this call as a flat byte vector (selector + ABI-encoded args).
-    pub fn encode(&self) -> Vec<u8> {
-        let args = self.values.abi_encode_params();
+    /// Encode this call as EVM calldata (selector + ABI-encoded args).
+    pub fn calldata(&self) -> Bytes {
+        let args = self.args.abi_encode_params();
         let mut buf = Vec::with_capacity(4 + args.len());
         buf.extend_from_slice(self.function.selector().as_slice());
         buf.extend_from_slice(&args);
-        buf
+        Bytes::from(buf)
     }
 
     /// Deterministic Keccak256 hash of the fields that affect EVM execution.
     ///
-    /// Human-readable metadata (`function`) is intentionally excluded
-    /// because it is derived from the selector + values and does not change
-    /// the state transition.
+    /// This includes `caller`, `value`, and the calldata, because all three
+    /// can change the resulting state transition.
     pub fn content_hash(&self) -> [u8; 32] {
-        let encoded = self.encode();
-        keccak256(&encoded).into()
+        let mut buf = Vec::new();
+        buf.extend_from_slice(self.caller.as_slice());
+        buf.extend_from_slice(&self.value.to_be_bytes::<32>());
+        buf.extend_from_slice(&self.calldata());
+        keccak256(&buf).into()
     }
 
     /// Create an owned copy of this call without using `Clone::clone`.
     pub fn replicate(&self) -> Self {
         Self {
             function: self.function.clone(),
-            values: self.values.clone(),
+            args: self.args.clone(),
+            value: self.value,
+            caller: self.caller,
         }
     }
+
+    /// Convert this call into an EVM [`Transaction`](crate::evm::chain::Transaction)
+    /// directed at `target`.
+    pub fn into_transaction(&self, target: Address) -> crate::evm::chain::Transaction {
+        crate::evm::chain::Transaction::new(target)
+            .caller(self.caller)
+            .calldata(self.calldata())
+            .value(self.value)
+    }
+}
+
+fn default_deployer() -> Address {
+    crate::evm::chain::DEFAULT_DEPLOYER
 }
 
 /// Generate a default [`DynSolValue`] for the given type.

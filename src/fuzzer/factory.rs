@@ -232,7 +232,7 @@ pub fn format_failure(
             .unwrap_or(n as u64);
 
         let func_name = call.function.name.clone();
-        let args = match &call.values {
+        let args = match &call.args {
             alloy_dyn_abi::DynSolValue::Tuple(v) if v.is_empty() => "()".into(),
             alloy_dyn_abi::DynSolValue::Tuple(v) => {
                 let args_str = v

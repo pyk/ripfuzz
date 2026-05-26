@@ -23,7 +23,7 @@ impl SequenceArgMutator {
     ///
     /// Returns `true` if any argument was changed.
     fn mutate_call_args(&self, rng: &mut fastrand::Rng, call: &mut Call) -> bool {
-        let values = match &mut call.values {
+        let values = match &mut call.args {
             DynSolValue::Tuple(elems) => elems,
             _ => return false,
         };
@@ -188,13 +188,14 @@ mod tests {
             let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
                 function: func.clone(),
-                values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+                args: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+                ..Default::default()
             }];
-            let original = calls[0].encode()[4..].to_vec();
+            let original = calls[0].calldata()[4..].to_vec();
 
             let result = mutator.mutate(&mut rng, &mut calls);
             assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
-            if calls[0].encode()[4..] != original {
+            if calls[0].calldata()[4..] != original {
                 any_changed = true;
             }
         }
@@ -215,7 +216,7 @@ mod tests {
             let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
                 function: func.clone(),
-                values: DynSolValue::Tuple(vec![DynSolValue::Uint(
+                args: DynSolValue::Tuple(vec![DynSolValue::Uint(
                     U256::from_be_bytes([
                         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
                         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -224,12 +225,13 @@ mod tests {
                     ]),
                     256,
                 )]),
+                ..Default::default()
             }];
-            let original = calls[0].encode()[4..].to_vec();
+            let original = calls[0].calldata()[4..].to_vec();
 
             mutator.mutate(&mut rng, &mut calls);
 
-            let mutated = calls[0].encode()[4..].to_vec();
+            let mutated = calls[0].calldata()[4..].to_vec();
             if mutated[..16] != original[..16] {
                 any_high_changed = true;
             }
@@ -249,14 +251,15 @@ mod tests {
         let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
             function: func.clone(),
-            values: DynSolValue::Tuple(vec![DynSolValue::Bytes(vec![0xab, 0xcd])]),
+            args: DynSolValue::Tuple(vec![DynSolValue::Bytes(vec![0xab, 0xcd])]),
+            ..Default::default()
         }];
-        let original = calls[0].encode()[4..].to_vec();
+        let original = calls[0].calldata()[4..].to_vec();
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
 
-        let mutated = calls[0].encode()[4..].to_vec();
+        let mutated = calls[0].calldata()[4..].to_vec();
 
         assert_eq!(
             &mutated[..64],
@@ -276,13 +279,14 @@ mod tests {
         let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
             function: Function::parse("toggle(bool)").unwrap(),
-            values: DynSolValue::Tuple(vec![DynSolValue::Bool(true)]),
+            args: DynSolValue::Tuple(vec![DynSolValue::Bool(true)]),
+            ..Default::default()
         }];
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
         assert_eq!(
-            calls[0].values.as_tuple().unwrap()[0].as_bool().unwrap(),
+            calls[0].args.as_tuple().unwrap()[0].as_bool().unwrap(),
             false,
             "flipped to false"
         );
@@ -294,13 +298,14 @@ mod tests {
         let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
             function: Function::parse("transfer(address)").unwrap(),
-            values: DynSolValue::Tuple(vec![DynSolValue::Address(Address::ZERO)]),
+            args: DynSolValue::Tuple(vec![DynSolValue::Address(Address::ZERO)]),
+            ..Default::default()
         }];
-        let original = calls[0].encode()[4..].to_vec();
+        let original = calls[0].calldata()[4..].to_vec();
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
-        let mutated = calls[0].encode()[4..].to_vec();
+        let mutated = calls[0].calldata()[4..].to_vec();
         assert_ne!(&mutated[12..32], &original[12..32]);
     }
 
@@ -313,11 +318,12 @@ mod tests {
             let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
                 function: func.clone(),
-                values: DynSolValue::Tuple(vec![DynSolValue::Address(Address::ZERO)]),
+                args: DynSolValue::Tuple(vec![DynSolValue::Address(Address::ZERO)]),
+                ..Default::default()
             }];
 
             mutator.mutate(&mut rng, &mut calls);
-            let mutated = &calls[0].encode()[4..];
+            let mutated = &calls[0].calldata()[4..];
 
             assert_eq!(&mutated[..12], &[0u8; 12], "address padding must stay zero");
             assert_ne!(
@@ -334,17 +340,18 @@ mod tests {
         let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
             function: Function::parse("multi(uint256,bool,address)").unwrap(),
-            values: DynSolValue::Tuple(vec![
+            args: DynSolValue::Tuple(vec![
                 DynSolValue::Uint(U256::ZERO, 256),
                 DynSolValue::Bool(false),
                 DynSolValue::Address(Address::ZERO),
             ]),
+            ..Default::default()
         }];
-        let original = calls[0].encode()[4..].to_vec();
+        let original = calls[0].calldata()[4..].to_vec();
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
-        assert_ne!(calls[0].encode()[4..], original);
+        assert_ne!(calls[0].calldata()[4..], original);
     }
 
     #[test]
@@ -357,10 +364,11 @@ mod tests {
             let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
                 function: func.clone(),
-                values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+                args: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
+                ..Default::default()
             }];
             mutator.mutate(&mut rng, &mut calls);
-            values.push(calls[0].encode()[4..].to_vec());
+            values.push(calls[0].calldata()[4..].to_vec());
         }
 
         let first = &values[0];
@@ -374,13 +382,14 @@ mod tests {
         let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
             function: Function::parse("set(uint8)").unwrap(),
-            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::from(255), 8)]),
+            args: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::from(255), 8)]),
+            ..Default::default()
         }];
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
         let decoded = DynSolType::Tuple(vec![DynSolType::Uint(8)])
-            .abi_decode_params(&calls[0].encode()[4..])
+            .abi_decode_params(&calls[0].calldata()[4..])
             .unwrap();
         if let DynSolValue::Tuple(v) = decoded {
             if let DynSolValue::Uint(n, 8) = v[0] {
@@ -399,13 +408,14 @@ mod tests {
             let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
                 function: func.clone(),
-                values: DynSolValue::Tuple(vec![DynSolValue::Int(I256::ZERO, 256)]),
+                args: DynSolValue::Tuple(vec![DynSolValue::Int(I256::ZERO, 256)]),
+                ..Default::default()
             }];
-            let original = calls[0].encode()[4..].to_vec();
+            let original = calls[0].calldata()[4..].to_vec();
 
             let result = mutator.mutate(&mut rng, &mut calls);
             assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
-            if calls[0].encode()[4..] != original {
+            if calls[0].calldata()[4..] != original {
                 any_changed = true;
             }
         }
@@ -425,14 +435,15 @@ mod tests {
             let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
                 function: func.clone(),
-                values: DynSolValue::Tuple(vec![DynSolValue::Tuple(vec![
+                args: DynSolValue::Tuple(vec![DynSolValue::Tuple(vec![
                     DynSolValue::Uint(U256::ZERO, 256),
                     DynSolValue::Bool(false),
                 ])]),
+                ..Default::default()
             }];
-            let original = calls[0].encode()[4..].to_vec();
+            let original = calls[0].calldata()[4..].to_vec();
             mutator.mutate(&mut rng, &mut calls);
-            if calls[0].encode()[4..] != original {
+            if calls[0].calldata()[4..] != original {
                 any_changed = true;
             }
         }
@@ -445,14 +456,15 @@ mod tests {
         let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
             function: Function::parse("set(string)").unwrap(),
-            values: DynSolValue::Tuple(vec![DynSolValue::String("hello".into())]),
+            args: DynSolValue::Tuple(vec![DynSolValue::String("hello".into())]),
+            ..Default::default()
         }];
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
 
         let decoded = DynSolType::Tuple(vec![DynSolType::String])
-            .abi_decode_params(&calls[0].encode()[4..])
+            .abi_decode_params(&calls[0].calldata()[4..])
             .unwrap();
         if let DynSolValue::Tuple(values) = decoded {
             if let DynSolValue::String(s) = &values[0] {
@@ -476,11 +488,12 @@ mod tests {
             let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
                 function: func.clone(),
-                values: DynSolValue::Tuple(vec![DynSolValue::Function(func_val)]),
+                args: DynSolValue::Tuple(vec![DynSolValue::Function(func_val)]),
+                ..Default::default()
             }];
-            let original = calls[0].encode()[4..].to_vec();
+            let original = calls[0].calldata()[4..].to_vec();
             mutator.mutate(&mut rng, &mut calls);
-            if calls[0].encode()[4..] != original {
+            if calls[0].calldata()[4..] != original {
                 any_changed = true;
             }
         }
