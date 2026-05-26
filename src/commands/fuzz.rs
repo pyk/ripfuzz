@@ -413,7 +413,6 @@ pub fn run(args: Args) -> Result<()> {
                     runs = snapshot.runs,
                     calls = %calls_str,
                     corpus = corpus_stats.item_count,
-                    coverage = corpus_stats.coverage_hits,
                     failures = snapshot.failures,
                     gas_per_sec = gas_per_sec,
                     "fuzz:"

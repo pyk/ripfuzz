@@ -1,15 +1,11 @@
 //! Mutators that transform call sequences during fuzzing.
 
 pub use abi::SequenceArgMutator;
-pub use corpus::{
-    SequenceHeadMutator, SequenceInterleaveMutator, SequenceSpliceMutator, SequenceTailMutator,
-};
 pub use sequence::{SequenceDeleteMutator, SequenceInsertMutator, SequenceSwapMutator};
 
 use crate::fuzzer::corpus::Call;
 
 pub mod abi;
-pub mod corpus;
 pub mod sequence;
 
 /// Result of applying a mutator.

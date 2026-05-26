@@ -26,13 +26,6 @@ use anyhow::Result;
 pub use call::Call;
 pub use item::Item;
 
-use alloy_dyn_abi::Specifier;
-use alloy_json_abi::Function;
-
-use crate::evm::coverage::map::CoverageMap;
-use crate::fuzzer::config::Config;
-use crate::fuzzer::corpus::call::default_dyn_value;
-use crate::fuzzer::mutators::Mutator;
 use crate::target::Contract;
 
 pub mod call;
@@ -52,35 +45,20 @@ pub struct CorpusStats {
 pub struct Stats {
     pub item_count: usize,
     pub failure_count: usize,
-    pub coverage_hits: usize,
 }
 
 /// Inner state of [`SharedCorpus`].
-///
-/// `pending` is protected by a `Mutex`; `mutators` is read-only after
-/// construction so it can be accessed lock-free.
 pub struct SharedCorpusInner {
-    pub pending: std::sync::Mutex<Vec<Item>>,
-    pub coverage: CoverageMap,
     pub storage_dir: Option<PathBuf>,
     pub items: papaya::HashMap<String, Item>,
     pub contract: Arc<Contract>,
-    pub functions: Vec<Function>,
-    pub mutators: Vec<Box<dyn Mutator>>,
 }
 
 impl std::fmt::Debug for SharedCorpusInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let pending_len = self.pending.lock().map(|g| g.len()).unwrap_or(0);
         f.debug_struct("SharedCorpusInner")
-            .field("pending", &format_args!("[{} pending]", pending_len))
             .field("items", &format_args!("[{} items]", self.items.pin().len()))
             .field("contract", &self.contract)
-            .field("functions", &self.functions)
-            .field(
-                "mutators",
-                &format_args!("[{} mutators]", self.mutators.len()),
-            )
             .finish()
     }
 }
@@ -98,39 +76,10 @@ impl SharedCorpus {
     ///
     /// No disk I/O is performed until [`Self::load`] is called.
     pub fn new(dir: impl AsRef<Path>, contract: Contract) -> Self {
-        let functions: Vec<Function> = contract.target_functions.clone();
-
-        let inner = Arc::new_cyclic(|weak| {
-            let mutators: Vec<Box<dyn Mutator>> = vec![
-                Box::new(crate::fuzzer::mutators::SequenceSwapMutator),
-                Box::new(crate::fuzzer::mutators::SequenceInsertMutator::new(
-                    functions.clone(),
-                )),
-                Box::new(crate::fuzzer::mutators::SequenceDeleteMutator),
-                Box::new(crate::fuzzer::mutators::SequenceSpliceMutator::new(
-                    weak.clone(),
-                )),
-                Box::new(crate::fuzzer::mutators::SequenceInterleaveMutator::new(
-                    weak.clone(),
-                )),
-                Box::new(crate::fuzzer::mutators::SequenceHeadMutator::new(
-                    weak.clone(),
-                )),
-                Box::new(crate::fuzzer::mutators::SequenceTailMutator::new(
-                    weak.clone(),
-                )),
-                Box::new(crate::fuzzer::mutators::SequenceArgMutator::new()),
-            ];
-
-            SharedCorpusInner {
-                pending: std::sync::Mutex::new(Vec::new()),
-                coverage: CoverageMap::default(),
-                storage_dir: Some(dir.as_ref().to_path_buf()),
-                items: papaya::HashMap::new(),
-                contract: Arc::new(contract),
-                functions,
-                mutators,
-            }
+        let inner = Arc::new(SharedCorpusInner {
+            storage_dir: Some(dir.as_ref().to_path_buf()),
+            items: papaya::HashMap::new(),
+            contract: Arc::new(contract),
         });
 
         Self { inner }
@@ -179,10 +128,8 @@ impl SharedCorpus {
 
                     if all_valid {
                         valid_count += 1;
-                        let Ok(mut guard) = self.inner.pending.lock() else {
-                            continue;
-                        };
-                        guard.push(item);
+                        let id = item.id();
+                        let _ = self.inner.items.pin().insert(id, item);
                     } else {
                         invalid_call_count += 1;
                     }
@@ -200,37 +147,18 @@ impl SharedCorpus {
 
     /// Take a corpus item for execution.
     ///
-    /// Returns a pending item if available. Otherwise picks a random
-    /// existing item, applies a random mutator, and returns the
-    /// result. If the corpus is empty, a random sequence is generated.
-    pub fn take(&self, rng: &mut fastrand::Rng, config: &Config) -> Item {
-        // 1. Pending replay
-        {
-            let Ok(mut pending) = self.inner.pending.lock() else {
-                return Item::from(generate_random_sequence(&self.inner.functions, rng, config));
-            };
-            if !pending.is_empty() {
-                return pending.remove(0);
-            }
-        }
-
-        // 2. Random pick from the lock-free map + mutate
+    /// Picks a random existing item and returns a clone.
+    /// If the corpus is empty, an empty item is returned.
+    pub fn take(&self, rng: &mut fastrand::Rng) -> Item {
         let map = self.inner.items.pin();
         let count = map.len();
-        if count > 0 && rng.bool() {
+        if count > 0 {
             let items: Vec<Item> = map.values().cloned().collect();
-
             let idx = rng.usize(0..items.len());
-            let mut item = items[idx].clone();
-            let calls = &mut item.calls;
-
-            let m_idx = rng.usize(0..self.inner.mutators.len());
-            let _ = self.inner.mutators[m_idx].mutate(rng, calls);
-            return item;
+            return items[idx].clone();
         }
 
-        // 3. Generate a fresh random sequence
-        Item::from(generate_random_sequence(&self.inner.functions, rng, config))
+        Item::from(Vec::new())
     }
 
     /// Add a corpus item to the collection.
@@ -272,41 +200,8 @@ impl SharedCorpus {
         Stats {
             item_count,
             failure_count: 0,
-            coverage_hits: self.inner.coverage.hit_count(),
         }
     }
-}
-
-fn generate_random_sequence(
-    functions: &[Function],
-    rng: &mut fastrand::Rng,
-    config: &Config,
-) -> Vec<Call> {
-    let len = rng.usize(1..=config.sequence_length.max(1));
-    let mut calls = Vec::with_capacity(len);
-    for _ in 0..len {
-        if functions.is_empty() {
-            break;
-        }
-        let idx = rng.usize(0..functions.len());
-        let func = &functions[idx];
-        let values: Vec<alloy_dyn_abi::DynSolValue> = func
-            .inputs
-            .iter()
-            .filter_map(|p| p.resolve().ok())
-            .map(|ty| default_dyn_value(&ty))
-            .collect();
-        let call = Call {
-            function: {
-                // checkrs: allow(clone_in_loops)
-                func.clone()
-            },
-            args: alloy_dyn_abi::DynSolValue::Tuple(values),
-            ..Default::default()
-        };
-        calls.push(call);
-    }
-    calls
 }
 
 #[cfg(test)]
