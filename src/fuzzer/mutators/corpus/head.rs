@@ -2,7 +2,7 @@
 
 use std::sync::Weak;
 
-use crate::fuzzer::corpus::{Call, SharedCorpusInner};
+use crate::fuzzer::corpus::{Call, CorpusItem, SharedCorpusInner};
 use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Take the head of a corpus sequence and keep it, discarding the rest.
@@ -22,16 +22,15 @@ impl Mutator for SequenceHeadMutator {
         let Some(inner) = self.inner.upgrade() else {
             return MutationResult::Skipped;
         };
-        let Ok(corpus) = inner.corpus.read() else {
-            return MutationResult::Skipped;
-        };
-        let count = corpus.items.len();
+        let map = inner.items.pin();
+        let count = map.len();
         if count == 0 {
             return MutationResult::Skipped;
         }
         let id = rng.usize(0..count);
-        let seq = corpus.items[id].calls.clone();
-        drop(corpus);
+        let values: Vec<CorpusItem> = map.values().cloned().collect();
+        drop(map);
+        let seq = values[id].calls.clone();
         if seq.is_empty() {
             return MutationResult::Skipped;
         }

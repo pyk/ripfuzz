@@ -23,11 +23,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-
 pub use call::{Call, CallMeta};
 pub use corpus::{Corpus, CorpusItem};
 
-use crate::evm::coverage::map::LocalCoverage;
 use crate::fuzzer::config::Config;
 use crate::fuzzer::mutators::Mutator;
 use crate::target::Contract;
@@ -59,6 +57,7 @@ pub struct Stats {
 /// read-only after construction so it can be accessed lock-free.
 pub struct SharedCorpusInner {
     pub corpus: std::sync::RwLock<Corpus>,
+    pub items: papaya::HashMap<String, CorpusItem>,
     pub contract: Arc<Contract>,
     pub selectors: Vec<[u8; 4]>,
     pub mutators: Vec<Box<dyn Mutator>>,
@@ -68,6 +67,7 @@ impl std::fmt::Debug for SharedCorpusInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SharedCorpusInner")
             .field("corpus", &self.corpus)
+            .field("items", &format_args!("[{} items]", self.items.pin().len()))
             .field("contract", &self.contract)
             .field("selectors", &self.selectors)
             .field(
@@ -132,6 +132,7 @@ impl SharedCorpus {
 
             SharedCorpusInner {
                 corpus: std::sync::RwLock::new(corpus),
+                items: papaya::HashMap::new(),
                 contract: Arc::new(contract),
                 selectors,
                 mutators,
@@ -164,13 +165,15 @@ impl SharedCorpus {
         if let Some(dir) = dir
             && dir.exists()
         {
-            for entry in fs::read_dir(dir)? {
-                let entry = entry?;
+            for entry in walkdir::WalkDir::new(dir)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
                 let path = entry.path();
                 if path.extension() == Some("json".as_ref()) {
                     total_count += 1;
 
-                    let Ok(json) = fs::read_to_string(&path) else {
+                    let Ok(json) = fs::read_to_string(path) else {
                         parse_failed_count += 1;
                         continue;
                     };
@@ -211,8 +214,8 @@ impl SharedCorpus {
 
     /// Take a corpus item for execution.
     ///
-    /// Returns a pending item if available. Otherwise picks a weighted
-    /// random existing item, applies a random mutator, and returns the
+    /// Returns a pending item if available. Otherwise picks a random
+    /// existing item, applies a random mutator, and returns the
     /// result. If the corpus is empty, a random sequence is generated.
     pub fn take(&self, rng: &mut fastrand::Rng, config: &Config) -> CorpusItem {
         let mut corpus = self.inner.corpus.write().unwrap();
@@ -222,68 +225,78 @@ impl SharedCorpus {
             item.is_replay = true;
             return item;
         }
+        drop(corpus);
 
-        // 2. Mutate an existing item
-        let has_entries = !corpus.items.is_empty();
-        if has_entries
-            && rng.bool()
-            && let Some((idx, mut item)) = corpus.random_item_for_mutation_with_index(rng)
-        {
-            if let Some(base) = corpus.items.get_mut(idx) {
-                base.total_mutations += 1;
-            }
-            item.base_idx = Some(idx);
+        // 2. Random pick from the lock-free map + mutate
+        let map = self.inner.items.pin();
+        let count = map.len();
+        if count > 0 && rng.bool() {
+            let items: Vec<CorpusItem> = map.values().cloned().collect();
+            drop(map);
+
+            let idx = rng.usize(0..items.len());
+            let mut item = items[idx].clone();
             let calls = &mut item.calls;
-            drop(corpus);
 
             let m_idx = rng.usize(0..self.inner.mutators.len());
             let _ = self.inner.mutators[m_idx].mutate(rng, calls);
             return item;
         }
-        drop(corpus);
+        drop(map);
 
         // 3. Generate a fresh random sequence
         CorpusItem::new(generate_random_sequence(&self.inner.selectors, rng, config))
     }
 
-    /// Add an item to the corpus if it produces new coverage.
+    /// Add a corpus item to the collection.
     ///
-    /// Replay items that do not increase coverage are still promoted to
-    /// the main corpus so they are available for future mutation.
-    pub fn add(&self, item: CorpusItem, coverage: &LocalCoverage) -> bool {
-        let Ok(mut guard) = self.inner.corpus.write() else {
+    /// Deduplicates by [`CorpusItem::id`]. If the item already exists the
+    /// function returns `false`. Otherwise it inserts the item into the
+    /// lock-free map and writes it to disk.
+    pub fn add(&self, item: CorpusItem) -> bool {
+        let id = item.id();
+
+        let map = self.inner.items.pin();
+        if map.contains_key(&id) {
             return false;
-        };
+        }
+        drop(map);
 
-        let added = guard.check_and_update_coverage(coverage, &item);
-        if added {
-            if let Some(idx) = item.base_idx
-                && let Some(base) = guard.items.get_mut(idx)
-            {
-                base.new_finds_produced += 1;
+        let map = self.inner.items.pin();
+        let old = map.insert(id, item.clone());
+        if old.is_some() {
+            return false;
+        }
+        drop(map);
+
+        // Write to disk
+        if let Ok(guard) = self.inner.corpus.read()
+            && let Some(dir) = guard.storage_dir()
+        {
+            let path = item.path(dir, &self.inner.contract.artifact_id);
+            if let Some(parent) = path.parent() {
+                let _ = fs::create_dir_all(parent);
             }
-            return true;
+            if let Ok(json) = serde_json::to_string(&item) {
+                let _ = fs::write(&path, json);
+            }
         }
 
-        if item.is_replay {
-            let already_present = guard.items.iter().any(|i| i.calls == item.calls);
-            if !already_present {
-                guard.items.push(item);
-                return true;
-            }
-        }
-
-        false
+        true
     }
 
     /// Runtime statistics for the corpus.
     pub fn stats(&self) -> Stats {
+        let item_count = self.inner.items.pin().len();
         let Ok(guard) = self.inner.corpus.read() else {
-            return Stats::default();
+            return Stats {
+                item_count,
+                ..Stats::default()
+            };
         };
         Stats {
-            item_count: guard.items.len(),
-            failure_count: guard.failures.len(),
+            item_count,
+            failure_count: 0,
             coverage_hits: guard.coverage().hit_count(),
         }
     }
@@ -318,4 +331,114 @@ fn generate_random_sequence(
         calls.push(call);
     }
     calls
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::Barrier;
+
+    use super::*;
+
+    #[test]
+    fn corpus_item_id_is_unique_for_different_calls() {
+        let item1 = CorpusItem::new(vec![Call {
+            selector: [0x12, 0x34, 0x56, 0x78],
+            args: vec![0u8; 32],
+            ..Default::default()
+        }]);
+        let item2 = CorpusItem::new(vec![Call {
+            selector: [0xab, 0xcd, 0xef, 0x01],
+            args: vec![0u8; 32],
+            ..Default::default()
+        }]);
+        assert_ne!(item1.id(), item2.id());
+    }
+
+    #[test]
+    fn corpus_item_path_is_correct() {
+        let item = CorpusItem::new(vec![Call {
+            selector: [0x12, 0x34, 0x56, 0x78],
+            args: vec![0u8; 32],
+            ..Default::default()
+        }]);
+        let artifact_id = crate::foundry::ArtifactId {
+            path: PathBuf::from("src/Counter.sol"),
+            name: "Counter".to_string(),
+        };
+        let path = item.path("/tmp/corpus", &artifact_id);
+        let expected = PathBuf::from(format!(
+            "/tmp/corpus/src/Counter.sol/Counter/{}.json",
+            item.id()
+        ));
+        assert_eq!(path, expected);
+    }
+
+    #[test]
+    fn parallel_add_writes_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let contract = Contract {
+            artifact_id: crate::foundry::ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".to_string(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            target_functions: vec![],
+            invariant_functions: vec![],
+            setup_function: None,
+            initcode: revm::primitives::Bytes::new(),
+        };
+
+        let config = Config {
+            seed: 0,
+            sequence_length: 4,
+            max_block_number_delay: 0,
+            max_block_timestamp_delay: 0,
+        };
+        let corpus = SharedCorpus::new(tmp.path(), contract, config);
+
+        let item = CorpusItem::new(vec![Call {
+            selector: [0x12, 0x34, 0x56, 0x78],
+            args: vec![0u8; 32],
+            ..Default::default()
+        }]);
+
+        let threads = 16;
+        let barrier = Arc::new(Barrier::new(threads));
+        let mut handles = Vec::with_capacity(threads);
+
+        for _ in 0..threads {
+            let corpus = corpus.clone();
+            let item = item.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                corpus.add(item)
+            }));
+        }
+
+        let mut added = 0usize;
+        for handle in handles {
+            if handle.join().unwrap() {
+                added += 1;
+            }
+        }
+
+        assert_eq!(added, 1, "exactly one thread should win the race to add");
+
+        let expected_path = item.path(tmp.path(), &corpus.inner.contract.artifact_id);
+        assert!(
+            expected_path.exists(),
+            "corpus item should be written to disk at {:?}",
+            expected_path
+        );
+
+        // Ensure there is exactly one file in the entire tree.
+        let file_count: usize = walkdir::WalkDir::new(tmp.path())
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .count();
+        assert_eq!(file_count, 1, "only one file should exist on disk");
+    }
 }

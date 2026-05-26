@@ -2,7 +2,7 @@
 
 use std::sync::Weak;
 
-use crate::fuzzer::corpus::{Call, SharedCorpusInner};
+use crate::fuzzer::corpus::{Call, CorpusItem, SharedCorpusInner};
 use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Interleave two corpus sequences.
@@ -22,10 +22,8 @@ impl Mutator for SequenceInterleaveMutator {
         let Some(inner) = self.inner.upgrade() else {
             return MutationResult::Skipped;
         };
-        let Ok(corpus) = inner.corpus.read() else {
-            return MutationResult::Skipped;
-        };
-        let count = corpus.items.len();
+        let map = inner.items.pin();
+        let count = map.len();
         if count < 2 {
             return MutationResult::Skipped;
         }
@@ -33,9 +31,11 @@ impl Mutator for SequenceInterleaveMutator {
         let id1 = rng.usize(0..count);
         let id2 = rng.usize(0..count);
 
-        let seq1 = corpus.items[id1].calls.clone();
-        let seq2 = corpus.items[id2].calls.clone();
-        drop(corpus);
+        let values: Vec<CorpusItem> = map.values().cloned().collect();
+        drop(map);
+
+        let seq1 = values[id1].calls.clone();
+        let seq2 = values[id2].calls.clone();
 
         let take1 = rng.usize(0..=seq1.len());
         let take2 = rng.usize(0..=seq2.len());

@@ -184,10 +184,7 @@ impl Fuzzer {
 
             if outcome.all_ok {
                 // checkrs: allow(clone_in_loops)
-                let added = self
-                    .corpus
-                    .add(CorpusItem::new(calls.clone()), &outcome.coverage);
-                let _ = added;
+                let _ = self.corpus.add(CorpusItem::new(calls.clone()));
             }
 
             if let Some(crash_info) = outcome.crash {
