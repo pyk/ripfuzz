@@ -49,7 +49,7 @@ pub struct Stats {
 
 /// Inner state of [`SharedCorpus`].
 pub struct SharedCorpusInner {
-    pub storage_dir: Option<PathBuf>,
+    pub corpus_dir: PathBuf,
     pub items: papaya::HashMap<String, Item>,
     pub contract: Arc<Contract>,
 }
@@ -77,7 +77,7 @@ impl SharedCorpus {
     /// No disk I/O is performed until [`Self::load`] is called.
     pub fn new(dir: impl AsRef<Path>, contract: Contract) -> Self {
         let inner = Arc::new(SharedCorpusInner {
-            storage_dir: Some(dir.as_ref().to_path_buf()),
+            corpus_dir: dir.as_ref().to_path_buf(),
             items: papaya::HashMap::new(),
             contract: Arc::new(contract),
         });
@@ -96,11 +96,9 @@ impl SharedCorpus {
         let mut invalid_call_count = 0usize;
         let mut valid_count = 0usize;
 
-        let dir = self.inner.storage_dir.clone();
+        let dir = self.inner.corpus_dir.clone();
 
-        if let Some(dir) = dir
-            && dir.exists()
-        {
+        if dir.exists() {
             for entry in walkdir::WalkDir::new(dir)
                 .into_iter()
                 .filter_map(|e| e.ok())
@@ -181,10 +179,7 @@ impl SharedCorpus {
         }
 
         // Write to disk
-        let Some(dir) = &self.inner.storage_dir else {
-            return Ok(());
-        };
-        let path = item.path(dir, &self.inner.contract.artifact_id);
+        let path = item.path(&self.inner.corpus_dir, &self.inner.contract.artifact_id);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
