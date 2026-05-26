@@ -7,8 +7,8 @@ use anyhow::Result;
 
 use serde::{Deserialize, Serialize};
 
-use crate::corpus::Call;
 use crate::evm::coverage::map::{CoverageMap, LocalCoverage};
+use crate::fuzzer::corpus::Call;
 
 /// A single item in the fuzzing corpus.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

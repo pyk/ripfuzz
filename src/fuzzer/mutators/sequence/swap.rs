@@ -1,6 +1,6 @@
 //! Sequence mutator that swaps two random calls.
 
-use crate::corpus::Call;
+use crate::fuzzer::corpus::Call;
 use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Swap two random calls in the sequence.

@@ -7,10 +7,10 @@ use alloy_primitives::Address;
 use anyhow::Result;
 use tracing::{info, instrument};
 
-use crate::corpus::{Call, CorpusItem};
 use crate::evm;
 use crate::fuzzer::config::Config;
 use crate::fuzzer::corpus::SharedCorpus;
+use crate::fuzzer::corpus::{Call, CorpusItem};
 use crate::fuzzer::engine;
 use crate::fuzzer::metrics::SharedMetrics;
 use crate::fuzzer::mutators::Mutator;
@@ -31,7 +31,7 @@ pub struct Crash {
     pub function_name: String,
     pub selector: [u8; 4],
     pub call_sequence: Vec<Call>,
-    pub call_meta: Vec<crate::corpus::CallMeta>,
+    pub call_meta: Vec<crate::fuzzer::corpus::CallMeta>,
 }
 
 /// Factory that owns the base chain state and spawns [`Fuzzer`] instances.

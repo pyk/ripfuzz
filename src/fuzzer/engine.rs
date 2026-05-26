@@ -7,11 +7,11 @@ use revm::{
     primitives::{Bytes, TxKind},
 };
 
-use crate::corpus::{Call, CallMeta};
 use crate::evm;
 use crate::evm::cheatcode;
 use crate::evm::coverage;
 use crate::evm::coverage::map::LocalCoverage;
+use crate::fuzzer::corpus::{Call, CallMeta};
 use crate::target;
 
 /// Result of executing a single call sequence.

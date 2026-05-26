@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, RwLock};
 
-use crate::corpus::{Call, Corpus};
+use crate::fuzzer::corpus::{Call, Corpus};
 use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Take the head of a corpus sequence and keep it, discarding the rest.

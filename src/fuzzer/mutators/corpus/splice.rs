@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, RwLock};
 
-use crate::corpus::{Call, Corpus};
+use crate::fuzzer::corpus::{Call, Corpus};
 use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Splice two corpus sequences: take the head from one and tail from another.

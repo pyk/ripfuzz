@@ -6,7 +6,7 @@ use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_json_abi::JsonAbi;
 use alloy_primitives::{Address, I256, U256};
 
-use crate::corpus::Call;
+use crate::fuzzer::corpus::Call;
 use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Mutate the arguments of a random call using ABI type information.
@@ -189,7 +189,7 @@ mod tests {
     use alloy_dyn_abi::{DynSolType, DynSolValue};
     use alloy_primitives::U256;
 
-    use crate::corpus;
+    use crate::fuzzer::corpus;
     use crate::fuzzer::mutators::Mutator;
     use crate::fuzzer::mutators::abi;
 

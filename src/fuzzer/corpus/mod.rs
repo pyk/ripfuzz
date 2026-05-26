@@ -5,8 +5,14 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
 
-use crate::corpus::{Call, Corpus, CorpusItem};
+pub use call::{Call, CallMeta};
+pub use corpus::{Corpus, CorpusItem};
+
 use crate::evm::coverage::map::LocalCoverage;
+
+pub mod call;
+#[allow(clippy::module_inception)]
+pub mod corpus;
 
 /// Thread-safe corpus shared across parallel fuzzer threads.
 ///

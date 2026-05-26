@@ -18,8 +18,8 @@ pub mod mutators;
 
 #[cfg(test)]
 mod tests {
-    use crate::corpus::{Call, CallMeta};
     use crate::foundry;
+    use crate::fuzzer::corpus::{Call, CallMeta};
     use crate::fuzzer::{Crash, format_failure};
     use crate::target::Contract;
 

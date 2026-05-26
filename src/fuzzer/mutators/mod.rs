@@ -8,7 +8,7 @@ pub use sequence::{
     SequenceDelayMutator, SequenceDeleteMutator, SequenceInsertMutator, SequenceSwapMutator,
 };
 
-use crate::corpus::Call;
+use crate::fuzzer::corpus::Call;
 
 pub mod abi;
 pub mod corpus;
@@ -33,9 +33,9 @@ pub trait Mutator: Send {
 mod tests {
     use revm::primitives::Bytes;
 
-    use crate::corpus;
     use crate::evm::chain::{Chain, Config as ChainConfig, DeployInput, SetupInput};
     use crate::foundry;
+    use crate::fuzzer::corpus;
     use crate::fuzzer::mutators;
     use crate::fuzzer::mutators::Mutator;
     use crate::target::Contract;
