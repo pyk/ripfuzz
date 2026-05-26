@@ -364,7 +364,15 @@ pub fn run(args: Args) -> Result<()> {
     let corpus_dir = args
         .corpus_dir
         .unwrap_or_else(|| project_path.join("raptor").join("corpus"));
-    let corpus = fuzzer::SharedCorpus::new(&corpus_dir)?;
+    let corpus = fuzzer::SharedCorpus::new(&corpus_dir, target_contract.clone());
+    let corpus_stats = corpus.load()?;
+    info!(
+        total = corpus_stats.total_count,
+        parse_failed = corpus_stats.parse_failed_count,
+        invalid = corpus_stats.invalid_call_count,
+        valid = corpus_stats.valid_count,
+        "corpus loaded"
+    );
 
     // Create fuzzer factory
     info!("creating fuzzer factory");

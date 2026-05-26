@@ -99,6 +99,12 @@ impl Corpus {
     }
 
     /// Set the directory used for persistent corpus storage.
+    /// Access the storage directory, if set.
+    pub fn storage_dir(&self) -> &Option<PathBuf> {
+        &self.storage_dir
+    }
+
+    /// Set the directory used for persistent corpus storage.
     pub fn set_storage_dir(&mut self, dir: impl AsRef<Path>) {
         self.storage_dir = Some(dir.as_ref().to_path_buf());
     }

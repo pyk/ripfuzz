@@ -1,5 +1,6 @@
 //! Thread-safe corpus with explicit lifecycle phases.
 
+use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -9,10 +10,20 @@ pub use call::{Call, CallMeta};
 pub use corpus::{Corpus, CorpusItem};
 
 use crate::evm::coverage::map::LocalCoverage;
+use crate::target::Contract;
 
 pub mod call;
 #[allow(clippy::module_inception)]
 pub mod corpus;
+
+/// Statistics produced by loading a corpus from disk.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CorpusStats {
+    pub total_count: usize,
+    pub parse_failed_count: usize,
+    pub invalid_call_count: usize,
+    pub valid_count: usize,
+}
 
 /// Thread-safe corpus shared across parallel fuzzer threads.
 ///
@@ -25,32 +36,86 @@ pub mod corpus;
 #[derive(Debug, Clone)]
 pub struct SharedCorpus {
     inner: Arc<RwLock<Corpus>>,
+    contract: Arc<Contract>,
 }
 
 impl SharedCorpus {
-    /// Create a corpus backed by `dir`, loading any existing `.json` items.
+    /// Create an empty corpus backed by `dir` for the given target contract.
     ///
-    /// If the directory does not exist yet, an empty corpus is created and
-    /// the directory will be created on the next [`Self::flush_to_disk`].
-    pub fn new(dir: impl AsRef<Path>) -> Result<Self> {
-        let corpus = Corpus::load(dir)?;
-        Ok(Self {
+    /// No disk I/O is performed until [`Self::load`] is called.
+    pub fn new(dir: impl AsRef<Path>, contract: Contract) -> Self {
+        let mut corpus = Corpus::new();
+        corpus.set_storage_dir(dir);
+        Self {
             inner: Arc::new(RwLock::new(corpus)),
+            contract: Arc::new(contract),
+        }
+    }
+
+    /// Load corpus items from the storage directory and validate them
+    /// against the target contract ABI.
+    ///
+    /// Valid items are added to the pending queue. Invalid or unparsable
+    /// items are counted in the returned [`CorpusStats`] but are not stored.
+    pub fn load(&self) -> Result<CorpusStats> {
+        let mut total_count = 0usize;
+        let mut parse_failed_count = 0usize;
+        let mut invalid_call_count = 0usize;
+        let mut valid_count = 0usize;
+
+        let dir = {
+            let guard = self
+                .inner
+                .read()
+                .map_err(|_| anyhow::anyhow!("corpus lock poisoned"))?;
+            guard.storage_dir().clone()
+        };
+
+        if let Some(dir) = dir
+            && dir.exists()
+        {
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.extension() == Some("json".as_ref()) {
+                    total_count += 1;
+
+                    let Ok(json) = fs::read_to_string(&path) else {
+                        parse_failed_count += 1;
+                        continue;
+                    };
+
+                    let Ok(item) = serde_json::from_str::<CorpusItem>(&json) else {
+                        parse_failed_count += 1;
+                        continue;
+                    };
+
+                    let all_valid = item.calls.iter().all(|call| {
+                        self.contract
+                            .abi
+                            .functions()
+                            .any(|f| f.selector().as_slice() == call.selector)
+                    });
+
+                    if all_valid {
+                        valid_count += 1;
+                        let Ok(mut guard) = self.inner.write() else {
+                            continue;
+                        };
+                        guard.pending.push(item);
+                    } else {
+                        invalid_call_count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(CorpusStats {
+            total_count,
+            parse_failed_count,
+            invalid_call_count,
+            valid_count,
         })
-    }
-
-    /// Create an empty corpus with no storage directory.
-    pub fn empty() -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(Corpus::new())),
-        }
-    }
-
-    /// Create a corpus pre-seeded with items.
-    pub fn with_seeds(seeds: Vec<CorpusItem>) -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(Corpus::with_seeds(seeds))),
-        }
     }
 
     /// Phase 2: validate all pending items.
