@@ -40,27 +40,25 @@ mod tests {
         let artifact = artifacts.get(&artifact_id).unwrap();
         let contract = Contract::try_from(artifact).unwrap();
 
+        let func = alloy_json_abi::Function::parse("foo()").unwrap();
         let calls = vec![
             Call {
-                selector: [0x0a, 0x92, 0x54, 0xe4],
-                args: vec![],
-                ..Default::default()
+                function: func.clone(),
+                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
             },
             Call {
-                selector: [0x0a, 0x92, 0x54, 0xe4],
-                args: vec![],
-                ..Default::default()
+                function: func.clone(),
+                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
             },
             Call {
-                selector: [0x0a, 0x92, 0x54, 0xe4],
-                args: vec![],
-                ..Default::default()
+                function: func.clone(),
+                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
             },
         ];
 
         let failure = Crash {
             function_name: "invariant_caught".into(),
-            selector: [0; 4],
+            selector: alloy_primitives::Selector::ZERO,
             call_sequence: calls,
             call_meta: vec![
                 CallMeta {

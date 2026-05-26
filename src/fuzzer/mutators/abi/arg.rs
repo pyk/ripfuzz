@@ -1,9 +1,6 @@
 //! ABI argument mutator that perturbs decoded Solidity values.
 
-use std::collections::HashMap;
-
-use alloy_dyn_abi::{DynSolType, DynSolValue};
-use alloy_json_abi::JsonAbi;
+use alloy_dyn_abi::DynSolValue;
 use alloy_primitives::{Address, I256, U256};
 
 use crate::fuzzer::corpus::Call;
@@ -11,54 +8,31 @@ use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Mutate the arguments of a random call using ABI type information.
 ///
-/// This mutator decodes the raw ABI buffer into [`DynSolValue`]s, mutates
-/// them recursively with type-aware rules, and re-encodes the result.
-/// Composite types (arrays, tuples, structs) are supported.
-#[derive(Debug)]
-pub struct SequenceArgMutator {
-    /// Pre-built map from selector to parsed tuple type (ready to decode).
-    selector_types: HashMap<[u8; 4], DynSolType>,
-}
+/// This mutator works directly on the [`DynSolValue`]s stored in each
+/// [`Call`], mutates them recursively with type-aware rules, and leaves
+/// the re-encoding to the caller (or to [`Call::encode`]).
+#[derive(Debug, Default)]
+pub struct SequenceArgMutator;
 
 impl SequenceArgMutator {
-    pub fn new(abi: JsonAbi) -> Self {
-        let mut selector_types = HashMap::new();
-        for func in abi.functions() {
-            let sel: [u8; 4] = func.selector().into();
-            let types: Vec<DynSolType> = func
-                .inputs
-                .iter()
-                .filter_map(|p| p.selector_type().parse::<DynSolType>().ok())
-                .collect();
-            selector_types.insert(sel, DynSolType::Tuple(types));
-        }
-        Self { selector_types }
+    pub fn new() -> Self {
+        Self
     }
 
     /// Mutate the arguments of a single call.
     ///
     /// Returns `true` if any argument was changed.
     fn mutate_call_args(&self, rng: &mut fastrand::Rng, call: &mut Call) -> bool {
-        let tuple_type = match self.selector_types.get(&call.selector) {
-            Some(t) => t.clone(),
-            None => return false,
-        };
-
-        let mut values = match tuple_type.abi_decode_params(&call.args) {
-            Ok(v) => v,
-            Err(_) => return false,
+        let values = match &mut call.values {
+            DynSolValue::Tuple(elems) => elems,
+            _ => return false,
         };
 
         let mut mutated = false;
-        if let DynSolValue::Tuple(ref mut elems) = values {
-            for elem in elems.iter_mut() {
-                mutated |= self.mutate_value(rng, elem);
-            }
+        for elem in values.iter_mut() {
+            mutated |= self.mutate_value(rng, elem);
         }
 
-        if mutated {
-            call.args = values.abi_encode_params();
-        }
         mutated
     }
 
@@ -187,29 +161,17 @@ impl Mutator for SequenceArgMutator {
 #[cfg(test)]
 mod tests {
     use alloy_dyn_abi::{DynSolType, DynSolValue};
-    use alloy_primitives::U256;
+    use alloy_json_abi::Function;
+    use alloy_primitives::{Address, I256, U256};
 
     use crate::fuzzer::corpus;
     use crate::fuzzer::mutators::Mutator;
     use crate::fuzzer::mutators::abi;
 
-    fn abi_with(function_sig: &str) -> alloy_json_abi::JsonAbi {
-        alloy_json_abi::JsonAbi::parse([function_sig]).unwrap()
-    }
-
-    fn selector_of(abi: &alloy_json_abi::JsonAbi, name: &str) -> [u8; 4] {
-        abi.functions()
-            .find(|f| f.name == name)
-            .unwrap()
-            .selector()
-            .into()
-    }
-
     #[test]
     fn empty_sequence_is_skipped() {
         let mut rng = fastrand::Rng::with_seed(42);
-        let abi = abi_with("function set(uint256 x)");
-        let mutator = abi::SequenceArgMutator::new(abi);
+        let mutator = abi::SequenceArgMutator::new();
         let mut calls = Vec::new();
 
         let result = mutator.mutate(&mut rng, &mut calls);
@@ -217,44 +179,22 @@ mod tests {
     }
 
     #[test]
-    fn unknown_selector_returns_skipped() {
-        let mut rng = fastrand::Rng::with_seed(42);
-        let target_abi = abi_with("function set(uint256 x)");
-        let other_abi = abi_with("function transfer(address to)");
-        let unknown_selector = selector_of(&other_abi, "transfer");
-        let mutator = abi::SequenceArgMutator::new(target_abi);
-
-        let mut calls = vec![corpus::Call {
-            selector: unknown_selector,
-            args: vec![0u8; 32],
-            ..Default::default()
-        }];
-        let original_args = calls[0].args.clone();
-
-        let result = mutator.mutate(&mut rng, &mut calls);
-        assert_eq!(result, crate::fuzzer::mutators::MutationResult::Skipped);
-        assert_eq!(calls[0].args, original_args, "args must be unchanged");
-    }
-
-    #[test]
     fn uint256_argument_is_mutated() {
-        let abi = abi_with("function set(uint256 x)");
-        let selector = selector_of(&abi, "set");
+        let func = Function::parse("set(uint256)").unwrap();
 
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
-                selector,
-                args: vec![0u8; 32],
-                ..Default::default()
+                function: func.clone(),
+                values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
             }];
-            let original_args = calls[0].args.clone();
+            let original = calls[0].encode()[4..].to_vec();
 
             let result = mutator.mutate(&mut rng, &mut calls);
             assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
-            if calls[0].args != original_args {
+            if calls[0].encode()[4..] != original {
                 any_changed = true;
             }
         }
@@ -266,31 +206,34 @@ mod tests {
 
     #[test]
     fn uint256_mutation_affects_all_256_bits() {
-        let abi = abi_with("function set(uint256 x)");
-        let selector = selector_of(&abi, "set");
-
-        let high_bytes = vec![0xFFu8; 16];
-        let low_bytes = vec![0u8; 16];
-        let mut full_arg = high_bytes.clone();
-        full_arg.extend_from_slice(&low_bytes);
+        let func = Function::parse("set(uint256)").unwrap();
 
         let mut any_high_changed = false;
         let mut any_low_changed = false;
         for seed in [1u64, 2, 3, 42, 99, 123, 456, 789, 1000, 2000] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
-                selector,
-                args: full_arg.clone(),
-                ..Default::default()
+                function: func.clone(),
+                values: DynSolValue::Tuple(vec![DynSolValue::Uint(
+                    U256::from_be_bytes([
+                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    ]),
+                    256,
+                )]),
             }];
+            let original = calls[0].encode()[4..].to_vec();
 
             mutator.mutate(&mut rng, &mut calls);
 
-            if calls[0].args[..16] != high_bytes[..] {
+            let mutated = calls[0].encode()[4..].to_vec();
+            if mutated[..16] != original[..16] {
                 any_high_changed = true;
             }
-            if calls[0].args[16..] != low_bytes[..] {
+            if mutated[16..] != original[16..] {
                 any_low_changed = true;
             }
         }
@@ -300,36 +243,29 @@ mod tests {
 
     #[test]
     fn dynamic_bytes_type_is_properly_handled() {
-        let abi = abi_with("function setData(bytes data)");
-        let selector = selector_of(&abi, "setData");
-
-        let mut args = vec![0u8; 96];
-        args[31] = 0x20; // offset = 32
-        args[63] = 0x02; // length = 2
-        args[64] = 0xab; // data byte 0
-        args[65] = 0xcd; // data byte 1
+        let func = Function::parse("setData(bytes)").unwrap();
 
         let mut rng = fastrand::Rng::with_seed(42);
-        let mutator = abi::SequenceArgMutator::new(abi);
+        let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
-            selector,
-            args: args.clone(),
-            ..Default::default()
+            function: func.clone(),
+            values: DynSolValue::Tuple(vec![DynSolValue::Bytes(vec![0xab, 0xcd])]),
         }];
+        let original = calls[0].encode()[4..].to_vec();
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
 
-        let mutated = &calls[0].args;
+        let mutated = calls[0].encode()[4..].to_vec();
 
         assert_eq!(
             &mutated[..64],
-            &args[..64],
+            &original[..64],
             "offset and length must not be corrupted"
         );
         assert_ne!(
             &mutated[64..],
-            &args[64..],
+            &original[64..],
             "dynamic data should have been mutated"
         );
     }
@@ -337,60 +273,51 @@ mod tests {
     #[test]
     fn bool_argument_is_flipped() {
         let mut rng = fastrand::Rng::with_seed(42);
-        let abi = abi_with("function toggle(bool b)");
-        let selector = selector_of(&abi, "toggle");
-        let mutator = abi::SequenceArgMutator::new(abi);
-
+        let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
-            selector,
-            args: {
-                let mut v = vec![0u8; 32];
-                v[31] = 1; // true
-                v
-            },
-            ..Default::default()
+            function: Function::parse("toggle(bool)").unwrap(),
+            values: DynSolValue::Tuple(vec![DynSolValue::Bool(true)]),
         }];
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
-        assert_eq!(calls[0].args[31], 0); // flipped to false
+        assert_eq!(
+            calls[0].values.as_tuple().unwrap()[0].as_bool().unwrap(),
+            false,
+            "flipped to false"
+        );
     }
 
     #[test]
     fn address_argument_is_mutated() {
         let mut rng = fastrand::Rng::with_seed(42);
-        let abi = abi_with("function transfer(address to)");
-        let selector = selector_of(&abi, "transfer");
-        let mutator = abi::SequenceArgMutator::new(abi);
-
+        let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
-            selector,
-            args: vec![0u8; 32],
-            ..Default::default()
+            function: Function::parse("transfer(address)").unwrap(),
+            values: DynSolValue::Tuple(vec![DynSolValue::Address(Address::ZERO)]),
         }];
-        let original_args = calls[0].args.clone();
+        let original = calls[0].encode()[4..].to_vec();
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
-        assert_ne!(&calls[0].args[12..32], &original_args[12..32]);
+        let mutated = calls[0].encode()[4..].to_vec();
+        assert_ne!(&mutated[12..32], &original[12..32]);
     }
 
     #[test]
     fn address_mutation_overwrites_all_20_bytes() {
-        let abi = abi_with("function transfer(address to)");
-        let selector = selector_of(&abi, "transfer");
+        let func = Function::parse("transfer(address)").unwrap();
 
         for seed in [1u64, 2, 3, 42, 99, 123, 456, 789, 1000, 2000] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
-                selector,
-                args: vec![0u8; 32],
-                ..Default::default()
+                function: func.clone(),
+                values: DynSolValue::Tuple(vec![DynSolValue::Address(Address::ZERO)]),
             }];
 
             mutator.mutate(&mut rng, &mut calls);
-            let mutated = &calls[0].args;
+            let mutated = &calls[0].encode()[4..];
 
             assert_eq!(&mutated[..12], &[0u8; 12], "address padding must stay zero");
             assert_ne!(
@@ -404,38 +331,36 @@ mod tests {
     #[test]
     fn multiple_arguments_all_get_mutated() {
         let mut rng = fastrand::Rng::with_seed(123);
-        let abi = abi_with("function multi(uint256 a, bool b, address c)");
-        let selector = selector_of(&abi, "multi");
-        let mutator = abi::SequenceArgMutator::new(abi);
-
+        let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
-            selector,
-            args: vec![0u8; 96],
-            ..Default::default()
+            function: Function::parse("multi(uint256,bool,address)").unwrap(),
+            values: DynSolValue::Tuple(vec![
+                DynSolValue::Uint(U256::ZERO, 256),
+                DynSolValue::Bool(false),
+                DynSolValue::Address(Address::ZERO),
+            ]),
         }];
-        let original_args = calls[0].args.clone();
+        let original = calls[0].encode()[4..].to_vec();
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
-        assert_ne!(calls[0].args, original_args);
+        assert_ne!(calls[0].encode()[4..], original);
     }
 
     #[test]
     fn repeated_mutation_produces_different_values() {
-        let abi = abi_with("function set(uint256 x)");
-        let selector = selector_of(&abi, "set");
+        let func = Function::parse("set(uint256)").unwrap();
 
         let mut values = Vec::new();
         for seed in [1u64, 2, 3, 4, 5] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
-                selector,
-                args: vec![0u8; 32],
-                ..Default::default()
+                function: func.clone(),
+                values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
             }];
             mutator.mutate(&mut rng, &mut calls);
-            values.push(calls[0].args.clone());
+            values.push(calls[0].encode()[4..].to_vec());
         }
 
         let first = &values[0];
@@ -445,24 +370,17 @@ mod tests {
 
     #[test]
     fn uint8_argument_is_masked() {
-        let abi = abi_with("function set(uint8 x)");
-        let selector = selector_of(&abi, "set");
-
-        let args =
-            DynSolValue::Tuple(vec![DynSolValue::Uint(U256::from(255), 8)]).abi_encode_params();
-
         let mut rng = fastrand::Rng::with_seed(1);
-        let mutator = abi::SequenceArgMutator::new(abi);
+        let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
-            selector,
-            args: args.clone(),
-            ..Default::default()
+            function: Function::parse("set(uint8)").unwrap(),
+            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::from(255), 8)]),
         }];
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
         let decoded = DynSolType::Tuple(vec![DynSolType::Uint(8)])
-            .abi_decode_params(&calls[0].args)
+            .abi_decode_params(&calls[0].encode()[4..])
             .unwrap();
         if let DynSolValue::Tuple(v) = decoded {
             if let DynSolValue::Uint(n, 8) = v[0] {
@@ -473,23 +391,21 @@ mod tests {
 
     #[test]
     fn int256_argument_is_mutated() {
-        let abi = abi_with("function set(int256 x)");
-        let selector = selector_of(&abi, "set");
+        let func = Function::parse("set(int256)").unwrap();
 
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
-                selector,
-                args: vec![0u8; 32],
-                ..Default::default()
+                function: func.clone(),
+                values: DynSolValue::Tuple(vec![DynSolValue::Int(I256::ZERO, 256)]),
             }];
-            let original_args = calls[0].args.clone();
+            let original = calls[0].encode()[4..].to_vec();
 
             let result = mutator.mutate(&mut rng, &mut calls);
             assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
-            if calls[0].args != original_args {
+            if calls[0].encode()[4..] != original {
                 any_changed = true;
             }
         }
@@ -501,26 +417,22 @@ mod tests {
 
     #[test]
     fn tuple_argument_is_mutated() {
-        let abi = abi_with("function set((uint256,bool) x)");
-        let selector = selector_of(&abi, "set");
-
-        let args = DynSolValue::Tuple(vec![DynSolValue::Tuple(vec![
-            DynSolValue::Uint(U256::ZERO, 256),
-            DynSolValue::Bool(false),
-        ])])
-        .abi_encode_params();
+        let func = Function::parse("set((uint256,bool))").unwrap();
 
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
-                selector,
-                args: args.clone(),
-                ..Default::default()
+                function: func.clone(),
+                values: DynSolValue::Tuple(vec![DynSolValue::Tuple(vec![
+                    DynSolValue::Uint(U256::ZERO, 256),
+                    DynSolValue::Bool(false),
+                ])]),
             }];
+            let original = calls[0].encode()[4..].to_vec();
             mutator.mutate(&mut rng, &mut calls);
-            if calls[0].args != args {
+            if calls[0].encode()[4..] != original {
                 any_changed = true;
             }
         }
@@ -529,25 +441,18 @@ mod tests {
 
     #[test]
     fn string_argument_is_mutated() {
-        let abi = abi_with("function set(string x)");
-        let selector = selector_of(&abi, "set");
-
-        let args =
-            DynSolValue::Tuple(vec![DynSolValue::String("hello".into())]).abi_encode_params();
-
         let mut rng = fastrand::Rng::with_seed(42);
-        let mutator = abi::SequenceArgMutator::new(abi);
+        let mutator = abi::SequenceArgMutator::new();
         let mut calls = vec![corpus::Call {
-            selector,
-            args: args.clone(),
-            ..Default::default()
+            function: Function::parse("set(string)").unwrap(),
+            values: DynSolValue::Tuple(vec![DynSolValue::String("hello".into())]),
         }];
 
         let result = mutator.mutate(&mut rng, &mut calls);
         assert_eq!(result, crate::fuzzer::mutators::MutationResult::Mutated);
 
         let decoded = DynSolType::Tuple(vec![DynSolType::String])
-            .abi_decode_params(&calls[0].args)
+            .abi_decode_params(&calls[0].encode()[4..])
             .unwrap();
         if let DynSolValue::Tuple(values) = decoded {
             if let DynSolValue::String(s) = &values[0] {
@@ -562,23 +467,20 @@ mod tests {
 
     #[test]
     fn function_pointer_argument_is_mutated() {
-        let abi = abi_with("function set(function x)");
-        let selector = selector_of(&abi, "set");
-
+        let func = Function::parse("set(function)").unwrap();
         let func_val = alloy_primitives::Function::from_slice(&[0u8; 24]);
-        let args = DynSolValue::Tuple(vec![DynSolValue::Function(func_val)]).abi_encode_params();
 
         let mut any_changed = false;
         for seed in [1u64, 2, 3, 42, 99] {
             let mut rng = fastrand::Rng::with_seed(seed);
-            let mutator = abi::SequenceArgMutator::new(abi.clone());
+            let mutator = abi::SequenceArgMutator::new();
             let mut calls = vec![corpus::Call {
-                selector,
-                args: args.clone(),
-                ..Default::default()
+                function: func.clone(),
+                values: DynSolValue::Tuple(vec![DynSolValue::Function(func_val)]),
             }];
+            let original = calls[0].encode()[4..].to_vec();
             mutator.mutate(&mut rng, &mut calls);
-            if calls[0].args != args {
+            if calls[0].encode()[4..] != original {
                 any_changed = true;
             }
         }

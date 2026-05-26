@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, Selector};
 use anyhow::Result;
 use tracing::{info, instrument};
 
@@ -28,7 +28,7 @@ pub struct FuzzerResult {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Crash {
     pub function_name: String,
-    pub selector: [u8; 4],
+    pub selector: Selector,
     pub call_sequence: Vec<Call>,
     pub call_meta: Vec<crate::fuzzer::corpus::CallMeta>,
 }
@@ -231,74 +231,18 @@ pub fn format_failure(
             .map(|m| m.block_timestamp)
             .unwrap_or(n as u64);
 
-        let func = contract
-            .abi
-            .functions()
-            .find(|f| f.selector().as_slice() == call.selector);
-
-        let func_name = if let Some(f) = func {
-            f.name.to_owned()
-        } else {
-            format!("0x{}", hex::encode(call.selector))
-        };
-
-        let args = if let Some(func_abi) = func {
-            if call.args.is_empty() {
-                "()".into()
-            } else {
-                let types_result = func_abi
-                    .inputs
-                    .iter()
-                    .map(|p| p.selector_type().parse::<alloy_dyn_abi::DynSolType>())
-                    .collect();
-                let Ok(types) = types_result else {
-                    let raw = format!("(0x{})", hex::encode(&call.args));
-                    lines.push(format!(
-                        "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?})",
-                        n,
-                        contract.artifact_id.name,
-                        func_name,
-                        raw,
-                        block,
-                        time,
-                        u64::MAX,
-                        sender,
-                    ));
-                    continue;
-                };
-
-                let tuple = alloy_dyn_abi::DynSolType::Tuple(types);
-                let Ok(decoded) = tuple.abi_decode_params(&call.args) else {
-                    let raw = format!("(0x{})", hex::encode(&call.args));
-                    lines.push(format!(
-                        "{}) {}::{}{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?})",
-                        n,
-                        contract.artifact_id.name,
-                        func_name,
-                        raw,
-                        block,
-                        time,
-                        u64::MAX,
-                        sender,
-                    ));
-                    continue;
-                };
-
-                let values = match decoded {
-                    alloy_dyn_abi::DynSolValue::Tuple(v) => v,
-                    other => vec![other],
-                };
-
-                let args_str = values
+        let func_name = call.function.name.clone();
+        let args = match &call.values {
+            alloy_dyn_abi::DynSolValue::Tuple(v) if v.is_empty() => "()".into(),
+            alloy_dyn_abi::DynSolValue::Tuple(v) => {
+                let args_str = v
                     .iter()
                     .map(format_dyn_value)
                     .collect::<Vec<String>>()
                     .join(", ");
-
                 format!("({})", args_str)
             }
-        } else {
-            format!("0x{}", hex::encode(&call.args))
+            other => format_dyn_value(other),
         };
 
         lines.push(format!(

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::fuzzer::corpus::Call;
 
 /// A single item in the fuzzing corpus.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Item {
     pub calls: Vec<Call>,
 }
@@ -48,22 +48,24 @@ impl From<Vec<Call>> for Item {
 mod tests {
     use std::path::PathBuf;
 
+    use alloy_dyn_abi::DynSolValue;
+    use alloy_json_abi::Function;
+    use alloy_primitives::U256;
+
     use super::*;
 
     /// Known Keccak256 ID for a simple call sequence without delays.
-    const STABLE_ID: &str = "cc96c76ff9f65a76f89d6d183d49b098c20cec1c8d2b731f02256ce8877b21e9";
+    const STABLE_ID: &str = "ef855bb072a176bdd059bb50ced9798201fc9bfd4714e9adf535f6a7b21a38cc";
 
     #[test]
     fn item_id_is_unique_for_different_calls() {
         let item1 = Item::from(vec![Call {
-            selector: [0x12, 0x34, 0x56, 0x78],
-            args: vec![0u8; 32],
-            ..Default::default()
+            function: Function::parse("foo(uint256)").unwrap(),
+            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
         }]);
         let item2 = Item::from(vec![Call {
-            selector: [0xab, 0xcd, 0xef, 0x01],
-            args: vec![0u8; 32],
-            ..Default::default()
+            function: Function::parse("bar(uint256)").unwrap(),
+            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
         }]);
         assert_ne!(item1.id(), item2.id());
     }
@@ -71,9 +73,8 @@ mod tests {
     #[test]
     fn item_path_is_correct() {
         let item = Item::from(vec![Call {
-            selector: [0x12, 0x34, 0x56, 0x78],
-            args: vec![0u8; 32],
-            ..Default::default()
+            function: Function::parse("foo(uint256)").unwrap(),
+            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
         }]);
         let artifact_id = crate::foundry::ArtifactId {
             path: PathBuf::from("src/Counter.sol"),
@@ -87,24 +88,21 @@ mod tests {
         assert_eq!(path, expected);
     }
 
-    /// Two calls with identical execution data but different human-readable
+    /// Two calls with identical execution data but different non-execution
     /// metadata must hash to the same ID. This is the Medusa-style
     /// content-hash deduplication property.
     #[test]
     fn item_id_ignores_human_readable_metadata() {
+        let mut func_b = Function::parse("foo(uint256)").unwrap();
+        func_b.state_mutability = alloy_json_abi::StateMutability::View;
+
         let item_a = Item::from(vec![Call {
-            selector: [0x12, 0x34, 0x56, 0x78],
-            args: vec![0u8; 32],
-            method_name: "foo".into(),
-            method_signature: "foo(uint256)".into(),
-            input_values: vec![serde_json::json!(42)],
+            function: Function::parse("foo(uint256)").unwrap(),
+            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
         }]);
         let item_b = Item::from(vec![Call {
-            selector: [0x12, 0x34, 0x56, 0x78],
-            args: vec![0u8; 32],
-            method_name: "bar".into(),
-            method_signature: "bar(uint256)".into(),
-            input_values: vec![serde_json::json!(99)],
+            function: func_b,
+            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
         }]);
         assert_eq!(item_a.id(), item_b.id());
     }
@@ -117,11 +115,8 @@ mod tests {
     fn item_id_is_stable_across_restart() {
         // 1. Build an item in memory with known execution data.
         let item = Item::from(vec![Call {
-            selector: [0x12, 0x34, 0x56, 0x78],
-            args: vec![0u8; 32],
-            method_name: "foo".into(),
-            method_signature: "foo(uint256)".into(),
-            input_values: vec![serde_json::json!(42)],
+            function: Function::parse("foo(uint256)").unwrap(),
+            values: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
         }]);
         let id_before = item.id();
         assert_eq!(

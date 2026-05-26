@@ -49,8 +49,8 @@ mod tests {
     #[test]
     fn sequence_insert_mutator_inserts_a_call() {
         let mut rng = fastrand::Rng::with_seed(42);
-        let selectors: Vec<[u8; 4]> = vec![[0x12, 0x34, 0x56, 0x78]];
-        let mutator = mutators::SequenceInsertMutator::new(selectors);
+        let functions = vec![alloy_json_abi::Function::parse("foo()").unwrap()];
+        let mutator = mutators::SequenceInsertMutator::new(functions);
 
         let mut calls = Vec::new();
         let result = mutator.mutate(&mut rng, &mut calls);
@@ -81,38 +81,32 @@ mod tests {
             .iter()
             .find(|f| f.name == "one")
             .unwrap()
-            .selector()
-            .into();
+            .clone();
         let two = contract
             .target_functions
             .iter()
             .find(|f| f.name == "two")
             .unwrap()
-            .selector()
-            .into();
+            .clone();
         let three = contract
             .target_functions
             .iter()
             .find(|f| f.name == "three")
             .unwrap()
-            .selector()
-            .into();
+            .clone();
 
         let calls = vec![
             corpus::Call {
-                selector: one,
-                args: vec![],
-                ..Default::default()
+                function: one,
+                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
             },
             corpus::Call {
-                selector: two,
-                args: vec![],
-                ..Default::default()
+                function: two,
+                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
             },
             corpus::Call {
-                selector: three,
-                args: vec![],
-                ..Default::default()
+                function: three,
+                values: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
             },
         ];
 

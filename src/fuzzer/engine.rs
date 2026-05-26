@@ -1,6 +1,6 @@
 //! Sequence execution engine for the fuzzer.
 
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, Selector, U256};
 use anyhow::{Context, Result};
 use revm::{
     context::TxEnv,
@@ -29,7 +29,7 @@ pub struct ExecutionOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CrashInfo {
     pub name: String,
-    pub selector: [u8; 4],
+    pub selector: Selector,
 }
 
 /// Solidity `Panic(uint256)` selector: keccak256("Panic(uint256)")[:4]
@@ -124,15 +124,9 @@ pub fn execute_sequence(
             if let Some(ref output) = result.output
                 && is_assert_failure(output)
             {
-                let name = contract
-                    .abi
-                    .functions()
-                    .find(|f| f.selector().as_slice() == call.selector)
-                    .map(|f| f.name.to_owned())
-                    .unwrap_or_else(|| format!("0x{}", hex::encode(call.selector)));
                 crash = Some(CrashInfo {
-                    name,
-                    selector: call.selector,
+                    name: call.function.name.clone(),
+                    selector: call.selector(),
                 });
             }
             all_ok = false;
@@ -192,7 +186,7 @@ pub fn execute_sequence(
                 {
                     crash = Some(CrashInfo {
                         name: inv.name.to_owned(),
-                        selector: inv.selector().into(),
+                        selector: inv.selector(),
                     });
                 }
                 all_ok = false;

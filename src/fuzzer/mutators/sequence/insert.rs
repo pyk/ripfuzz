@@ -1,23 +1,27 @@
 //! Sequence mutator that inserts a new random call.
 
+use alloy_dyn_abi::{DynSolValue, Specifier};
+use alloy_json_abi::Function;
+
 use crate::fuzzer::corpus::Call;
+use crate::fuzzer::corpus::call::default_dyn_value;
 use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Insert a new random call at a random position.
 #[derive(Debug, Default)]
 pub struct SequenceInsertMutator {
-    selectors: Vec<[u8; 4]>,
+    functions: Vec<Function>,
 }
 
 impl SequenceInsertMutator {
-    pub fn new(selectors: Vec<[u8; 4]>) -> Self {
-        Self { selectors }
+    pub fn new(functions: Vec<Function>) -> Self {
+        Self { functions }
     }
 }
 
 impl Mutator for SequenceInsertMutator {
     fn mutate(&self, rng: &mut fastrand::Rng, calls: &mut Vec<Call>) -> MutationResult {
-        if self.selectors.is_empty() {
+        if self.functions.is_empty() {
             return MutationResult::Skipped;
         }
         let idx = if calls.is_empty() {
@@ -25,12 +29,18 @@ impl Mutator for SequenceInsertMutator {
         } else {
             rng.usize(0..calls.len() + 1)
         };
-        let sel_idx = rng.usize(0..self.selectors.len());
+        let func_idx = rng.usize(0..self.functions.len());
+        let func = &self.functions[func_idx];
 
+        let values: Vec<DynSolValue> = func
+            .inputs
+            .iter()
+            .filter_map(|p| p.resolve().ok())
+            .map(|ty| default_dyn_value(&ty))
+            .collect();
         let call = Call {
-            selector: self.selectors[sel_idx],
-            args: vec![0u8; 32 * 3], // up to 3 args of padding
-            ..Default::default()
+            function: func.clone(),
+            values: DynSolValue::Tuple(values),
         };
         calls.insert(idx, call);
         MutationResult::Mutated

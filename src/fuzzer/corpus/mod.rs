@@ -27,7 +27,11 @@ pub use call::{Call, CallMeta};
 pub use corpus::Corpus;
 pub use item::Item;
 
+use alloy_dyn_abi::Specifier;
+use alloy_json_abi::Function;
+
 use crate::fuzzer::config::Config;
+use crate::fuzzer::corpus::call::default_dyn_value;
 use crate::fuzzer::mutators::Mutator;
 use crate::target::Contract;
 
@@ -61,7 +65,7 @@ pub struct SharedCorpusInner {
     pub corpus: std::sync::RwLock<Corpus>,
     pub items: papaya::HashMap<String, Item>,
     pub contract: Arc<Contract>,
-    pub selectors: Vec<[u8; 4]>,
+    pub functions: Vec<Function>,
     pub mutators: Vec<Box<dyn Mutator>>,
 }
 
@@ -71,7 +75,7 @@ impl std::fmt::Debug for SharedCorpusInner {
             .field("corpus", &self.corpus)
             .field("items", &format_args!("[{} items]", self.items.pin().len()))
             .field("contract", &self.contract)
-            .field("selectors", &self.selectors)
+            .field("functions", &self.functions)
             .field(
                 "mutators",
                 &format_args!("[{} mutators]", self.mutators.len()),
@@ -93,11 +97,7 @@ impl SharedCorpus {
     ///
     /// No disk I/O is performed until [`Self::load`] is called.
     pub fn new(dir: impl AsRef<Path>, contract: Contract) -> Self {
-        let selectors: Vec<[u8; 4]> = contract
-            .target_functions
-            .iter()
-            .map(|f| f.selector().into())
-            .collect();
+        let functions: Vec<Function> = contract.target_functions.clone();
 
         let mut corpus = Corpus::new();
         corpus.set_storage_dir(dir);
@@ -106,7 +106,7 @@ impl SharedCorpus {
             let mutators: Vec<Box<dyn Mutator>> = vec![
                 Box::new(crate::fuzzer::mutators::SequenceSwapMutator),
                 Box::new(crate::fuzzer::mutators::SequenceInsertMutator::new(
-                    selectors.clone(),
+                    functions.clone(),
                 )),
                 Box::new(crate::fuzzer::mutators::SequenceDeleteMutator),
                 Box::new(crate::fuzzer::mutators::SequenceSpliceMutator::new(
@@ -121,16 +121,14 @@ impl SharedCorpus {
                 Box::new(crate::fuzzer::mutators::SequenceTailMutator::new(
                     weak.clone(),
                 )),
-                Box::new(crate::fuzzer::mutators::SequenceArgMutator::new(
-                    contract.abi.clone(),
-                )),
+                Box::new(crate::fuzzer::mutators::SequenceArgMutator::new()),
             ];
 
             SharedCorpusInner {
                 corpus: std::sync::RwLock::new(corpus),
                 items: papaya::HashMap::new(),
                 contract: Arc::new(contract),
-                selectors,
+                functions,
                 mutators,
             }
         });
@@ -184,7 +182,10 @@ impl SharedCorpus {
                             .contract
                             .abi
                             .functions()
-                            .any(|f| f.selector().as_slice() == call.selector)
+                            .any(|f| {
+                                f.selector() == call.selector()
+                                    && f.signature() == call.function.signature()
+                            })
                     });
 
                     if all_valid {
@@ -215,7 +216,7 @@ impl SharedCorpus {
     /// result. If the corpus is empty, a random sequence is generated.
     pub fn take(&self, rng: &mut fastrand::Rng, config: &Config) -> Item {
         let Ok(mut corpus) = self.inner.corpus.write() else {
-            return Item::from(generate_random_sequence(&self.inner.selectors, rng, config));
+            return Item::from(generate_random_sequence(&self.inner.functions, rng, config));
         };
 
         // 1. Pending replay
@@ -242,7 +243,7 @@ impl SharedCorpus {
         drop(map);
 
         // 3. Generate a fresh random sequence
-        Item::from(generate_random_sequence(&self.inner.selectors, rng, config))
+        Item::from(generate_random_sequence(&self.inner.functions, rng, config))
     }
 
     /// Add a corpus item to the collection.
@@ -300,21 +301,27 @@ impl SharedCorpus {
 }
 
 fn generate_random_sequence(
-    selectors: &[[u8; 4]],
+    functions: &[Function],
     rng: &mut fastrand::Rng,
     config: &Config,
 ) -> Vec<Call> {
     let len = rng.usize(1..=config.sequence_length.max(1));
     let mut calls = Vec::with_capacity(len);
     for _ in 0..len {
-        if selectors.is_empty() {
+        if functions.is_empty() {
             break;
         }
-        let sel_idx = rng.usize(0..selectors.len());
+        let idx = rng.usize(0..functions.len());
+        let func = &functions[idx];
+        let values: Vec<alloy_dyn_abi::DynSolValue> = func
+            .inputs
+            .iter()
+            .filter_map(|p| p.resolve().ok())
+            .map(|ty| default_dyn_value(&ty))
+            .collect();
         let call = Call {
-            selector: selectors[sel_idx],
-            args: vec![0u8; 32 * 3],
-            ..Default::default()
+            function: func.clone(),
+            values: alloy_dyn_abi::DynSolValue::Tuple(values),
         };
         calls.push(call);
     }
@@ -348,9 +355,10 @@ mod tests {
         let corpus = SharedCorpus::new(tmp.path(), contract);
 
         let item = Item::from(vec![Call {
-            selector: [0x12, 0x34, 0x56, 0x78],
-            args: vec![0u8; 32],
-            ..Default::default()
+            function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
+            values: alloy_dyn_abi::DynSolValue::Tuple(vec![
+                alloy_dyn_abi::DynSolValue::Uint(alloy_primitives::U256::ZERO, 256),
+            ]),
         }]);
 
         let threads = 16;
