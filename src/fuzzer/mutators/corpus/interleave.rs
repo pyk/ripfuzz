@@ -2,7 +2,7 @@
 
 use std::sync::Weak;
 
-use crate::fuzzer::corpus::{Call, CorpusItem, SharedCorpusInner};
+use crate::fuzzer::corpus::{Call, Item, SharedCorpusInner};
 use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Interleave two corpus sequences.
@@ -31,7 +31,7 @@ impl Mutator for SequenceInterleaveMutator {
         let id1 = rng.usize(0..count);
         let id2 = rng.usize(0..count);
 
-        let values: Vec<CorpusItem> = map.values().cloned().collect();
+        let values: Vec<Item> = map.values().cloned().collect();
         drop(map);
 
         let seq1 = values[id1].calls.clone();

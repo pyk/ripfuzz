@@ -1,91 +1,15 @@
 //! Thread-safe corpus with per-contract coverage tracking.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
 use crate::evm::coverage::map::CoverageMap;
-use crate::fuzzer::corpus::Call;
-
-/// A single item in the fuzzing corpus.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CorpusItem {
-    pub calls: Vec<Call>,
-    pub weight: u64,
-    #[serde(default)]
-    pub total_mutations: u64,
-    #[serde(default)]
-    pub new_finds_produced: u64,
-    #[serde(skip, default)]
-    pub(crate) is_replay: bool,
-}
-
-impl CorpusItem {
-    pub fn new(calls: Vec<Call>) -> Self {
-        Self {
-            calls,
-            weight: 1,
-            total_mutations: 0,
-            new_finds_produced: 0,
-            is_replay: false,
-        }
-    }
-
-    /// Unique identifier derived from the call sequence.
-    pub fn id(&self) -> String {
-        let mut hasher = DefaultHasher::new();
-        self.calls.hash(&mut hasher);
-        format!("{:x}", hasher.finish())
-    }
-
-    /// On-disk path for this corpus item.
-    pub fn path(
-        &self,
-        corpus_dir: impl AsRef<Path>,
-        artifact_id: &crate::foundry::ArtifactId,
-    ) -> PathBuf {
-        corpus_dir
-            .as_ref()
-            .join(&artifact_id.path)
-            .join(&artifact_id.name)
-            .join(format!("{}.json", self.id()))
-    }
-
-    /// Convert this corpus item into an [`ExecInput`] for the given caller
-    /// and target address.
-    pub fn into_exec_input(
-        self,
-        caller: alloy_primitives::Address,
-        target: alloy_primitives::Address,
-    ) -> crate::evm::chain::ExecInput {
-        use crate::evm::chain::{ExecInput, Transaction};
-        use revm::primitives::Bytes;
-        ExecInput::new(
-            self.calls
-                .into_iter()
-                .map(|call| {
-                    Transaction::new(target)
-                        .caller(caller)
-                        .calldata(Bytes::from(call.encode()))
-                })
-                .collect(),
-        )
-    }
-}
-
-impl From<Vec<Call>> for CorpusItem {
-    fn from(calls: Vec<Call>) -> Self {
-        Self::new(calls)
-    }
-}
+use crate::fuzzer::corpus::Item;
 
 /// Inner mutable state protected by [`SharedCorpusInner`]'s lock.
 #[derive(Debug)]
 pub struct Corpus {
     /// Sequences loaded from disk that have not been replayed yet.
-    pub pending: Vec<CorpusItem>,
+    pub pending: Vec<Item>,
     /// Global coverage map.
     coverage: CoverageMap,
     /// Directory for persistent storage, if any.
@@ -107,7 +31,7 @@ impl Corpus {
         }
     }
 
-    pub fn with_seeds(seeds: Vec<CorpusItem>) -> Self {
+    pub fn with_seeds(seeds: Vec<Item>) -> Self {
         Self {
             pending: seeds,
             coverage: CoverageMap::default(),
@@ -126,7 +50,7 @@ impl Corpus {
     }
 
     /// Pop a pending item for replay.
-    pub fn pop_pending_item(&mut self) -> Option<CorpusItem> {
+    pub fn pop_pending_item(&mut self) -> Option<Item> {
         if self.pending.is_empty() {
             None
         } else {

@@ -4,7 +4,7 @@
 //!
 //! `SharedCorpus` is responsible for:
 //! - Loading and validating corpus from disk.
-//! - Defining [`CorpusItem`] which is convertible to/from
+//! - Defining [`Item`] which is convertible to/from
 //!   [`evm::chain::ExecInput`](crate::evm::chain::ExecInput).
 //! - Serializing corpus items as compact JSON.
 //! - Providing [`take`](SharedCorpus::take) to return a randomly selected
@@ -24,7 +24,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 pub use call::{Call, CallMeta};
-pub use corpus::{Corpus, CorpusItem};
+pub use corpus::Corpus;
+pub use item::Item;
 
 use crate::fuzzer::config::Config;
 use crate::fuzzer::mutators::Mutator;
@@ -33,6 +34,7 @@ use crate::target::Contract;
 pub mod call;
 #[allow(clippy::module_inception)]
 pub mod corpus;
+pub mod item;
 
 /// Statistics produced by loading a corpus from disk.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -57,7 +59,7 @@ pub struct Stats {
 /// read-only after construction so it can be accessed lock-free.
 pub struct SharedCorpusInner {
     pub corpus: std::sync::RwLock<Corpus>,
-    pub items: papaya::HashMap<String, CorpusItem>,
+    pub items: papaya::HashMap<String, Item>,
     pub contract: Arc<Contract>,
     pub selectors: Vec<[u8; 4]>,
     pub mutators: Vec<Box<dyn Mutator>>,
@@ -178,7 +180,7 @@ impl SharedCorpus {
                         continue;
                     };
 
-                    let Ok(item) = serde_json::from_str::<CorpusItem>(&json) else {
+                    let Ok(item) = serde_json::from_str::<Item>(&json) else {
                         parse_failed_count += 1;
                         continue;
                     };
@@ -217,8 +219,10 @@ impl SharedCorpus {
     /// Returns a pending item if available. Otherwise picks a random
     /// existing item, applies a random mutator, and returns the
     /// result. If the corpus is empty, a random sequence is generated.
-    pub fn take(&self, rng: &mut fastrand::Rng, config: &Config) -> CorpusItem {
-        let mut corpus = self.inner.corpus.write().unwrap();
+    pub fn take(&self, rng: &mut fastrand::Rng, config: &Config) -> Item {
+        let Ok(mut corpus) = self.inner.corpus.write() else {
+            return Item::new(generate_random_sequence(&self.inner.selectors, rng, config));
+        };
 
         // 1. Pending replay
         if let Some(mut item) = corpus.pop_pending_item() {
@@ -231,7 +235,7 @@ impl SharedCorpus {
         let map = self.inner.items.pin();
         let count = map.len();
         if count > 0 && rng.bool() {
-            let items: Vec<CorpusItem> = map.values().cloned().collect();
+            let items: Vec<Item> = map.values().cloned().collect();
             drop(map);
 
             let idx = rng.usize(0..items.len());
@@ -245,15 +249,15 @@ impl SharedCorpus {
         drop(map);
 
         // 3. Generate a fresh random sequence
-        CorpusItem::new(generate_random_sequence(&self.inner.selectors, rng, config))
+        Item::new(generate_random_sequence(&self.inner.selectors, rng, config))
     }
 
     /// Add a corpus item to the collection.
     ///
-    /// Deduplicates by [`CorpusItem::id`]. If the item already exists the
+    /// Deduplicates by [`Item::id`]. If the item already exists the
     /// function returns `false`. Otherwise it inserts the item into the
     /// lock-free map and writes it to disk.
-    pub fn add(&self, item: CorpusItem) -> bool {
+    pub fn add(&self, item: Item) -> bool {
         let id = item.id();
 
         let map = self.inner.items.pin();
@@ -338,41 +342,9 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Barrier;
 
+    use revm::primitives::Bytes;
+
     use super::*;
-
-    #[test]
-    fn corpus_item_id_is_unique_for_different_calls() {
-        let item1 = CorpusItem::new(vec![Call {
-            selector: [0x12, 0x34, 0x56, 0x78],
-            args: vec![0u8; 32],
-            ..Default::default()
-        }]);
-        let item2 = CorpusItem::new(vec![Call {
-            selector: [0xab, 0xcd, 0xef, 0x01],
-            args: vec![0u8; 32],
-            ..Default::default()
-        }]);
-        assert_ne!(item1.id(), item2.id());
-    }
-
-    #[test]
-    fn corpus_item_path_is_correct() {
-        let item = CorpusItem::new(vec![Call {
-            selector: [0x12, 0x34, 0x56, 0x78],
-            args: vec![0u8; 32],
-            ..Default::default()
-        }]);
-        let artifact_id = crate::foundry::ArtifactId {
-            path: PathBuf::from("src/Counter.sol"),
-            name: "Counter".to_string(),
-        };
-        let path = item.path("/tmp/corpus", &artifact_id);
-        let expected = PathBuf::from(format!(
-            "/tmp/corpus/src/Counter.sol/Counter/{}.json",
-            item.id()
-        ));
-        assert_eq!(path, expected);
-    }
 
     #[test]
     fn parallel_add_writes_once() {
@@ -380,13 +352,13 @@ mod tests {
         let contract = Contract {
             artifact_id: crate::foundry::ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
-                name: "Test".to_string(),
+                name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
             target_functions: vec![],
             invariant_functions: vec![],
             setup_function: None,
-            initcode: revm::primitives::Bytes::new(),
+            initcode: Bytes::new(),
         };
 
         let config = Config {
@@ -397,7 +369,7 @@ mod tests {
         };
         let corpus = SharedCorpus::new(tmp.path(), contract, config);
 
-        let item = CorpusItem::new(vec![Call {
+        let item = Item::new(vec![Call {
             selector: [0x12, 0x34, 0x56, 0x78],
             args: vec![0u8; 32],
             ..Default::default()

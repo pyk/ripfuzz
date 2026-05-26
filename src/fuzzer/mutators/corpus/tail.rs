@@ -2,7 +2,7 @@
 
 use std::sync::Weak;
 
-use crate::fuzzer::corpus::{Call, CorpusItem, SharedCorpusInner};
+use crate::fuzzer::corpus::{Call, Item, SharedCorpusInner};
 use crate::fuzzer::mutators::{MutationResult, Mutator};
 
 /// Take the tail of a corpus sequence and keep it, discarding the rest.
@@ -28,7 +28,7 @@ impl Mutator for SequenceTailMutator {
             return MutationResult::Skipped;
         }
         let id = rng.usize(0..count);
-        let values: Vec<CorpusItem> = map.values().cloned().collect();
+        let values: Vec<Item> = map.values().cloned().collect();
         drop(map);
         let seq = values[id].calls.clone();
         if seq.is_empty() {

@@ -10,7 +10,7 @@ use tracing::{info, instrument};
 use crate::evm;
 use crate::fuzzer::config::Config;
 use crate::fuzzer::corpus::SharedCorpus;
-use crate::fuzzer::corpus::{Call, CorpusItem};
+use crate::fuzzer::corpus::{Call, Item};
 use crate::fuzzer::engine;
 use crate::fuzzer::metrics::SharedMetrics;
 use crate::target;
@@ -184,7 +184,7 @@ impl Fuzzer {
 
             if outcome.all_ok {
                 // checkrs: allow(clone_in_loops)
-                let _ = self.corpus.add(CorpusItem::new(calls.clone()));
+                let _ = self.corpus.add(Item::new(calls.clone()));
             }
 
             if let Some(crash_info) = outcome.crash {
