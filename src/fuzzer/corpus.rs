@@ -22,8 +22,19 @@ pub struct SharedCorpus {
 }
 
 impl SharedCorpus {
-    /// Create an empty corpus.
-    pub fn new() -> Self {
+    /// Create a corpus backed by `dir`, loading any existing `.json` items.
+    ///
+    /// If the directory does not exist yet, an empty corpus is created and
+    /// the directory will be created on the next [`Self::flush_to_disk`].
+    pub fn new(dir: impl AsRef<Path>) -> Result<Self> {
+        let corpus = Corpus::load(dir)?;
+        Ok(Self {
+            inner: Arc::new(RwLock::new(corpus)),
+        })
+    }
+
+    /// Create an empty corpus with no storage directory.
+    pub fn empty() -> Self {
         Self {
             inner: Arc::new(RwLock::new(Corpus::new())),
         }
@@ -34,14 +45,6 @@ impl SharedCorpus {
         Self {
             inner: Arc::new(RwLock::new(Corpus::with_seeds(seeds))),
         }
-    }
-
-    /// Phase 1: load corpus items from disk into the pending queue.
-    pub fn load(dir: impl AsRef<Path>) -> Result<Self> {
-        let corpus = Corpus::load(dir)?;
-        Ok(Self {
-            inner: Arc::new(RwLock::new(corpus)),
-        })
     }
 
     /// Phase 2: validate all pending items.
@@ -183,11 +186,5 @@ impl SharedCorpus {
         corpus.set_coverage(guard.coverage().clone());
         corpus.set_storage_dir(dir);
         corpus.flush_to_disk()
-    }
-}
-
-impl Default for SharedCorpus {
-    fn default() -> Self {
-        Self::new()
     }
 }

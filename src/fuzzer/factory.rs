@@ -58,6 +58,7 @@ impl Factory {
         contract: target::Contract,
         deployed_address: Address,
         config: Config,
+        corpus: SharedCorpus,
     ) -> Self {
         let fuzzed_selectors: Vec<[u8; 4]> = contract
             .target_functions
@@ -72,7 +73,7 @@ impl Factory {
             config,
             fuzzed_selectors: Arc::new(fuzzed_selectors),
             caller: evm::chain::DEFAULT_DEPLOYER,
-            corpus: SharedCorpus::new(),
+            corpus,
             metrics: SharedMetrics::new(),
         }
     }
@@ -80,12 +81,6 @@ impl Factory {
     /// Set the default caller address used for fuzz transactions.
     pub fn with_caller(mut self, caller: Address) -> Self {
         self.caller = caller;
-        self
-    }
-
-    /// Provide a pre-built shared corpus.
-    pub fn with_corpus(mut self, corpus: SharedCorpus) -> Self {
-        self.corpus = corpus;
         self
     }
 

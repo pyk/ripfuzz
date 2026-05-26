@@ -11,9 +11,7 @@ use clap::Parser;
 use revm::primitives::{Bytes, U256};
 use tracing::{debug, info, instrument};
 
-use crate::evm;
-use crate::foundry;
-use crate::target;
+use crate::*;
 
 fn default_threads() -> usize {
     std::thread::available_parallelism()
@@ -362,19 +360,26 @@ pub fn run(args: Args) -> Result<()> {
         info!("setup completed");
     }
 
+    // Initialize shared corpus
+    let corpus_dir = args
+        .corpus_dir
+        .unwrap_or_else(|| project_path.join("raptor").join("corpus"));
+    let corpus = fuzzer::SharedCorpus::new(&corpus_dir)?;
+
     // Create fuzzer factory
     info!("creating fuzzer factory");
-    let fuzzer_config = crate::fuzzer::Config {
+    let fuzzer_config = fuzzer::Config {
         seed: args.seed,
         sequence_length: args.sequence_length,
         max_block_number_delay: args.max_block_number_delay,
         max_block_timestamp_delay: args.max_block_timestamp_delay,
     };
-    let factory = crate::fuzzer::Factory::new(
+    let factory = fuzzer::Factory::new(
         chain,
         target_contract.clone(),
         deployed_address,
         fuzzer_config,
+        corpus,
     )
     .with_caller(args.deployer_address);
 
