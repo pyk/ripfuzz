@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use alloy_dyn_abi::{DynSolType, DynSolValue, Specifier};
-use alloy_primitives::{Address, FixedBytes, I256, U256};
+use alloy_primitives::{Address, FixedBytes};
 use anyhow::Result;
 
 pub use call::Call;
@@ -36,6 +36,7 @@ use crate::target::Contract;
 pub mod call;
 pub mod extractor;
 pub mod item;
+pub mod random;
 
 /// Statistics produced by loading a corpus from disk.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -253,23 +254,6 @@ impl SharedCorpus {
     }
 }
 
-fn pick_random<T: Clone>(items: &[T], rng: &mut fastrand::Rng) -> Option<T> {
-    if items.is_empty() {
-        None
-    } else {
-        Some(items[rng.usize(0..items.len())].clone())
-    }
-}
-
-fn parse_number_literal(val: &str) -> Option<U256> {
-    let trimmed = val.trim();
-    if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
-        U256::from_str_radix(&trimmed[2..], 16).ok()
-    } else {
-        U256::from_str_radix(trimmed, 10).ok()
-    }
-}
-
 fn random_dyn_value(
     ty: &DynSolType,
     rng: &mut fastrand::Rng,
@@ -277,34 +261,15 @@ fn random_dyn_value(
 ) -> DynSolValue {
     match ty {
         DynSolType::Bool => {
-            if let Some(val) = pick_random(&literals.bools, rng) {
+            if let Some(val) = random::pick_random(&literals.bools, rng) {
                 return DynSolValue::Bool(val == "true");
             }
             DynSolValue::Bool(rng.bool())
         }
-        DynSolType::Uint(sz) => {
-            if let Some(val) = pick_random(&literals.numbers, rng)
-                && let Some(u) = parse_number_literal(&val)
-            {
-                return DynSolValue::Uint(u, *sz);
-            }
-            let low = rng.u128(..);
-            let high = rng.u128(..);
-            let value = U256::from(low) | (U256::from(high) << 128);
-            DynSolValue::Uint(value, *sz)
-        }
-        DynSolType::Int(sz) => {
-            if let Some(val) = pick_random(&literals.numbers, rng)
-                && let Ok(i) = val.parse::<i128>()
-                && let Ok(signed) = I256::try_from(i)
-            {
-                return DynSolValue::Int(signed, *sz);
-            }
-            let value = I256::try_from(rng.i128(..)).unwrap_or(I256::ZERO);
-            DynSolValue::Int(value, *sz)
-        }
+        DynSolType::Uint(sz) => DynSolValue::Uint(random::uint(*sz, literals, rng), *sz),
+        DynSolType::Int(sz) => DynSolValue::Int(random::int(*sz, literals, rng), *sz),
         DynSolType::FixedBytes(sz) => {
-            if let Some(val) = pick_random(&literals.hex_strings, rng)
+            if let Some(val) = random::pick_random(&literals.hex_strings, rng)
                 && let Ok(bytes) = hex::decode(&val)
             {
                 let mut word = [0u8; 32];
@@ -317,13 +282,13 @@ fn random_dyn_value(
             DynSolValue::FixedBytes(FixedBytes::from(word), *sz)
         }
         DynSolType::Address => {
-            if let Some(val) = pick_random(&literals.hex_strings, rng)
+            if let Some(val) = random::pick_random(&literals.hex_strings, rng)
                 && let Ok(bytes) = hex::decode(&val)
                 && bytes.len() == 20
             {
                 return DynSolValue::Address(Address::from_slice(&bytes));
             }
-            if let Some(val) = pick_random(&literals.numbers, rng) {
+            if let Some(val) = random::pick_random(&literals.numbers, rng) {
                 let hex = val.trim_start_matches("0x").trim_start_matches("0X");
                 if let Ok(bytes) = hex::decode(hex)
                     && bytes.len() == 20
@@ -336,7 +301,7 @@ fn random_dyn_value(
             DynSolValue::Address(Address::from_slice(&bytes))
         }
         DynSolType::Bytes => {
-            if let Some(val) = pick_random(&literals.hex_strings, rng)
+            if let Some(val) = random::pick_random(&literals.hex_strings, rng)
                 && let Ok(bytes) = hex::decode(&val)
             {
                 return DynSolValue::Bytes(bytes);
@@ -347,7 +312,7 @@ fn random_dyn_value(
             DynSolValue::Bytes(bytes)
         }
         DynSolType::String => {
-            if let Some(val) = pick_random(&literals.strings, rng) {
+            if let Some(val) = random::pick_random(&literals.strings, rng) {
                 return DynSolValue::String(val);
             }
             let len = rng.usize(0..=32);
