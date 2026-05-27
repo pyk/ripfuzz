@@ -1,16 +1,16 @@
-//! Builder configuration for [`SharedCorpus`](super::SharedCorpus).
+//! Builder configuration for [`Shared`](super::Shared).
 
 use std::path::{Path, PathBuf};
 
 use crate::fuzzer::corpus::extractor::ExtractedLiterals;
 
-/// Builder configuration for [`SharedCorpus`](super::SharedCorpus).
+/// Builder configuration for [`Shared`](super::Shared).
 ///
 /// # Example
 ///
 /// ```no_run
 /// use std::path::PathBuf;
-/// use raptor::fuzzer::corpus::{Config, SharedCorpus};
+/// use raptor::fuzzer::corpus::{Config, Shared};
 /// use raptor::fuzzer::corpus::extractor::ExtractedLiterals;
 ///
 /// let corpus_dir = PathBuf::from("/tmp/corpus");
@@ -20,14 +20,14 @@ use crate::fuzzer::corpus::extractor::ExtractedLiterals;
 ///     .target_functions(functions)
 ///     .max_calls(32)
 ///     .literals(literals);
-/// let corpus = SharedCorpus::new(config);
+/// let corpus = Shared::new(config);
 /// ```
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub(crate) corpus_dir: PathBuf,
-    pub(crate) target_functions: Vec<alloy_json_abi::Function>,
-    pub(crate) max_calls_length: usize,
-    pub(crate) literals: ExtractedLiterals,
+    pub corpus_dir: PathBuf,
+    pub target_functions: Vec<alloy_json_abi::Function>,
+    pub max_calls_length: usize,
+    pub literals: ExtractedLiterals,
 }
 
 impl Config {

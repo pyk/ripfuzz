@@ -354,7 +354,7 @@ pub fn run(args: Args) -> Result<()> {
         .target_functions(target_contract.target_functions.clone())
         .max_calls(args.max_calls)
         .literals(literals);
-    let corpus = fuzzer::SharedCorpus::new(corpus_config);
+    let corpus = fuzzer::corpus::Shared::new(corpus_config);
     let corpus_stats = corpus.load_items()?;
     info!(
         total = corpus_stats.total_count,

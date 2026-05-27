@@ -9,7 +9,7 @@ use tracing::{info, instrument};
 
 use crate::evm;
 use crate::fuzzer::config::Config;
-use crate::fuzzer::corpus::SharedCorpus;
+use crate::fuzzer::corpus::Shared;
 use crate::fuzzer::corpus::{Call, Item};
 use crate::fuzzer::engine;
 use crate::fuzzer::metrics::SharedMetrics;
@@ -44,7 +44,7 @@ pub struct Factory {
     deployed_address: Address,
     config: Config,
     caller: Address,
-    corpus: SharedCorpus,
+    corpus: Shared,
     metrics: SharedMetrics,
 }
 
@@ -55,7 +55,7 @@ impl Factory {
         contract: target::Contract,
         deployed_address: Address,
         config: Config,
-        corpus: SharedCorpus,
+        corpus: Shared,
     ) -> Self {
         Self {
             chain,
@@ -81,7 +81,7 @@ impl Factory {
     }
 
     /// Access the shared corpus.
-    pub fn corpus(&self) -> &SharedCorpus {
+    pub fn corpus(&self) -> &Shared {
         &self.corpus
     }
 
@@ -118,7 +118,7 @@ pub struct Fuzzer {
     deployed_address: Address,
     config: Config,
     caller: Address,
-    corpus: SharedCorpus,
+    corpus: Shared,
     metrics: SharedMetrics,
     rng: fastrand::Rng,
 }
