@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use alloy_primitives::{Address, FixedBytes, I256, U256};
+use alloy_primitives::{Address, Bytes, FixedBytes, I256, U256};
 use rayon::prelude::*;
 
 use crate::foundry::{Artifact, ArtifactId};
@@ -16,7 +16,7 @@ pub struct ExtractedLiterals {
     pub int: HashMap<usize, Vec<I256>>,
     pub fixed_bytes: HashMap<usize, Vec<FixedBytes<32>>>,
     pub address: Vec<Address>,
-    pub bytes: Vec<Vec<u8>>,
+    pub bytes: Vec<Bytes>,
     pub string: Vec<String>,
 }
 
@@ -253,28 +253,35 @@ fn extract_literal(lit: &solc::ast::Literal, out: &mut ExtractedLiterals) {
             // Address compatible: values that fit in 160 bits.
             let bytes = u.to_be_bytes::<32>();
             if bytes[..12].iter().all(|&b| b == 0) {
-                out.address.push(Address::from_slice(&bytes[12..]));
+                let addr = Address::from_slice(&bytes[12..]);
+                out.address.push(addr);
+                out.bytes.push(Bytes::copy_from_slice(addr.as_slice()));
             }
 
             push_uint(u, &mut out.uint);
+            out.bytes.push(u256_to_be_bytes_trimmed(u));
             if let Ok(i) = I256::try_from(u)
                 && let Some(negated) = i.checked_neg()
             {
                 push_int(i, &mut out.int);
                 push_int(negated, &mut out.int);
+                out.bytes.push(i256_to_be_bytes_trimmed(i));
+                out.bytes.push(i256_to_be_bytes_trimmed(negated));
             }
 
             let word = u.to_be_bytes::<32>();
             let leading_zeros = word.iter().take_while(|&&b| b == 0).count();
             let min_size = (32 - leading_zeros).max(1);
-            push_fixed_bytes(FixedBytes::from(word), min_size, &mut out.fixed_bytes);
+            let fb = FixedBytes::from(word);
+            push_fixed_bytes(fb, min_size, &mut out.fixed_bytes);
+            out.bytes.push(Bytes::copy_from_slice(fb.as_slice()));
         }
         solc::ast::LiteralKind::String | solc::ast::LiteralKind::UnicodeString => {
             let Some(value) = lit.value.as_ref().or(lit.hex_value.as_ref()).cloned() else {
                 return;
             };
             out.string.push(value.clone());
-            out.bytes.push(value.into_bytes());
+            out.bytes.push(Bytes::from(value.into_bytes()));
         }
         solc::ast::LiteralKind::HexString => {
             let Some(value) = lit.hex_value.as_ref().or(lit.value.as_ref()).cloned() else {
@@ -283,24 +290,34 @@ fn extract_literal(lit: &solc::ast::Literal, out: &mut ExtractedLiterals) {
             let Ok(bytes) = hex::decode(&value) else {
                 return;
             };
-            out.bytes.push(bytes.clone());
+            out.bytes.push(Bytes::from(bytes.clone()));
 
             if bytes.len() == 20 {
-                out.address.push(Address::from_slice(&bytes));
+                let addr = Address::from_slice(&bytes);
+                out.address.push(addr);
+                out.bytes.push(Bytes::copy_from_slice(addr.as_slice()));
             }
 
             if bytes.len() <= 32 {
                 let mut word = [0u8; 32];
                 word[..bytes.len()].copy_from_slice(&bytes);
                 let min_size = bytes.len().max(1);
-                push_fixed_bytes(FixedBytes::from(word), min_size, &mut out.fixed_bytes);
+                let fb = FixedBytes::from(word);
+                push_fixed_bytes(fb, min_size, &mut out.fixed_bytes);
+                out.bytes.push(Bytes::copy_from_slice(fb.as_slice()));
 
                 let mut num_word = [0u8; 32];
                 num_word[32 - bytes.len()..].copy_from_slice(&bytes);
                 let u = U256::from_be_bytes(num_word);
                 push_uint(u, &mut out.uint);
-                if let Ok(i) = I256::try_from(u) {
+                out.bytes.push(u256_to_be_bytes_trimmed(u));
+                if let Ok(i) = I256::try_from(u)
+                    && let Some(negated) = i.checked_neg()
+                {
                     push_int(i, &mut out.int);
+                    push_int(negated, &mut out.int);
+                    out.bytes.push(i256_to_be_bytes_trimmed(i));
+                    out.bytes.push(i256_to_be_bytes_trimmed(negated));
                 }
             }
         }
@@ -352,6 +369,36 @@ fn push_fixed_bytes(
 ) {
     for size in min_size..=32 {
         fixed_bytes.entry(size).or_default().push(value);
+    }
+}
+
+fn u256_to_be_bytes_trimmed(value: U256) -> Bytes {
+    let bytes = value.to_be_bytes::<32>();
+    let leading_zeros = bytes.iter().take_while(|&&b| b == 0x00).count();
+    if leading_zeros == 32 {
+        return Bytes::from_static(&[0x00]);
+    }
+    Bytes::copy_from_slice(&bytes[leading_zeros..])
+}
+
+fn i256_to_be_bytes_trimmed(value: I256) -> Bytes {
+    if value == I256::ZERO {
+        return Bytes::from_static(&[0x00]);
+    }
+    let raw = value.into_raw().to_be_bytes::<32>();
+    if value.is_negative() {
+        let leading_ones = raw.iter().take_while(|&&b| b == 0xFF).count();
+        let start = if leading_ones == 32 {
+            31
+        } else if raw[leading_ones] < 0x80 {
+            leading_ones.saturating_sub(1)
+        } else {
+            leading_ones
+        };
+        Bytes::copy_from_slice(&raw[start..])
+    } else {
+        let leading_zeros = raw.iter().take_while(|&&b| b == 0x00).count();
+        Bytes::copy_from_slice(&raw[leading_zeros..])
     }
 }
 
@@ -666,22 +713,28 @@ mod tests {
             I256::try_from(-172800i64).unwrap(),
             I256::try_from(604800i64).unwrap(), // 1 weeks
             I256::try_from(-604800i64).unwrap(),
-            // useHexStrings() (no negation for hex string literals)
-            I256::try_from(0i64).unwrap(),      // hex""
-            I256::try_from(0i64).unwrap(),      // hex"00"
+            // useHexStrings()
+            I256::try_from(0i64).unwrap(), // hex"" (0 and -0)
+            I256::try_from(0i64).unwrap(),
+            I256::try_from(0i64).unwrap(), // hex"00" (0 and -0)
+            I256::try_from(0i64).unwrap(),
             I256::try_from(0x1234i64).unwrap(), // hex'1234'
+            I256::try_from(-0x1234i64).unwrap(),
             "0x1234567890abcdef1234567890abcdef12345678"
                 .parse::<I256>()
                 .unwrap(), // 20-byte hex
+            "-0x1234567890abcdef1234567890abcdef12345678"
+                .parse::<I256>()
+                .unwrap(),
             "0xabCDEF1234567890ABcDEF1234567890aBCDeF12"
                 .parse::<I256>()
                 .unwrap(), // address literal
             "-0xabCDEF1234567890ABcDEF1234567890aBCDeF12"
                 .parse::<I256>()
-                .unwrap(), // negated address literal
+                .unwrap(),
             // invariant_check()
-            I256::try_from(0i64).unwrap(), // num >= 0
-            I256::try_from(0i64).unwrap(), // -0
+            I256::try_from(0i64).unwrap(), // num >= 0 (0 and -0)
+            I256::try_from(0i64).unwrap(),
         ];
         assert_eq!(
             literals.int.get(&256).unwrap().clone(),
@@ -744,16 +797,19 @@ mod tests {
             I256::try_from(-172800i64).unwrap(),
             I256::try_from(604800i64).unwrap(), // 1 weeks
             I256::try_from(-604800i64).unwrap(),
-            // useHexStrings() (no negation for hex string literals)
-            I256::try_from(0i64).unwrap(),      // hex""
-            I256::try_from(0i64).unwrap(),      // hex"00"
+            // useHexStrings()
+            I256::try_from(0i64).unwrap(), // hex"" (0 and -0)
+            I256::try_from(0i64).unwrap(),
+            I256::try_from(0i64).unwrap(), // hex"00" (0 and -0)
+            I256::try_from(0i64).unwrap(),
             I256::try_from(0x1234i64).unwrap(), // hex'1234'
+            I256::try_from(-0x1234i64).unwrap(),
             // 20-byte hex omitted - 160 bits, does not fit in int128
             // useAddresses()
             // address literal omitted - 160 bits, does not fit in int128
             // invariant_check()
-            I256::try_from(0i64).unwrap(), // num >= 0
-            I256::try_from(0i64).unwrap(), // -0
+            I256::try_from(0i64).unwrap(), // num >= 0 (0 and -0)
+            I256::try_from(0i64).unwrap(),
         ];
         assert_eq!(
             literals.int.get(&128).unwrap().clone(),
@@ -801,16 +857,18 @@ mod tests {
             // 1 hours omitted - > 127
             // 2 days omitted - > 127
             // 1 weeks omitted - > 127
-            // useHexStrings() (no negation for hex string literals)
-            I256::try_from(0i64).unwrap(), // hex""
-            I256::try_from(0i64).unwrap(), // hex"00"
+            // useHexStrings()
+            I256::try_from(0i64).unwrap(), // hex"" (0 and -0)
+            I256::try_from(0i64).unwrap(),
+            I256::try_from(0i64).unwrap(), // hex"00" (0 and -0)
+            I256::try_from(0i64).unwrap(),
             // hex'1234' omitted - > 127
             // 20-byte hex omitted - > 127
             // 32-byte hex omitted - > 127
             // useAddresses() - omitted
             // invariant_check()
-            I256::try_from(0i64).unwrap(), // num >= 0
-            I256::try_from(0i64).unwrap(), // -0
+            I256::try_from(0i64).unwrap(), // num >= 0 (0 and -0)
+            I256::try_from(0i64).unwrap(),
         ];
         assert_eq!(
             literals.int.get(&8).unwrap().clone(),
@@ -1173,17 +1231,117 @@ mod tests {
     fn extracts_bytes_literals() {
         let artifacts = load_fixture();
         let literals = extract_literals(&artifacts);
-        assert!(
-            literals
-                .bytes
-                .contains(&hex::decode("1234567890abcdef1234567890abcdef12345678").unwrap()),
-            "expected hex bytes in bytes: {:?}",
-            literals.bytes
+        let mut expected: Vec<Bytes> = vec![];
+
+        // useNumbers()
+        push_number_bytes(&mut expected, U256::from(0), true);
+        push_number_bytes(&mut expected, U256::from(1), true);
+        push_number_bytes(&mut expected, U256::from(42), true);
+        push_number_bytes(&mut expected, U256::from(1000), true);
+        push_number_bytes(&mut expected, U256::from(1337), true);
+
+        // useNumberFormats()
+        push_number_bytes(&mut expected, U256::from(0x1234), true);
+        push_number_bytes(&mut expected, U256::from(1000000000000000000u128), true);
+        push_number_bytes(&mut expected, U256::from(1000000), true);
+        push_number_bytes(
+            &mut expected,
+            U256::from_str_radix(
+                "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+                10,
+            )
+            .unwrap(),
+            false,
         );
-        assert!(
-            literals.bytes.contains(&"hello".as_bytes().to_vec()),
-            "expected string bytes in bytes: {:?}",
-            literals.bytes
+
+        // useSignedNumbers() sub-expressions
+        push_number_bytes(&mut expected, U256::from(1), true);
+        push_number_bytes(&mut expected, U256::from(42), true);
+        push_number_bytes(&mut expected, U256::from(128), true);
+        push_number_bytes(&mut expected, U256::from(129), true);
+
+        // useSubdenominations()
+        push_number_bytes(&mut expected, U256::from(1), true);
+        push_number_bytes(&mut expected, U256::from(100), true);
+        push_number_bytes(&mut expected, U256::from(1000000000u128), true);
+        push_number_bytes(&mut expected, U256::from(1000000000000000000u128), true);
+        push_number_bytes(&mut expected, U256::from(500000000000000000u128), true);
+        push_number_bytes(&mut expected, U256::from(5), true);
+        push_number_bytes(&mut expected, U256::from(60), true);
+        push_number_bytes(&mut expected, U256::from(3600), true);
+        push_number_bytes(&mut expected, U256::from(172800), true);
+        push_number_bytes(&mut expected, U256::from(604800), true);
+
+        // useStrings()
+        expected.push(Bytes::from_static("".as_bytes()));
+        expected.push(Bytes::from_static("hello".as_bytes()));
+        expected.push(Bytes::from_static("world".as_bytes()));
+        expected.push(Bytes::from_static("ok".as_bytes()));
+        expected.push(Bytes::from_static("hello\nworld".as_bytes()));
+
+        // useHexStrings()
+        push_hex_bytes(&mut expected, "");
+        push_hex_bytes(&mut expected, "00");
+        push_hex_bytes(&mut expected, "1234");
+        push_hex_bytes(&mut expected, "1234567890abcdef1234567890abcdef12345678");
+        push_hex_bytes(
+            &mut expected,
+            "deadbeef00000000000000000000000000000000000000000000000000000000",
         );
+
+        // useUnicodeStrings()
+        expected.push(Bytes::from_static("".as_bytes()));
+        expected.push(Bytes::from_static("hello 🌍".as_bytes()));
+
+        // useAddresses()
+        push_number_bytes(
+            &mut expected,
+            U256::from_str_radix("abCDEF1234567890ABcDEF1234567890aBCDeF12", 16).unwrap(),
+            true,
+        );
+
+        // invariant_check()
+        push_number_bytes(&mut expected, U256::from(0), true);
+        expected.push(Bytes::from_static("ok".as_bytes()));
+
+        assert_eq!(literals.bytes, expected, "bytes group mismatch");
+    }
+
+    fn push_number_bytes(expected: &mut Vec<Bytes>, u: U256, addr_compatible: bool) {
+        if addr_compatible {
+            let bytes = u.to_be_bytes::<32>();
+            expected.push(Bytes::copy_from_slice(&bytes[12..]));
+        }
+        expected.push(u256_to_be_bytes_trimmed(u));
+        if let Ok(i) = I256::try_from(u)
+            && let Some(negated) = i.checked_neg()
+        {
+            expected.push(i256_to_be_bytes_trimmed(i));
+            expected.push(i256_to_be_bytes_trimmed(negated));
+        }
+        expected.push(Bytes::copy_from_slice(&u.to_be_bytes::<32>()));
+    }
+
+    fn push_hex_bytes(expected: &mut Vec<Bytes>, hex_str: &str) {
+        let bytes = hex::decode(hex_str).unwrap();
+        expected.push(Bytes::from(bytes.clone()));
+        if bytes.len() == 20 {
+            expected.push(Bytes::from(bytes.clone()));
+        }
+        if bytes.len() <= 32 {
+            let mut word = [0u8; 32];
+            word[..bytes.len()].copy_from_slice(&bytes);
+            expected.push(Bytes::copy_from_slice(&word));
+            let mut num_word = [0u8; 32];
+            num_word[32 - bytes.len()..].copy_from_slice(&bytes);
+            let u = U256::from_be_bytes(num_word);
+            expected.push(u256_to_be_bytes_trimmed(u));
+            if let Ok(i) = I256::try_from(u)
+                && let Some(negated) = i.checked_neg()
+            {
+                expected.push(i256_to_be_bytes_trimmed(i));
+                expected.push(i256_to_be_bytes_trimmed(negated));
+            }
+        }
     }
 }

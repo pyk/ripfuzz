@@ -288,7 +288,7 @@ fn random_dyn_value(
         }
         DynSolType::Bytes => {
             if let Some(val) = random::pick_random(&literals.bytes, rng) {
-                return DynSolValue::Bytes(val);
+                return DynSolValue::Bytes(val.to_vec());
             }
             let len = rng.usize(0..=64);
             let mut bytes = vec![0u8; len];
