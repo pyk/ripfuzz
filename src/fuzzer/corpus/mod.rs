@@ -439,26 +439,18 @@ impl SharedCorpus {
             return item;
         }
 
-        match ops[rng.usize(0..count)] {
-            0 => {
-                let _ = self.add_call(rng, &mut item);
-            }
-            1 => {
-                let _ = self.remove_call(rng, &mut item);
-            }
-            2 => {
-                let _ = self.swap_call(rng, &mut item);
-            }
-            3 => {
-                let _ = self.replace_call(rng, &mut item);
-            }
-            4 => {
-                let _ = self.update_args(rng, &mut item);
-            }
-            5 => {
-                let _ = self.update_value(rng, &mut item);
-            }
+        let res = match ops[rng.usize(0..count)] {
+            0 => self.add_call(rng, &mut item),
+            1 => self.remove_call(rng, &mut item),
+            2 => self.swap_call(rng, &mut item),
+            3 => self.replace_call(rng, &mut item),
+            4 => self.update_args(rng, &mut item),
+            5 => self.update_value(rng, &mut item),
             _ => unreachable!(),
+        };
+
+        if let Err(e) = res {
+            unreachable!("applicability filter guarantees success, got error: {e}");
         }
 
         item
