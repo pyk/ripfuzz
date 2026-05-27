@@ -168,7 +168,7 @@ impl Fuzzer {
                 );
             }
 
-            let item = self.corpus.next(&mut self.rng);
+            let item = self.corpus.next_item(&mut self.rng);
             let calls = item.calls;
 
             let outcome = engine::execute_sequence(

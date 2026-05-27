@@ -405,8 +405,8 @@ impl SharedCorpus {
     ///
     /// Builds a stack-only list of mutations that are legal for the
     /// current item state, picks one uniformly, and executes it. If no
-    /// mutation is applicable the item is returned unchanged.
-    pub fn mutate_item(&self, rng: &mut fastrand::Rng, mut item: Item) -> Item {
+    /// mutation is applicable the item is left unchanged.
+    pub fn mutate_item(&self, rng: &mut fastrand::Rng, item: &mut Item) -> Result<()> {
         let mut ops = [0u8; 6];
         let mut count = 0usize;
 
@@ -435,39 +435,35 @@ impl SharedCorpus {
             count += 1;
         }
 
-        if count == 0 {
-            return item;
-        }
+        ensure!(count > 0, "no applicable mutations for this item");
 
-        let res = match ops[rng.usize(0..count)] {
-            0 => self.add_call(rng, &mut item),
-            1 => self.remove_call(rng, &mut item),
-            2 => self.swap_call(rng, &mut item),
-            3 => self.replace_call(rng, &mut item),
-            4 => self.update_args(rng, &mut item),
-            5 => self.update_value(rng, &mut item),
+        match ops[rng.usize(0..count)] {
+            0 => self.add_call(rng, item),
+            1 => self.remove_call(rng, item),
+            2 => self.swap_call(rng, item),
+            3 => self.replace_call(rng, item),
+            4 => self.update_args(rng, item),
+            5 => self.update_value(rng, item),
             _ => unreachable!(),
-        };
-
-        if let Err(e) = res {
-            unreachable!("applicability filter guarantees success, got error: {e}");
         }
-
-        item
     }
 
     /// Get the next corpus item for execution.
     ///
     /// Returns a freshly generated item 30% of the time (or when the corpus
-    /// is empty). The remaining 70% of the time returns a random existing
-    /// item.
-    pub fn next(&self, rng: &mut fastrand::Rng) -> Item {
+    /// is empty). The remaining 70% of the time picks a random existing
+    /// item and mutates it before returning.
+    pub fn next_item(&self, rng: &mut fastrand::Rng) -> Item {
         if self.is_fresh_item(rng) {
             return self.generate_item(rng);
         }
-        match self.pick_item(rng) {
+        let mut item = match self.pick_item(rng) {
             Ok(item) => item,
             Err(_) => unreachable!("is_fresh_item guarantees non-empty corpus"),
+        };
+        match self.mutate_item(rng, &mut item) {
+            Ok(()) => item,
+            Err(_) => unreachable!("applicability filter guarantees success"),
         }
     }
 }
@@ -1237,7 +1233,10 @@ mod tests {
         let mut ids = HashSet::new();
         for seed in 0..200usize {
             let mut rng = fastrand::Rng::with_seed(seed as u64);
-            let item = corpus.mutate_item(&mut rng, base_item.clone());
+            let mut item = base_item.clone();
+            corpus
+                .mutate_item(&mut rng, &mut item)
+                .expect("mutate_item should succeed");
             ids.insert(item.id());
         }
 
