@@ -261,50 +261,32 @@ fn random_dyn_value(
 ) -> DynSolValue {
     match ty {
         DynSolType::Bool => {
-            if let Some(val) = random::pick_random(&literals.bools, rng) {
-                return DynSolValue::Bool(val == "true");
+            if let Some(val) = random::pick_random(&literals.bool, rng) {
+                return DynSolValue::Bool(val);
             }
             DynSolValue::Bool(rng.bool())
         }
         DynSolType::Uint(sz) => DynSolValue::Uint(random::uint(*sz, literals, rng), *sz),
         DynSolType::Int(sz) => DynSolValue::Int(random::int(*sz, literals, rng), *sz),
         DynSolType::FixedBytes(sz) => {
-            if let Some(val) = random::pick_random(&literals.hex_strings, rng)
-                && let Ok(bytes) = hex::decode(&val)
-            {
-                let mut word = [0u8; 32];
-                let len = bytes.len().min(32);
-                word[..len].copy_from_slice(&bytes);
-                return DynSolValue::FixedBytes(FixedBytes::from(word), *sz);
+            if let Some(val) = random::pick_random(&literals.fixed_bytes, rng) {
+                return DynSolValue::FixedBytes(val, *sz);
             }
             let mut word = [0u8; 32];
             rng.fill(&mut word);
             DynSolValue::FixedBytes(FixedBytes::from(word), *sz)
         }
         DynSolType::Address => {
-            if let Some(val) = random::pick_random(&literals.hex_strings, rng)
-                && let Ok(bytes) = hex::decode(&val)
-                && bytes.len() == 20
-            {
-                return DynSolValue::Address(Address::from_slice(&bytes));
-            }
-            if let Some(val) = random::pick_random(&literals.numbers, rng) {
-                let hex = val.trim_start_matches("0x").trim_start_matches("0X");
-                if let Ok(bytes) = hex::decode(hex)
-                    && bytes.len() == 20
-                {
-                    return DynSolValue::Address(Address::from_slice(&bytes));
-                }
+            if let Some(val) = random::pick_random(&literals.address, rng) {
+                return DynSolValue::Address(val);
             }
             let mut bytes = [0u8; 20];
             rng.fill(&mut bytes);
             DynSolValue::Address(Address::from_slice(&bytes))
         }
         DynSolType::Bytes => {
-            if let Some(val) = random::pick_random(&literals.hex_strings, rng)
-                && let Ok(bytes) = hex::decode(&val)
-            {
-                return DynSolValue::Bytes(bytes);
+            if let Some(val) = random::pick_random(&literals.bytes, rng) {
+                return DynSolValue::Bytes(val);
             }
             let len = rng.usize(0..=64);
             let mut bytes = vec![0u8; len];
@@ -312,7 +294,7 @@ fn random_dyn_value(
             DynSolValue::Bytes(bytes)
         }
         DynSolType::String => {
-            if let Some(val) = random::pick_random(&literals.strings, rng) {
+            if let Some(val) = random::pick_random(&literals.string, rng) {
                 return DynSolValue::String(val);
             }
             let len = rng.usize(0..=32);
