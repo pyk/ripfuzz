@@ -92,17 +92,19 @@ impl Factory {
 
     /// Create a new [`Fuzzer`] for the given thread id.
     pub fn create(&self, fuzzer_id: usize) -> Fuzzer {
+        let seed = self.config.seed.wrapping_add(fuzzer_id as u64);
         Fuzzer {
             chain: self.chain.clone(),
             contract: Arc::clone(&self.contract),
             deployed_address: self.deployed_address,
             config: Config {
-                seed: self.config.seed.wrapping_add(fuzzer_id as u64),
+                seed,
                 ..self.config
             },
             caller: self.caller,
             corpus: self.corpus.clone(),
             metrics: self.metrics.clone(),
+            rng: fastrand::Rng::with_seed(seed),
         }
     }
 }
@@ -118,6 +120,7 @@ pub struct Fuzzer {
     caller: Address,
     corpus: SharedCorpus,
     metrics: SharedMetrics,
+    rng: fastrand::Rng,
 }
 
 impl std::fmt::Debug for Fuzzer {
@@ -165,7 +168,7 @@ impl Fuzzer {
                 );
             }
 
-            let item = self.corpus.take();
+            let item = self.corpus.take(&mut self.rng);
             let calls = item.calls;
 
             let outcome = engine::execute_sequence(

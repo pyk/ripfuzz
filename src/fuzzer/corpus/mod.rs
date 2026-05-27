@@ -21,7 +21,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use alloy_dyn_abi::{DynSolType, DynSolValue, Specifier};
 use alloy_primitives::{Address, FixedBytes};
@@ -60,7 +59,6 @@ pub struct SharedCorpusInner {
     pub items: papaya::HashMap<String, Item>,
     pub contract: Contract,
     pub max_calls_length: usize,
-    pub seed: AtomicU64,
     pub literals: ExtractedLiterals,
 }
 
@@ -96,7 +94,6 @@ impl SharedCorpus {
             items: papaya::HashMap::new(),
             contract,
             max_calls_length,
-            seed: AtomicU64::new(0),
             literals,
         });
 
@@ -165,20 +162,16 @@ impl SharedCorpus {
     ///
     /// Picks a random existing item and returns a clone.
     /// If the corpus is empty, a freshly generated random sequence is returned.
-    pub fn take(&self) -> Item {
+    pub fn take(&self, rng: &mut fastrand::Rng) -> Item {
         let map = self.inner.items.pin();
         let count = map.len();
         if count > 0 {
             let items: Vec<Item> = map.values().cloned().collect();
-            let seed = self.inner.seed.fetch_add(1, Ordering::Relaxed);
-            let mut rng = fastrand::Rng::with_seed(seed);
             let idx = rng.usize(0..items.len());
             return items[idx].clone();
         }
 
-        let seed = self.inner.seed.fetch_add(1, Ordering::Relaxed);
-        let mut rng = fastrand::Rng::with_seed(seed);
-        Item::from(self.generate_random_sequence(&mut rng))
+        Item::from(self.generate_random_sequence(rng))
     }
 
     /// Add a corpus item to the collection.
