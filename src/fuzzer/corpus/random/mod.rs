@@ -12,6 +12,13 @@ use crate::fuzzer::corpus::ExtractedLiterals;
 pub mod int;
 pub mod uint;
 
+/// Generate a random boolean value.
+///
+/// Returns `true` 50% of the time and `false` 50% of the time.
+pub fn random_bool(rng: &mut Rng) -> bool {
+    rng.bool()
+}
+
 /// Pick a random item from a slice, or return `None` if empty.
 pub fn pick_random<T: Clone>(items: &[T], rng: &mut Rng) -> Option<T> {
     if items.is_empty() {
@@ -30,12 +37,7 @@ pub trait RandomDynSolValue {
 impl RandomDynSolValue for DynSolType {
     fn random(&self, rng: &mut Rng, literals: &ExtractedLiterals) -> DynSolValue {
         match self {
-            DynSolType::Bool => {
-                if let Some(val) = pick_random(&literals.bool, rng) {
-                    return DynSolValue::Bool(val);
-                }
-                DynSolValue::Bool(rng.bool())
-            }
+            DynSolType::Bool => DynSolValue::Bool(random_bool(rng)),
             DynSolType::Uint(sz) => DynSolValue::Uint(uint(*sz, literals, rng), *sz),
             DynSolType::Int(sz) => DynSolValue::Int(int(*sz, literals, rng), *sz),
             DynSolType::FixedBytes(sz) => {
@@ -94,5 +96,28 @@ impl RandomDynSolValue for DynSolType {
                 DynSolValue::Tuple(values)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn random_bool_distribution_is_fifty_fifty() {
+        let mut rng = fastrand::Rng::with_seed(42);
+        let mut true_count = 0usize;
+        let total = 1_000usize;
+
+        for _ in 0..total {
+            if random_bool(&mut rng) {
+                true_count += 1;
+            }
+        }
+
+        assert!(
+            true_count > 400 && true_count < 600,
+            "expected ~50% true, got {true_count} / {total}"
+        );
     }
 }
