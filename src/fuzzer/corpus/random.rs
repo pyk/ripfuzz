@@ -166,6 +166,57 @@ pub fn random_int(rng: &mut Rng, bits: usize, literals: &ExtractedLiterals) -> I
     sign_extend(raw, bits)
 }
 
+/// Generate a random fixed-width byte sequence.
+///
+/// `size` is the bit width (e.g. 32 for `bytes4`, 256 for `bytes32`).
+///
+/// Distribution:
+/// - 20% chance to pick a literal from the extracted pool.
+/// - 30% chance to generate an edge case.
+/// - 50% chance to generate uniformly random bytes.
+pub fn random_fixed_bytes(
+    rng: &mut Rng,
+    size: usize,
+    literals: &ExtractedLiterals,
+) -> FixedBytes<32> {
+    let byte_len = size / 8;
+    let group = literals.fixed_bytes.get(&size);
+
+    let roll = rng.u32(0..100);
+    if roll < 20 {
+        if let Some(bucket) = group
+            && !bucket.is_empty()
+            && let Some(val) = pick_random(bucket, rng)
+        {
+            return val;
+        }
+    } else if roll < 50 {
+        let mut word = [0u8; 32];
+        match rng.u32(0..6) {
+            0 => {}                           // all zeros
+            1 => word[0] = 1,                 // 1 in first byte
+            2 => word[..byte_len].fill(0xFF), // max
+            3 => {
+                word[..byte_len].fill(0xFF);
+                word[byte_len.saturating_sub(1)] = 0xFE; // max - 1
+            }
+            4 => {
+                word[..byte_len].fill(0xFF);
+                word[byte_len.saturating_sub(1)] = 0xFD; // max - 2
+            }
+            _ => {
+                word[..byte_len].fill(0xFF);
+                word[byte_len.saturating_sub(1)] = 0xFC; // max - 3
+            }
+        }
+        return FixedBytes::from(word);
+    }
+
+    let mut word = [0u8; 32];
+    rng.fill(&mut word);
+    FixedBytes::from(word)
+}
+
 /// Extension trait to generate random [`DynSolValue`]s for a given type.
 pub trait RandomDynSolValue {
     /// Generate a random value of this Solidity type.
@@ -179,14 +230,7 @@ impl RandomDynSolValue for DynSolType {
             DynSolType::Uint(sz) => DynSolValue::Uint(random_uint(rng, *sz, literals), *sz),
             DynSolType::Int(sz) => DynSolValue::Int(random_int(rng, *sz, literals), *sz),
             DynSolType::FixedBytes(sz) => {
-                if let Some(bucket) = literals.fixed_bytes.get(sz)
-                    && let Some(val) = pick_random(bucket, rng)
-                {
-                    return DynSolValue::FixedBytes(val, *sz);
-                }
-                let mut word = [0u8; 32];
-                rng.fill(&mut word);
-                DynSolValue::FixedBytes(FixedBytes::from(word), *sz)
+                DynSolValue::FixedBytes(random_fixed_bytes(rng, *sz, literals), *sz)
             }
             DynSolType::Address => {
                 if let Some(val) = pick_random(&literals.address, rng) {
@@ -365,6 +409,84 @@ mod tests {
         for _ in 0..total {
             let val = random_int(&mut rng, bits, &literals);
             let is_literal = literals.int.get(&bits).unwrap().contains(&val);
+            let is_edge = edge_cases.contains(&val);
+
+            if is_literal {
+                literal_count += 1;
+            } else if is_edge {
+                edge_count += 1;
+            }
+        }
+
+        let random_count = total - literal_count - edge_count;
+
+        assert!(
+            literal_count > 100 && literal_count < 300,
+            "expected ~20% literals, got {literal_count} / {total}"
+        );
+        assert!(
+            edge_count > 200 && edge_count < 400,
+            "expected ~30% edge cases, got {edge_count} / {total}"
+        );
+        assert!(
+            random_count > 400 && random_count < 600,
+            "expected ~50% random, got {random_count} / {total}"
+        );
+    }
+
+    #[test]
+    fn random_fixed_bytes_distribution_matches_spec() {
+        let mut rng = fastrand::Rng::with_seed(789);
+        let size = 256;
+        let byte_len = size / 8;
+
+        let mut literals = ExtractedLiterals::default();
+        let mut lit_word = [0u8; 32];
+        lit_word[0] = 0xAB;
+        lit_word[1] = 0xCD;
+        literals
+            .fixed_bytes
+            .insert(size, vec![FixedBytes::from(lit_word)]);
+
+        let total = 1_000usize;
+        let mut literal_count = 0usize;
+        let mut edge_count = 0usize;
+
+        let edge_cases = [
+            FixedBytes::from([0u8; 32]),
+            {
+                let mut w = [0u8; 32];
+                w[0] = 1;
+                FixedBytes::from(w)
+            },
+            {
+                let mut w = [0u8; 32];
+                w[..byte_len].fill(0xFF);
+                FixedBytes::from(w)
+            },
+            {
+                let mut w = [0u8; 32];
+                w[..byte_len].fill(0xFF);
+                w[byte_len - 1] = 0xFE;
+                FixedBytes::from(w)
+            },
+            {
+                let mut w = [0u8; 32];
+                w[..byte_len].fill(0xFF);
+                w[byte_len - 1] = 0xFD;
+                FixedBytes::from(w)
+            },
+            {
+                let mut w = [0u8; 32];
+                w[..byte_len].fill(0xFF);
+                w[byte_len - 1] = 0xFC;
+                FixedBytes::from(w)
+            },
+        ];
+
+        for _ in 0..total {
+            let val = random_fixed_bytes(&mut rng, size, &literals);
+            let is_literal = literals.fixed_bytes.get(&size).unwrap().contains(&val);
             let is_edge = edge_cases.contains(&val);
 
             if is_literal {
