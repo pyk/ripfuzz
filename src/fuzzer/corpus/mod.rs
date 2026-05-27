@@ -22,15 +22,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use alloy_dyn_abi::{DynSolType, DynSolValue, Specifier};
+use alloy_dyn_abi::{DynSolValue, Specifier};
 use alloy_json_abi::StateMutability;
-use alloy_primitives::{Address, FixedBytes};
 use anyhow::Result;
 
 pub use call::Call;
 pub use extractor::{ExtractedLiterals, extract_literals};
 pub use item::Item;
 
+use crate::fuzzer::corpus::random::RandomDynSolValue;
 use crate::target::Contract;
 
 pub mod call;
@@ -247,7 +247,7 @@ impl SharedCorpus {
                 .inputs
                 .iter()
                 .filter_map(|p| p.resolve().ok())
-                .map(|ty| random_dyn_value(&ty, rng, &self.inner.literals))
+                .map(|ty| ty.random(rng, &self.inner.literals))
                 .collect();
             let value = if func.state_mutability == StateMutability::Payable {
                 Some(random::uint(256, &self.inner.literals, rng))
@@ -266,83 +266,6 @@ impl SharedCorpus {
         }
 
         Item::from(calls)
-    }
-}
-
-fn random_dyn_value(
-    ty: &DynSolType,
-    rng: &mut fastrand::Rng,
-    literals: &ExtractedLiterals,
-) -> DynSolValue {
-    match ty {
-        DynSolType::Bool => {
-            if let Some(val) = random::pick_random(&literals.bool, rng) {
-                return DynSolValue::Bool(val);
-            }
-            DynSolValue::Bool(rng.bool())
-        }
-        DynSolType::Uint(sz) => DynSolValue::Uint(random::uint(*sz, literals, rng), *sz),
-        DynSolType::Int(sz) => DynSolValue::Int(random::int(*sz, literals, rng), *sz),
-        DynSolType::FixedBytes(sz) => {
-            if let Some(bucket) = literals.fixed_bytes.get(sz)
-                && let Some(val) = random::pick_random(bucket, rng)
-            {
-                return DynSolValue::FixedBytes(val, *sz);
-            }
-            let mut word = [0u8; 32];
-            rng.fill(&mut word);
-            DynSolValue::FixedBytes(FixedBytes::from(word), *sz)
-        }
-        DynSolType::Address => {
-            if let Some(val) = random::pick_random(&literals.address, rng) {
-                return DynSolValue::Address(val);
-            }
-            let mut bytes = [0u8; 20];
-            rng.fill(&mut bytes);
-            DynSolValue::Address(Address::from_slice(&bytes))
-        }
-        DynSolType::Bytes => {
-            if let Some(val) = random::pick_random(&literals.bytes, rng) {
-                return DynSolValue::Bytes(val.to_vec());
-            }
-            let len = rng.usize(0..=64);
-            let mut bytes = vec![0u8; len];
-            rng.fill(&mut bytes);
-            DynSolValue::Bytes(bytes)
-        }
-        DynSolType::String => {
-            if let Some(val) = random::pick_random(&literals.string, rng) {
-                return DynSolValue::String(val);
-            }
-            let len = rng.usize(0..=32);
-            let s: String = (0..len).map(|_| rng.alphabetic()).collect();
-            DynSolValue::String(s)
-        }
-        DynSolType::Function => {
-            let mut bytes = [0u8; 24];
-            rng.fill(&mut bytes);
-            DynSolValue::Function(alloy_primitives::Function::from_slice(&bytes))
-        }
-        DynSolType::Array(inner) => {
-            let len = rng.usize(0..=4);
-            let arr: Vec<DynSolValue> = (0..len)
-                .map(|_| random_dyn_value(inner, rng, literals))
-                .collect();
-            DynSolValue::Array(arr)
-        }
-        DynSolType::FixedArray(inner, len) => {
-            let arr: Vec<DynSolValue> = (0..*len)
-                .map(|_| random_dyn_value(inner, rng, literals))
-                .collect();
-            DynSolValue::FixedArray(arr)
-        }
-        DynSolType::Tuple(types) => {
-            let values: Vec<DynSolValue> = types
-                .iter()
-                .map(|t| random_dyn_value(t, rng, literals))
-                .collect();
-            DynSolValue::Tuple(values)
-        }
     }
 }
 
