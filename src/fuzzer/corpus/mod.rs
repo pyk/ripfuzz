@@ -31,12 +31,14 @@ use alloy_json_abi::StateMutability;
 use anyhow::{Result, ensure};
 
 pub use call::Call;
+pub use config::Config;
 pub use extractor::{ExtractedLiterals, extract_literals};
 pub use item::Item;
 
 use crate::fuzzer::corpus::random::RandomDynSolValue;
 
 pub mod call;
+pub mod config;
 pub mod extractor;
 pub mod item;
 pub mod random;
@@ -128,26 +130,21 @@ pub fn get_dir(base: impl AsRef<Path>, artifact_id: &crate::foundry::ArtifactId)
 }
 
 impl SharedCorpus {
-    /// Create an empty corpus backed by `corpus_dir`.
+    /// Create an empty corpus from a [`Config`].
     ///
-    /// `corpus_dir` should already be namespaced by artifact (use
+    /// `config.corpus_dir` should already be namespaced by artifact (use
     /// [`get_dir`] to compute it). No disk I/O is performed until
     /// [`Self::load_items`] is called.
-    pub fn new(
-        corpus_dir: impl AsRef<Path>,
-        target_functions: Vec<alloy_json_abi::Function>,
-        max_calls_length: usize,
-        literals: ExtractedLiterals,
-    ) -> Self {
+    pub fn new(config: Config) -> Self {
         let inner = Arc::new(SharedCorpusInner {
-            corpus_dir: corpus_dir.as_ref().to_path_buf(),
+            corpus_dir: config.corpus_dir,
             items: RwLock::new(SharedCorpusItems {
                 ids: HashSet::new(),
                 vec: Vec::new(),
             }),
-            target_functions,
-            max_calls_length,
-            literals,
+            target_functions: config.target_functions,
+            max_calls_length: config.max_calls_length,
+            literals: config.literals,
         });
 
         Self { inner }
@@ -516,12 +513,11 @@ mod tests {
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            4,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(4)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
 
         let item = Item::from(vec![Call {
             function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
@@ -595,12 +591,11 @@ mod tests {
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            8,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(8)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
 
         let threads = 16;
         let barrier = Arc::new(Barrier::new(threads));
@@ -647,12 +642,11 @@ mod tests {
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            4,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(4)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with 20 unique items.
         for i in 0..20 {
@@ -711,12 +705,11 @@ mod tests {
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            4,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(4)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
         let mut rng = fastrand::Rng::with_seed(42);
 
         assert!(corpus.is_fresh_item(&mut rng));
@@ -738,12 +731,11 @@ mod tests {
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            4,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(4)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
         let item = Item::from(vec![Call {
             function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
             args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
@@ -788,12 +780,11 @@ mod tests {
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
         let max_calls = 64;
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            max_calls,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(max_calls)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 identical calls.
         let base_call = Call {
@@ -874,12 +865,11 @@ mod tests {
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            64,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(64)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 distinct calls.
         let mut calls = Vec::with_capacity(32);
@@ -954,12 +944,11 @@ mod tests {
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            64,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(64)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 distinct calls.
         let mut calls = Vec::with_capacity(32);
@@ -1035,12 +1024,11 @@ mod tests {
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            64,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(64)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 distinct calls.
         let mut calls = Vec::with_capacity(32);
@@ -1115,12 +1103,11 @@ mod tests {
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            64,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(64)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 distinct calls.
         let mut calls = Vec::with_capacity(32);
@@ -1197,12 +1184,11 @@ mod tests {
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            64,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(64)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 calls,
         // every even index is payable.
@@ -1287,12 +1273,11 @@ mod tests {
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
-        let corpus = SharedCorpus::new(
-            corpus_dir,
-            contract.target_functions.clone(),
-            64,
-            ExtractedLiterals::default(),
-        );
+        let corpus_config = Config::new(corpus_dir)
+            .target_functions(contract.target_functions.clone())
+            .max_calls(64)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Build a base item with 8 calls (mixed payable and non-payable).
         let mut calls = Vec::with_capacity(8);

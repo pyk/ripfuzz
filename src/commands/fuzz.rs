@@ -343,19 +343,18 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     // Initialize shared corpus
-    let corpus_dir = args
-        .corpus_dir
-        .unwrap_or_else(|| project_path.join("raptor").join("corpus"));
     // Extract literals from build artifacts so the fuzzer can seed random value
     // generation with concrete values found across the entire project.
     let literals = fuzzer::corpus::extract_literals(&build_artifacts);
-    let corpus_dir = fuzzer::corpus::get_dir(&corpus_dir, &target_contract.artifact_id);
-    let corpus = fuzzer::SharedCorpus::new(
-        corpus_dir,
-        target_contract.target_functions.clone(),
-        args.max_calls,
-        literals,
-    );
+    let base_corpus_dir = args
+        .corpus_dir
+        .unwrap_or_else(|| project_path.join("raptor").join("corpus"));
+    let corpus_dir = fuzzer::corpus::get_dir(&base_corpus_dir, &target_contract.artifact_id);
+    let corpus_config = fuzzer::corpus::Config::new(corpus_dir)
+        .target_functions(target_contract.target_functions.clone())
+        .max_calls(args.max_calls)
+        .literals(literals);
+    let corpus = fuzzer::SharedCorpus::new(corpus_config);
     let corpus_stats = corpus.load_items()?;
     info!(
         total = corpus_stats.total_count,
