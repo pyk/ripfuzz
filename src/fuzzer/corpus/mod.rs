@@ -213,7 +213,7 @@ impl SharedCorpus {
     /// already exists or was newly inserted. Only the thread that wins the
     /// atomic insert performs disk I/O, so the same item is never written
     /// twice even under concurrent calls.
-    pub fn add(&self, item: Item) -> Result<()> {
+    pub fn add_item(&self, item: Item) -> Result<()> {
         // Only the first thread to successfully insert reaches the
         // disk-write code below. All other racing threads see the
         // existing key and return early.
@@ -256,46 +256,65 @@ impl SharedCorpus {
         rng.f32() < 0.30
     }
 
+    /// Generate a single random call for the target contract.
+    fn generate_call(&self, rng: &mut fastrand::Rng) -> Call {
+        let functions = &self.inner.contract.target_functions;
+        if functions.is_empty() {
+            return Call::default();
+        }
+        let idx = rng.usize(0..functions.len());
+        let func = &functions[idx];
+        let values: Vec<DynSolValue> = func
+            .inputs
+            .iter()
+            .filter_map(|p| p.resolve().ok())
+            .map(|ty| ty.random(rng, &self.inner.literals))
+            .collect();
+        let value = if func.state_mutability == StateMutability::Payable {
+            Some(random::random_uint(rng, 256, &self.inner.literals))
+        } else {
+            None
+        };
+
+        Call {
+            // checkrs: allow(clone_in_loops)
+            function: func.clone(),
+            args: DynSolValue::Tuple(values),
+            value,
+            ..Default::default()
+        }
+    }
+
     /// Generate a fresh corpus item from scratch.
     ///
     /// Uses the supplied RNG to decide sequence length, function selection,
     /// and argument values. Each thread with a distinct seeded RNG will
     /// produce a different item.
     pub fn generate_item(&self, rng: &mut fastrand::Rng) -> Item {
-        let functions = &self.inner.contract.target_functions;
         let max_len = self.inner.max_calls_length.max(1);
         let len = rng.usize(1..=max_len);
         let mut calls = Vec::with_capacity(len);
 
         for _ in 0..len {
-            if functions.is_empty() {
-                break;
-            }
-            let idx = rng.usize(0..functions.len());
-            let func = &functions[idx];
-            let values: Vec<DynSolValue> = func
-                .inputs
-                .iter()
-                .filter_map(|p| p.resolve().ok())
-                .map(|ty| ty.random(rng, &self.inner.literals))
-                .collect();
-            let value = if func.state_mutability == StateMutability::Payable {
-                Some(random::random_uint(rng, 256, &self.inner.literals))
-            } else {
-                None
-            };
-
-            let call = Call {
-                // checkrs: allow(clone_in_loops)
-                function: func.clone(),
-                args: DynSolValue::Tuple(values),
-                value,
-                ..Default::default()
-            };
-            calls.push(call);
+            calls.push(self.generate_call(rng));
         }
 
         Item::from(calls)
+    }
+
+    /// Insert a randomly generated contract call at a random position in the
+    /// sequence.
+    ///
+    /// Returns an error if the item already contains the maximum allowed
+    /// number of calls.
+    pub fn add_call(&self, rng: &mut fastrand::Rng, item: &mut Item) -> Result<()> {
+        ensure!(
+            item.calls.len() < self.inner.max_calls_length,
+            "item already contains max_calls_length calls"
+        );
+        let pos = rng.usize(0..=item.calls.len());
+        item.calls.insert(pos, self.generate_call(rng));
+        Ok(())
     }
 
     /// Get the next corpus item for execution.
@@ -360,7 +379,7 @@ mod tests {
             let barrier = Arc::clone(&barrier);
             handles.push(std::thread::spawn(move || {
                 barrier.wait();
-                corpus.add(item)
+                corpus.add_item(item)
             }));
         }
 
@@ -470,7 +489,7 @@ mod tests {
                 )]),
                 ..Default::default()
             }]);
-            corpus.add(item).unwrap();
+            corpus.add_item(item).unwrap();
         }
 
         let threads = 16;
@@ -546,7 +565,7 @@ mod tests {
             )]),
             ..Default::default()
         }]);
-        corpus.add(item).unwrap();
+        corpus.add_item(item).unwrap();
 
         let mut rng = fastrand::Rng::with_seed(123);
         let mut true_count = 0usize;
@@ -561,6 +580,92 @@ mod tests {
         assert!(
             true_count > 200 && true_count < 400,
             "expected ~30% true, got {true_count} / {total}"
+        );
+    }
+
+    #[test]
+    fn parallel_add_call_produces_unique_items() {
+        let tmp = tempfile::tempdir().unwrap();
+        let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let contract = Contract {
+            artifact_id: crate::foundry::ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            target_functions: vec![func],
+            invariant_functions: vec![],
+            setup_function: None,
+            initcode: Bytes::new(),
+        };
+
+        let max_calls = 64;
+        let corpus = SharedCorpus::new(
+            tmp.path(),
+            contract,
+            max_calls,
+            ExtractedLiterals::default(),
+        );
+
+        // Seed the corpus with one item containing 32 identical calls.
+        let base_call = Call {
+            function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                alloy_primitives::U256::ZERO,
+                256,
+            )]),
+            ..Default::default()
+        };
+        let base_item = Item::from(vec![base_call; 32]);
+        let original_id = base_item.id();
+        corpus.add_item(base_item.clone()).unwrap();
+
+        let threads = 16;
+        let barrier = Arc::new(Barrier::new(threads));
+        let mut handles = Vec::with_capacity(threads);
+
+        for t in 0..threads {
+            let corpus = corpus.clone();
+            let item = base_item.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                let mut rng = fastrand::Rng::with_seed(t as u64);
+                let mut item = item;
+                barrier.wait();
+                corpus
+                    .add_call(&mut rng, &mut item)
+                    .expect("add_call should succeed");
+                assert_eq!(
+                    item.calls.len(),
+                    33,
+                    "mutated item must have exactly 33 calls (32 + 1)"
+                );
+                corpus.add_item(item.clone()).expect("add should succeed");
+                item
+            }));
+        }
+
+        let mut items = Vec::with_capacity(threads);
+        for handle in handles {
+            items.push(handle.join().unwrap());
+        }
+
+        // All mutated items must differ from the original.
+        for item in &items {
+            assert_ne!(
+                item.id(),
+                original_id,
+                "mutated item must differ from original ({original_id})"
+            );
+        }
+
+        // All mutated items must be unique among themselves.
+        let unique: HashSet<String> = items.iter().map(|i| i.id()).collect();
+        assert!(
+            unique.len() >= threads - 1,
+            "expected at least {} unique mutated items, got {}",
+            threads - 1,
+            unique.len()
         );
     }
 }
