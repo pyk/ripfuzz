@@ -9,7 +9,7 @@ use crate::fuzzer::config::Config;
 use crate::fuzzer::corpus::Call;
 use crate::fuzzer::corpus::Shared;
 use crate::fuzzer::fuzzer::Fuzzer;
-use crate::fuzzer::metrics::SharedMetrics;
+use crate::fuzzer::metrics::Shared as MetricsShared;
 use crate::target;
 
 /// Result produced by a single fuzzer thread.
@@ -42,7 +42,7 @@ pub struct Factory {
     config: Config,
     caller: Address,
     corpus: Shared,
-    metrics: SharedMetrics,
+    metrics: MetricsShared,
 }
 
 impl Factory {
@@ -61,7 +61,7 @@ impl Factory {
             config,
             caller: evm::chain::DEFAULT_DEPLOYER,
             corpus,
-            metrics: SharedMetrics::new(),
+            metrics: MetricsShared::new(),
         }
     }
 
@@ -72,7 +72,7 @@ impl Factory {
     }
 
     /// Provide shared metrics.
-    pub fn with_metrics(mut self, metrics: SharedMetrics) -> Self {
+    pub fn with_metrics(mut self, metrics: MetricsShared) -> Self {
         self.metrics = metrics;
         self
     }
@@ -83,7 +83,7 @@ impl Factory {
     }
 
     /// Access the shared metrics.
-    pub fn metrics(&self) -> &SharedMetrics {
+    pub fn metrics(&self) -> &MetricsShared {
         &self.metrics
     }
 

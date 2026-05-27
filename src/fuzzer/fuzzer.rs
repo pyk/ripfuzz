@@ -9,11 +9,11 @@ use tracing::{info, instrument};
 
 use crate::evm;
 use crate::fuzzer::config::Config;
+use crate::fuzzer::corpus;
 use crate::fuzzer::corpus::Item;
-use crate::fuzzer::corpus::Shared;
 use crate::fuzzer::engine;
 use crate::fuzzer::factory::{Crash, FuzzerResult};
-use crate::fuzzer::metrics::SharedMetrics;
+use crate::fuzzer::metrics;
 use crate::target;
 
 /// Per-thread fuzzer that executes call sequences and reports results.
@@ -21,12 +21,17 @@ use crate::target;
 /// Created by [`Factory::create`](super::factory::Factory::create) and run via [`Fuzzer::run`].
 pub struct Fuzzer {
     chain: evm::Chain,
+
+    // Shared corpus
+    corpus: corpus::Shared,
+
+    // Shared metrics
+    metrics: metrics::Shared,
+
     contract: Arc<target::Contract>,
     deployed_address: Address,
     config: Config,
     caller: Address,
-    corpus: Shared,
-    metrics: SharedMetrics,
     rng: fastrand::Rng,
 }
 
@@ -39,8 +44,8 @@ impl Fuzzer {
         deployed_address: Address,
         config: Config,
         caller: Address,
-        corpus: Shared,
-        metrics: SharedMetrics,
+        corpus: corpus::Shared,
+        metrics: metrics::Shared,
         rng: fastrand::Rng,
     ) -> Self {
         Self {
@@ -90,14 +95,14 @@ impl Fuzzer {
                 break;
             }
 
-            if let Some(snapshot) = self.metrics.maybe_print() {
+            if let Some(snapshot) = self.metrics.try_snapshot() {
                 info!(
                     elapsed = ?snapshot.elapsed,
                     runs = snapshot.runs,
                     calls = snapshot.calls,
                     gas = snapshot.gas,
                     failures = snapshot.failures,
-                    "fuzz metrics",
+                    "fuzz",
                 );
             }
 
