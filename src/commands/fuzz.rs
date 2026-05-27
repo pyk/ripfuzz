@@ -352,7 +352,7 @@ pub fn run(args: Args) -> Result<()> {
     let corpus_dir = fuzzer::corpus::get_dir(&corpus_dir, &target_contract.artifact_id);
     let corpus = fuzzer::SharedCorpus::new(
         corpus_dir,
-        target_contract.clone(),
+        target_contract.target_functions.clone(),
         args.max_calls,
         literals,
     );
