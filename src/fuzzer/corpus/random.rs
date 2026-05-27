@@ -80,7 +80,7 @@ fn sign_extend(raw: U256, bits: usize) -> I256 {
 }
 
 /// Pick a random item from a slice, or return `None` if empty.
-pub fn pick_random<T: Clone>(items: &[T], rng: &mut Rng) -> Option<T> {
+pub fn pick_random<T: Clone>(rng: &mut Rng, items: &[T]) -> Option<T> {
     if items.is_empty() {
         None
     } else {
@@ -103,7 +103,7 @@ pub fn random_uint(rng: &mut Rng, bits: usize, literals: &ExtractedLiterals) -> 
     if roll < 20 {
         if let Some(group) = group
             && !group.is_empty()
-            && let Some(val) = pick_random(group, rng)
+            && let Some(val) = pick_random(rng, group)
             && val <= max
         {
             return val;
@@ -141,7 +141,7 @@ pub fn random_int(rng: &mut Rng, bits: usize, literals: &ExtractedLiterals) -> I
     if roll < 20 {
         if let Some(group) = group
             && !group.is_empty()
-            && let Some(val) = pick_random(group, rng)
+            && let Some(val) = pick_random(rng, group)
             && let Ok(u) = U256::try_from(val)
             && u <= max_positive
         {
@@ -186,7 +186,7 @@ pub fn random_fixed_bytes(
     if roll < 20 {
         if let Some(bucket) = group
             && !bucket.is_empty()
-            && let Some(val) = pick_random(bucket, rng)
+            && let Some(val) = pick_random(rng, bucket)
         {
             return val;
         }
@@ -217,6 +217,45 @@ pub fn random_fixed_bytes(
     FixedBytes::from(word)
 }
 
+/// Generate a random Ethereum address.
+///
+/// Distribution:
+/// - 20% chance to pick a literal from the extracted pool.
+/// - 30% chance to generate an edge case.
+/// - 50% chance to generate uniformly random bytes.
+pub fn random_address(rng: &mut Rng, literals: &ExtractedLiterals) -> Address {
+    let roll = rng.u32(0..100);
+    if roll < 20 {
+        if let Some(val) = pick_random(rng, &literals.address) {
+            return val;
+        }
+    } else if roll < 50 {
+        let mut bytes = [0u8; 20];
+        match rng.u32(0..6) {
+            0 => {}                // all zeros
+            1 => bytes[0] = 1,     // 1 in first byte
+            2 => bytes.fill(0xFF), // max
+            3 => {
+                bytes.fill(0xFF);
+                bytes[19] = 0xFE; // max - 1
+            }
+            4 => {
+                bytes.fill(0xFF);
+                bytes[19] = 0xFD; // max - 2
+            }
+            _ => {
+                bytes.fill(0xFF);
+                bytes[19] = 0xFC; // max - 3
+            }
+        }
+        return Address::from_slice(&bytes);
+    }
+
+    let mut bytes = [0u8; 20];
+    rng.fill(&mut bytes);
+    Address::from_slice(&bytes)
+}
+
 /// Extension trait to generate random [`DynSolValue`]s for a given type.
 pub trait RandomDynSolValue {
     /// Generate a random value of this Solidity type.
@@ -232,16 +271,9 @@ impl RandomDynSolValue for DynSolType {
             DynSolType::FixedBytes(sz) => {
                 DynSolValue::FixedBytes(random_fixed_bytes(rng, *sz, literals), *sz)
             }
-            DynSolType::Address => {
-                if let Some(val) = pick_random(&literals.address, rng) {
-                    return DynSolValue::Address(val);
-                }
-                let mut bytes = [0u8; 20];
-                rng.fill(&mut bytes);
-                DynSolValue::Address(Address::from_slice(&bytes))
-            }
+            DynSolType::Address => DynSolValue::Address(random_address(rng, literals)),
             DynSolType::Bytes => {
-                if let Some(val) = pick_random(&literals.bytes, rng) {
+                if let Some(val) = pick_random(rng, &literals.bytes) {
                     return DynSolValue::Bytes(val.to_vec());
                 }
                 let len = rng.usize(0..=64);
@@ -250,7 +282,7 @@ impl RandomDynSolValue for DynSolType {
                 DynSolValue::Bytes(bytes)
             }
             DynSolType::String => {
-                if let Some(val) = pick_random(&literals.string, rng) {
+                if let Some(val) = pick_random(rng, &literals.string) {
                     return DynSolValue::String(val);
                 }
                 let len = rng.usize(0..=32);
@@ -284,6 +316,7 @@ impl RandomDynSolValue for DynSolType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_primitives::address;
 
     #[test]
     fn max_for_bits_zero() {
@@ -487,6 +520,55 @@ mod tests {
         for _ in 0..total {
             let val = random_fixed_bytes(&mut rng, size, &literals);
             let is_literal = literals.fixed_bytes.get(&size).unwrap().contains(&val);
+            let is_edge = edge_cases.contains(&val);
+
+            if is_literal {
+                literal_count += 1;
+            } else if is_edge {
+                edge_count += 1;
+            }
+        }
+
+        let random_count = total - literal_count - edge_count;
+
+        assert!(
+            literal_count > 100 && literal_count < 300,
+            "expected ~20% literals, got {literal_count} / {total}"
+        );
+        assert!(
+            edge_count > 200 && edge_count < 400,
+            "expected ~30% edge cases, got {edge_count} / {total}"
+        );
+        assert!(
+            random_count > 400 && random_count < 600,
+            "expected ~50% random, got {random_count} / {total}"
+        );
+    }
+
+    #[test]
+    fn random_address_distribution_matches_spec() {
+        let mut rng = fastrand::Rng::with_seed(101);
+
+        let mut literals = ExtractedLiterals::default();
+        let lit_addr = Address::from([0xAB; 20]);
+        literals.address.push(lit_addr);
+
+        let total = 1_000usize;
+        let mut literal_count = 0usize;
+        let mut edge_count = 0usize;
+
+        let edge_cases = [
+            address!("0x0000000000000000000000000000000000000000"),
+            address!("0x0100000000000000000000000000000000000000"),
+            address!("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"),
+            address!("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE"),
+            address!("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFD"),
+            address!("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC"),
+        ];
+
+        for _ in 0..total {
+            let val = random_address(&mut rng, &literals);
+            let is_literal = literals.address.contains(&val);
             let is_edge = edge_cases.contains(&val);
 
             if is_literal {
