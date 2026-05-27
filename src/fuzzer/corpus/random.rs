@@ -286,6 +286,34 @@ pub fn random_bytes(rng: &mut Rng, literals: &ExtractedLiterals) -> Bytes {
     Bytes::from(bytes)
 }
 
+/// Generate a random string.
+///
+/// Distribution:
+/// - 20% chance to pick a literal from the extracted pool.
+/// - 30% chance to generate an edge case.
+/// - 50% chance to generate uniformly random alphabetic characters.
+pub fn random_string(rng: &mut Rng, literals: &ExtractedLiterals) -> String {
+    let roll = rng.u32(0..100);
+    if roll < 20 {
+        if let Some(val) = pick_random(rng, &literals.string) {
+            return val;
+        }
+    } else if roll < 50 {
+        let edge = match rng.u32(0..6) {
+            0 => "".into(),
+            1 => "a".into(),
+            2 => " ".repeat(32),  // whitespace edge case
+            3 => "\0".repeat(32), // null byte edge case
+            4 => "a".repeat(32),  // max length
+            _ => "a".repeat(31),  // max - 1
+        };
+        return edge;
+    }
+
+    let len = rng.usize(0..=32);
+    (0..len).map(|_| rng.alphabetic()).collect()
+}
+
 /// Extension trait to generate random [`DynSolValue`]s for a given type.
 pub trait RandomDynSolValue {
     /// Generate a random value of this Solidity type.
@@ -303,14 +331,7 @@ impl RandomDynSolValue for DynSolType {
             }
             DynSolType::Address => DynSolValue::Address(random_address(rng, literals)),
             DynSolType::Bytes => DynSolValue::Bytes(random_bytes(rng, literals).to_vec()),
-            DynSolType::String => {
-                if let Some(val) = pick_random(rng, &literals.string) {
-                    return DynSolValue::String(val);
-                }
-                let len = rng.usize(0..=32);
-                let s: String = (0..len).map(|_| rng.alphabetic()).collect();
-                DynSolValue::String(s)
-            }
+            DynSolType::String => DynSolValue::String(random_string(rng, literals)),
             DynSolType::Function => {
                 let mut bytes = [0u8; 24];
                 rng.fill(&mut bytes);
@@ -639,6 +660,54 @@ mod tests {
         for _ in 0..total {
             let val = random_bytes(&mut rng, &literals);
             let is_literal = literals.bytes.contains(&val);
+            let is_edge = edge_cases.contains(&val);
+
+            if is_literal {
+                literal_count += 1;
+            } else if is_edge {
+                edge_count += 1;
+            }
+        }
+
+        let random_count = total - literal_count - edge_count;
+
+        assert!(
+            literal_count > 100 && literal_count < 300,
+            "expected ~20% literals, got {literal_count} / {total}"
+        );
+        assert!(
+            edge_count > 200 && edge_count < 400,
+            "expected ~30% edge cases, got {edge_count} / {total}"
+        );
+        assert!(
+            random_count > 400 && random_count < 600,
+            "expected ~50% random, got {random_count} / {total}"
+        );
+    }
+
+    #[test]
+    fn random_string_distribution_matches_spec() {
+        let mut rng = fastrand::Rng::with_seed(303);
+
+        let mut literals = ExtractedLiterals::default();
+        literals.string.push("hello".into());
+
+        let total = 1_000usize;
+        let mut literal_count = 0usize;
+        let mut edge_count = 0usize;
+
+        let edge_cases = [
+            "".into(),
+            "a".into(),
+            " ".repeat(32),
+            "\0".repeat(32),
+            "a".repeat(32),
+            "a".repeat(31),
+        ];
+
+        for _ in 0..total {
+            let val = random_string(&mut rng, &literals);
+            let is_literal = literals.string.contains(&val);
             let is_edge = edge_cases.contains(&val);
 
             if is_literal {
