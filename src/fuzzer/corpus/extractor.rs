@@ -14,7 +14,7 @@ pub struct ExtractedLiterals {
     pub bool: Vec<bool>,
     pub uint: HashMap<usize, Vec<U256>>,
     pub int: HashMap<usize, Vec<I256>>,
-    pub fixed_bytes: Vec<FixedBytes<32>>,
+    pub fixed_bytes: HashMap<usize, Vec<FixedBytes<32>>>,
     pub address: Vec<Address>,
     pub bytes: Vec<Vec<u8>>,
     pub string: Vec<String>,
@@ -50,7 +50,9 @@ pub fn extract_literals(artifacts: &HashMap<ArtifactId, Artifact>) -> ExtractedL
                 a.int.entry(bits).or_default().extend(vals);
             }
             a.address.extend(b.address);
-            a.fixed_bytes.extend(b.fixed_bytes);
+            for (size, vals) in b.fixed_bytes {
+                a.fixed_bytes.entry(size).or_default().extend(vals);
+            }
             a.bytes.extend(b.bytes);
             a.string.extend(b.string);
             a
@@ -261,6 +263,11 @@ fn extract_literal(lit: &solc::ast::Literal, out: &mut ExtractedLiterals) {
                 push_int(i, &mut out.int);
                 push_int(negated, &mut out.int);
             }
+
+            let word = u.to_be_bytes::<32>();
+            let leading_zeros = word.iter().take_while(|&&b| b == 0).count();
+            let min_size = (32 - leading_zeros).max(1);
+            push_fixed_bytes(FixedBytes::from(word), min_size, &mut out.fixed_bytes);
         }
         solc::ast::LiteralKind::String | solc::ast::LiteralKind::UnicodeString => {
             let Some(value) = lit.value.as_ref().or(lit.hex_value.as_ref()).cloned() else {
@@ -285,7 +292,8 @@ fn extract_literal(lit: &solc::ast::Literal, out: &mut ExtractedLiterals) {
             if bytes.len() <= 32 {
                 let mut word = [0u8; 32];
                 word[..bytes.len()].copy_from_slice(&bytes);
-                out.fixed_bytes.push(FixedBytes::from(word));
+                let min_size = bytes.len().max(1);
+                push_fixed_bytes(FixedBytes::from(word), min_size, &mut out.fixed_bytes);
 
                 let mut num_word = [0u8; 32];
                 num_word[32 - bytes.len()..].copy_from_slice(&bytes);
@@ -334,6 +342,16 @@ fn push_int(value: I256, int: &mut HashMap<usize, Vec<I256>>) {
     let min_bits = min_bits.clamp(8, 256);
     for bits in (min_bits..=256).step_by(8) {
         int.entry(bits).or_default().push(value);
+    }
+}
+
+fn push_fixed_bytes(
+    value: FixedBytes<32>,
+    min_size: usize,
+    fixed_bytes: &mut HashMap<usize, Vec<FixedBytes<32>>>,
+) {
+    for size in min_size..=32 {
+        fixed_bytes.entry(size).or_default().push(value);
     }
 }
 
@@ -885,9 +903,13 @@ mod tests {
         let bytes1 = hex::decode("1234567890abcdef1234567890abcdef12345678").unwrap();
         word1[..bytes1.len()].copy_from_slice(&bytes1);
         assert!(
-            literals.fixed_bytes.contains(&FixedBytes::from(word1)),
-            "expected 20-byte hex in fixed_bytes: {:?}",
-            literals.fixed_bytes
+            literals
+                .fixed_bytes
+                .get(&20)
+                .unwrap()
+                .contains(&FixedBytes::from(word1)),
+            "expected 20-byte hex in fixed_bytes[20]: {:?}",
+            literals.fixed_bytes.get(&20)
         );
 
         // 32-byte hex string
@@ -897,10 +919,213 @@ mod tests {
         let mut word2 = [0u8; 32];
         word2.copy_from_slice(&bytes2);
         assert!(
-            literals.fixed_bytes.contains(&FixedBytes::from(word2)),
-            "expected 32-byte hex in fixed_bytes: {:?}",
-            literals.fixed_bytes
+            literals
+                .fixed_bytes
+                .get(&32)
+                .unwrap()
+                .contains(&FixedBytes::from(word2)),
+            "expected 32-byte hex in fixed_bytes[32]: {:?}",
+            literals.fixed_bytes.get(&32)
         );
+    }
+
+    #[test]
+    fn extracts_bytes32_literals() {
+        let artifacts = load_fixture();
+        let literals = extract_literals(&artifacts);
+        let bucket = literals.fixed_bytes.get(&32).unwrap();
+
+        let expected = vec![
+            // useNumbers() - all numbers right-aligned to 32 bytes
+            U256::from(0).to_be_bytes::<32>(),
+            U256::from(1).to_be_bytes::<32>(),
+            U256::from(42).to_be_bytes::<32>(),
+            U256::from(1000).to_be_bytes::<32>(),
+            U256::from(1337).to_be_bytes::<32>(),
+            // useNumberFormats()
+            U256::from(0x1234).to_be_bytes::<32>(),
+            U256::from(1000000000000000000u128).to_be_bytes::<32>(),
+            U256::from(1000000).to_be_bytes::<32>(),
+            U256::from_str_radix(
+                "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+                10,
+            )
+            .unwrap()
+            .to_be_bytes::<32>(),
+            // useSignedNumbers() sub-expressions
+            U256::from(1).to_be_bytes::<32>(),
+            U256::from(42).to_be_bytes::<32>(),
+            U256::from(128).to_be_bytes::<32>(),
+            U256::from(129).to_be_bytes::<32>(),
+            // useSubdenominations()
+            U256::from(1).to_be_bytes::<32>(),
+            U256::from(100).to_be_bytes::<32>(),
+            U256::from(1000000000u128).to_be_bytes::<32>(),
+            U256::from(1000000000000000000u128).to_be_bytes::<32>(),
+            U256::from(500000000000000000u128).to_be_bytes::<32>(),
+            U256::from(5).to_be_bytes::<32>(),
+            U256::from(60).to_be_bytes::<32>(),
+            U256::from(3600).to_be_bytes::<32>(),
+            U256::from(172800).to_be_bytes::<32>(),
+            U256::from(604800).to_be_bytes::<32>(),
+            // useAddresses()
+            U256::from_str_radix("abCDEF1234567890ABcDEF1234567890aBCDeF12", 16)
+                .unwrap()
+                .to_be_bytes::<32>(),
+            // invariant_check()
+            U256::from(0).to_be_bytes::<32>(),
+            // useHexStrings() - left-aligned
+            {
+                let w = [0u8; 32];
+                w // hex""
+            },
+            {
+                let mut w = [0u8; 32];
+                w[0] = 0x00;
+                w
+            },
+            {
+                let mut w = [0u8; 32];
+                w[0] = 0x12;
+                w[1] = 0x34;
+                w
+            },
+            {
+                let mut w = [0u8; 32];
+                let b = hex::decode("1234567890abcdef1234567890abcdef12345678").unwrap();
+                w[..b.len()].copy_from_slice(&b);
+                w
+            },
+            {
+                let b =
+                    hex::decode("deadbeef00000000000000000000000000000000000000000000000000000000")
+                        .unwrap();
+                let mut w = [0u8; 32];
+                w.copy_from_slice(&b);
+                w
+            },
+        ];
+        assert_eq!(
+            bucket.len(),
+            expected.len(),
+            "bytes32 bucket length mismatch"
+        );
+        for exp in &expected {
+            let fb = FixedBytes::from(*exp);
+            assert!(bucket.contains(&fb), "expected {:x?} in bytes32", fb);
+        }
+    }
+
+    #[test]
+    fn extracts_bytes16_literals() {
+        let artifacts = load_fixture();
+        let literals = extract_literals(&artifacts);
+        let bucket = literals.fixed_bytes.get(&16).unwrap();
+
+        let expected = vec![
+            // useNumbers()
+            U256::from(0).to_be_bytes::<32>(),
+            U256::from(1).to_be_bytes::<32>(),
+            U256::from(42).to_be_bytes::<32>(),
+            U256::from(1000).to_be_bytes::<32>(),
+            U256::from(1337).to_be_bytes::<32>(),
+            // useNumberFormats()
+            U256::from(0x1234).to_be_bytes::<32>(),
+            U256::from(1000000000000000000u128).to_be_bytes::<32>(),
+            U256::from(1000000).to_be_bytes::<32>(),
+            // uint256 max omitted - 32 bytes
+            // useSignedNumbers() sub-expressions
+            U256::from(1).to_be_bytes::<32>(),
+            U256::from(42).to_be_bytes::<32>(),
+            U256::from(128).to_be_bytes::<32>(),
+            U256::from(129).to_be_bytes::<32>(),
+            // useSubdenominations()
+            U256::from(1).to_be_bytes::<32>(),
+            U256::from(100).to_be_bytes::<32>(),
+            U256::from(1000000000u128).to_be_bytes::<32>(),
+            U256::from(1000000000000000000u128).to_be_bytes::<32>(),
+            U256::from(500000000000000000u128).to_be_bytes::<32>(),
+            U256::from(5).to_be_bytes::<32>(),
+            U256::from(60).to_be_bytes::<32>(),
+            U256::from(3600).to_be_bytes::<32>(),
+            U256::from(172800).to_be_bytes::<32>(),
+            U256::from(604800).to_be_bytes::<32>(),
+            // useAddresses() omitted - 20 bytes
+            // invariant_check()
+            U256::from(0).to_be_bytes::<32>(),
+            // useHexStrings() (<= 16 bytes)
+            {
+                let w = [0u8; 32];
+                w // hex""
+            },
+            {
+                let mut w = [0u8; 32];
+                w[0] = 0x00;
+                w
+            },
+            {
+                let mut w = [0u8; 32];
+                w[0] = 0x12;
+                w[1] = 0x34;
+                w
+            },
+            // 20-byte hex omitted
+            // 32-byte hex omitted
+        ];
+        assert_eq!(
+            bucket.len(),
+            expected.len(),
+            "bytes16 bucket length mismatch"
+        );
+        for exp in &expected {
+            let fb = FixedBytes::from(*exp);
+            assert!(bucket.contains(&fb), "expected {:x?} in bytes16", fb);
+        }
+    }
+
+    #[test]
+    fn extracts_bytes1_literals() {
+        let artifacts = load_fixture();
+        let literals = extract_literals(&artifacts);
+        let bucket = literals.fixed_bytes.get(&1).unwrap();
+
+        let expected = vec![
+            // useNumbers() (<= 1 byte)
+            U256::from(0).to_be_bytes::<32>(),
+            U256::from(1).to_be_bytes::<32>(),
+            U256::from(42).to_be_bytes::<32>(),
+            // useSignedNumbers() sub-expressions (<= 1 byte)
+            U256::from(1).to_be_bytes::<32>(),
+            U256::from(42).to_be_bytes::<32>(),
+            U256::from(128).to_be_bytes::<32>(),
+            U256::from(129).to_be_bytes::<32>(),
+            // useSubdenominations() (<= 1 byte)
+            U256::from(1).to_be_bytes::<32>(),
+            U256::from(100).to_be_bytes::<32>(),
+            U256::from(5).to_be_bytes::<32>(),
+            U256::from(60).to_be_bytes::<32>(),
+            // invariant_check()
+            U256::from(0).to_be_bytes::<32>(),
+            // useHexStrings() (<= 1 byte)
+            {
+                let w = [0u8; 32];
+                w // hex""
+            },
+            {
+                let mut w = [0u8; 32];
+                w[0] = 0x00;
+                w
+            },
+        ];
+        assert_eq!(
+            bucket.len(),
+            expected.len(),
+            "bytes1 bucket length mismatch"
+        );
+        for exp in &expected {
+            let fb = FixedBytes::from(*exp);
+            assert!(bucket.contains(&fb), "expected {:x?} in bytes1", fb);
+        }
     }
 
     #[test]

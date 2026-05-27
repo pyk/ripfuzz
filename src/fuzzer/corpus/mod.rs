@@ -269,7 +269,9 @@ fn random_dyn_value(
         DynSolType::Uint(sz) => DynSolValue::Uint(random::uint(*sz, literals, rng), *sz),
         DynSolType::Int(sz) => DynSolValue::Int(random::int(*sz, literals, rng), *sz),
         DynSolType::FixedBytes(sz) => {
-            if let Some(val) = random::pick_random(&literals.fixed_bytes, rng) {
+            if let Some(bucket) = literals.fixed_bytes.get(sz)
+                && let Some(val) = random::pick_random(bucket, rng)
+            {
                 return DynSolValue::FixedBytes(val, *sz);
             }
             let mut word = [0u8; 32];
