@@ -401,6 +401,69 @@ impl SharedCorpus {
         Ok(())
     }
 
+    /// Apply a randomly selected applicable mutation to the item.
+    ///
+    /// Builds a stack-only list of mutations that are legal for the
+    /// current item state, picks one uniformly, and executes it. If no
+    /// mutation is applicable the item is returned unchanged.
+    pub fn mutate_item(&self, rng: &mut fastrand::Rng, mut item: Item) -> Item {
+        let mut ops = [0u8; 6];
+        let mut count = 0usize;
+
+        if item.calls.len() < self.inner.max_calls_length {
+            ops[count] = 0;
+            count += 1;
+        }
+        if item.calls.len() > 1 {
+            ops[count] = 1;
+            count += 1;
+            ops[count] = 2;
+            count += 1;
+        }
+        if !item.calls.is_empty() {
+            ops[count] = 3;
+            count += 1;
+            ops[count] = 4;
+            count += 1;
+        }
+        if item
+            .calls
+            .iter()
+            .any(|c| c.function.state_mutability == StateMutability::Payable)
+        {
+            ops[count] = 5;
+            count += 1;
+        }
+
+        if count == 0 {
+            return item;
+        }
+
+        match ops[rng.usize(0..count)] {
+            0 => {
+                let _ = self.add_call(rng, &mut item);
+            }
+            1 => {
+                let _ = self.remove_call(rng, &mut item);
+            }
+            2 => {
+                let _ = self.swap_call(rng, &mut item);
+            }
+            3 => {
+                let _ = self.replace_call(rng, &mut item);
+            }
+            4 => {
+                let _ = self.update_args(rng, &mut item);
+            }
+            5 => {
+                let _ = self.update_value(rng, &mut item);
+            }
+            _ => unreachable!(),
+        }
+
+        item
+    }
+
     /// Get the next corpus item for execution.
     ///
     /// Returns a freshly generated item 30% of the time (or when the corpus
@@ -1131,5 +1194,69 @@ mod tests {
                 "mutated item must differ from original ({original_id})"
             );
         }
+    }
+
+    #[test]
+    fn mutate_item_produces_diverse_results() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut func_pay = alloy_json_abi::Function::parse("pay()").unwrap();
+        func_pay.state_mutability = alloy_json_abi::StateMutability::Payable;
+        let func_a = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let func_b = alloy_json_abi::Function::parse("bar(address,bool)").unwrap();
+        let contract = Contract {
+            artifact_id: crate::foundry::ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            target_functions: vec![func_pay.clone(), func_a, func_b],
+            invariant_functions: vec![],
+            setup_function: None,
+            initcode: Bytes::new(),
+        };
+
+        let corpus = SharedCorpus::new(tmp.path(), contract, 64, ExtractedLiterals::default());
+
+        // Build a base item with 8 calls (mixed payable and non-payable).
+        let mut calls = Vec::with_capacity(8);
+        for i in 0..8 {
+            let (func, value) = if i % 2 == 0 {
+                (func_pay.clone(), Some(alloy_primitives::U256::from(i)))
+            } else {
+                (
+                    alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
+                    None,
+                )
+            };
+            calls.push(Call {
+                function: func,
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                    alloy_primitives::U256::from(i),
+                    256,
+                )]),
+                value,
+                ..Default::default()
+            });
+        }
+        let base_item = Item::from(calls);
+        let original_id = base_item.id();
+
+        // Run mutate_item many times with different seeds.
+        let mut ids = HashSet::new();
+        for seed in 0..200usize {
+            let mut rng = fastrand::Rng::with_seed(seed as u64);
+            let item = corpus.mutate_item(&mut rng, base_item.clone());
+            ids.insert(item.id());
+        }
+
+        assert!(
+            ids.len() > 10,
+            "expected diverse mutations, got {} unique ids out of 200",
+            ids.len()
+        );
+        assert!(
+            !ids.contains(&original_id),
+            "mutate_item should never return the unmodified original item"
+        );
     }
 }
