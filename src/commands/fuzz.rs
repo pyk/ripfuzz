@@ -349,8 +349,9 @@ pub fn run(args: Args) -> Result<()> {
     // Extract literals from build artifacts so the fuzzer can seed random value
     // generation with concrete values found across the entire project.
     let literals = fuzzer::corpus::extract_literals(&build_artifacts);
+    let corpus_dir = fuzzer::corpus::get_dir(&corpus_dir, &target_contract.artifact_id);
     let corpus = fuzzer::SharedCorpus::new(
-        &corpus_dir,
+        corpus_dir,
         target_contract.clone(),
         args.max_calls,
         literals,
