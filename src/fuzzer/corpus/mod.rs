@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use alloy_dyn_abi::{DynSolType, DynSolValue, Specifier};
+use alloy_json_abi::StateMutability;
 use alloy_primitives::{Address, FixedBytes};
 use anyhow::Result;
 
@@ -248,12 +249,17 @@ impl SharedCorpus {
                 .filter_map(|p| p.resolve().ok())
                 .map(|ty| random_dyn_value(&ty, rng, &self.inner.literals))
                 .collect();
+            let value = if func.state_mutability == StateMutability::Payable {
+                Some(random::uint(256, &self.inner.literals, rng))
+            } else {
+                None
+            };
+
             let call = Call {
-                function: {
-                    // checkrs: allow(clone_in_loops)
-                    func.clone()
-                },
+                // checkrs: allow(clone_in_loops)
+                function: func.clone(),
                 args: DynSolValue::Tuple(values),
+                value,
                 ..Default::default()
             };
             calls.push(call);

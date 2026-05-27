@@ -18,7 +18,7 @@ pub struct Call {
     /// elements match `function.inputs` in order.
     pub args: DynSolValue,
     /// Wei value sent with this call.
-    pub value: U256,
+    pub value: Option<U256>,
     /// Account address that sends this call.
     pub caller: Address,
 }
@@ -33,7 +33,7 @@ impl Default for Call {
                 state_mutability: alloy_json_abi::StateMutability::NonPayable,
             },
             args: DynSolValue::Tuple(vec![]),
-            value: U256::ZERO,
+            value: None,
             caller: crate::evm::chain::DEFAULT_DEPLOYER,
         }
     }
@@ -44,7 +44,9 @@ impl Serialize for Call {
         let mut map = serializer.serialize_map(Some(4))?;
         map.serialize_entry("sig", &self.function.signature())?;
         map.serialize_entry("args", &dyn_value_to_json(&self.args))?;
-        map.serialize_entry("value", &self.value)?;
+        if let Some(value) = &self.value {
+            map.serialize_entry("value", value)?;
+        }
         map.serialize_entry("caller", &self.caller)?;
         map.end()
     }
@@ -56,7 +58,8 @@ impl<'de> Deserialize<'de> for Call {
         struct CallHelper {
             sig: String,
             args: serde_json::Value,
-            value: U256,
+            #[serde(default)]
+            value: Option<U256>,
             caller: Address,
         }
 
@@ -211,7 +214,7 @@ impl Call {
     pub fn content_hash(&self) -> [u8; 32] {
         let mut buf = Vec::new();
         buf.extend_from_slice(self.caller.as_slice());
-        buf.extend_from_slice(&self.value.to_be_bytes::<32>());
+        buf.extend_from_slice(&self.value.unwrap_or(U256::ZERO).to_be_bytes::<32>());
         buf.extend_from_slice(&self.calldata());
         keccak256(&buf).into()
     }
@@ -222,7 +225,7 @@ impl Call {
         chain::Transaction::new(target)
             .caller(self.caller)
             .calldata(self.calldata())
-            .value(self.value)
+            .value(self.value.unwrap_or(U256::ZERO))
     }
 }
 
@@ -266,7 +269,7 @@ mod tests {
                 DynSolValue::Address(Address::from([0xab; 20])),
                 DynSolValue::Uint(U256::from(42), 256),
             ]),
-            value: U256::ZERO,
+            value: None,
             caller: Address::from([0xcd; 20]),
         }
     }
@@ -275,7 +278,7 @@ mod tests {
         Call {
             function: Function::parse("foo()").unwrap(),
             args: DynSolValue::Tuple(vec![]),
-            value: U256::ZERO,
+            value: None,
             caller: crate::evm::chain::DEFAULT_DEPLOYER,
         }
     }
@@ -294,7 +297,7 @@ mod tests {
                     DynSolValue::Address(Address::from([0xef; 20])),
                 ]),
             ]),
-            value: U256::from(1_000),
+            value: Some(U256::from(1_000)),
             caller: Address::from([0x11; 20]),
         }
     }
