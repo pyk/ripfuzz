@@ -250,7 +250,7 @@ impl SharedCorpus {
                 .map(|ty| ty.random(rng, &self.inner.literals))
                 .collect();
             let value = if func.state_mutability == StateMutability::Payable {
-                Some(random::uint(256, &self.inner.literals, rng))
+                Some(random::random_uint(rng, 256, &self.inner.literals))
             } else {
                 None
             };
@@ -348,20 +348,21 @@ mod tests {
     #[test]
     fn parallel_generate_item_produces_unique_items() {
         let tmp = tempfile::tempdir().unwrap();
-        let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let func_a = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let func_b = alloy_json_abi::Function::parse("bar(address,bool)").unwrap();
         let contract = Contract {
             artifact_id: crate::foundry::ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![func],
+            target_functions: vec![func_a, func_b],
             invariant_functions: vec![],
             setup_function: None,
             initcode: Bytes::new(),
         };
 
-        let corpus = SharedCorpus::new(tmp.path(), contract, 4, ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(tmp.path(), contract, 8, ExtractedLiterals::default());
 
         let threads = 16;
         let barrier = Arc::new(Barrier::new(threads));
