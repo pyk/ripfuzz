@@ -1,7 +1,7 @@
 //! Random value generation helpers seeded with extracted literals.
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
-use alloy_primitives::{Address, FixedBytes, I256, U256};
+use alloy_primitives::{Address, Bytes, FixedBytes, I256, U256};
 use fastrand::Rng;
 
 use crate::fuzzer::corpus::ExtractedLiterals;
@@ -256,6 +256,36 @@ pub fn random_address(rng: &mut Rng, literals: &ExtractedLiterals) -> Address {
     Address::from_slice(&bytes)
 }
 
+/// Generate random dynamic bytes.
+///
+/// Distribution:
+/// - 20% chance to pick a literal from the extracted pool.
+/// - 30% chance to generate an edge case.
+/// - 50% chance to generate uniformly random bytes.
+pub fn random_bytes(rng: &mut Rng, literals: &ExtractedLiterals) -> Bytes {
+    let roll = rng.u32(0..100);
+    if roll < 20 {
+        if let Some(val) = pick_random(rng, &literals.bytes) {
+            return val;
+        }
+    } else if roll < 50 {
+        let bytes = match rng.u32(0..6) {
+            0 => vec![],         // empty
+            1 => vec![0x01],     // 1 byte
+            2 => vec![0xFF],     // max single byte
+            3 => vec![0xFF; 32], // 32 bytes
+            4 => vec![0xFF; 63], // 63 bytes
+            _ => vec![0xFF; 64], // 64 bytes (max)
+        };
+        return Bytes::from(bytes);
+    }
+
+    let len = rng.usize(0..=64);
+    let mut bytes = vec![0u8; len];
+    rng.fill(&mut bytes);
+    Bytes::from(bytes)
+}
+
 /// Extension trait to generate random [`DynSolValue`]s for a given type.
 pub trait RandomDynSolValue {
     /// Generate a random value of this Solidity type.
@@ -272,15 +302,7 @@ impl RandomDynSolValue for DynSolType {
                 DynSolValue::FixedBytes(random_fixed_bytes(rng, *sz, literals), *sz)
             }
             DynSolType::Address => DynSolValue::Address(random_address(rng, literals)),
-            DynSolType::Bytes => {
-                if let Some(val) = pick_random(rng, &literals.bytes) {
-                    return DynSolValue::Bytes(val.to_vec());
-                }
-                let len = rng.usize(0..=64);
-                let mut bytes = vec![0u8; len];
-                rng.fill(&mut bytes);
-                DynSolValue::Bytes(bytes)
-            }
+            DynSolType::Bytes => DynSolValue::Bytes(random_bytes(rng, literals).to_vec()),
             DynSolType::String => {
                 if let Some(val) = pick_random(rng, &literals.string) {
                     return DynSolValue::String(val);
@@ -569,6 +591,54 @@ mod tests {
         for _ in 0..total {
             let val = random_address(&mut rng, &literals);
             let is_literal = literals.address.contains(&val);
+            let is_edge = edge_cases.contains(&val);
+
+            if is_literal {
+                literal_count += 1;
+            } else if is_edge {
+                edge_count += 1;
+            }
+        }
+
+        let random_count = total - literal_count - edge_count;
+
+        assert!(
+            literal_count > 100 && literal_count < 300,
+            "expected ~20% literals, got {literal_count} / {total}"
+        );
+        assert!(
+            edge_count > 200 && edge_count < 400,
+            "expected ~30% edge cases, got {edge_count} / {total}"
+        );
+        assert!(
+            random_count > 400 && random_count < 600,
+            "expected ~50% random, got {random_count} / {total}"
+        );
+    }
+
+    #[test]
+    fn random_bytes_distribution_matches_spec() {
+        let mut rng = fastrand::Rng::with_seed(202);
+
+        let mut literals = ExtractedLiterals::default();
+        literals.bytes.push(Bytes::from(vec![0xAB, 0xCD]));
+
+        let total = 1_000usize;
+        let mut literal_count = 0usize;
+        let mut edge_count = 0usize;
+
+        let edge_cases = [
+            Bytes::from(vec![]),
+            Bytes::from(vec![0x01]),
+            Bytes::from(vec![0xFF]),
+            Bytes::from(vec![0xFF; 32]),
+            Bytes::from(vec![0xFF; 63]),
+            Bytes::from(vec![0xFF; 64]),
+        ];
+
+        for _ in 0..total {
+            let val = random_bytes(&mut rng, &literals);
+            let is_literal = literals.bytes.contains(&val);
             let is_edge = edge_cases.contains(&val);
 
             if is_literal {
