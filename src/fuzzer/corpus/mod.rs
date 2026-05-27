@@ -18,13 +18,16 @@
 //! - Using [`add`](SharedCorpus::add) to store interesting sequences
 //!   discovered during execution.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use parking_lot::RwLock;
+
 use alloy_dyn_abi::{DynSolValue, Specifier};
 use alloy_json_abi::StateMutability;
-use anyhow::Result;
+use anyhow::{Result, ensure};
 
 pub use call::Call;
 pub use extractor::{ExtractedLiterals, extract_literals};
@@ -54,10 +57,37 @@ pub struct Stats {
     pub failure_count: usize,
 }
 
+/// Combined in-memory store for corpus items.
+///
+/// The `map` provides O(1) deduplication by [`Item::id`]; the `vec`
+/// provides O(1) random sampling. Both are updated together atomically
+/// under a single [`parking_lot::RwLock`].
+pub struct SharedCorpusItems {
+    pub ids: HashSet<String>,
+    pub vec: Vec<Item>,
+}
+
+impl SharedCorpusItems {
+    /// Add an item to the random-access vector if its id is not already
+    /// present in the deduplication set.
+    ///
+    /// Returns `true` when the item was newly inserted, `false` if it
+    /// already existed.
+    pub fn try_add(&mut self, item: Item) -> bool {
+        let id = item.id();
+        if self.ids.insert(id) {
+            self.vec.push(item);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// Inner state of [`SharedCorpus`].
 pub struct SharedCorpusInner {
     pub corpus_dir: PathBuf,
-    pub items: papaya::HashMap<String, Item>,
+    pub items: RwLock<SharedCorpusItems>,
     pub contract: Contract,
     pub max_calls_length: usize,
     pub literals: ExtractedLiterals,
@@ -65,8 +95,9 @@ pub struct SharedCorpusInner {
 
 impl std::fmt::Debug for SharedCorpusInner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let len = self.items.read().vec.len();
         f.debug_struct("SharedCorpusInner")
-            .field("items", &format_args!("[{} items]", self.items.pin().len()))
+            .field("items", &format_args!("[{len} items]"))
             .field("contract", &self.contract)
             .finish()
     }
@@ -92,7 +123,10 @@ impl SharedCorpus {
     ) -> Self {
         let inner = Arc::new(SharedCorpusInner {
             corpus_dir: dir.as_ref().to_path_buf(),
-            items: papaya::HashMap::new(),
+            items: RwLock::new(SharedCorpusItems {
+                ids: HashSet::new(),
+                vec: Vec::new(),
+            }),
             contract,
             max_calls_length,
             literals,
@@ -142,8 +176,8 @@ impl SharedCorpus {
 
                     if all_valid {
                         valid_count += 1;
-                        let id = item.id();
-                        let _ = self.inner.items.pin().insert(id, item);
+                        let mut items = self.inner.items.write();
+                        items.try_add(item);
                     } else {
                         invalid_call_count += 1;
                     }
@@ -159,20 +193,18 @@ impl SharedCorpus {
         })
     }
 
-    /// Take the next corpus item for execution.
+    /// Select a random existing item from the corpus.
     ///
-    /// Picks a random existing item and returns a clone.
-    /// If the corpus is empty, a freshly generated random sequence is returned.
-    pub fn next(&self, rng: &mut fastrand::Rng) -> Item {
-        let map = self.inner.items.pin();
-        let count = map.len();
-        if count > 0 {
-            let items: Vec<Item> = map.values().cloned().collect();
-            let idx = rng.usize(0..items.len());
-            return items[idx].clone();
-        }
-
-        self.generate_item(rng)
+    /// Used when `is_fresh_item` returns `false`.
+    pub fn pick_item(&self, rng: &mut fastrand::Rng) -> Result<Item> {
+        let items = self.inner.items.read();
+        let count = items.vec.len();
+        ensure!(
+            count > 0,
+            "pick_item called on empty corpus - check is_fresh_item first"
+        );
+        let idx = rng.usize(0..count);
+        Ok(items.vec[idx].clone())
     }
 
     /// Add a corpus item to the collection.
@@ -182,14 +214,12 @@ impl SharedCorpus {
     /// atomic insert performs disk I/O, so the same item is never written
     /// twice even under concurrent calls.
     pub fn add(&self, item: Item) -> Result<()> {
-        let id = item.id();
-
-        // Only the first thread to successfully insert runs the closure
-        // and reaches the disk-write code below. All other racing threads
-        // receive `Err` from `try_insert_with` and return early.
+        // Only the first thread to successfully insert reaches the
+        // disk-write code below. All other racing threads see the
+        // existing key and return early.
         {
-            let map = self.inner.items.pin();
-            if map.try_insert_with(id, || item.clone()).is_err() {
+            let mut items = self.inner.items.write();
+            if !items.try_add(item.clone()) {
                 return Ok(());
             }
         }
@@ -207,7 +237,7 @@ impl SharedCorpus {
 
     /// Runtime statistics for the corpus.
     pub fn stats(&self) -> Stats {
-        let item_count = self.inner.items.pin().len();
+        let item_count = self.inner.items.read().vec.len();
         Stats {
             item_count,
             failure_count: 0,
@@ -220,7 +250,7 @@ impl SharedCorpus {
     /// otherwise. Returns `false` the remaining 70% of the time, signalling
     /// that the caller should reuse an existing corpus item.
     pub fn is_fresh_item(&self, rng: &mut fastrand::Rng) -> bool {
-        if self.inner.items.is_empty() {
+        if self.inner.items.read().vec.is_empty() {
             return true;
         }
         rng.f32() < 0.30
@@ -266,6 +296,21 @@ impl SharedCorpus {
         }
 
         Item::from(calls)
+    }
+
+    /// Get the next corpus item for execution.
+    ///
+    /// Returns a freshly generated item 30% of the time (or when the corpus
+    /// is empty). The remaining 70% of the time returns a random existing
+    /// item.
+    pub fn next(&self, rng: &mut fastrand::Rng) -> Item {
+        if self.is_fresh_item(rng) {
+            return self.generate_item(rng);
+        }
+        match self.pick_item(rng) {
+            Ok(item) => item,
+            Err(_) => unreachable!("is_fresh_item guarantees non-empty corpus"),
+        }
     }
 }
 
@@ -324,9 +369,14 @@ mod tests {
         }
 
         assert_eq!(
-            corpus.inner.items.pin().len(),
+            corpus.inner.items.read().ids.len(),
             1,
-            "exactly one item should be in the map"
+            "exactly one item should be in the set"
+        );
+        assert_eq!(
+            corpus.inner.items.read().vec.len(),
+            1,
+            "exactly one item should be in the vec"
         );
 
         let expected_path = item.path(tmp.path(), &corpus.inner.contract.artifact_id);
@@ -389,6 +439,65 @@ mod tests {
             unique.len(),
             threads,
             "expected all {threads} generated items to be unique"
+        );
+    }
+
+    #[test]
+    fn parallel_pick_item_selects_diverse_items() {
+        let tmp = tempfile::tempdir().unwrap();
+        let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let contract = Contract {
+            artifact_id: crate::foundry::ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            target_functions: vec![func],
+            invariant_functions: vec![],
+            setup_function: None,
+            initcode: Bytes::new(),
+        };
+
+        let corpus = SharedCorpus::new(tmp.path(), contract, 4, ExtractedLiterals::default());
+
+        // Seed the corpus with 20 unique items.
+        for i in 0..20 {
+            let item = Item::from(vec![Call {
+                function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                    alloy_primitives::U256::from(i),
+                    256,
+                )]),
+                ..Default::default()
+            }]);
+            corpus.add(item).unwrap();
+        }
+
+        let threads = 16;
+        let barrier = Arc::new(Barrier::new(threads));
+        let mut handles = Vec::with_capacity(threads);
+
+        for t in 0..threads {
+            let corpus = corpus.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                let mut rng = fastrand::Rng::with_seed(t as u64);
+                barrier.wait();
+                let item = corpus.pick_item(&mut rng).unwrap();
+                item.id()
+            }));
+        }
+
+        let mut ids = Vec::with_capacity(threads);
+        for handle in handles {
+            ids.push(handle.join().unwrap());
+        }
+
+        let unique: HashSet<&String> = ids.iter().collect();
+        assert!(
+            unique.len() >= 10,
+            "expected at least 10 unique items picked, got {} / {threads}",
+            unique.len()
         );
     }
 
