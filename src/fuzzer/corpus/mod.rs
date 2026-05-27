@@ -171,7 +171,7 @@ impl SharedCorpus {
             return items[idx].clone();
         }
 
-        Item::from(self.generate_random_sequence(rng))
+        self.generate_item(rng)
     }
 
     /// Add a corpus item to the collection.
@@ -224,10 +224,13 @@ impl SharedCorpus {
         }
         rng.f32() < 0.30
     }
-}
 
-impl SharedCorpus {
-    fn generate_random_sequence(&self, rng: &mut fastrand::Rng) -> Vec<Call> {
+    /// Generate a fresh corpus item from scratch.
+    ///
+    /// Uses the supplied RNG to decide sequence length, function selection,
+    /// and argument values. Each thread with a distinct seeded RNG will
+    /// produce a different item.
+    pub fn generate_item(&self, rng: &mut fastrand::Rng) -> Item {
         let functions = &self.inner.contract.target_functions;
         let max_len = self.inner.max_calls_length.max(1);
         let len = rng.usize(1..=max_len);
@@ -255,7 +258,8 @@ impl SharedCorpus {
             };
             calls.push(call);
         }
-        calls
+
+        Item::from(calls)
     }
 }
 
@@ -338,6 +342,7 @@ fn random_dyn_value(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::path::PathBuf;
     use std::sync::Barrier;
 
@@ -409,6 +414,52 @@ mod tests {
             .filter(|e| e.file_type().is_file())
             .count();
         assert_eq!(file_count, 1, "only one file should exist on disk");
+    }
+
+    #[test]
+    fn parallel_generate_item_produces_unique_items() {
+        let tmp = tempfile::tempdir().unwrap();
+        let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let contract = Contract {
+            artifact_id: crate::foundry::ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            target_functions: vec![func],
+            invariant_functions: vec![],
+            setup_function: None,
+            initcode: Bytes::new(),
+        };
+
+        let corpus = SharedCorpus::new(tmp.path(), contract, 4, ExtractedLiterals::default());
+
+        let threads = 16;
+        let barrier = Arc::new(Barrier::new(threads));
+        let mut handles = Vec::with_capacity(threads);
+
+        for i in 0..threads {
+            let corpus = corpus.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                let mut rng = fastrand::Rng::with_seed(i as u64);
+                barrier.wait();
+                let item = corpus.generate_item(&mut rng);
+                item.id()
+            }));
+        }
+
+        let mut ids = Vec::with_capacity(threads);
+        for handle in handles {
+            ids.push(handle.join().unwrap());
+        }
+
+        let unique: HashSet<&String> = ids.iter().collect();
+        assert_eq!(
+            unique.len(),
+            threads,
+            "expected all {threads} generated items to be unique"
+        );
     }
 
     #[test]
