@@ -1132,13 +1132,41 @@ mod tests {
     fn extracts_address_literals() {
         let artifacts = load_fixture();
         let literals = extract_literals(&artifacts);
-        let expected =
-            Address::from_slice(&hex::decode("abCDEF1234567890ABcDEF1234567890aBCDeF12").unwrap());
-        assert!(
-            literals.address.contains(&expected),
-            "expected address in address: {:?}",
-            literals.address
-        );
+        let expected = vec![
+            // useNumbers()
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000000000").unwrap()),
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000000001").unwrap()),
+            Address::from_slice(&hex::decode("000000000000000000000000000000000000002a").unwrap()),
+            Address::from_slice(&hex::decode("00000000000000000000000000000000000003e8").unwrap()),
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000000539").unwrap()),
+            // useNumberFormats()
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000001234").unwrap()),
+            Address::from_slice(&hex::decode("0000000000000000000000000de0b6b3a7640000").unwrap()),
+            Address::from_slice(&hex::decode("00000000000000000000000000000000000f4240").unwrap()),
+            // useSignedNumbers() sub-expressions
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000000001").unwrap()),
+            Address::from_slice(&hex::decode("000000000000000000000000000000000000002a").unwrap()),
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000000080").unwrap()),
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000000081").unwrap()),
+            // useSubdenominations()
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000000001").unwrap()),
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000000064").unwrap()),
+            Address::from_slice(&hex::decode("000000000000000000000000000000003b9aca00").unwrap()),
+            Address::from_slice(&hex::decode("0000000000000000000000000de0b6b3a7640000").unwrap()),
+            Address::from_slice(&hex::decode("00000000000000000000000006f05b59d3b20000").unwrap()),
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000000005").unwrap()),
+            Address::from_slice(&hex::decode("000000000000000000000000000000000000003c").unwrap()),
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000000e10").unwrap()),
+            Address::from_slice(&hex::decode("000000000000000000000000000000000002a300").unwrap()),
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000093a80").unwrap()),
+            // useHexStrings() - 20-byte hex string
+            Address::from_slice(&hex::decode("1234567890abcdef1234567890abcdef12345678").unwrap()),
+            // useAddresses() - address literal
+            Address::from_slice(&hex::decode("abCDEF1234567890ABcDEF1234567890aBCDeF12").unwrap()),
+            // invariant_check()
+            Address::from_slice(&hex::decode("0000000000000000000000000000000000000000").unwrap()),
+        ];
+        assert_eq!(literals.address, expected, "address group mismatch");
     }
 
     #[test]
