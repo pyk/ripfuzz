@@ -140,7 +140,7 @@ pub struct Args {
         value_name = "N",
         help_heading = "Fuzzing Parameters"
     )]
-    pub sequence_length: usize,
+    pub max_calls: usize,
 
     /// Random seed for reproducibility.
     #[arg(
@@ -342,12 +342,6 @@ pub fn run(args: Args) -> Result<()> {
         info!("setup completed");
     }
 
-    // Create fuzzer config first so the corpus can own mutators.
-    let fuzzer_config = fuzzer::Config {
-        seed: args.seed,
-        sequence_length: args.sequence_length,
-    };
-
     // Initialize shared corpus
     let corpus_dir = args
         .corpus_dir
@@ -358,7 +352,7 @@ pub fn run(args: Args) -> Result<()> {
     let corpus = fuzzer::SharedCorpus::new(
         &corpus_dir,
         target_contract.clone(),
-        args.sequence_length,
+        args.max_calls,
         literals,
     );
     let corpus_stats = corpus.load_items()?;
@@ -372,6 +366,11 @@ pub fn run(args: Args) -> Result<()> {
 
     // Create fuzzer factory
     info!("creating fuzzer factory");
+    // Create fuzzer config first so the corpus can own mutators.
+    let fuzzer_config = fuzzer::Config {
+        seed: args.seed,
+        max_calls: args.max_calls,
+    };
     let factory = fuzzer::Factory::new(
         chain,
         target_contract.clone(),
