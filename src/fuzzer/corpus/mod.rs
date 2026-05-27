@@ -382,6 +382,25 @@ impl SharedCorpus {
         Ok(())
     }
 
+    /// Regenerate the `value` field for a payable contract call at a
+    /// random position.
+    ///
+    /// Only calls whose function has `StateMutability::Payable` are
+    /// eligible. The sequence length is preserved.
+    pub fn update_value(&self, rng: &mut fastrand::Rng, item: &mut Item) -> Result<()> {
+        let payable: Vec<usize> = item
+            .calls
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.function.state_mutability == StateMutability::Payable)
+            .map(|(i, _)| i)
+            .collect();
+        ensure!(!payable.is_empty(), "item contains no payable calls");
+        let pos = payable[rng.usize(0..payable.len())];
+        item.calls[pos].value = Some(random::random_uint(rng, 256, &self.inner.literals));
+        Ok(())
+    }
+
     /// Get the next corpus item for execution.
     ///
     /// Returns a freshly generated item 30% of the time (or when the corpus
@@ -1006,6 +1025,89 @@ mod tests {
                 corpus
                     .update_args(&mut rng, &mut item)
                     .expect("update_args should succeed");
+                assert_eq!(
+                    item.calls.len(),
+                    32,
+                    "mutated item must still have exactly 32 calls"
+                );
+                corpus.add_item(item.clone()).expect("add should succeed");
+                item
+            }));
+        }
+
+        let mut items = Vec::with_capacity(threads);
+        for handle in handles {
+            items.push(handle.join().unwrap());
+        }
+
+        // All mutated items must differ from the original.
+        for item in &items {
+            assert_ne!(
+                item.id(),
+                original_id,
+                "mutated item must differ from original ({original_id})"
+            );
+        }
+    }
+
+    #[test]
+    fn parallel_update_value_produces_unique_items() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut func_pay = alloy_json_abi::Function::parse("pay()").unwrap();
+        func_pay.state_mutability = alloy_json_abi::StateMutability::Payable;
+        let func_nonpay = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let contract = Contract {
+            artifact_id: crate::foundry::ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            target_functions: vec![func_pay.clone(), func_nonpay.clone()],
+            invariant_functions: vec![],
+            setup_function: None,
+            initcode: Bytes::new(),
+        };
+
+        let corpus = SharedCorpus::new(tmp.path(), contract, 64, ExtractedLiterals::default());
+
+        // Seed the corpus with one item containing 32 calls,
+        // every even index is payable.
+        let mut calls = Vec::with_capacity(32);
+        for i in 0..32 {
+            let (func, value) = if i % 2 == 0 {
+                (func_pay.clone(), Some(alloy_primitives::U256::from(i)))
+            } else {
+                (func_nonpay.clone(), None)
+            };
+            calls.push(Call {
+                function: func,
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                    alloy_primitives::U256::from(i),
+                    256,
+                )]),
+                value,
+                ..Default::default()
+            });
+        }
+        let base_item = Item::from(calls);
+        let original_id = base_item.id();
+        corpus.add_item(base_item.clone()).unwrap();
+
+        let threads = 16;
+        let barrier = Arc::new(Barrier::new(threads));
+        let mut handles = Vec::with_capacity(threads);
+
+        for t in 0..threads {
+            let corpus = corpus.clone();
+            let item = base_item.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                let mut rng = fastrand::Rng::with_seed(t as u64);
+                let mut item = item;
+                barrier.wait();
+                corpus
+                    .update_value(&mut rng, &mut item)
+                    .expect("update_value should succeed");
                 assert_eq!(
                     item.calls.len(),
                     32,
