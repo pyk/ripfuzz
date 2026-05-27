@@ -6,7 +6,7 @@
 //!   loading from disk, serialization, weighted random selection, mutation,
 //!   and coverage-driven insertion.
 //! * [`Fuzzer`](factory::Fuzzer) owns the execution loop: calling
-//!   [`take`](corpus::SharedCorpus::take) to obtain an input, executing it
+//!   [`next`](corpus::SharedCorpus::next) to obtain an input, executing it
 //!   against a cloned chain, and calling [`add`](corpus::SharedCorpus::add)
 //!   when the input is interesting.
 //! * [`Factory`](factory::Factory) creates per-thread [`Fuzzer`] instances

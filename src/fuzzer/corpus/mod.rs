@@ -7,14 +7,14 @@
 //! - Defining [`Item`] which is convertible to/from
 //!   [`evm::chain::ExecInput`](crate::evm::chain::ExecInput).
 //! - Serializing corpus items as compact JSON.
-//! - Providing [`take`](SharedCorpus::take) to return a randomly selected
+//! - Providing [`next`](SharedCorpus::next) to return a randomly selected
 //!   corpus item (mutated when sourced from the existing pool) for a fuzzer
 //!   thread.
 //! - Providing [`add`](SharedCorpus::add) to add interesting sequences to
 //!   the collection.
 //!
 //! [`Fuzzer`](crate::fuzzer::factory::Fuzzer) is responsible for:
-//! - Using [`take`](SharedCorpus::take) to obtain the next input to execute.
+//! - Using [`next`](SharedCorpus::next) to obtain the next input to execute.
 //! - Using [`add`](SharedCorpus::add) to store interesting sequences
 //!   discovered during execution.
 
@@ -158,11 +158,11 @@ impl SharedCorpus {
         })
     }
 
-    /// Take a corpus item for execution.
+    /// Take the next corpus item for execution.
     ///
     /// Picks a random existing item and returns a clone.
     /// If the corpus is empty, a freshly generated random sequence is returned.
-    pub fn take(&self, rng: &mut fastrand::Rng) -> Item {
+    pub fn next(&self, rng: &mut fastrand::Rng) -> Item {
         let map = self.inner.items.pin();
         let count = map.len();
         if count > 0 {
@@ -211,6 +211,18 @@ impl SharedCorpus {
             item_count,
             failure_count: 0,
         }
+    }
+
+    /// Decide whether the next input should be a freshly generated sequence.
+    ///
+    /// Returns `true` when the corpus is empty, or with 30% probability
+    /// otherwise. Returns `false` the remaining 70% of the time, signalling
+    /// that the caller should reuse an existing corpus item.
+    pub fn is_fresh_item(&self, rng: &mut fastrand::Rng) -> bool {
+        if self.inner.items.is_empty() {
+            return true;
+        }
+        rng.f32() < 0.30
     }
 }
 
@@ -397,5 +409,68 @@ mod tests {
             .filter(|e| e.file_type().is_file())
             .count();
         assert_eq!(file_count, 1, "only one file should exist on disk");
+    }
+
+    #[test]
+    fn is_fresh_item_returns_true_when_corpus_is_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let contract = Contract {
+            artifact_id: crate::foundry::ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            target_functions: vec![],
+            invariant_functions: vec![],
+            setup_function: None,
+            initcode: Bytes::new(),
+        };
+
+        let corpus = SharedCorpus::new(tmp.path(), contract, 4, ExtractedLiterals::default());
+        let mut rng = fastrand::Rng::with_seed(42);
+
+        assert!(corpus.is_fresh_item(&mut rng));
+    }
+
+    #[test]
+    fn is_fresh_item_distribution_around_thirty_percent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let contract = Contract {
+            artifact_id: crate::foundry::ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            target_functions: vec![],
+            invariant_functions: vec![],
+            setup_function: None,
+            initcode: Bytes::new(),
+        };
+
+        let corpus = SharedCorpus::new(tmp.path(), contract, 4, ExtractedLiterals::default());
+        let item = Item::from(vec![Call {
+            function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                alloy_primitives::U256::ZERO,
+                256,
+            )]),
+            ..Default::default()
+        }]);
+        corpus.add(item).unwrap();
+
+        let mut rng = fastrand::Rng::with_seed(123);
+        let mut true_count = 0usize;
+        let total = 1_000usize;
+
+        for _ in 0..total {
+            if corpus.is_fresh_item(&mut rng) {
+                true_count += 1;
+            }
+        }
+
+        assert!(
+            true_count > 200 && true_count < 400,
+            "expected ~30% true, got {true_count} / {total}"
+        );
     }
 }
