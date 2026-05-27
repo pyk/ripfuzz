@@ -1,7 +1,5 @@
 //! A single item in the fuzzing corpus.
 
-use std::path::{Path, PathBuf};
-
 use alloy_primitives::keccak256;
 use serde::{Deserialize, Serialize};
 
@@ -22,19 +20,6 @@ impl Item {
         }
         let hash = keccak256(&buf);
         hex::encode(hash)
-    }
-
-    /// On-disk path for this corpus item.
-    pub fn path(
-        &self,
-        corpus_dir: impl AsRef<Path>,
-        artifact_id: &crate::foundry::ArtifactId,
-    ) -> PathBuf {
-        corpus_dir
-            .as_ref()
-            .join(&artifact_id.path)
-            .join(&artifact_id.name)
-            .join(format!("{}.json", self.id()))
     }
 }
 
@@ -79,16 +64,14 @@ mod tests {
             args: DynSolValue::Tuple(vec![DynSolValue::Uint(U256::ZERO, 256)]),
             ..Default::default()
         }]);
-        let artifact_id = crate::foundry::ArtifactId {
-            path: PathBuf::from("src/Counter.sol"),
-            name: "Counter".into(),
-        };
-        let path = item.path("/tmp/corpus", &artifact_id);
         let expected = PathBuf::from(format!(
-            "/tmp/corpus/src/Counter.sol/Counter/{}.json",
+            "/tmp/corpus/Counter.sol/Counter/{}.json",
             item.id()
         ));
-        assert_eq!(path, expected);
+        assert_eq!(
+            PathBuf::from("/tmp/corpus/Counter.sol/Counter").join(format!("{}.json", item.id())),
+            expected
+        );
     }
 
     /// Two calls with identical execution data but different non-execution

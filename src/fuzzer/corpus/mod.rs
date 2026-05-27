@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use rayon::prelude::*;
 
 use alloy_dyn_abi::{DynSolValue, Specifier};
 use alloy_json_abi::StateMutability;
@@ -112,17 +113,36 @@ pub struct SharedCorpus {
 }
 
 impl SharedCorpus {
+    /// Compute the namespaced corpus directory for a given artifact.
+    ///
+    /// Only the file name component of `artifact_id.path` is used, so
+    /// absolute source paths do not pollute the on-disk layout.
+    pub fn get_corpus_dir(
+        base: impl AsRef<Path>,
+        artifact_id: &crate::foundry::ArtifactId,
+    ) -> PathBuf {
+        let file_name = artifact_id
+            .path
+            .file_name()
+            .map(|f| f.to_os_string())
+            .unwrap_or_else(|| artifact_id.path.as_os_str().to_os_string());
+        base.as_ref().join(file_name).join(&artifact_id.name)
+    }
+
     /// Create an empty corpus backed by `dir` for the given target contract.
     ///
-    /// No disk I/O is performed until [`Self::load`] is called.
+    /// The actual on-disk root is namespaced by artifact, so multiple
+    /// contracts can share the same base directory without collisions.
+    /// No disk I/O is performed until [`Self::load_items`] is called.
     pub fn new(
         dir: impl AsRef<Path>,
         contract: Contract,
         max_calls_length: usize,
         literals: ExtractedLiterals,
     ) -> Self {
+        let corpus_dir = Self::get_corpus_dir(dir, &contract.artifact_id);
         let inner = Arc::new(SharedCorpusInner {
-            corpus_dir: dir.as_ref().to_path_buf(),
+            corpus_dir,
             items: RwLock::new(SharedCorpusItems {
                 ids: HashSet::new(),
                 vec: Vec::new(),
@@ -140,50 +160,56 @@ impl SharedCorpus {
     ///
     /// Valid items are added to the pending queue. Invalid or unparsable
     /// items are counted in the returned [`CorpusStats`] but are not stored.
-    pub fn load(&self) -> Result<CorpusStats> {
-        let mut total_count = 0usize;
-        let mut parse_failed_count = 0usize;
-        let mut invalid_call_count = 0usize;
-        let mut valid_count = 0usize;
-
-        let dir = self.inner.corpus_dir.clone();
-
-        if dir.exists() {
-            for entry in walkdir::WalkDir::new(dir)
-                .into_iter()
-                .filter_map(|e| e.ok())
-            {
-                let path = entry.path();
-                if path.extension() == Some("json".as_ref()) {
-                    total_count += 1;
-
-                    let Ok(json) = fs::read_to_string(path) else {
-                        parse_failed_count += 1;
-                        continue;
-                    };
-
-                    let Ok(item) = serde_json::from_str::<Item>(&json) else {
-                        parse_failed_count += 1;
-                        continue;
-                    };
-
-                    let all_valid = item.calls.iter().all(|call| {
-                        self.inner.contract.abi.functions().any(|f| {
-                            f.selector() == call.selector()
-                                && f.signature() == call.function.signature()
-                        })
-                    });
-
-                    if all_valid {
-                        valid_count += 1;
-                        let mut items = self.inner.items.write();
-                        items.try_add(item);
-                    } else {
-                        invalid_call_count += 1;
-                    }
-                }
-            }
+    pub fn load_items(&self) -> Result<CorpusStats> {
+        let dir = self
+            .inner
+            .corpus_dir
+            .join(&self.inner.contract.artifact_id.path)
+            .join(&self.inner.contract.artifact_id.name);
+        if !dir.exists() {
+            return Ok(CorpusStats::default());
         }
+
+        // Phase 1: collect all JSON file paths in the namespaced dir.
+        let paths: Vec<PathBuf> = walkdir::WalkDir::new(dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension() == Some("json".as_ref()))
+            .map(|e| e.path().to_path_buf())
+            .collect();
+
+        let total_count = paths.len();
+
+        // Phase 2: read + parse + validate + insert in parallel.
+        // Each thread inserts valid items directly under the write lock.
+        let (parse_failed_count, invalid_call_count) = paths
+            .into_par_iter()
+            .map(|path| {
+                let json = match fs::read_to_string(&path) {
+                    Ok(s) => s,
+                    Err(_) => return (1, 0),
+                };
+                let item = match serde_json::from_str::<Item>(&json) {
+                    Ok(i) => i,
+                    Err(_) => return (1, 0),
+                };
+                let all_valid = item.calls.iter().all(|call| {
+                    self.inner.contract.abi.functions().any(|f| {
+                        f.selector() == call.selector()
+                            && f.signature() == call.function.signature()
+                    })
+                });
+                if all_valid {
+                    let mut items = self.inner.items.write();
+                    items.try_add(item);
+                    (0, 0)
+                } else {
+                    (0, 1)
+                }
+            })
+            .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+
+        let valid_count = total_count - parse_failed_count - invalid_call_count;
 
         Ok(CorpusStats {
             total_count,
@@ -225,7 +251,7 @@ impl SharedCorpus {
         }
 
         // Write to disk
-        let path = item.path(&self.inner.corpus_dir, &self.inner.contract.artifact_id);
+        let path = self.inner.corpus_dir.join(format!("{}.json", item.id()));
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -533,15 +559,15 @@ mod tests {
             "exactly one item should be in the vec"
         );
 
-        let expected_path = item.path(tmp.path(), &corpus.inner.contract.artifact_id);
+        let expected_path = corpus.inner.corpus_dir.join(format!("{}.json", item.id()));
         assert!(
             expected_path.exists(),
             "corpus item should be written to disk at {:?}",
             expected_path
         );
 
-        // Ensure there is exactly one file in the entire tree.
-        let file_count: usize = walkdir::WalkDir::new(tmp.path())
+        // Ensure there is exactly one file in the namespaced tree.
+        let file_count: usize = walkdir::WalkDir::new(&corpus.inner.corpus_dir)
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())

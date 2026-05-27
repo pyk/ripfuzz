@@ -361,7 +361,7 @@ pub fn run(args: Args) -> Result<()> {
         args.sequence_length,
         literals,
     );
-    let corpus_stats = corpus.load()?;
+    let corpus_stats = corpus.load_items()?;
     info!(
         total = corpus_stats.total_count,
         parse_failed = corpus_stats.parse_failed_count,
