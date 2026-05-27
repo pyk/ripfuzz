@@ -345,6 +345,20 @@ impl SharedCorpus {
         Ok(())
     }
 
+    /// Replace a contract call at a random position with a freshly
+    /// generated random call.
+    ///
+    /// The sequence length is preserved.
+    pub fn replace_call(&self, rng: &mut fastrand::Rng, item: &mut Item) -> Result<()> {
+        ensure!(
+            !item.calls.is_empty(),
+            "item must contain at least one call"
+        );
+        let pos = rng.usize(0..item.calls.len());
+        item.calls[pos] = self.generate_call(rng);
+        Ok(())
+    }
+
     /// Get the next corpus item for execution.
     ///
     /// Returns a freshly generated item 30% of the time (or when the corpus
@@ -820,6 +834,81 @@ mod tests {
                 corpus
                     .swap_call(&mut rng, &mut item)
                     .expect("swap_call should succeed");
+                assert_eq!(
+                    item.calls.len(),
+                    32,
+                    "mutated item must still have exactly 32 calls"
+                );
+                corpus.add_item(item.clone()).expect("add should succeed");
+                item
+            }));
+        }
+
+        let mut items = Vec::with_capacity(threads);
+        for handle in handles {
+            items.push(handle.join().unwrap());
+        }
+
+        // All mutated items must differ from the original.
+        for item in &items {
+            assert_ne!(
+                item.id(),
+                original_id,
+                "mutated item must differ from original ({original_id})"
+            );
+        }
+    }
+
+    #[test]
+    fn parallel_replace_call_produces_unique_items() {
+        let tmp = tempfile::tempdir().unwrap();
+        let func_a = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let func_b = alloy_json_abi::Function::parse("bar(address,bool)").unwrap();
+        let contract = Contract {
+            artifact_id: crate::foundry::ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            target_functions: vec![func_a, func_b],
+            invariant_functions: vec![],
+            setup_function: None,
+            initcode: Bytes::new(),
+        };
+
+        let corpus = SharedCorpus::new(tmp.path(), contract, 64, ExtractedLiterals::default());
+
+        // Seed the corpus with one item containing 32 distinct calls.
+        let mut calls = Vec::with_capacity(32);
+        for i in 0..32 {
+            calls.push(Call {
+                function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                    alloy_primitives::U256::from(i),
+                    256,
+                )]),
+                ..Default::default()
+            });
+        }
+        let base_item = Item::from(calls);
+        let original_id = base_item.id();
+        corpus.add_item(base_item.clone()).unwrap();
+
+        let threads = 16;
+        let barrier = Arc::new(Barrier::new(threads));
+        let mut handles = Vec::with_capacity(threads);
+
+        for t in 0..threads {
+            let corpus = corpus.clone();
+            let item = base_item.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                let mut rng = fastrand::Rng::with_seed(t as u64);
+                let mut item = item;
+                barrier.wait();
+                corpus
+                    .replace_call(&mut rng, &mut item)
+                    .expect("replace_call should succeed");
                 assert_eq!(
                     item.calls.len(),
                     32,
