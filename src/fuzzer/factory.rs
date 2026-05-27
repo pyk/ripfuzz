@@ -1,17 +1,14 @@
 //! Fuzzer factory: owns the chain and creates per-thread [`Fuzzer`] instances.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use alloy_primitives::{Address, Selector};
-use anyhow::Result;
-use tracing::{info, instrument};
 
 use crate::evm;
 use crate::fuzzer::config::Config;
+use crate::fuzzer::corpus::Call;
 use crate::fuzzer::corpus::Shared;
-use crate::fuzzer::corpus::{Call, Item};
-use crate::fuzzer::engine;
+use crate::fuzzer::fuzzer::Fuzzer;
 use crate::fuzzer::metrics::SharedMetrics;
 use crate::target;
 
@@ -93,120 +90,19 @@ impl Factory {
     /// Create a new [`Fuzzer`] for the given thread id.
     pub fn create(&self, fuzzer_id: usize) -> Fuzzer {
         let seed = self.config.seed.wrapping_add(fuzzer_id as u64);
-        Fuzzer {
-            chain: self.chain.clone(),
-            contract: Arc::clone(&self.contract),
-            deployed_address: self.deployed_address,
-            config: Config {
+        Fuzzer::new(
+            self.chain.clone(),
+            Arc::clone(&self.contract),
+            self.deployed_address,
+            Config {
                 seed,
                 ..self.config
             },
-            caller: self.caller,
-            corpus: self.corpus.clone(),
-            metrics: self.metrics.clone(),
-            rng: fastrand::Rng::with_seed(seed),
-        }
-    }
-}
-
-/// Per-thread fuzzer that executes call sequences and reports results.
-///
-/// Created by [`Factory::create`] and run via [`Fuzzer::run`].
-pub struct Fuzzer {
-    chain: evm::Chain,
-    contract: Arc<target::Contract>,
-    deployed_address: Address,
-    config: Config,
-    caller: Address,
-    corpus: Shared,
-    metrics: SharedMetrics,
-    rng: fastrand::Rng,
-}
-
-impl std::fmt::Debug for Fuzzer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Fuzzer")
-            .field("chain", &self.chain)
-            .field("contract", &self.contract)
-            .field("deployed_address", &self.deployed_address)
-            .field("config", &self.config)
-            .field("caller", &self.caller)
-            .field("corpus", &self.corpus)
-            .field("metrics", &self.metrics)
-            .finish()
-    }
-}
-
-impl Fuzzer {
-    /// Run the fuzzer for up to `max_runs` iterations.
-    ///
-    /// The fuzzer loop uses the shared corpus for mutation and the shared
-    /// metrics for counters. It stops early if `timeout` is reached.
-    #[instrument(skip(self), fields(max_runs))]
-    pub fn run(&mut self, max_runs: u64, timeout: Option<Duration>) -> Result<FuzzerResult> {
-        let start = Instant::now();
-        let mut local_failures = Vec::new();
-        let mut runs = 0u64;
-        let mut total_calls = 0u64;
-        let mut total_gas = 0u64;
-
-        for _ in 0..max_runs {
-            if let Some(t) = timeout
-                && start.elapsed() > t
-            {
-                break;
-            }
-
-            if let Some(snapshot) = self.metrics.maybe_print() {
-                info!(
-                    elapsed = ?snapshot.elapsed,
-                    runs = snapshot.runs,
-                    calls = snapshot.calls,
-                    gas = snapshot.gas,
-                    failures = snapshot.failures,
-                    "fuzz metrics",
-                );
-            }
-
-            let item = self.corpus.next_item(&mut self.rng);
-            let calls = item.calls;
-
-            let outcome = engine::execute_sequence(
-                &self.chain,
-                &self.contract,
-                self.deployed_address,
-                self.caller,
-                &calls,
-            )?;
-
-            total_calls += outcome.total_calls;
-            total_gas += outcome.total_gas;
-            self.metrics.record(outcome.total_calls, outcome.total_gas);
-
-            if outcome.all_ok {
-                // checkrs: allow(clone_in_loops)
-                let _ = self.corpus.add_item(Item::from(calls.clone()));
-            }
-
-            if let Some(crash_info) = outcome.crash {
-                local_failures.push(Crash {
-                    function_name: crash_info.name,
-                    selector: crash_info.selector,
-                    call_sequence: calls,
-                });
-                self.metrics.record_failure();
-            }
-
-            runs += 1;
-        }
-
-        info!(runs, "fuzzer run finished");
-        Ok(FuzzerResult {
-            runs,
-            failures: local_failures,
-            total_calls,
-            total_gas,
-        })
+            self.caller,
+            self.corpus.clone(),
+            self.metrics.clone(),
+            fastrand::Rng::with_seed(seed),
+        )
     }
 }
 

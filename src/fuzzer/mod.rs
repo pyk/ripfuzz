@@ -5,7 +5,7 @@
 //! * [`Shared`](corpus::Shared) owns the corpus lifecycle:
 //!   loading from disk, serialization, weighted random selection, mutation,
 //!   and coverage-driven insertion.
-//! * [`Fuzzer`](factory::Fuzzer) owns the execution loop: calling
+//! * [`Fuzzer`](fuzzer::Fuzzer) owns the execution loop: calling
 //!   [`next`](corpus::Shared::next) to obtain an input, executing it
 //!   against a cloned chain, and calling [`add`](corpus::Shared::add)
 //!   when the input is interesting.
@@ -14,13 +14,16 @@
 
 pub use config::Config;
 pub use engine::{CrashInfo, ExecutionOutcome, is_assert_failure};
-pub use factory::{Crash, Factory, Fuzzer, FuzzerResult, format_failure};
+pub use factory::{Crash, Factory, FuzzerResult, format_failure};
+pub use fuzzer::Fuzzer;
 pub use metrics::{MetricsSnapshot, SharedMetrics};
 
 pub mod config;
 pub mod corpus;
 pub mod engine;
 pub mod factory;
+#[allow(clippy::module_inception)]
+pub mod fuzzer;
 pub mod metrics;
 pub mod mutators;
 

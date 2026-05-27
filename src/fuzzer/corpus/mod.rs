@@ -13,7 +13,7 @@
 //! - Providing [`add_item`](Shared::add_item) to add interesting sequences
 //!   to the collection.
 //!
-//! [`Fuzzer`](crate::fuzzer::factory::Fuzzer) is responsible for:
+//! [`Fuzzer`](crate::fuzzer::Fuzzer) is responsible for:
 //! - Using [`next_item`](Shared::next_item) to obtain the next input to
 //!   execute.
 //! - Using [`add_item`](Shared::add_item) to store interesting sequences
