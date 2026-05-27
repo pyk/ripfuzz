@@ -1,14 +1,10 @@
 //! Random value generation helpers seeded with extracted literals.
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
-use alloy_primitives::{Address, FixedBytes, U256};
+use alloy_primitives::{Address, FixedBytes, I256, U256};
 use fastrand::Rng;
 
-pub use int::int;
-
 use crate::fuzzer::corpus::ExtractedLiterals;
-
-pub mod int;
 
 /// Generate a random boolean value.
 ///
@@ -25,6 +21,61 @@ pub fn max_for_bits(bits: usize) -> U256 {
         U256::MAX
     } else {
         (U256::from(1) << bits) - U256::from(1)
+    }
+}
+
+/// Compute the maximum positive value for a signed integer of `bits` width.
+fn max_positive_for_bits(bits: usize) -> U256 {
+    if bits == 0 {
+        U256::ZERO
+    } else if bits >= 256 {
+        (U256::from(1) << 255) - U256::from(1)
+    } else {
+        (U256::from(1) << (bits - 1)) - U256::from(1)
+    }
+}
+
+/// Compute the sign bit for a signed integer of `bits` width.
+fn sign_bit(bits: usize) -> U256 {
+    if bits == 0 {
+        U256::ZERO
+    } else if bits >= 256 {
+        U256::from(1) << 255
+    } else {
+        U256::from(1) << (bits - 1)
+    }
+}
+
+/// Compute the mask for the low `bits` bits.
+fn mask(bits: usize) -> U256 {
+    if bits == 0 {
+        U256::ZERO
+    } else if bits >= 256 {
+        U256::MAX
+    } else {
+        (U256::from(1) << bits) - U256::from(1)
+    }
+}
+
+/// Sign-extend a `bits`-wide raw unsigned value to a 256-bit signed integer.
+fn sign_extend(raw: U256, bits: usize) -> I256 {
+    if bits == 0 {
+        return I256::ZERO;
+    }
+
+    let m = mask(bits);
+    let value = raw & m;
+
+    if bits >= 256 {
+        return I256::from_raw(value);
+    }
+
+    let sb = sign_bit(bits);
+    if value & sb == U256::ZERO {
+        I256::from_raw(value)
+    } else {
+        let extended = value | (U256::MAX ^ m);
+        I256::from_raw(extended)
     }
 }
 
@@ -75,6 +126,46 @@ pub fn random_uint(rng: &mut Rng, bits: usize, literals: &ExtractedLiterals) -> 
     if bits == 256 { raw } else { raw & max }
 }
 
+/// Generate a random signed integer of the given bit width.
+///
+/// Distribution:
+/// - 20% chance to pick a literal from the extracted pool.
+/// - 30% chance to generate an edge case (`min`, `min+1`, `-1`, `0`,
+///   `1`, `max-1`, `max`).
+/// - 50% chance to generate a uniformly random value.
+pub fn random_int(rng: &mut Rng, bits: usize, literals: &ExtractedLiterals) -> I256 {
+    let max_positive = max_positive_for_bits(bits);
+    let group = literals.int.get(&bits);
+
+    let roll = rng.u32(0..100);
+    if roll < 20 {
+        if let Some(group) = group
+            && !group.is_empty()
+            && let Some(val) = pick_random(group, rng)
+            && let Ok(u) = U256::try_from(val)
+            && u <= max_positive
+        {
+            return val;
+        }
+    } else if roll < 50 {
+        let raw = match rng.u32(0..7) {
+            0 => sign_bit(bits),                 // min
+            1 => sign_bit(bits) + U256::from(1), // min + 1
+            2 => mask(bits),                     // -1
+            3 => U256::ZERO,                     // 0
+            4 => U256::from(1),                  // 1
+            5 => max_positive - U256::from(1),   // max - 1
+            _ => max_positive,                   // max
+        };
+        return sign_extend(raw, bits);
+    }
+
+    let mut bytes = [0u8; 32];
+    rng.fill(&mut bytes);
+    let raw = U256::from_be_bytes::<32>(bytes);
+    sign_extend(raw, bits)
+}
+
 /// Extension trait to generate random [`DynSolValue`]s for a given type.
 pub trait RandomDynSolValue {
     /// Generate a random value of this Solidity type.
@@ -86,7 +177,7 @@ impl RandomDynSolValue for DynSolType {
         match self {
             DynSolType::Bool => DynSolValue::Bool(random_bool(rng)),
             DynSolType::Uint(sz) => DynSolValue::Uint(random_uint(rng, *sz, literals), *sz),
-            DynSolType::Int(sz) => DynSolValue::Int(int(*sz, literals, rng), *sz),
+            DynSolType::Int(sz) => DynSolValue::Int(random_int(rng, *sz, literals), *sz),
             DynSolType::FixedBytes(sz) => {
                 if let Some(bucket) = literals.fixed_bytes.get(sz)
                     && let Some(val) = pick_random(bucket, rng)
@@ -216,6 +307,64 @@ mod tests {
         for _ in 0..total {
             let val = random_uint(&mut rng, bits, &literals);
             let is_literal = literals.uint.get(&bits).unwrap().contains(&val);
+            let is_edge = edge_cases.contains(&val);
+
+            if is_literal {
+                literal_count += 1;
+            } else if is_edge {
+                edge_count += 1;
+            }
+        }
+
+        let random_count = total - literal_count - edge_count;
+
+        assert!(
+            literal_count > 100 && literal_count < 300,
+            "expected ~20% literals, got {literal_count} / {total}"
+        );
+        assert!(
+            edge_count > 200 && edge_count < 400,
+            "expected ~30% edge cases, got {edge_count} / {total}"
+        );
+        assert!(
+            random_count > 400 && random_count < 600,
+            "expected ~50% random, got {random_count} / {total}"
+        );
+    }
+
+    #[test]
+    fn random_int_distribution_matches_spec() {
+        let mut rng = fastrand::Rng::with_seed(456);
+        let bits = 256;
+        let max_pos = max_positive_for_bits(bits);
+
+        let mut literals = ExtractedLiterals::default();
+        literals.int.insert(
+            bits,
+            vec![
+                I256::from_raw(U256::from(42)),
+                I256::from_raw(U256::from(100)),
+                I256::from_raw(U256::from(12345)),
+            ],
+        );
+
+        let total = 1_000usize;
+        let mut literal_count = 0usize;
+        let mut edge_count = 0usize;
+
+        let edge_cases = [
+            sign_extend(sign_bit(bits), bits),                 // min
+            sign_extend(sign_bit(bits) + U256::from(1), bits), // min + 1
+            sign_extend(mask(bits), bits),                     // -1
+            I256::ZERO,                                        // 0
+            I256::from_raw(U256::from(1)),                     // 1
+            sign_extend(max_pos - U256::from(1), bits),        // max - 1
+            sign_extend(max_pos, bits),                        // max
+        ];
+
+        for _ in 0..total {
+            let val = random_int(&mut rng, bits, &literals);
+            let is_literal = literals.int.get(&bits).unwrap().contains(&val);
             let is_edge = edge_cases.contains(&val);
 
             if is_literal {
