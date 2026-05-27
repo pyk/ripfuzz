@@ -940,15 +940,20 @@ mod tests {
     fn extracts_string_literals() {
         let artifacts = load_fixture();
         let literals = extract_literals(&artifacts);
-        let expected_strings = ["hello", "world", "ok"];
-        for expected in &expected_strings {
-            assert!(
-                literals.string.contains(&(*expected).into()),
-                "expected '{}' in string: {:?}",
-                expected,
-                literals.string
-            );
-        }
+        let expected = vec![
+            // useStrings()
+            "".to_string(),             // empty
+            "hello".to_string(),        // hello
+            "world".to_string(),        // world
+            "ok".to_string(),           // ok
+            "hello\nworld".to_string(), // escape sequence
+            // useUnicodeStrings()
+            "".to_string(),         // unicode empty
+            "hello 🌍".to_string(), // unicode hello world
+            // invariant_check()
+            "ok".to_string(), // require message
+        ];
+        assert_eq!(literals.string, expected, "string group mismatch");
     }
 
     #[test]
