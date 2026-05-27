@@ -222,39 +222,57 @@ fn visit_expression(expr: &solc::ast::Expression, out: &mut ExtractedLiterals) {
     }
 }
 
-fn extract_literal(lit: &solc::ast::Literal, out: &mut ExtractedLiterals) {
+fn parse_literal_number(lit: &solc::ast::Literal) -> Option<U256> {
     let value = if lit.kind == solc::ast::LiteralKind::HexString {
         lit.hex_value.as_ref().or(lit.value.as_ref()).cloned()
     } else {
         lit.value.as_ref().or(lit.hex_value.as_ref()).cloned()
     };
-    let Some(value) = value else { return };
+    let value = value?;
+    match lit.subdenomination.as_deref() {
+        Some(sub) => apply_subdenomination(&value, sub),
+        None => parse_number_literal(&value),
+    }
+}
 
+fn extract_literal(lit: &solc::ast::Literal, out: &mut ExtractedLiterals) {
     match lit.kind {
         solc::ast::LiteralKind::Bool => {
+            let Some(value) = lit.value.as_ref().or(lit.hex_value.as_ref()).cloned() else {
+                return;
+            };
             out.bool.push(value == "true");
         }
         solc::ast::LiteralKind::Number => {
-            let computed = match lit.subdenomination.as_deref() {
-                Some(sub) => apply_subdenomination(&value, sub),
-                None => parse_number_literal(&value),
+            let Some(u) = parse_literal_number(lit) else {
+                return;
             };
-            let Some(u) = computed else { return };
-
-            push_uint(u, &mut out.uint);
-            push_int(u, &mut out.int);
 
             // Address compatible: values that fit in 160 bits.
             let bytes = u.to_be_bytes::<32>();
             if bytes[..12].iter().all(|&b| b == 0) {
                 out.address.push(Address::from_slice(&bytes[12..]));
             }
+
+            push_uint(u, &mut out.uint);
+            if let Ok(i) = I256::try_from(u)
+                && let Some(negated) = i.checked_neg()
+            {
+                push_int(i, &mut out.int);
+                push_int(negated, &mut out.int);
+            }
         }
         solc::ast::LiteralKind::String | solc::ast::LiteralKind::UnicodeString => {
+            let Some(value) = lit.value.as_ref().or(lit.hex_value.as_ref()).cloned() else {
+                return;
+            };
             out.string.push(value.clone());
             out.bytes.push(value.into_bytes());
         }
         solc::ast::LiteralKind::HexString => {
+            let Some(value) = lit.hex_value.as_ref().or(lit.value.as_ref()).cloned() else {
+                return;
+            };
             let Ok(bytes) = hex::decode(&value) else {
                 return;
             };
@@ -273,7 +291,9 @@ fn extract_literal(lit: &solc::ast::Literal, out: &mut ExtractedLiterals) {
                 num_word[32 - bytes.len()..].copy_from_slice(&bytes);
                 let u = U256::from_be_bytes(num_word);
                 push_uint(u, &mut out.uint);
-                push_int(u, &mut out.int);
+                if let Ok(i) = I256::try_from(u) {
+                    push_int(i, &mut out.int);
+                }
             }
         }
     }
@@ -292,17 +312,28 @@ fn push_uint(value: U256, uint: &mut HashMap<usize, Vec<U256>>) {
     }
 }
 
-fn push_int(value: U256, int: &mut HashMap<usize, Vec<I256>>) {
-    let Ok(i) = I256::try_from(value) else { return };
-    let magnitude_bits = if value == U256::ZERO {
-        0
+fn push_int(value: I256, int: &mut HashMap<usize, Vec<I256>>) {
+    let min_bits = if value == I256::ZERO {
+        8
     } else {
-        256 - value.leading_zeros()
+        let raw = value.into_raw();
+        let abs_u256 = if value.is_negative() {
+            (!raw).wrapping_add(U256::ONE)
+        } else {
+            raw
+        };
+        let magnitude_bits = 256 - abs_u256.leading_zeros();
+        if value > I256::ZERO {
+            (magnitude_bits + 1).div_ceil(8) * 8
+        } else if abs_u256.count_ones() == 1 {
+            magnitude_bits.div_ceil(8) * 8
+        } else {
+            (magnitude_bits + 1).div_ceil(8) * 8
+        }
     };
-    let min_bits = (magnitude_bits + 1).div_ceil(8) * 8;
     let min_bits = min_bits.clamp(8, 256);
     for bits in (min_bits..=256).step_by(8) {
-        int.entry(bits).or_default().push(i);
+        int.entry(bits).or_default().push(value);
     }
 }
 
@@ -430,6 +461,11 @@ mod tests {
                 10,
             )
             .unwrap(), // uint256 max
+            // useSignedNumbers()
+            U256::from(1),   // -1 sub-expression
+            U256::from(42),  // -42 sub-expression
+            U256::from(128), // -128 sub-expression
+            U256::from(129), // -129 sub-expression
             // useSubdenominations()
             U256::from(1),                       // 1 wei
             U256::from(100),                     // 100 wei
@@ -479,6 +515,11 @@ mod tests {
             U256::from(1000000000000000000u128), // 1e18
             U256::from(1000000),                 // 1_000_000
             // uint256 max omitted - does not fit in uint128
+            // useSignedNumbers()
+            U256::from(1),   // -1 sub-expression
+            U256::from(42),  // -42 sub-expression
+            U256::from(128), // -128 sub-expression
+            U256::from(129), // -129 sub-expression
             // useSubdenominations()
             U256::from(1),                       // 1 wei
             U256::from(100),                     // 100 wei
@@ -520,6 +561,11 @@ mod tests {
             // 1000 omitted - > 255
             // 1337 omitted - > 255
             // useNumberFormats() - all omitted
+            // useSignedNumbers()
+            U256::from(1),   // -1 sub-expression
+            U256::from(42),  // -42 sub-expression
+            U256::from(128), // -128 sub-expression
+            U256::from(129), // -129 sub-expression
             // useSubdenominations()
             U256::from(1),   // 1 wei
             U256::from(100), // 100 wei
@@ -549,56 +595,209 @@ mod tests {
     }
 
     #[test]
-    fn extracts_number_literals() {
-        let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
-        let expected_numbers = [
-            U256::from(42),
-            U256::from(1000),
-            U256::from(1337),
-            U256::from(1),
-            U256::from(0),
-        ];
-        for expected in &expected_numbers {
-            assert!(
-                literals.uint.get(&256).unwrap().contains(expected),
-                "expected '{}' in uint256: {:?}",
-                expected,
-                literals.uint.get(&256).unwrap()
-            );
-        }
-        // Small values also appear in smaller groups.
-        assert!(literals.uint.get(&8).unwrap().contains(&U256::from(42)));
-        assert!(literals.uint.get(&8).unwrap().contains(&U256::from(1)));
-        assert!(literals.uint.get(&8).unwrap().contains(&U256::from(0)));
-    }
-
-    #[test]
     fn extracts_int256_literals() {
         let artifacts = load_fixture();
         let literals = extract_literals(&artifacts);
-        assert!(
-            literals
-                .int
-                .get(&256)
-                .unwrap()
-                .contains(&I256::try_from(U256::from(42)).unwrap()),
-            "expected 42 in int256: {:?}",
-            literals.int.get(&256).unwrap()
+        let expected = vec![
+            // useNumbers()
+            I256::try_from(0i64).unwrap(),
+            I256::try_from(0i64).unwrap(), // -0
+            I256::try_from(1i64).unwrap(),
+            I256::try_from(-1i64).unwrap(),
+            I256::try_from(42i64).unwrap(),
+            I256::try_from(-42i64).unwrap(),
+            I256::try_from(1000i64).unwrap(),
+            I256::try_from(-1000i64).unwrap(),
+            I256::try_from(1337i64).unwrap(),
+            I256::try_from(-1337i64).unwrap(),
+            // useNumberFormats()
+            I256::try_from(0x1234i64).unwrap(), // 0x1234
+            I256::try_from(-0x1234i64).unwrap(),
+            I256::try_from(1000000000000000000i64).unwrap(), // 1e18
+            I256::try_from(-1000000000000000000i64).unwrap(),
+            I256::try_from(1000000i64).unwrap(), // 1_000_000
+            I256::try_from(-1000000i64).unwrap(),
+            // uint256 max omitted - does not fit in int256
+            // useSignedNumbers() sub-expressions
+            I256::try_from(1i64).unwrap(),
+            I256::try_from(-1i64).unwrap(),
+            I256::try_from(42i64).unwrap(),
+            I256::try_from(-42i64).unwrap(),
+            I256::try_from(128i64).unwrap(),
+            I256::try_from(-128i64).unwrap(),
+            I256::try_from(129i64).unwrap(),
+            I256::try_from(-129i64).unwrap(),
+            // useSubdenominations()
+            I256::try_from(1i64).unwrap(), // 1 wei
+            I256::try_from(-1i64).unwrap(),
+            I256::try_from(100i64).unwrap(), // 100 wei
+            I256::try_from(-100i64).unwrap(),
+            I256::try_from(1000000000i64).unwrap(), // 1 gwei
+            I256::try_from(-1000000000i64).unwrap(),
+            I256::try_from(1000000000000000000i64).unwrap(), // 1 ether
+            I256::try_from(-1000000000000000000i64).unwrap(),
+            I256::try_from(500000000000000000i64).unwrap(), // 0.5 ether
+            I256::try_from(-500000000000000000i64).unwrap(),
+            I256::try_from(5i64).unwrap(), // 5 seconds
+            I256::try_from(-5i64).unwrap(),
+            I256::try_from(60i64).unwrap(), // 1 minutes
+            I256::try_from(-60i64).unwrap(),
+            I256::try_from(3600i64).unwrap(), // 1 hours
+            I256::try_from(-3600i64).unwrap(),
+            I256::try_from(172800i64).unwrap(), // 2 days
+            I256::try_from(-172800i64).unwrap(),
+            I256::try_from(604800i64).unwrap(), // 1 weeks
+            I256::try_from(-604800i64).unwrap(),
+            // useHexStrings() (no negation for hex string literals)
+            I256::try_from(0i64).unwrap(),      // hex""
+            I256::try_from(0i64).unwrap(),      // hex"00"
+            I256::try_from(0x1234i64).unwrap(), // hex'1234'
+            "0x1234567890abcdef1234567890abcdef12345678"
+                .parse::<I256>()
+                .unwrap(), // 20-byte hex
+            "0xabCDEF1234567890ABcDEF1234567890aBCDeF12"
+                .parse::<I256>()
+                .unwrap(), // address literal
+            "-0xabCDEF1234567890ABcDEF1234567890aBCDeF12"
+                .parse::<I256>()
+                .unwrap(), // negated address literal
+            // invariant_check()
+            I256::try_from(0i64).unwrap(), // num >= 0
+            I256::try_from(0i64).unwrap(), // -0
+        ];
+        assert_eq!(
+            literals.int.get(&256).unwrap().clone(),
+            expected,
+            "int256 group mismatch"
         );
-        // uint256 max should NOT be in int256
-        let uint256_max = U256::from_str_radix(
-            "115792089237316195423570985008687907853269984665640564039457584007913129639935",
-            10,
-        )
-        .unwrap();
-        assert!(
-            !literals
-                .int
-                .get(&256)
-                .unwrap()
-                .contains(&I256::from_raw(uint256_max)),
-            "expected uint256 max NOT in int256"
+    }
+
+    #[test]
+    fn extracts_int128_literals() {
+        let artifacts = load_fixture();
+        let literals = extract_literals(&artifacts);
+        let expected = vec![
+            // useNumbers()
+            I256::try_from(0i64).unwrap(),
+            I256::try_from(0i64).unwrap(), // -0
+            I256::try_from(1i64).unwrap(),
+            I256::try_from(-1i64).unwrap(),
+            I256::try_from(42i64).unwrap(),
+            I256::try_from(-42i64).unwrap(),
+            I256::try_from(1000i64).unwrap(),
+            I256::try_from(-1000i64).unwrap(),
+            I256::try_from(1337i64).unwrap(),
+            I256::try_from(-1337i64).unwrap(),
+            // useNumberFormats()
+            I256::try_from(0x1234i64).unwrap(), // 0x1234
+            I256::try_from(-0x1234i64).unwrap(),
+            I256::try_from(1000000000000000000i64).unwrap(), // 1e18
+            I256::try_from(-1000000000000000000i64).unwrap(),
+            I256::try_from(1000000i64).unwrap(), // 1_000_000
+            I256::try_from(-1000000i64).unwrap(),
+            // uint256 max omitted - does not fit in int128
+            // useSignedNumbers() sub-expressions
+            I256::try_from(1i64).unwrap(),
+            I256::try_from(-1i64).unwrap(),
+            I256::try_from(42i64).unwrap(),
+            I256::try_from(-42i64).unwrap(),
+            I256::try_from(128i64).unwrap(),
+            I256::try_from(-128i64).unwrap(),
+            I256::try_from(129i64).unwrap(),
+            I256::try_from(-129i64).unwrap(),
+            // useSubdenominations()
+            I256::try_from(1i64).unwrap(), // 1 wei
+            I256::try_from(-1i64).unwrap(),
+            I256::try_from(100i64).unwrap(), // 100 wei
+            I256::try_from(-100i64).unwrap(),
+            I256::try_from(1000000000i64).unwrap(), // 1 gwei
+            I256::try_from(-1000000000i64).unwrap(),
+            I256::try_from(1000000000000000000i64).unwrap(), // 1 ether
+            I256::try_from(-1000000000000000000i64).unwrap(),
+            I256::try_from(500000000000000000i64).unwrap(), // 0.5 ether
+            I256::try_from(-500000000000000000i64).unwrap(),
+            I256::try_from(5i64).unwrap(), // 5 seconds
+            I256::try_from(-5i64).unwrap(),
+            I256::try_from(60i64).unwrap(), // 1 minutes
+            I256::try_from(-60i64).unwrap(),
+            I256::try_from(3600i64).unwrap(), // 1 hours
+            I256::try_from(-3600i64).unwrap(),
+            I256::try_from(172800i64).unwrap(), // 2 days
+            I256::try_from(-172800i64).unwrap(),
+            I256::try_from(604800i64).unwrap(), // 1 weeks
+            I256::try_from(-604800i64).unwrap(),
+            // useHexStrings() (no negation for hex string literals)
+            I256::try_from(0i64).unwrap(),      // hex""
+            I256::try_from(0i64).unwrap(),      // hex"00"
+            I256::try_from(0x1234i64).unwrap(), // hex'1234'
+            // 20-byte hex omitted - 160 bits, does not fit in int128
+            // useAddresses()
+            // address literal omitted - 160 bits, does not fit in int128
+            // invariant_check()
+            I256::try_from(0i64).unwrap(), // num >= 0
+            I256::try_from(0i64).unwrap(), // -0
+        ];
+        assert_eq!(
+            literals.int.get(&128).unwrap().clone(),
+            expected,
+            "int128 group mismatch"
+        );
+    }
+
+    #[test]
+    fn extracts_int8_literals() {
+        let artifacts = load_fixture();
+        let literals = extract_literals(&artifacts);
+        let expected = vec![
+            // useNumbers()
+            I256::try_from(0i64).unwrap(), // 0
+            I256::try_from(0i64).unwrap(), // -0
+            I256::try_from(1i64).unwrap(), // 1
+            I256::try_from(-1i64).unwrap(),
+            I256::try_from(42i64).unwrap(), // 42
+            I256::try_from(-42i64).unwrap(),
+            // 1000 omitted - > 127
+            // 1337 omitted - > 127
+            // useNumberFormats() - all omitted
+            // useSignedNumbers() sub-expressions
+            I256::try_from(1i64).unwrap(),
+            I256::try_from(-1i64).unwrap(),
+            I256::try_from(42i64).unwrap(),
+            I256::try_from(-42i64).unwrap(),
+            // 128 omitted - > 127
+            I256::try_from(-128i64).unwrap(), // -128 fits in int8
+            // -129 omitted - does not fit in int8
+            // 129 omitted - > 127
+            // useSubdenominations()
+            I256::try_from(1i64).unwrap(), // 1 wei
+            I256::try_from(-1i64).unwrap(),
+            I256::try_from(100i64).unwrap(), // 100 wei
+            I256::try_from(-100i64).unwrap(),
+            // 1 gwei omitted - > 127
+            // 1 ether omitted - > 127
+            // 0.5 ether omitted - > 127
+            I256::try_from(5i64).unwrap(), // 5 seconds
+            I256::try_from(-5i64).unwrap(),
+            I256::try_from(60i64).unwrap(), // 1 minutes
+            I256::try_from(-60i64).unwrap(),
+            // 1 hours omitted - > 127
+            // 2 days omitted - > 127
+            // 1 weeks omitted - > 127
+            // useHexStrings() (no negation for hex string literals)
+            I256::try_from(0i64).unwrap(), // hex""
+            I256::try_from(0i64).unwrap(), // hex"00"
+            // hex'1234' omitted - > 127
+            // 20-byte hex omitted - > 127
+            // 32-byte hex omitted - > 127
+            // useAddresses() - omitted
+            // invariant_check()
+            I256::try_from(0i64).unwrap(), // num >= 0
+            I256::try_from(0i64).unwrap(), // -0
+        ];
+        assert_eq!(
+            literals.int.get(&8).unwrap().clone(),
+            expected,
+            "int8 group mismatch"
         );
     }
 

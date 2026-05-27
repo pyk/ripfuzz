@@ -32,6 +32,14 @@ contract LiteralTarget {
         num = 115792089237316195423570985008687907853269984665640564039457584007913129639935; // uint256 max
     }
 
+    // --- Signed number literals ---
+    function useSignedNumbers() external {
+        int256 snum = -1;
+        snum = -42;
+        snum = -128;
+        snum = -129;
+    }
+
     // --- Number literals with subdenominations ---
     function useSubdenominations() external {
         // Currency units
