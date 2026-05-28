@@ -42,7 +42,7 @@ use revm::{
 use alloy_primitives::B256;
 
 use crate::evm::coverage::edge::edge_marker;
-use crate::evm::coverage::map::{LocalContractCoverage, LocalCoverage};
+use crate::evm::coverage::local::{LocalContractCoverage, LocalCoverage};
 
 /// Convert a U256 stack value to usize without using `ok()`.
 #[allow(clippy::manual_ok_err)]
@@ -205,42 +205,244 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
 
 #[cfg(test)]
 mod tests {
-    use revm::{context::TxEnv, primitives::TxKind};
+    use alloy_primitives::{Address, U256};
+    use alloy_sol_types::SolCall;
+    use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER};
-    use crate::evm::coverage;
+    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
+    use crate::evm::coverage::SharedCoverage;
     use crate::foundry;
 
-    const GAS_LIMIT: u64 = 16_777_216;
+    alloy_sol_types::sol! {
+        interface CoverageBranch {
+            function branch(bool take) external;
+        }
 
-    fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/basic-target");
+        interface CoverageDepth {
+            function setup() external;
+            function callDirect() external;
+            function callIndirect() external;
+        }
+
+        interface CoverageRevert {
+            function maybeRevert(bool shouldRevert) external;
+        }
+
+        interface CoverageLoop {
+            function loopN(uint256 n) external;
+        }
+
+        interface CoverageDuplicate {
+            function setup() external;
+            function callChild1() external;
+            function callChild2() external;
+        }
+    }
+
+    fn load_coverage_fixture(id: &str) -> Contract {
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
-    #[test]
-    fn coverage_inspector_collects_hits_for_deployed_contract() {
-        let contract = load_fixture("src/NamedMismatch.sol:DifferentName");
-
+    fn deploy_and_setup(contract: &Contract) -> (Chain, Address) {
         let mut chain = Chain::new(Config::default()).unwrap();
-        let inspector = coverage::Inspector::new();
-        let tx = TxEnv {
-            caller: DEFAULT_DEPLOYER,
-            kind: TxKind::Create,
-            data: contract.initcode.parse().unwrap_or_default(),
-            gas_limit: GAS_LIMIT,
-            ..Default::default()
-        };
-        let (result, inspector) = chain.inspect(tx, inspector).unwrap();
-        assert!(result.success, "deployment should succeed");
+        chain.config.coverage = true;
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        let target = deployment.address.unwrap();
 
-        let coverage = inspector.into_coverage();
+        if let Some(setup) = &contract.setup_function {
+            let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
+            let setup_opts = SetupInput::new(target).calldata(setup_data);
+            let setup = chain.setup(setup_opts).unwrap();
+            assert!(setup.result.success, "setup must succeed");
+        }
+
+        (chain, target)
+    }
+
+    /// A second call sequence that hits a previously unexecuted instruction
+    /// must be recorded as a new edge.
+    #[test]
+    fn coverage_new_instruction_hit() {
+        let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
+        let (mut chain, target) = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+
+        let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageBranch::branchCall::new((false,)).abi_encode(),
+        ))];
+        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        let coverage1 = exec1.coverage.expect("coverage must be present");
+        let baseline = global.merge(&coverage1);
+        assert!(baseline.new_edges > 0, "baseline should hit edges");
+
+        let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageBranch::branchCall::new((true,)).abi_encode(),
+        ))];
+        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        let coverage2 = exec2.coverage.expect("coverage must be present");
+        let update = global.merge(&coverage2);
         assert!(
-            !coverage.contracts.is_empty(),
-            "coverage should contain at least one contract"
+            update.new_edges > 0,
+            "new instruction hit should be detected"
+        );
+    }
+
+    /// A second call sequence that takes a JUMPI branch in the opposite
+    /// direction must be recorded as a new jump edge.
+    #[test]
+    fn coverage_new_branch_direction() {
+        let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
+        let (mut chain, target) = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+
+        let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageBranch::branchCall::new((false,)).abi_encode(),
+        ))];
+        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        let coverage1 = exec1.coverage.expect("coverage must be present");
+        global.merge(&coverage1);
+
+        let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageBranch::branchCall::new((true,)).abi_encode(),
+        ))];
+        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        let coverage2 = exec2.coverage.expect("coverage must be present");
+        let update = global.merge(&coverage2);
+        assert!(
+            update.new_jump_edges > 0,
+            "new branch direction should be detected"
+        );
+    }
+
+    /// A second call sequence that reaches the same instruction inside a nested
+    /// contract call must be recorded as a new depth.
+    #[test]
+    fn coverage_new_call_depth() {
+        let contract = load_coverage_fixture("src/CoverageDepth.sol:CoverageDepth");
+        let (mut chain, target) = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+
+        let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageDepth::callDirectCall::new(()).abi_encode(),
+        ))];
+        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        let coverage1 = exec1.coverage.expect("coverage must be present");
+        global.merge(&coverage1);
+
+        let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageDepth::callIndirectCall::new(()).abi_encode(),
+        ))];
+        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        let coverage2 = exec2.coverage.expect("coverage must be present");
+        let update = global.merge(&coverage2);
+        assert!(update.new_depths > 0, "new call depth should be detected");
+    }
+
+    /// A second call sequence that reverts at a PC that previously succeeded
+    /// must be recorded as a new revert.
+    #[test]
+    fn coverage_new_revert_path() {
+        let contract = load_coverage_fixture("src/CoverageRevert.sol:CoverageRevert");
+        let (mut chain, target) = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+
+        let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageRevert::maybeRevertCall::new((false,)).abi_encode(),
+        ))];
+        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        assert!(exec1.results[0].success, "first call should succeed");
+        let coverage1 = exec1.coverage.expect("coverage must be present");
+        global.merge(&coverage1);
+
+        let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageRevert::maybeRevertCall::new((true,)).abi_encode(),
+        ))];
+        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        assert!(!exec2.results[0].success, "second call should revert");
+        let coverage2 = exec2.coverage.expect("coverage must be present");
+        let update = global.merge(&coverage2);
+        assert!(update.new_reverts > 0, "new revert path should be detected");
+    }
+
+    /// A second call sequence that executes a loop body more times than before
+    /// must be recorded as a deeper execution (AFL bucket crossing).
+    #[test]
+    fn coverage_deeper_execution() {
+        let contract = load_coverage_fixture("src/CoverageLoop.sol:CoverageLoop");
+        let (mut chain, target) = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+
+        let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageLoop::loopNCall::new((U256::from(1),)).abi_encode(),
+        ))];
+        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        let coverage1 = exec1.coverage.expect("coverage must be present");
+        global.merge(&coverage1);
+
+        let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageLoop::loopNCall::new((U256::from(3),)).abi_encode(),
+        ))];
+        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        let coverage2 = exec2.coverage.expect("coverage must be present");
+        let update = global.merge(&coverage2);
+        assert!(
+            update.new_features > 0,
+            "deeper execution should be detected"
+        );
+    }
+
+    /// Two contracts with identical runtime bytecode deployed at different
+    /// addresses share the same coverage contract_id. Calling the second
+    /// instance after the first should not add new edges for the child.
+    #[test]
+    fn coverage_same_bytecode_two_addresses() {
+        let contract = load_coverage_fixture("src/CoverageDuplicate.sol:CoverageDuplicate");
+        let (mut chain, target) = deploy_and_setup(&contract);
+
+        let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageDuplicate::callChild1Call::new(()).abi_encode(),
+        ))];
+        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        let coverage1 = exec1.coverage.expect("coverage must be present");
+
+        let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageDuplicate::callChild2Call::new(()).abi_encode(),
+        ))];
+        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        let coverage2 = exec2.coverage.expect("coverage must be present");
+
+        // The child contract has the shortest bytecode.
+        let child_hash = coverage1
+            .contracts
+            .iter()
+            .min_by_key(|(_, v)| v.edges.len())
+            .unwrap()
+            .0;
+
+        let child_cov1 = coverage1.contracts.get(child_hash).unwrap();
+        let child_cov2 = coverage2.contracts.get(child_hash).unwrap();
+        assert_eq!(
+            child_cov1.edges, child_cov2.edges,
+            "identical bytecode should produce identical edges"
+        );
+
+        // Merging the second execution should not add new edges for the child.
+        let global = SharedCoverage::new();
+        global.merge(&coverage1);
+        let update2 = global.merge(&coverage2);
+        assert!(
+            update2.new_edges > 0,
+            "parent contract should still add new edges"
         );
     }
 }

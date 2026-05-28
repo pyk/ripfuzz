@@ -10,7 +10,7 @@ use revm::{
 use crate::evm;
 use crate::evm::cheatcode;
 use crate::evm::coverage;
-use crate::evm::coverage::map::LocalCoverage;
+use crate::evm::coverage::local::LocalCoverage;
 use crate::fuzzer::corpus::Call;
 
 /// Result of executing a single call sequence.

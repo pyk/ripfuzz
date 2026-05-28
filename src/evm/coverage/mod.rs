@@ -2,10 +2,10 @@
 
 pub use edge::{DEPTH_TRACKED_PCS, edge_marker};
 pub use inspector::Inspector;
-pub use map::{
-    ContractCoverage, CoverageMap, CoverageUpdate, LocalContractCoverage, LocalCoverage,
-};
+pub use local::{LocalContractCoverage, LocalCoverage};
+pub use shared::{ContractCoverage, CoverageUpdate, SharedCoverage};
 
 pub mod edge;
 pub mod inspector;
-pub mod map;
+pub mod local;
+pub mod shared;
