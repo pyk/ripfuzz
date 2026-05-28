@@ -14,7 +14,7 @@
 
 pub use config::Config;
 pub use format::format_failure;
-pub use fuzzer::{Crash, Fuzzer, FuzzerResult};
+pub use fuzzer::{FailedAssertions, Fuzzer, FuzzerResult};
 pub use metrics::{SharedMetrics, Snapshot};
 
 pub use corpus::replayer::CorpusReplayer;
@@ -28,10 +28,12 @@ pub mod metrics;
 
 #[cfg(test)]
 mod tests {
+    use alloy_primitives::Address;
+
     use crate::evm::Contract;
+    use crate::evm::chain::Transaction;
     use crate::foundry;
-    use crate::fuzzer::corpus::Call;
-    use crate::fuzzer::{Crash, format_failure};
+    use crate::fuzzer::{FailedAssertions, format_failure};
 
     #[test]
     fn format_failure_uses_block_number_and_timestamp_labels() {
@@ -40,30 +42,13 @@ mod tests {
         let artifact_id = foundry::ArtifactId::try_from("src/L1SimpleKnob.sol:SimpleKnob").unwrap();
         let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
-        let func = alloy_json_abi::Function::parse("foo()").unwrap();
-        let calls = vec![
-            Call {
-                function: func.clone(),
-                args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
-                ..Default::default()
-            },
-            Call {
-                function: func.clone(),
-                args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
-                ..Default::default()
-            },
-            Call {
-                function: func.clone(),
-                args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
-                ..Default::default()
-            },
+        let transactions = vec![
+            Transaction::new(Address::ZERO),
+            Transaction::new(Address::ZERO),
+            Transaction::new(Address::ZERO),
         ];
 
-        let failure = Crash {
-            function_name: "invariant_caught".into(),
-            selector: alloy_primitives::Selector::ZERO,
-            call_sequence: calls,
-        };
+        let failure = FailedAssertions { transactions };
 
         let output = format_failure(&contract, &failure, crate::evm::chain::DEFAULT_DEPLOYER);
         assert!(

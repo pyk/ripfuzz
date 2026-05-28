@@ -1,45 +1,36 @@
 //! Per-thread fuzzer that executes call sequences and reports results.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::time::Instant;
 
 use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::Function;
-use alloy_primitives::{Address, Selector};
-use anyhow::Result;
-use revm::primitives::Bytes;
+use alloy_primitives::Address;
+use anyhow::{Context, Result};
 use tracing::{info, instrument};
 
 use crate::evm;
-use crate::evm::chain::ExecInput;
+use crate::evm::chain::{ExecInput, Transaction};
 use crate::evm::coverage::SharedCoverage;
 use crate::fuzzer::config::Config;
-use crate::fuzzer::corpus::{Call, Item, SharedCorpus};
+use crate::fuzzer::corpus::{Call, SharedCorpus};
 use crate::fuzzer::metrics::SharedMetrics;
 
 /// Result produced by a single fuzzer thread.
 #[derive(Debug, Clone)]
 pub struct FuzzerResult {
     pub runs: u64,
-    pub failures: Vec<Crash>,
+    pub failures: Vec<FailedAssertions>,
     pub total_calls: u64,
     pub total_gas: u64,
 }
 
-/// A single crash (assert panic) discovered during fuzzing.
+/// A single failed assertion (assert panic) discovered during fuzzing.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Crash {
-    pub function_name: String,
-    pub selector: Selector,
-    pub call_sequence: Vec<Call>,
-}
-
-/// Solidity `Panic(uint256)` selector: keccak256("Panic(uint256)")[:4]
-const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
-
-/// Detect a Solidity `assert` failure (`Panic(0x01)`) in revert output.
-fn is_assert_failure(output: &Bytes) -> bool {
-    output.len() >= 36 && output[..4] == PANIC_SELECTOR && output[35] == 0x01
+pub struct FailedAssertions {
+    pub transactions: Vec<Transaction>,
 }
 
 /// Per-thread fuzzer that executes call sequences and reports results.
@@ -52,6 +43,7 @@ pub struct Fuzzer {
     shared_corpus: SharedCorpus,
     shared_coverage: SharedCoverage,
     shared_metrics: SharedMetrics,
+    shutdown_signal: Arc<AtomicBool>,
     caller: Address,
     invariant_functions: Vec<Function>,
     max_runs: u64,
@@ -68,6 +60,7 @@ impl Fuzzer {
             shared_corpus: config.shared_corpus,
             shared_coverage: config.shared_coverage,
             shared_metrics: config.shared_metrics,
+            shutdown_signal: config.shutdown_signal,
             caller: config.caller,
             invariant_functions: config.invariant_functions,
             max_runs: config.max_runs,
@@ -103,12 +96,21 @@ impl Fuzzer {
             .collect();
 
         for _ in 0..self.max_runs {
-            if let Some(t) = self.timeout
-                && start.elapsed() > t
-            {
+            // Check shutdown signal
+            if self.shutdown_signal.load(Ordering::Relaxed) {
                 break;
             }
 
+            // Check timeout
+            let should_break = match self.timeout {
+                Some(t) => start.elapsed() > t,
+                None => false,
+            };
+            if should_break {
+                break;
+            }
+
+            // Try snapshot and print progress
             if let Some(snapshot) = self.shared_metrics.try_snapshot() {
                 info!(
                     elapsed = ?snapshot.elapsed,
@@ -120,77 +122,45 @@ impl Fuzzer {
                 );
             }
 
+            // Get the next corpus item
             let item = self.shared_corpus.next_item(&mut self.rng);
-            let calls = item.calls;
 
-            let transactions: Vec<crate::evm::chain::Transaction> = calls
+            // Convert corpus item to transactions
+            let transactions: Vec<crate::evm::chain::Transaction> = item
+                .calls
                 .iter()
                 .chain(invariant_calls.iter())
                 .map(|call| call.into_transaction(self.target_address))
                 .collect();
+            let calls_count = transactions.len();
+
+            // Execute transactions
             let exec = self.chain.exec(ExecInput::new(transactions))?;
 
-            let mut all_ok = true;
-            let mut crash = None;
-            let mut calls_count = 0u64;
-            let mut gas_sum = 0u64;
-
-            for (idx, result) in exec.results.iter().enumerate() {
-                calls_count += 1;
-                gas_sum += result.gas_used;
-
-                if !result.success {
-                    if let Some(ref output) = result.output
-                        && is_assert_failure(output)
-                    {
-                        let (function_name, selector) = if idx < calls.len() {
-                            (
-                                // checkrs: allow(clone_in_loops)
-                                calls[idx].function.name.clone(),
-                                calls[idx].function.selector(),
-                            )
-                        } else {
-                            let inv = &invariant_calls[idx - calls.len()];
-                            (
-                                // checkrs: allow(clone_in_loops)
-                                inv.function.name.clone(),
-                                inv.function.selector(),
-                            )
-                        };
-                        crash = Some(Crash {
-                            function_name,
-                            selector,
-                            // checkrs: allow(clone_in_loops)
-                            call_sequence: calls.clone(),
-                        });
-                    }
-                    all_ok = false;
-                    break;
-                }
+            // Update shared coverage and shared corpus
+            let coverage = exec.coverage.context("coverage expected")?;
+            let coverage_update = self.shared_coverage.merge(&coverage);
+            if SharedCoverage::is_interesting(&coverage_update) {
+                self.shared_corpus
+                    .add_item(item)
+                    .context("failed to add corpus item")?;
             }
 
-            total_calls += calls_count;
+            let gas_sum = exec.results.iter().map(|r| r.gas_used).sum::<u64>();
+
+            total_calls += calls_count as u64;
             total_gas += gas_sum;
-            self.shared_metrics.record(calls_count, gas_sum);
-
-            if let Some(coverage) = exec.coverage {
-                let _ = self.shared_coverage.merge(&coverage);
-            }
-
-            if all_ok {
-                // checkrs: allow(clone_in_loops)
-                let _ = self.shared_corpus.add_item(
-                    // checkrs: allow(clone_in_loops)
-                    Item::from(calls.clone()),
-                );
-            }
-
-            if let Some(crash) = crash {
-                local_failures.push(crash);
-                self.shared_metrics.record_failure();
-            }
-
+            self.shared_metrics.record(calls_count as u64, gas_sum);
             runs += 1;
+
+            // Check for failed assertions
+            if !exec.panic_transactions.is_empty() {
+                self.shutdown_signal.store(true, Ordering::Relaxed);
+                local_failures.push(FailedAssertions {
+                    // BUG(pyk): this should be transactions that leads to panic
+                    transactions: exec.panic_transactions,
+                });
+            }
         }
 
         info!(runs, "fuzzer run finished");

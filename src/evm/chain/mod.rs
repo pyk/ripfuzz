@@ -181,7 +181,7 @@ impl SetupInput {
 }
 
 /// A single CALL transaction to execute in a sequence.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Transaction {
     pub caller: Address,
     pub target: Address,
@@ -255,6 +255,7 @@ pub struct ExecOutput {
     pub results: Vec<result::TransactionResult>,
     pub trace: Option<trace::Trace>,
     pub coverage: Option<coverage::exec::ExecutionCoverage>,
+    pub panic_transactions: Vec<Transaction>,
 }
 
 /// EVM Chain state and executor.
@@ -569,6 +570,7 @@ impl Chain {
             ),
         );
         let mut results = Vec::with_capacity(input.transactions.len());
+        let mut panic_transactions = Vec::new();
 
         let db = self.database.take().context("database unavailable")?;
         let mut ctx = Context::mainnet().with_db(db);
@@ -580,7 +582,8 @@ impl Chain {
             let tx_env = TxEnv {
                 caller: tx.caller,
                 kind: TxKind::Call(tx.target),
-                data: tx.calldata,
+                // checkrs: allow(clone_in_loops)
+                data: tx.calldata.clone(),
                 gas_limit: tx.gas_limit,
                 value: tx.value,
                 ..Default::default()
@@ -588,8 +591,13 @@ impl Chain {
             let result = evm
                 .inspect_tx_commit(tx_env)
                 .context("revm transaction failed")?;
-            // TODO: refactor the result module, rename it to transaction.rs or something
-            results.push(result::TransactionResult::from(result));
+            let result = result::TransactionResult::from(result);
+            if let Some(ref output) = result.output
+                && result::is_assert_failure(output)
+            {
+                panic_transactions.push(tx);
+            }
+            results.push(result);
         }
 
         let inspector = evm.inspector;
@@ -607,6 +615,7 @@ impl Chain {
                 Either::Left(c) => Some(c.into_coverage()),
                 Either::Right(_) => None,
             },
+            panic_transactions,
         })
     }
 

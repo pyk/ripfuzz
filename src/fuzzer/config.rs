@@ -1,6 +1,8 @@
 //! Fuzzer configuration.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use alloy_json_abi::Function;
@@ -20,6 +22,7 @@ pub struct Config {
     pub shared_corpus: SharedCorpus,
     pub shared_coverage: SharedCoverage,
     pub shared_metrics: SharedMetrics,
+    pub shutdown_signal: Arc<AtomicBool>,
     pub caller: Address,
     pub invariant_functions: Vec<Function>,
     pub max_runs: u64,
@@ -36,6 +39,7 @@ impl Config {
             shared_corpus: SharedCorpus::new(crate::fuzzer::corpus::Config::new(PathBuf::new())),
             shared_coverage: SharedCoverage::new(),
             shared_metrics: SharedMetrics::new(),
+            shutdown_signal: Arc::new(AtomicBool::new(false)),
             caller: evm::chain::DEFAULT_DEPLOYER,
             invariant_functions: Vec::new(),
             max_runs: 0,
@@ -76,6 +80,12 @@ impl Config {
     /// Set the shared metrics.
     pub fn shared_metrics(mut self, value: SharedMetrics) -> Self {
         self.shared_metrics = value;
+        self
+    }
+
+    /// Set the shared shutdown signal.
+    pub fn shutdown_signal(mut self, value: Arc<AtomicBool>) -> Self {
+        self.shutdown_signal = value;
         self
     }
 

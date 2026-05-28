@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use alloy_primitives::Address;
 use anyhow::{Context, Result, ensure};
@@ -11,7 +13,7 @@ use revm::primitives::{Bytes, U256};
 use tracing::{debug, info, instrument};
 
 use crate::evm::coverage::SharedCoverage;
-use crate::fuzzer::CorpusReplayer;
+use crate::fuzzer::{CorpusReplayer, SharedMetrics};
 use crate::*;
 
 fn default_threads() -> usize {
@@ -373,7 +375,10 @@ pub fn run(args: Args) -> Result<()> {
         .replay()?;
 
     // Initialize shared metrics across all fuzzer threads.
-    let shared_metrics = fuzzer::SharedMetrics::new();
+    let shared_metrics = SharedMetrics::new();
+
+    // Initialize shared shutdown signal across all fuzzer threads.
+    let shutdown_signal = Arc::new(AtomicBool::new(false));
 
     let fuzzers = args.threads;
     let start = std::time::Instant::now();
@@ -405,6 +410,8 @@ pub fn run(args: Args) -> Result<()> {
             .shared_coverage(shared_coverage.clone())
             // checkrs: allow(clone_in_loops)
             .shared_metrics(shared_metrics.clone())
+            // checkrs: allow(clone_in_loops)
+            .shutdown_signal(shutdown_signal.clone())
             // checkrs: allow(clone_in_loops)
             .invariant_functions(target_contract.invariant_functions.clone())
             .caller(args.deployer_address)
@@ -463,8 +470,8 @@ pub fn run(args: Args) -> Result<()> {
     } else {
         for failure in &all_failures {
             info!("");
-            info!(contract = %target_contract.artifact_id.name, test = %failure.function_name, "[FAILED] Invariant Test");
-            info!(contract = %target_contract.artifact_id.name, test = %failure.function_name, "Test failed after the following call sequence");
+            info!(contract = %target_contract.artifact_id.name, "[FAILED] Invariant Test");
+            info!(contract = %target_contract.artifact_id.name, "Test failed after the following call sequence");
             info!("[Call Sequence]");
             info!(
                 "{}",
