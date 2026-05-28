@@ -8,11 +8,11 @@ use crate::evm::coverage::edge::DEPTH_TRACKED_PCS;
 
 /// Per-fuzzer local coverage map keyed by contract bytecode hash.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LocalCoverage {
-    pub contracts: HashMap<B256, LocalContractCoverage>,
+pub struct ExecutionCoverage {
+    pub contracts: HashMap<B256, ExecutionContractCoverage>,
 }
 
-impl LocalCoverage {
+impl ExecutionCoverage {
     pub fn new() -> Self {
         Self {
             contracts: HashMap::new(),
@@ -28,7 +28,7 @@ impl LocalCoverage {
 
 /// Coverage data for a single contract in a fuzzer's local map.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LocalContractCoverage {
+pub struct ExecutionContractCoverage {
     /// Per-PC raw hit counts.
     pub edges: Vec<u8>,
     /// Per-PC call-depth bitset.
@@ -48,7 +48,7 @@ pub struct LocalContractCoverage {
     pub hit_reverts: Vec<usize>,
 }
 
-impl LocalContractCoverage {
+impl ExecutionContractCoverage {
     pub fn new(bytecode_len: usize) -> Self {
         let depth_len = bytecode_len.min(DEPTH_TRACKED_PCS);
         let revert_words = bytecode_len.div_ceil(64);

@@ -42,7 +42,7 @@ use revm::{
 use alloy_primitives::B256;
 
 use crate::evm::coverage::edge::edge_marker;
-use crate::evm::coverage::local::{LocalContractCoverage, LocalCoverage};
+use crate::evm::coverage::exec::{ExecutionContractCoverage, ExecutionCoverage};
 
 /// Convert a U256 stack value to usize without using `ok()`.
 #[allow(clippy::manual_ok_err)]
@@ -55,10 +55,10 @@ fn u256_to_usize(v: revm::primitives::U256) -> Option<usize> {
 
 /// Inspector that writes PC-hit counts into a per-contract local coverage map.
 ///
-/// Owns its `LocalCoverage` buffer and returns it via `into_coverage`.
+/// Owns its `ExecutionCoverage` buffer and returns it via `into_coverage`.
 #[derive(Debug)]
 pub struct Inspector {
-    local: LocalCoverage,
+    local: ExecutionCoverage,
     current_call_depth: u64,
     current_contract: Option<B256>,
     contract_stack: Vec<Option<B256>>,
@@ -68,7 +68,7 @@ pub struct Inspector {
 impl Inspector {
     pub fn new() -> Self {
         Self {
-            local: LocalCoverage::new(),
+            local: ExecutionCoverage::new(),
             current_call_depth: 0,
             current_contract: None,
             contract_stack: Vec::new(),
@@ -77,7 +77,7 @@ impl Inspector {
     }
 
     /// Consume the inspector and return the collected coverage.
-    pub fn into_coverage(self) -> LocalCoverage {
+    pub fn into_coverage(self) -> ExecutionCoverage {
         self.local
     }
 
@@ -115,7 +115,7 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
             self.local
                 .contracts
                 .entry(id)
-                .or_insert_with(|| LocalContractCoverage::new(interp.bytecode.len()));
+                .or_insert_with(|| ExecutionContractCoverage::new(interp.bytecode.len()));
         }
     }
 

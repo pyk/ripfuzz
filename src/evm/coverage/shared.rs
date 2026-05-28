@@ -7,7 +7,7 @@ use alloy_primitives::B256;
 use papaya::HashMap;
 
 use crate::evm::coverage::edge::DEPTH_TRACKED_PCS;
-use crate::evm::coverage::local::LocalCoverage;
+use crate::evm::coverage::exec::ExecutionCoverage;
 
 /// AFL-style hitcount bucket for a raw hit count.
 fn afl_bucket(raw: u8) -> u8 {
@@ -110,7 +110,7 @@ impl SharedCoverage {
     /// Merge a local coverage map into this global map.
     ///
     /// Lock-free for the outer map; atomic operations for the inner arrays.
-    pub fn merge(&self, local: &LocalCoverage) -> CoverageUpdate {
+    pub fn merge(&self, local: &ExecutionCoverage) -> CoverageUpdate {
         let mut update = CoverageUpdate::default();
         let guard = self.inner.contracts.pin();
 
@@ -216,7 +216,7 @@ mod tests {
     use alloy_primitives::B256;
 
     use crate::evm::coverage::CoverageUpdate;
-    use crate::evm::coverage::local::{LocalContractCoverage, LocalCoverage};
+    use crate::evm::coverage::exec::{ExecutionContractCoverage, ExecutionCoverage};
 
     use super::SharedCoverage;
 
@@ -232,9 +232,9 @@ mod tests {
 
         // Build a local coverage with one contract and one signal for every
         // merge loop: edges, depths, reverts, and jump edges.
-        let mut local = LocalCoverage::new();
+        let mut local = ExecutionCoverage::new();
         let contract_id = B256::ZERO;
-        let mut contract = LocalContractCoverage::new(1024);
+        let mut contract = ExecutionContractCoverage::new(1024);
 
         // Edges
         contract.edges[10] = 1;
@@ -317,8 +317,8 @@ mod tests {
                 let shared = shared.clone();
                 let barrier_ref = &barrier;
                 handles.push(s.spawn(move || {
-                    let mut local = LocalCoverage::new();
-                    let mut contract = LocalContractCoverage::new(1024);
+                    let mut local = ExecutionCoverage::new();
+                    let mut contract = ExecutionContractCoverage::new(1024);
                     let contract_id = B256::ZERO;
 
                     // Unique edge per thread.

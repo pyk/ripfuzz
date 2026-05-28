@@ -10,13 +10,13 @@ use revm::{
 use crate::evm;
 use crate::evm::cheatcode;
 use crate::evm::coverage;
-use crate::evm::coverage::local::LocalCoverage;
+use crate::evm::coverage::exec::ExecutionCoverage;
 use crate::fuzzer::corpus::Call;
 
 /// Result of executing a single call sequence.
 #[derive(Debug, Clone, Default)]
 pub struct ExecutionOutcome {
-    pub coverage: LocalCoverage,
+    pub coverage: ExecutionCoverage,
     pub all_ok: bool,
     pub total_calls: u64,
     pub total_gas: u64,

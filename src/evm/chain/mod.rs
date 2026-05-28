@@ -254,7 +254,7 @@ impl Default for ExecInput {
 pub struct ExecOutput {
     pub results: Vec<result::TransactionResult>,
     pub trace: Option<trace::Trace>,
-    pub coverage: Option<coverage::local::LocalCoverage>,
+    pub coverage: Option<coverage::exec::ExecutionCoverage>,
 }
 
 /// EVM Chain state and executor.
