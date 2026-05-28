@@ -668,8 +668,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from("src/WarpTarget.sol:WarpTarget").unwrap();
-        let artifact = artifacts.get(&artifact_id).unwrap();
-        Contract::try_from(artifact).unwrap()
+        Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup_warp() -> (Chain, Address) {
@@ -797,8 +796,7 @@ mod tests {
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id =
             foundry::ArtifactId::try_from("src/NamedMismatch.sol:DifferentName").unwrap();
-        let artifact = artifacts.get(&artifact_id).unwrap();
-        let contract = Contract::try_from(artifact).unwrap();
+        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
         let mut chain = Chain::new(Config::default()).unwrap();
         chain.config.coverage = true;
         let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();

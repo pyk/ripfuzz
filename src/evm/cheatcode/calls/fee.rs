@@ -42,8 +42,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
-        let artifact = artifacts.get(&artifact_id).unwrap();
-        Contract::try_from(artifact).unwrap()
+        Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {

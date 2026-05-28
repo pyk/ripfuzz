@@ -268,8 +268,7 @@ mod tests {
         let project = crate::foundry::Project::new("fixtures/target-contract-deployment");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = crate::foundry::ArtifactId::try_from(id).unwrap();
-        let artifact = artifacts.get(&artifact_id).unwrap();
-        crate::evm::Contract::try_from(artifact).unwrap()
+        crate::evm::Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     alloy_sol_types::sol! {

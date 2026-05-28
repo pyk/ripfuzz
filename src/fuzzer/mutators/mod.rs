@@ -38,8 +38,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/challenges");
         let artifacts = project.load_artifacts().unwrap();
         let id = foundry::ArtifactId::try_from(contract_id).unwrap();
-        let artifact = artifacts.get(&id).unwrap();
-        Contract::try_from(artifact).unwrap()
+        Contract::try_get(&artifacts, &id).unwrap()
     }
 
     #[test]

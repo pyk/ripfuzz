@@ -1,9 +1,13 @@
 //! Target contract definition and validation.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use alloy_json_abi::{Function, JsonAbi, StateMutability};
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use revm::primitives::Bytes;
 
+use crate::evm::DeployLibraryInput;
 use crate::foundry::{Artifact, ArtifactId, ContractArtifact};
 
 /// A validated target contract ready for fuzzing.
@@ -25,10 +29,15 @@ pub struct Contract {
     pub setup_function: Option<Function>,
     /// Initcode used to deploy the contract.
     pub initcode: Bytes,
+    /// Linked libraries that must be deployed before the target contract.
+    pub libraries: Vec<DeployLibraryInput>,
 }
 
 impl Contract {
-    fn from_contract_artifact(contract: &ContractArtifact) -> Result<Self> {
+    fn from_contract_artifact(
+        contract: &ContractArtifact,
+        libraries: Vec<DeployLibraryInput>,
+    ) -> Result<Self> {
         let artifact_id = contract.id.clone();
         let initcode: Bytes = contract.bytecode.object.parse().unwrap_or_default();
 
@@ -91,34 +100,74 @@ impl Contract {
             invariant_functions,
             setup_function,
             initcode,
+            libraries,
         })
     }
-}
 
-impl TryFrom<&Artifact> for Contract {
-    type Error = anyhow::Error;
+    /// Build a tree of [`DeployLibraryInput`] from an artifact's library dependencies.
+    fn build_libraries(
+        artifact: &Artifact,
+        build_artifacts: &HashMap<ArtifactId, Artifact>,
+    ) -> Result<Vec<DeployLibraryInput>> {
+        let deps = match artifact {
+            Artifact::Contract(c) => c.bytecode.library_dependencies(),
+            Artifact::Library(c) => c.bytecode.library_dependencies(),
+            _ => return Ok(Vec::new()),
+        };
 
-    fn try_from(artifact: &Artifact) -> Result<Self> {
+        let mut libraries = Vec::new();
+        for (file, names) in deps {
+            for name in names {
+                let identifier = format!("{}:{}", file, name);
+
+                let temp_id = ArtifactId {
+                    path: PathBuf::from(&file),
+                    name,
+                };
+                let lib_artifact = build_artifacts
+                    .get(&temp_id)
+                    .with_context(|| format!("library artifact missing: {}", identifier))?;
+
+                let initcode = match lib_artifact {
+                    Artifact::Library(c) => c.bytecode.object.parse().unwrap_or_default(),
+                    _ => bail!("artifact {} is not a library", identifier),
+                };
+
+                let nested = Self::build_libraries(lib_artifact, build_artifacts)?;
+                let mut lib_input = DeployLibraryInput::new(identifier, initcode);
+                for nested_lib in nested {
+                    lib_input = lib_input.add_library(nested_lib);
+                }
+                libraries.push(lib_input);
+            }
+        }
+        Ok(libraries)
+    }
+
+    /// Load a target contract from the build artifacts and prepare its library
+    /// dependencies.
+    ///
+    /// `artifact_id` must be a concrete contract (not an interface, library, or
+    /// abstract contract).
+    pub fn try_get(
+        build_artifacts: &HashMap<ArtifactId, Artifact>,
+        artifact_id: &ArtifactId,
+    ) -> Result<Self> {
+        let artifact = build_artifacts
+            .get(artifact_id)
+            .with_context(|| format!("target artifact `{}` not found", artifact_id))?;
         let contract = match artifact {
             Artifact::Contract(c) => c,
             _ => bail!("target artifact must be a concrete contract"),
         };
-        Self::from_contract_artifact(contract)
-    }
-}
-
-impl TryFrom<Artifact> for Contract {
-    type Error = anyhow::Error;
-
-    fn try_from(artifact: Artifact) -> Result<Self> {
-        Self::try_from(&artifact)
+        let libraries = Self::build_libraries(artifact, build_artifacts)?;
+        Self::from_contract_artifact(contract, libraries)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Context;
 
     #[test]
     fn bytes_from_str_empty() {
@@ -148,10 +197,7 @@ mod tests {
         let project = crate::foundry::Project::new("fixtures/target-contract-validation");
         let artifacts = project.load_artifacts()?;
         let id = crate::foundry::ArtifactId::try_from(contract_id)?;
-        let artifact = artifacts
-            .get(&id)
-            .context("artifact not found in build artifacts")?;
-        Contract::try_from(artifact)
+        Contract::try_get(&artifacts, &id)
     }
 
     // -----------------------------------------------------------------------

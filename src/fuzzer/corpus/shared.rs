@@ -485,6 +485,7 @@ mod tests {
             target_functions: vec![],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 
@@ -563,6 +564,7 @@ mod tests {
             target_functions: vec![func_a, func_b],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 
@@ -614,6 +616,7 @@ mod tests {
             target_functions: vec![func],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 
@@ -677,6 +680,7 @@ mod tests {
             target_functions: vec![],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 
@@ -703,6 +707,7 @@ mod tests {
             target_functions: vec![],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 
@@ -751,6 +756,7 @@ mod tests {
             target_functions: vec![func],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 
@@ -837,6 +843,7 @@ mod tests {
             target_functions: vec![func],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 
@@ -916,6 +923,7 @@ mod tests {
             target_functions: vec![func],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 
@@ -996,6 +1004,7 @@ mod tests {
             target_functions: vec![func_a, func_b],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 
@@ -1075,6 +1084,7 @@ mod tests {
             target_functions: vec![func],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 
@@ -1156,6 +1166,7 @@ mod tests {
             target_functions: vec![func_pay.clone(), func_nonpay.clone()],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 
@@ -1245,6 +1256,7 @@ mod tests {
             target_functions: vec![func_pay.clone(), func_a, func_b],
             invariant_functions: vec![],
             setup_function: None,
+            libraries: Vec::new(),
             initcode: Bytes::new(),
         };
 

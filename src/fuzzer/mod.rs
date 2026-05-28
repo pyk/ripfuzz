@@ -39,8 +39,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/challenges");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from("src/L1SimpleKnob.sol:SimpleKnob").unwrap();
-        let artifact = artifacts.get(&artifact_id).unwrap();
-        let contract = Contract::try_from(artifact).unwrap();
+        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
         let func = alloy_json_abi::Function::parse("foo()").unwrap();
         let calls = vec![

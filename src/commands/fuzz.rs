@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use alloy_primitives::Address;
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use revm::primitives::{Bytes, U256};
 use tracing::{debug, info, instrument};
@@ -233,50 +233,6 @@ impl Default for ForkModeArgs {
 impl ForkModeArgs {}
 
 /// Build a [`forkdb::Config`](crate::evm::forkdb::Config) from CLI arguments.
-/// Build a tree of [`DeployLibraryInput`] from the target artifact's library
-/// dependencies.
-///
-/// Recursively resolves each dependency from `build_artifacts` and collects
-/// the library initcode (including nested dependencies).
-fn build_deploy_libraries(
-    artifact: &foundry::Artifact,
-    build_artifacts: &HashMap<foundry::ArtifactId, foundry::Artifact>,
-) -> Result<Vec<evm::DeployLibraryInput>> {
-    let deps = match artifact {
-        foundry::Artifact::Contract(c) => c.bytecode.library_dependencies(),
-        foundry::Artifact::Library(c) => c.bytecode.library_dependencies(),
-        _ => return Ok(Vec::new()),
-    };
-
-    let mut libraries = Vec::new();
-    for (file, names) in deps {
-        for name in names {
-            let identifier = format!("{}:{}", file, name);
-
-            let temp_id = crate::foundry::ArtifactId {
-                path: PathBuf::from(&file),
-                name,
-            };
-            let lib_artifact = build_artifacts
-                .get(&temp_id)
-                .with_context(|| format!("library artifact missing: {}", identifier))?;
-
-            let initcode = match lib_artifact {
-                foundry::Artifact::Library(c) => c.bytecode.object.parse().unwrap_or_default(),
-                _ => bail!("artifact {} is not a library", identifier),
-            };
-
-            let nested = build_deploy_libraries(lib_artifact, build_artifacts)?;
-            let mut lib_input = evm::DeployLibraryInput::new(identifier, initcode);
-            for nested_lib in nested {
-                lib_input = lib_input.add_library(nested_lib);
-            }
-            libraries.push(lib_input);
-        }
-    }
-    Ok(libraries)
-}
-
 fn build_fork_config(
     project_path: impl AsRef<Path>,
     fork_mode: &ForkModeArgs,
@@ -336,8 +292,6 @@ pub fn run(args: Args) -> Result<()> {
         compiled_contracts.insert(id.into(), initcode);
     }
 
-    // TODO(pyk): Create ExternalLibRegistry
-
     // Create test chain
     info!("creating test chain");
     let mut chain_config =
@@ -351,14 +305,13 @@ pub fn run(args: Args) -> Result<()> {
 
     // Load target contract and prepare library dependencies.
     info!("loading target contract");
-    let target_artifact = build_artifacts
-        .get(&args.target)
-        .context("target artifact not found")?;
-    let target_contract = evm::Contract::try_from(target_artifact)?;
-
-    let libraries = build_deploy_libraries(target_artifact, &build_artifacts)?;
-    if !libraries.is_empty() {
-        let lib_ids: Vec<&str> = libraries.iter().map(|l| l.id.as_str()).collect();
+    let target_contract = evm::Contract::try_get(&build_artifacts, &args.target)?;
+    if !target_contract.libraries.is_empty() {
+        let lib_ids: Vec<&str> = target_contract
+            .libraries
+            .iter()
+            .map(|l| l.id.as_str())
+            .collect();
         info!("linked external libraries: {:?}", lib_ids);
     }
 
@@ -367,6 +320,7 @@ pub fn run(args: Args) -> Result<()> {
     let mut deploy_opts = evm::DeployInput::new(target_contract.initcode.clone())
         .caller(args.deployer_address)
         .value(args.deploy_value);
+    let libraries = target_contract.libraries.clone();
     for lib in libraries {
         deploy_opts = deploy_opts.add_library(lib);
     }
