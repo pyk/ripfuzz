@@ -373,7 +373,10 @@ pub fn run(args: Args) -> Result<()> {
         .shared_corpus(corpus.clone())
         .chain(chain.clone())
         .deployed_address(deployed_address)
+        .invariant_functions(target_contract.invariant_functions.clone())
+        .caller(args.deployer_address)
         .replay()?;
+    info!(hit_count = shared_coverage.hit_count(), "after replay");
 
     // Initialize shared metrics across all fuzzer threads.
     let shared_metrics = SharedMetrics::new();
@@ -483,4 +486,74 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use clap_verbosity_flag::Verbosity;
+    use revm::primitives::U256;
+
+    use crate::commands::fuzz::ForkModeArgs;
+    use crate::evm::chain::DEFAULT_DEPLOYER;
+    use crate::foundry;
+
+    use super::Args;
+
+    fn count_corpus_files(dir: impl AsRef<Path>) -> usize {
+        let dir = dir.as_ref();
+        if !dir.exists() {
+            return 0;
+        }
+        walkdir::WalkDir::new(dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension() == Some("json".as_ref()))
+            .count()
+    }
+
+    fn make_args(corpus_dir: impl AsRef<Path>) -> Args {
+        let corpus_dir = corpus_dir.as_ref().to_path_buf();
+        Args {
+            target: foundry::ArtifactId::try_from("src/L1SimpleKnob.sol:SimpleKnob").unwrap(),
+            project_path: Some(PathBuf::from("fixtures/challenges")),
+            deploy_value: U256::ZERO,
+            deployer_address: DEFAULT_DEPLOYER,
+            threads: 1,
+            max_runs: 10000,
+            timeout_secs: None,
+            max_calls: 32,
+            seed: 0,
+            corpus_dir: Some(corpus_dir),
+            verbosity: Verbosity::new(0, 0),
+            fork_mode: ForkModeArgs::default(),
+            ffi: false,
+            force: false,
+        }
+    }
+
+    /// Regression test: once a bug is found, the corpus must not grow on
+    /// subsequent runs.
+    #[test]
+    fn corpus_does_not_grow_after_bug_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let corpus_dir = tmp.path().join("corpus");
+
+        // First run: the fuzzer finds the bug and adds items.
+        super::run(make_args(corpus_dir.clone())).expect("first run should succeed");
+        let count_after_first = count_corpus_files(&corpus_dir);
+        assert!(
+            count_after_first > 0,
+            "corpus should have items after first run"
+        );
+
+        // Second run: the fuzzer should not add redundant items.
+        super::run(make_args(corpus_dir.clone())).expect("second run should succeed");
+        let count_after_second = count_corpus_files(&corpus_dir);
+        assert_eq!(
+            count_after_first, count_after_second,
+            "corpus should not grow after bug is already found"
+        );
+    }
 }

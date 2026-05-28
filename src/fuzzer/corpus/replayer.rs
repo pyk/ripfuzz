@@ -1,12 +1,14 @@
 //! Replay corpus items against the chain to seed a shared coverage map.
 
+use alloy_dyn_abi::DynSolValue;
+use alloy_json_abi::Function;
 use alloy_primitives::Address;
 use anyhow::{Context, Result};
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::evm;
 use crate::evm::coverage::SharedCoverage;
-use crate::fuzzer::corpus::SharedCorpus;
+use crate::fuzzer::corpus::{Call, SharedCorpus};
 
 /// Replays all corpus items against a cloned chain to populate a shared
 /// coverage map before the fuzzing campaign starts.
@@ -20,6 +22,8 @@ pub struct CorpusReplayer {
     shared_corpus: Option<SharedCorpus>,
     chain: Option<evm::Chain>,
     deployed_address: Option<Address>,
+    invariant_functions: Vec<Function>,
+    caller: Address,
 }
 
 impl CorpusReplayer {
@@ -30,6 +34,8 @@ impl CorpusReplayer {
             shared_corpus: None,
             chain: None,
             deployed_address: None,
+            invariant_functions: Vec::new(),
+            caller: crate::evm::chain::DEFAULT_DEPLOYER,
         }
     }
 
@@ -51,18 +57,45 @@ impl CorpusReplayer {
         self
     }
 
+    /// Set the invariant functions to append after each corpus sequence.
+    pub fn invariant_functions(mut self, value: Vec<Function>) -> Self {
+        self.invariant_functions = value;
+        self
+    }
+
+    /// Set the caller address used for invariant calls.
+    pub fn caller(mut self, value: Address) -> Self {
+        self.caller = value;
+        self
+    }
+
     /// Replay every corpus item and merge the resulting coverage into the
     /// shared coverage map.
     ///
-    /// This ensures that coverage discovered during a previous fuzzing
-    /// session is present in the global map before the new campaign starts,
-    /// so the fuzzer does not redundantly mark those inputs as "interesting".
+    /// Each item is replayed on an independent chain snapshot so that the
+    /// replay captures the coverage the item produced on a fresh state.
+    /// If we replayed sequentially on a single chain, later items would
+    /// run against mutated state and might hit code paths that were already
+    /// covered by earlier items, making them appear redundant when they are
+    /// not.
     pub fn replay(self) -> Result<()> {
         let shared_corpus = self.shared_corpus.context("shared_corpus is required")?;
-        let mut chain = self.chain.context("chain is required")?;
+        let chain = self.chain.context("chain is required")?;
         let deployed_address = self
             .deployed_address
             .context("deployed_address is required")?;
+
+        let invariant_calls: Vec<Call> = self
+            .invariant_functions
+            .iter()
+            // checkrs: allow(clone_in_iterator)
+            .map(|func| Call {
+                function: func.clone(),
+                args: DynSolValue::Tuple(vec![]),
+                value: None,
+                caller: self.caller,
+            })
+            .collect();
 
         let items = shared_corpus.items();
         info!(count = items.len(), "replaying corpus items");
@@ -71,16 +104,37 @@ impl CorpusReplayer {
             let transactions: Vec<evm::chain::Transaction> = item
                 .calls
                 .iter()
+                .chain(invariant_calls.iter())
                 .map(|call| call.into_transaction(deployed_address))
                 .collect();
-            let exec = chain.exec(&transactions)?;
+            // checkrs: allow(clone_in_loops)
+            let mut fresh_chain = chain.clone();
+            let exec = fresh_chain.exec(&transactions)?;
             let coverage = exec.coverage.context("coverage is required")?;
             let update = self.shared_coverage.merge(&coverage);
+            debug!(
+                idx = idx + 1,
+                total = items.len(),
+                item_id = %item.id(),
+                new_edges = update.new_edges,
+                new_features = update.new_features,
+                new_depths = update.new_depths,
+                new_reverts = update.new_reverts,
+                new_jump_edges = update.new_jump_edges,
+                new_jump_features = update.new_jump_features,
+                hit_count = self.shared_coverage.hit_count(),
+                "corpus item replayed"
+            );
             info!(
                 idx = idx + 1,
                 total = items.len(),
+                item_id = %item.id(),
                 new_edges = update.new_edges,
+                new_features = update.new_features,
+                new_depths = update.new_depths,
+                new_reverts = update.new_reverts,
                 new_jump_edges = update.new_jump_edges,
+                new_jump_features = update.new_jump_features,
                 "corpus item replayed"
             );
         }

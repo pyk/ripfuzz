@@ -9,7 +9,7 @@ use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::Function;
 use alloy_primitives::Address;
 use anyhow::{Context, Result};
-use tracing::{info, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::evm;
 use crate::evm::chain::Transaction;
@@ -124,6 +124,10 @@ impl Fuzzer {
             // Get the next corpus item
             let item = self.shared_corpus.next_item(&mut self.rng);
 
+            // Create fresh chain
+            // checkrs: allow(clone_in_loops)
+            let mut fresh_chain = self.chain.clone();
+
             // Convert corpus item to transactions
             let transactions: Vec<crate::evm::chain::Transaction> = item
                 .calls
@@ -134,12 +138,26 @@ impl Fuzzer {
             let calls_count = transactions.len();
 
             // Execute transactions
-            let exec = self.chain.exec(&transactions)?;
+            let exec = fresh_chain.exec(&transactions)?;
 
             // Update shared coverage and shared corpus
             let coverage = exec.coverage.context("coverage expected")?;
             let coverage_update = self.shared_coverage.merge(&coverage);
-            if SharedCoverage::is_interesting(&coverage_update) {
+            let interesting = SharedCoverage::is_interesting(&coverage_update);
+            debug!(
+                runs = runs,
+                item_id = %item.id(),
+                new_edges = coverage_update.new_edges,
+                new_features = coverage_update.new_features,
+                new_depths = coverage_update.new_depths,
+                new_reverts = coverage_update.new_reverts,
+                new_jump_edges = coverage_update.new_jump_edges,
+                new_jump_features = coverage_update.new_jump_features,
+                hit_count = self.shared_coverage.hit_count(),
+                interesting,
+                "coverage merge"
+            );
+            if interesting {
                 self.shared_corpus
                     .add_item(item)
                     .context("failed to add corpus item")?;

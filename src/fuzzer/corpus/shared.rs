@@ -11,6 +11,7 @@ use rayon::prelude::*;
 use alloy_dyn_abi::{DynSolValue, Specifier};
 use alloy_json_abi::StateMutability;
 use anyhow::{Result, ensure};
+use tracing::debug;
 
 use crate::fuzzer::corpus::random::RandomDynSolValue;
 use crate::fuzzer::corpus::{Call, Config, ExtractedLiterals, Item};
@@ -210,12 +211,15 @@ impl SharedCorpus {
         // Only the first thread to successfully insert reaches the
         // disk-write code below. All other racing threads see the
         // existing key and return early.
-        {
+        let newly_inserted = {
             let mut items = self.inner.items.write();
-            if !items.try_add(item.clone()) {
-                return Ok(());
-            }
+            items.try_add(item.clone())
+        };
+        if !newly_inserted {
+            return Ok(());
         }
+
+        debug!(item_id = %item.id(), "corpus item added");
 
         // Write to disk
         let path = self.inner.corpus_dir.join(format!("{}.json", item.id()));
