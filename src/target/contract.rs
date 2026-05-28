@@ -30,7 +30,7 @@ pub struct Contract {
 impl Contract {
     fn from_contract_artifact(contract: &ContractArtifact) -> Result<Self> {
         let artifact_id = contract.id.clone();
-        let initcode: Bytes = contract.bytecode.object.parse().unwrap_or_default();
+        let initcode: Bytes = contract.bytecode.to_bytes();
 
         let all_functions: Vec<Function> = contract.abi.functions().cloned().collect();
 

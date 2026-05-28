@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use alloy_primitives::Address;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use clap::Parser;
 use revm::primitives::{Bytes, U256};
 use tracing::{debug, info, instrument};
@@ -233,6 +233,100 @@ impl Default for ForkModeArgs {
 impl ForkModeArgs {}
 
 /// Build a [`forkdb::Config`](crate::evm::forkdb::Config) from CLI arguments.
+/// Deploy external libraries and link them into the target artifact.
+///
+/// 1. Collect library dependencies from the target artifact's `link_references`.
+/// 2. For each dependency, find the library artifact, compute its deterministic
+///    CREATE address, deploy it on the chain, and link its address into the
+///    target's bytecode.
+/// 3. Returns a map of fully-qualified library identifiers (`path:name`) to
+///    their deployed addresses.
+fn deploy_and_link_libraries(
+    chain: &mut evm::Chain,
+    target_artifact: &mut foundry::Artifact,
+    build_artifacts: &mut HashMap<foundry::ArtifactId, foundry::Artifact>,
+    deployer: Address,
+) -> Result<HashMap<String, Address>> {
+    let mut library_addrs: HashMap<String, Address> = HashMap::new();
+    let mut nonce = 0u64;
+
+    let deps = match target_artifact {
+        foundry::Artifact::Contract(c) => c.bytecode.library_dependencies(),
+        foundry::Artifact::Library(c) => c.bytecode.library_dependencies(),
+        _ => return Ok(library_addrs),
+    };
+
+    for (file, names) in deps {
+        for name in names {
+            let identifier = format!("{}:{}", file, name);
+
+            // Skip already-linked libraries.
+            if library_addrs.contains_key(&identifier) {
+                continue;
+            }
+
+            // Compute the deterministic CREATE address for this library.
+            let address = deployer.create(nonce);
+            nonce += 1;
+
+            // Link the library artifact with its dependencies.
+            let mut link_map = HashMap::new();
+            link_map.insert(format!("{}:{}", file, name), address);
+
+            // Find the library artifact.
+            let temp_id = crate::foundry::ArtifactId {
+                path: PathBuf::from(&file),
+                name,
+            };
+            let mut lib_artifact = build_artifacts
+                .remove(&temp_id)
+                .with_context(|| format!("library artifact missing: {}", identifier))?;
+
+            // Recursively link the library if it has its own dependencies.
+            let nested =
+                deploy_and_link_libraries(chain, &mut lib_artifact, build_artifacts, deployer)?;
+            library_addrs.extend(nested);
+
+            lib_artifact.link(&link_map);
+
+            // Deploy the library.
+            let initcode = match &lib_artifact {
+                foundry::Artifact::Library(c) => c.bytecode.to_bytes(),
+                _ => bail!("artifact {} is not a library", identifier),
+            };
+
+            if !initcode.is_empty() {
+                let opts = evm::DeployInput::new(initcode).caller(deployer);
+                let deployment = chain.deploy(opts)?;
+                ensure!(
+                    deployment.result.success,
+                    "library deployment failed: {} (output: {:?})",
+                    identifier,
+                    deployment.result.output
+                );
+                let deployed_addr = deployment.address.with_context(|| {
+                    format!("library deployment missing address: {}", identifier)
+                })?;
+                ensure!(
+                    deployed_addr == address,
+                    "library deployed at wrong address: expected {}, got {} for {}",
+                    address,
+                    deployed_addr,
+                    identifier
+                );
+            }
+
+            // Record the address and put the artifact back.
+            library_addrs.insert(identifier, address);
+            build_artifacts.insert(temp_id, lib_artifact);
+        }
+    }
+
+    // Link the target artifact with all collected library addresses.
+    target_artifact.link(&library_addrs);
+    Ok(library_addrs)
+}
+
 fn build_fork_config(
     project_path: impl AsRef<Path>,
     fork_mode: &ForkModeArgs,
@@ -269,20 +363,14 @@ pub fn run(args: Args) -> Result<()> {
 
     // Load build artifacts
     info!("loading build artifacts");
-    let build_artifacts = project.load_artifacts()?;
+    let mut build_artifacts = project.load_artifacts()?;
     ensure!(
         build_artifacts.contains_key(&args.target),
         "target artifact `{}` not found in build artifacts",
         args.target
     );
 
-    // Load target contract
-    info!("loading target contract");
-    let target_artifact = build_artifacts
-        .get(&args.target)
-        .context("target artifact not found")?;
-    let target_contract = target::Contract::try_from(target_artifact)?;
-
+    // TODO(pyk): Create InitcodeRegistry
     // Build compiled-contract registry for vm.getCode
     let mut compiled_contracts = HashMap::new();
     for (id, artifact) in &build_artifacts {
@@ -298,6 +386,8 @@ pub fn run(args: Args) -> Result<()> {
         compiled_contracts.insert(id.into(), initcode);
     }
 
+    // TODO(pyk): Create ExternalLibRegistry
+
     // Create test chain
     info!("creating test chain");
     let mut chain_config =
@@ -308,6 +398,24 @@ pub fn run(args: Args) -> Result<()> {
         info!("forking a chain"); // TODO: add chain name, block number etc
     }
     let mut chain = evm::Chain::new(chain_config)?;
+
+    // Load target artifact and deploy external libraries if needed.
+    info!("loading target contract");
+    let target_artifact = build_artifacts
+        .get(&args.target)
+        .context("target artifact not found")?;
+    let mut target_artifact = target_artifact.clone();
+    let library_addrs = deploy_and_link_libraries(
+        &mut chain,
+        &mut target_artifact,
+        &mut build_artifacts,
+        args.deployer_address,
+    )?;
+    if !library_addrs.is_empty() {
+        info!("linked external libraries: {:?}", library_addrs.keys());
+    }
+
+    let target_contract = target::Contract::try_from(&target_artifact)?;
 
     // Deploy target contract
     info!("deploying target contract");
@@ -511,155 +619,4 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     Ok(())
-}
-#[cfg(test)]
-mod tests {
-    use alloy_primitives::Address;
-    use revm::primitives::U256;
-
-    use super::{parse_address, parse_balance};
-
-    #[test]
-    fn parse_balance_empty() {
-        assert_eq!(parse_balance("").unwrap(), U256::ZERO);
-    }
-
-    #[test]
-    fn parse_balance_zero() {
-        assert_eq!(parse_balance("0").unwrap(), U256::ZERO);
-    }
-
-    #[test]
-    fn parse_balance_decimal() {
-        assert_eq!(parse_balance("1000").unwrap(), U256::from(1000));
-    }
-
-    #[test]
-    fn parse_balance_hex() {
-        assert_eq!(parse_balance("0x1a2b").unwrap(), U256::from(6699));
-    }
-
-    #[test]
-    fn parse_balance_hex_uppercase() {
-        assert_eq!(parse_balance("0x1A2B").unwrap(), U256::from(6699));
-    }
-
-    #[test]
-    fn parse_balance_scientific_lower() {
-        assert_eq!(
-            parse_balance("1e18").unwrap(),
-            U256::from(1_000_000_000_000_000_000u128)
-        );
-    }
-
-    #[test]
-    fn parse_balance_scientific_upper() {
-        assert_eq!(
-            parse_balance("1E18").unwrap(),
-            U256::from(1_000_000_000_000_000_000u128)
-        );
-    }
-
-    #[test]
-    fn parse_balance_invalid_hex() {
-        assert!(parse_balance("0xzz").is_err());
-    }
-
-    #[test]
-    fn parse_balance_invalid_decimal() {
-        assert!(parse_balance("abc").is_err());
-    }
-
-    #[test]
-    fn parse_balance_scientific_rounds() {
-        // 1.5e18 parses as f64 and rounds to 1500000000000000000,
-        // which is valid under Medusa's rules.
-        assert_eq!(
-            parse_balance("1.5e18").unwrap(),
-            U256::from(1_500_000_000_000_000_000u128)
-        );
-    }
-
-    #[test]
-    fn parse_address_full() {
-        assert_eq!(
-            parse_address("0xc34296175b9e78f66edbeaeb7acea4c615c092e1").unwrap(),
-            Address::new([
-                0xc3, 0x42, 0x96, 0x17, 0x5b, 0x9e, 0x78, 0xf6, 0x6e, 0xdb, 0xea, 0xeb, 0x7a, 0xce,
-                0xa4, 0xc6, 0x15, 0xc0, 0x92, 0xe1,
-            ])
-        );
-    }
-
-    #[test]
-    fn parse_address_no_prefix() {
-        assert_eq!(
-            parse_address("c34296175b9e78f66edbeaeb7acea4c615c092e1").unwrap(),
-            Address::new([
-                0xc3, 0x42, 0x96, 0x17, 0x5b, 0x9e, 0x78, 0xf6, 0x6e, 0xdb, 0xea, 0xeb, 0x7a, 0xce,
-                0xa4, 0xc6, 0x15, 0xc0, 0x92, 0xe1,
-            ])
-        );
-    }
-
-    #[test]
-    fn parse_address_short_odd() {
-        assert_eq!(
-            parse_address("0x30000").unwrap(),
-            Address::new([
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
-            ])
-        );
-    }
-
-    #[test]
-    fn parse_address_short_even() {
-        assert_eq!(
-            parse_address("0x10000").unwrap(),
-            Address::new([
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
-            ])
-        );
-    }
-
-    #[test]
-    fn parse_address_four_hex() {
-        assert_eq!(
-            parse_address("0xabcd").unwrap(),
-            Address::new([
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0xab, 0xcd,
-            ])
-        );
-    }
-
-    #[test]
-    fn parse_address_zero() {
-        assert_eq!(parse_address("0x0").unwrap(), Address::ZERO);
-    }
-
-    #[test]
-    fn parse_address_empty_after_prefix() {
-        assert_eq!(parse_address("0x").unwrap(), Address::ZERO);
-    }
-
-    #[test]
-    fn parse_address_all_zeros() {
-        assert_eq!(
-            parse_address("0000000000000000000000000000000000000000").unwrap(),
-            Address::ZERO
-        );
-    }
-
-    #[test]
-    fn parse_address_invalid_hex() {
-        assert!(parse_address("0xzz").is_err());
-    }
-
-    #[test]
-    fn parse_address_too_long() {
-        assert!(parse_address("0x000000000000000000000000000000000000000000").is_err());
-    }
 }

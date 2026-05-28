@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use alloy_json_abi::JsonAbi;
+use alloy_primitives::{Address, keccak256};
 use anyhow::{Context, Result, bail, ensure};
+use revm::primitives::Bytes;
 use serde::Deserialize;
 use tracing::{debug, instrument};
 
@@ -106,6 +108,14 @@ pub struct ContractArtifact {
     pub deployed_bytecode: ArtifactBytecode,
 }
 
+impl ContractArtifact {
+    /// Link the contract's bytecode with the given library addresses.
+    pub fn link(&mut self, libs: &HashMap<String, Address>) {
+        self.bytecode.link(libs);
+        self.deployed_bytecode.link(libs);
+    }
+}
+
 /// An interface artifact.
 #[derive(Clone, Debug, PartialEq)]
 pub struct InterfaceArtifact {
@@ -152,6 +162,61 @@ pub struct ArtifactBytecode {
     pub link_references: serde_json::Value,
 }
 
+impl ArtifactBytecode {
+    /// Return true if the bytecode object contains unlinked library placeholders.
+    pub fn is_unlinked(&self) -> bool {
+        self.object.contains("__$")
+    }
+
+    /// Return the library dependencies declared in `link_references`.
+    ///
+    /// The returned map maps a source file path to a list of library names.
+    pub fn library_dependencies(&self) -> HashMap<String, Vec<String>> {
+        let mut deps = HashMap::new();
+        let Some(refs) = self.link_references.as_object().cloned() else {
+            return deps;
+        };
+        for (file, libs) in refs {
+            let Some(libs) = libs.as_object().cloned() else {
+                continue;
+            };
+            let names: Vec<String> = libs.into_iter().map(|(k, _)| k).collect();
+            deps.insert(file, names);
+        }
+        deps
+    }
+
+    /// Link the bytecode by replacing all library placeholders with the given addresses.
+    ///
+    /// `libs` maps a fully-qualified library identifier (`path:name`) to its deployed address.
+    pub fn link(&mut self, libs: &HashMap<String, Address>) {
+        for (identifier, address) in libs {
+            let placeholder = Self::placeholder_for(identifier);
+            let address_hex = hex::encode(address);
+            self.object = self.object.replace(&placeholder, &address_hex);
+        }
+    }
+
+    /// Compute the Solidity placeholder string for a library identifier.
+    ///
+    /// The placeholder format is `__$<keccak256(identifier)[:34]>$__`.
+    fn placeholder_for(identifier: &str) -> String {
+        let hash = keccak256(identifier.as_bytes());
+        let hex = alloy_primitives::hex::encode(hash);
+        format!("__${}$__", &hex[..34])
+    }
+
+    /// Parse the linked bytecode object as hex bytes.
+    ///
+    /// Returns an empty `Bytes` if the object is still unlinked or empty.
+    pub fn to_bytes(&self) -> Bytes {
+        if self.is_unlinked() {
+            return Bytes::new();
+        }
+        self.object.parse().unwrap_or_default()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct ArtifactMetadata {
     settings: Option<ArtifactSettings>,
@@ -164,6 +229,20 @@ struct ArtifactSettings {
 }
 
 impl Artifact {
+    /// Link the artifact's bytecode with the given library addresses.
+    ///
+    /// Only affects contract and library artifacts.
+    pub fn link(&mut self, libs: &HashMap<String, Address>) {
+        match self {
+            Self::Contract(a) => a.link(libs),
+            Self::Library(a) => {
+                a.bytecode.link(libs);
+                a.deployed_bytecode.link(libs);
+            }
+            _ => {}
+        }
+    }
+
     /// Load a build artifact from a JSON file on disk.
     #[instrument(err, fields(path = %path.as_ref().display()))]
     pub fn from_json(path: impl AsRef<Path>) -> Result<Self> {

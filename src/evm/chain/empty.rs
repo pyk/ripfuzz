@@ -96,6 +96,8 @@ mod tests {
     use revm::primitives::Bytes;
     use revm::primitives::hardfork::SpecId;
 
+    use alloy_sol_types::SolCall;
+
     use crate::evm::chain::Config;
     use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput};
     use crate::evm::cheatcode::VM_ADDRESS;
@@ -270,6 +272,29 @@ mod tests {
         crate::target::Contract::try_from(artifact).unwrap()
     }
 
+    alloy_sol_types::sol! {
+        interface TargetWithLib {
+            function setup() external;
+            function counter() external view returns (address);
+        }
+
+        interface CounterWithLib {
+            function increment() external;
+            function count() external view returns (uint256);
+        }
+
+        interface TargetWithExternalLib {
+            function setLib(address _lib) external;
+            function setup() external;
+            function counter() external view returns (address);
+        }
+
+        interface CounterWithExternalLib {
+            function increment() external;
+            function count() external view returns (uint256);
+        }
+    }
+
     /// A target contract with a constructor but no `setup()` function must
     /// deploy successfully on an empty sandbox chain.
     #[test]
@@ -379,5 +404,190 @@ mod tests {
             setup.result.success,
             "setup must succeed when cheatcode works in setup"
         );
+    }
+
+    /// A target contract whose `setup()` deploys another contract that depends
+    /// on an internal library must deploy, setup, and run the library code
+    /// successfully on an empty sandbox chain.
+    #[test]
+    fn setup_deploys_contract_with_library() {
+        let contract = load_fixture(
+            "src/EmptyChainDeployContractWithLibInSetup.sol:EmptyChainDeployContractWithLibInSetup",
+        );
+
+        let mut chain = Chain::empty(Config::default());
+        let deploy_opts = DeployInput::new(contract.initcode);
+        let deployment = chain.deploy(deploy_opts).unwrap();
+
+        assert!(
+            deployment.result.success,
+            "deployment must succeed for contract that deploys another contract in setup"
+        );
+        let address = deployment.address.unwrap();
+
+        let setup_data = Bytes::from(TargetWithLib::setupCall::new(()).abi_encode());
+        let setup_opts = crate::evm::chain::SetupInput::new(address).calldata(setup_data);
+        let setup = chain.setup(setup_opts).unwrap();
+
+        assert!(
+            setup.result.success,
+            "setup must succeed when deploying a library-dependent contract"
+        );
+
+        // Verify the secondary contract was deployed.
+        let counter_data = Bytes::from(TargetWithLib::counterCall::new(()).abi_encode());
+        let counter_result = chain
+            .call(DEFAULT_DEPLOYER, address, U256::ZERO, counter_data)
+            .unwrap();
+        assert!(
+            counter_result.success,
+            "counter() call must succeed after setup"
+        );
+        let counter_address =
+            alloy_primitives::Address::from_slice(&counter_result.output.unwrap()[12..]);
+        assert_ne!(
+            counter_address,
+            Address::ZERO,
+            "deployed counter must have a non-zero address"
+        );
+
+        // Call increment() on the deployed counter and verify the library code
+        // executed correctly by checking the count.
+        let increment_data = Bytes::from(CounterWithLib::incrementCall::new(()).abi_encode());
+        let increment_result = chain
+            .call(
+                DEFAULT_DEPLOYER,
+                counter_address,
+                U256::ZERO,
+                increment_data,
+            )
+            .unwrap();
+        assert!(
+            increment_result.success,
+            "increment() call must succeed on deployed counter"
+        );
+
+        let count_data = Bytes::from(CounterWithLib::countCall::new(()).abi_encode());
+        let count_result = chain
+            .call(DEFAULT_DEPLOYER, counter_address, U256::ZERO, count_data)
+            .unwrap();
+        assert!(count_result.success, "count() call must succeed");
+        let count = U256::from_be_slice(&count_result.output.unwrap());
+        assert_eq!(count, U256::from(1), "count must be 1 after increment");
+    }
+
+    /// A target contract whose `setup()` deploys another contract that depends
+    /// on an external library must deploy, setup, and run the library code
+    /// successfully on an empty sandbox chain.
+    ///
+    /// External libraries cannot be deployed with `new` in Solidity. The test
+    /// deploys the library manually first, passes its address to the target
+    /// contract, and then calls `setup()` which deploys the counter with the
+    /// library address.
+    #[test]
+    fn setup_deploys_contract_with_external_library() {
+        let contract = load_fixture(
+            "src/EmptyChainDeployContractWithExternalLibInSetup.sol:EmptyChainDeployContractWithExternalLibInSetup",
+        );
+
+        let mut chain = Chain::empty(Config::default());
+
+        // Load the library artifact directly. Libraries are not concrete contracts,
+        // so they cannot be loaded as a target::Contract.
+        let lib_artifact = {
+            let project = crate::foundry::Project::new("fixtures/target-contract-deployment");
+            let artifacts = project.load_artifacts().unwrap();
+            let id =
+                crate::foundry::ArtifactId::try_from("src/MathLibExternal.sol:MathLibExternal")
+                    .unwrap();
+            artifacts.get(&id).unwrap().clone()
+        };
+        let crate::foundry::Artifact::Library(lib_artifact) = &lib_artifact else {
+            panic!("MathLibExternal must be a library artifact");
+        };
+        let lib_initcode: Bytes = lib_artifact.bytecode.object.parse().unwrap_or_default();
+
+        // Deploy the external library manually. Libraries are compiled as
+        // deployable bytecode; their creation bytecode does not need linking.
+        let lib_opts = DeployInput::new(lib_initcode);
+        let lib_deployment = chain.deploy(lib_opts).unwrap();
+        assert!(
+            lib_deployment.result.success,
+            "external library deployment must succeed"
+        );
+        let lib_address = lib_deployment.address.unwrap();
+        assert_ne!(
+            lib_address,
+            Address::ZERO,
+            "deployed library must have a non-zero address"
+        );
+
+        // Deploy the target contract.
+        let deploy_opts = DeployInput::new(contract.initcode);
+        let deployment = chain.deploy(deploy_opts).unwrap();
+        assert!(
+            deployment.result.success,
+            "deployment must succeed for contract that deploys another contract in setup"
+        );
+        let address = deployment.address.unwrap();
+
+        // Pass the library address to the target contract.
+        let set_lib_data =
+            Bytes::from(TargetWithExternalLib::setLibCall::new((lib_address,)).abi_encode());
+        let set_lib_result = chain
+            .call(DEFAULT_DEPLOYER, address, U256::ZERO, set_lib_data)
+            .unwrap();
+        assert!(set_lib_result.success, "setLib call must succeed");
+
+        // Run setup, which deploys the counter using the stored library address.
+        let setup_data = Bytes::from(TargetWithExternalLib::setupCall::new(()).abi_encode());
+        let setup_opts = crate::evm::chain::SetupInput::new(address).calldata(setup_data);
+        let setup = chain.setup(setup_opts).unwrap();
+        assert!(
+            setup.result.success,
+            "setup must succeed when deploying a contract with an external library"
+        );
+
+        // Verify the secondary contract was deployed.
+        let counter_data = Bytes::from(TargetWithExternalLib::counterCall::new(()).abi_encode());
+        let counter_result = chain
+            .call(DEFAULT_DEPLOYER, address, U256::ZERO, counter_data)
+            .unwrap();
+        assert!(
+            counter_result.success,
+            "counter() call must succeed after setup"
+        );
+        let counter_address =
+            alloy_primitives::Address::from_slice(&counter_result.output.unwrap()[12..]);
+        assert_ne!(
+            counter_address,
+            Address::ZERO,
+            "deployed counter must have a non-zero address"
+        );
+
+        // Call increment() on the deployed counter and verify the external
+        // library code executes correctly via delegatecall.
+        let increment_data =
+            Bytes::from(CounterWithExternalLib::incrementCall::new(()).abi_encode());
+        let increment_result = chain
+            .call(
+                DEFAULT_DEPLOYER,
+                counter_address,
+                U256::ZERO,
+                increment_data,
+            )
+            .unwrap();
+        assert!(
+            increment_result.success,
+            "increment() call must succeed on deployed counter"
+        );
+
+        let count_data = Bytes::from(CounterWithExternalLib::countCall::new(()).abi_encode());
+        let count_result = chain
+            .call(DEFAULT_DEPLOYER, counter_address, U256::ZERO, count_data)
+            .unwrap();
+        assert!(count_result.success, "count() call must succeed");
+        let count = U256::from_be_slice(&count_result.output.unwrap());
+        assert_eq!(count, U256::from(1), "count must be 1 after increment");
     }
 }
