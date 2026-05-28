@@ -207,10 +207,10 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
 mod tests {
     use revm::{context::TxEnv, primitives::TxKind};
 
+    use crate::evm::Contract;
     use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER};
     use crate::evm::coverage;
     use crate::foundry;
-    use crate::target::Contract;
 
     const GAS_LIMIT: u64 = 16_777_216;
 

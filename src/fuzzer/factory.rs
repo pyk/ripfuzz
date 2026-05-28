@@ -10,7 +10,6 @@ use crate::fuzzer::corpus::Call;
 use crate::fuzzer::corpus::SharedCorpus;
 use crate::fuzzer::fuzzer::Fuzzer;
 use crate::fuzzer::metrics::SharedMetrics as MetricsShared;
-use crate::target;
 
 /// Result produced by a single fuzzer thread.
 #[derive(Debug, Clone)]
@@ -37,7 +36,7 @@ pub struct Crash {
 #[derive(Debug, Clone)]
 pub struct Factory {
     chain: evm::Chain,
-    contract: Arc<target::Contract>,
+    contract: Arc<evm::Contract>,
     deployed_address: Address,
     config: Config,
     caller: Address,
@@ -49,7 +48,7 @@ impl Factory {
     /// Create a new factory.
     pub fn new(
         chain: evm::Chain,
-        contract: target::Contract,
+        contract: evm::Contract,
         deployed_address: Address,
         config: Config,
         corpus: SharedCorpus,
@@ -108,7 +107,7 @@ impl Factory {
 
 /// Format a crash's call sequence as a flat, Medusa-style log.
 pub fn format_failure(
-    contract: &target::Contract,
+    contract: &evm::Contract,
     failure: &Crash,
     sender: revm::primitives::Address,
 ) -> String {

@@ -29,10 +29,10 @@ pub mod mutators;
 
 #[cfg(test)]
 mod tests {
+    use crate::evm::Contract;
     use crate::foundry;
     use crate::fuzzer::corpus::Call;
     use crate::fuzzer::{Crash, format_failure};
-    use crate::target::Contract;
 
     #[test]
     fn format_failure_uses_block_number_and_timestamp_labels() {

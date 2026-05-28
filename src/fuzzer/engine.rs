@@ -12,7 +12,6 @@ use crate::evm::cheatcode;
 use crate::evm::coverage;
 use crate::evm::coverage::map::LocalCoverage;
 use crate::fuzzer::corpus::Call;
-use crate::target;
 
 /// Result of executing a single call sequence.
 #[derive(Debug, Clone, Default)]
@@ -46,7 +45,7 @@ pub fn is_assert_failure(output: &Bytes) -> bool {
 /// the target sequence completes.
 pub fn execute_sequence(
     base_chain: &evm::Chain,
-    contract: &target::Contract,
+    contract: &evm::Contract,
     deployed_address: Address,
     caller: Address,
     calls: &[Call],

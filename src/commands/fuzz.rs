@@ -354,7 +354,7 @@ pub fn run(args: Args) -> Result<()> {
     let target_artifact = build_artifacts
         .get(&args.target)
         .context("target artifact not found")?;
-    let target_contract = target::Contract::try_from(target_artifact)?;
+    let target_contract = evm::Contract::try_from(target_artifact)?;
 
     let libraries = build_deploy_libraries(target_artifact, &build_artifacts)?;
     if !libraries.is_empty() {

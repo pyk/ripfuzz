@@ -262,14 +262,14 @@ mod tests {
         assert_eq!(code_len, 0x8001, "deployed code must be 32769 bytes");
     }
 
-    /// Load a [`target::Contract`](crate::target::Contract) from a pre-built
+    /// Load a [`evm::Contract`](crate::evm::Contract) from a pre-built
     /// fixture by its full artifact id (`path:name`).
-    fn load_fixture(id: &str) -> crate::target::Contract {
+    fn load_fixture(id: &str) -> crate::evm::Contract {
         let project = crate::foundry::Project::new("fixtures/target-contract-deployment");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = crate::foundry::ArtifactId::try_from(id).unwrap();
         let artifact = artifacts.get(&artifact_id).unwrap();
-        crate::target::Contract::try_from(artifact).unwrap()
+        crate::evm::Contract::try_from(artifact).unwrap()
     }
 
     alloy_sol_types::sol! {
@@ -493,7 +493,7 @@ mod tests {
         let mut chain = Chain::empty(Config::default());
 
         // Load the library artifact directly. Libraries are not concrete contracts,
-        // so they cannot be loaded as a target::Contract.
+        // so they cannot be loaded as a evm::Contract.
         let lib_artifact = {
             let project = crate::foundry::Project::new("fixtures/target-contract-deployment");
             let artifacts = project.load_artifacts().unwrap();

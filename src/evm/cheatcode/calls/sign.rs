@@ -33,11 +33,11 @@ mod tests {
     use k256::elliptic_curve::{Curve, bigint::ArrayEncoding};
     use revm::primitives::Bytes;
 
+    use crate::evm::Contract;
     use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::Vm::signCall;
     use crate::evm::cheatcode::calls::sign;
     use crate::foundry;
-    use crate::target::Contract;
 
     alloy_sol_types::sol! {
         interface SignTarget {

@@ -469,7 +469,7 @@ mod tests {
 
     use revm::primitives::Bytes;
 
-    use crate::target::Contract;
+    use crate::evm::Contract;
 
     use super::*;
 

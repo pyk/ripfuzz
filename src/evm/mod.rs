@@ -15,6 +15,7 @@ pub use chain::{
     Chain, DEFAULT_DEPLOYER, DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput,
     ExecInput, ExecOutput, SetupInput, SetupOutput, Transaction,
 };
+pub use contract::Contract;
 pub use database::{Database, DatabaseError};
 pub use result::TransactionResult;
 pub use specs::get_spec_id;
@@ -22,6 +23,7 @@ pub use trace::{CallFrame, Inspector, Trace};
 
 pub mod chain;
 pub mod cheatcode;
+pub mod contract;
 pub mod coverage;
 pub mod database;
 pub mod forkdb;

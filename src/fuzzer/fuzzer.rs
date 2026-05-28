@@ -14,7 +14,6 @@ use crate::fuzzer::corpus::Item;
 use crate::fuzzer::engine;
 use crate::fuzzer::factory::{Crash, FuzzerResult};
 use crate::fuzzer::metrics;
-use crate::target;
 
 /// Per-thread fuzzer that executes call sequences and reports results.
 ///
@@ -28,7 +27,7 @@ pub struct Fuzzer {
     // Shared metrics
     metrics: metrics::SharedMetrics,
 
-    contract: Arc<target::Contract>,
+    contract: Arc<evm::Contract>,
     deployed_address: Address,
     config: Config,
     caller: Address,
@@ -40,7 +39,7 @@ impl Fuzzer {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         chain: evm::Chain,
-        contract: Arc<target::Contract>,
+        contract: Arc<evm::Contract>,
         deployed_address: Address,
         config: Config,
         caller: Address,

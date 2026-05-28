@@ -27,12 +27,12 @@ pub trait Mutator: Send + Sync + std::fmt::Debug {
 mod tests {
     use revm::primitives::Bytes;
 
+    use crate::evm::Contract;
     use crate::evm::chain::{Chain, Config as ChainConfig, DeployInput, SetupInput};
     use crate::foundry;
     use crate::fuzzer::corpus;
     use crate::fuzzer::mutators;
     use crate::fuzzer::mutators::Mutator;
-    use crate::target::Contract;
 
     fn load_fixture(contract_id: &str) -> Contract {
         let project = foundry::Project::new("fixtures/challenges");

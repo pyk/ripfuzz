@@ -48,10 +48,10 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
+    use crate::evm::Contract;
     use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::to_string;
     use crate::foundry;
-    use crate::target::Contract;
 
     alloy_sol_types::sol! {
         interface ToStringTarget {
