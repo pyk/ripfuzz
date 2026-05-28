@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use alloy_primitives::B256;
-use dashmap::DashMap;
 use papaya::HashMap;
 
 use crate::evm::coverage::edge::DEPTH_TRACKED_PCS;
@@ -49,7 +48,7 @@ pub struct ContractCoverage {
     pub reverts: Vec<AtomicU64>,
     /// Branch-direction hitcount buckets for JUMP / JUMPI edges.
     /// Key = Medusa-style edge marker; value = raw hit count.
-    pub jump_edges: DashMap<u64, AtomicU8>,
+    pub jump_edges: HashMap<u64, AtomicU8>,
 }
 
 impl std::fmt::Debug for ContractCoverage {
@@ -71,7 +70,7 @@ impl ContractCoverage {
             edges: (0..bytecode_len).map(|_| AtomicU8::new(0)).collect(),
             depths: (0..depth_len).map(|_| AtomicU64::new(0)).collect(),
             reverts: (0..revert_words).map(|_| AtomicU64::new(0)).collect(),
-            jump_edges: DashMap::new(),
+            jump_edges: HashMap::new(),
         }
     }
 }
@@ -85,7 +84,7 @@ impl ContractCoverage {
 /// * Inner per-contract arrays use atomic `fetch_max` / `fetch_or` so
 ///   multiple threads can update the same contract concurrently without
 ///   a per-contract mutex.
-/// * `jump_edges` uses `DashMap` for sharded concurrent updates.
+/// * `jump_edges` uses `papaya::HashMap` for lock-free concurrent updates.
 ///
 /// Cloning is cheap (shares the same inner state).
 #[derive(Clone, Debug)]
@@ -121,14 +120,11 @@ impl SharedCoverage {
                 ContractCoverage::new(local_contract.edges.len()),
             );
 
-            // Merge edges
-            for i in 0..local_contract.edges.len() {
-                let local_raw = local_contract.edges[i];
-                if local_raw == 0 {
-                    continue;
-                }
+            // Merge edges: only iterate over PCs that were actually hit.
+            for &pc in &local_contract.hit_pcs {
+                let local_raw = local_contract.edges[pc];
                 let local_bucket = afl_bucket(local_raw);
-                let prev = global.edges[i].fetch_max(local_bucket, Ordering::Relaxed);
+                let prev = global.edges[pc].fetch_max(local_bucket, Ordering::Relaxed);
                 if prev == 0 {
                     update.new_edges += 1;
                 } else if local_bucket > afl_bucket(prev) {
@@ -136,23 +132,21 @@ impl SharedCoverage {
                 }
             }
 
-            // Merge depths
-            let depth_len = local_contract.depths.len().min(global.depths.len());
-            for i in 0..depth_len {
-                let local_depth = local_contract.depths[i];
-                if local_depth == 0 {
-                    continue;
-                }
-                let prev = global.depths[i].fetch_or(local_depth, Ordering::Relaxed);
+            // Merge depths: only iterate over PCs that recorded a depth.
+            for &pc in &local_contract.hit_depths {
+                let local_depth = local_contract.depths[pc];
+                let prev = global.depths[pc].fetch_or(local_depth, Ordering::Relaxed);
                 let new_bits = local_depth & !prev;
                 if new_bits != 0 {
                     update.new_depths += 1;
                 }
             }
 
-            // Merge reverts
-            let revert_len = local_contract.reverts.len().min(global.reverts.len());
-            for i in 0..revert_len {
+            // Merge reverts: only iterate over word indices that were actually hit.
+            for &i in &local_contract.hit_reverts {
+                if i >= global.reverts.len() {
+                    continue;
+                }
                 let local_rev = local_contract.reverts[i];
                 if local_rev == 0 {
                     continue;
@@ -164,13 +158,14 @@ impl SharedCoverage {
                 }
             }
 
-            // Merge jump edges
+            // Merge jump edges: lock-free get-or-insert, then atomic fetch_max.
+            let jump_guard = global.jump_edges.pin();
             for (&marker, &local_raw) in &local_contract.jump_edges {
                 if local_raw == 0 {
                     continue;
                 }
                 let local_bucket = afl_bucket(local_raw);
-                let entry = global.jump_edges.entry(marker).or_insert(AtomicU8::new(0));
+                let entry = jump_guard.get_or_insert_with(marker, || AtomicU8::new(0));
                 let prev = entry.fetch_max(local_bucket, Ordering::Relaxed);
                 if prev == 0 {
                     update.new_jump_edges += 1;
@@ -220,6 +215,7 @@ impl Default for SharedCoverage {
 mod tests {
     use alloy_primitives::B256;
 
+    use crate::evm::coverage::CoverageUpdate;
     use crate::evm::coverage::local::{LocalContractCoverage, LocalCoverage};
 
     use super::SharedCoverage;
@@ -234,13 +230,30 @@ mod tests {
         let shared = SharedCoverage::new();
         let barrier = std::sync::Barrier::new(16);
 
-        // Build a local coverage with one contract and one hit edge.
+        // Build a local coverage with one contract and one signal for every
+        // merge loop: edges, depths, reverts, and jump edges.
         let mut local = LocalCoverage::new();
         let contract_id = B256::ZERO;
         let mut contract = LocalContractCoverage::new(1024);
+
+        // Edges
         contract.edges[10] = 1;
+        contract.hit_pcs.push(10);
+
+        // Depths
+        contract.depths[20] = 1 << 3;
+        contract.hit_depths.push(20);
+
+        // Reverts
+        contract.reverts[5] = 1 << 10;
+        contract.hit_reverts.push(5);
+
+        // Jump edges
+        contract.jump_edges.insert(0x1234, 1);
+
         local.contracts.insert(contract_id, contract);
 
+        let mut total = CoverageUpdate::default();
         let mut interesting_count = 0;
         std::thread::scope(|s| {
             let mut handles = Vec::new();
@@ -256,15 +269,116 @@ mod tests {
 
             for handle in handles {
                 let update = handle.join().unwrap();
+                total.new_edges += update.new_edges;
+                total.new_features += update.new_features;
+                total.new_depths += update.new_depths;
+                total.new_reverts += update.new_reverts;
+                total.new_jump_edges += update.new_jump_edges;
+                total.new_jump_features += update.new_jump_features;
                 if SharedCoverage::is_interesting(&update) {
                     interesting_count += 1;
                 }
             }
         });
 
+        // Each signal was discovered exactly once across all threads.
         assert_eq!(
-            interesting_count, 1,
-            "exactly one thread should find identical coverage interesting"
+            total.new_edges, 1,
+            "exactly one thread discovered the new edge"
         );
+        assert_eq!(
+            total.new_depths, 1,
+            "exactly one thread discovered the new depth"
+        );
+        assert_eq!(
+            total.new_reverts, 1,
+            "exactly one thread discovered the new revert"
+        );
+        assert_eq!(
+            total.new_jump_edges, 1,
+            "exactly one thread discovered the new jump edge"
+        );
+        assert!(
+            interesting_count >= 1,
+            "at least one thread should find identical coverage interesting"
+        );
+    }
+
+    /// Sixteen threads, each with a unique local coverage signal.
+    /// Every thread should discover something new, so all 16 are interesting.
+    #[test]
+    fn sixteen_threads_all_unique() {
+        let shared = SharedCoverage::new();
+        let barrier = std::sync::Barrier::new(16);
+
+        std::thread::scope(|s| {
+            let mut handles = Vec::new();
+            for i in 0..16u64 {
+                let shared = shared.clone();
+                let barrier_ref = &barrier;
+                handles.push(s.spawn(move || {
+                    let mut local = LocalCoverage::new();
+                    let mut contract = LocalContractCoverage::new(1024);
+                    let contract_id = B256::ZERO;
+
+                    // Unique edge per thread.
+                    let pc = i as usize;
+                    contract.edges[pc] = 1;
+                    contract.hit_pcs.push(pc);
+
+                    // Unique depth per thread.
+                    let depth_pc = i as usize;
+                    contract.depths[depth_pc] = 1 << (i % 64);
+                    contract.hit_depths.push(depth_pc);
+
+                    // Unique revert per thread.
+                    let rev_word = i as usize;
+                    let rev_bit = (i % 64) as u64;
+                    contract.reverts[rev_word] = 1 << rev_bit;
+                    contract.hit_reverts.push(rev_word);
+
+                    // Unique jump edge per thread.
+                    contract.jump_edges.insert(i, 1);
+
+                    local.contracts.insert(contract_id, contract);
+                    barrier_ref.wait();
+                    let update = shared.merge(&local);
+                    assert!(
+                        SharedCoverage::is_interesting(&update),
+                        "thread {i} should be interesting with unique coverage"
+                    );
+                    update
+                }));
+            }
+
+            let mut total = CoverageUpdate::default();
+            for handle in handles {
+                let update = handle.join().unwrap();
+                total.new_edges += update.new_edges;
+                total.new_features += update.new_features;
+                total.new_depths += update.new_depths;
+                total.new_reverts += update.new_reverts;
+                total.new_jump_edges += update.new_jump_edges;
+                total.new_jump_features += update.new_jump_features;
+            }
+
+            // 16 unique signals for each type, each discovered exactly once.
+            assert_eq!(
+                total.new_edges, 16,
+                "all 16 unique edges should be discovered"
+            );
+            assert_eq!(
+                total.new_depths, 16,
+                "all 16 unique depths should be discovered"
+            );
+            assert_eq!(
+                total.new_reverts, 16,
+                "all 16 unique reverts should be discovered"
+            );
+            assert_eq!(
+                total.new_jump_edges, 16,
+                "all 16 unique jump edges should be discovered"
+            );
+        });
     }
 }

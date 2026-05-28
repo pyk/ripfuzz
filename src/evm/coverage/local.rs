@@ -37,6 +37,15 @@ pub struct LocalContractCoverage {
     pub reverts: Vec<u64>,
     /// Branch-direction hitcount buckets for JUMP / JUMPI edges.
     pub jump_edges: HashMap<u64, u8>,
+    /// Sparse list of PCs that were hit during this execution.
+    /// Used to avoid iterating over the entire `edges` array during merge.
+    pub hit_pcs: Vec<usize>,
+    /// Sparse list of PCs that recorded a depth during this execution.
+    /// Used to avoid iterating over the entire `depths` array during merge.
+    pub hit_depths: Vec<usize>,
+    /// Sparse list of word indices that recorded a revert during this execution.
+    /// Used to avoid iterating over the entire `reverts` array during merge.
+    pub hit_reverts: Vec<usize>,
 }
 
 impl LocalContractCoverage {
@@ -48,6 +57,9 @@ impl LocalContractCoverage {
             depths: vec![0u64; depth_len],
             reverts: vec![0u64; revert_words],
             jump_edges: HashMap::new(),
+            hit_pcs: Vec::new(),
+            hit_depths: Vec::new(),
+            hit_reverts: Vec::new(),
         }
     }
 
@@ -56,5 +68,8 @@ impl LocalContractCoverage {
         self.depths.fill(0);
         self.reverts.fill(0);
         self.jump_edges.clear();
+        self.hit_pcs.clear();
+        self.hit_depths.clear();
+        self.hit_reverts.clear();
     }
 }

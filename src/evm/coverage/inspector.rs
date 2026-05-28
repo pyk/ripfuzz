@@ -91,7 +91,11 @@ impl Inspector {
         let word = self.last_pc / 64;
         let bit = self.last_pc % 64;
         if word < coverage.reverts.len() {
+            let prev = coverage.reverts[word];
             coverage.reverts[word] |= 1u64 << bit;
+            if prev == 0 {
+                coverage.hit_reverts.push(word);
+            }
         }
     }
 }
@@ -125,11 +129,18 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
             return;
         };
         if pc < coverage.edges.len() {
+            if coverage.edges[pc] == 0 {
+                coverage.hit_pcs.push(pc);
+            }
             coverage.edges[pc] = coverage.edges[pc].saturating_add(1);
         }
         if pc < coverage.depths.len() {
             let depth = self.current_call_depth.min(63);
-            coverage.depths[pc] |= 1u64 << depth;
+            let depth_mask = 1u64 << depth;
+            if coverage.depths[pc] & depth_mask == 0 {
+                coverage.hit_depths.push(pc);
+            }
+            coverage.depths[pc] |= depth_mask;
         }
 
         // Branch-direction tracking for JUMP / JUMPI.
@@ -443,6 +454,36 @@ mod tests {
         assert!(
             update2.new_edges > 0,
             "parent contract should still add new edges"
+        );
+    }
+
+    /// Two identical transaction sequences must not be marked as interesting
+    /// on the second run.
+    #[test]
+    fn coverage_identical_sequence_not_interesting() {
+        let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
+        let (mut chain, target) = deploy_and_setup(&contract);
+
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageBranch::branchCall::new((false,)).abi_encode(),
+        ))];
+
+        let global = SharedCoverage::new();
+
+        let exec1 = chain.exec(ExecInput::new(txs.clone())).unwrap();
+        let coverage1 = exec1.coverage.expect("coverage must be present");
+        let update1 = global.merge(&coverage1);
+        assert!(
+            SharedCoverage::is_interesting(&update1),
+            "first run should be interesting"
+        );
+
+        let exec2 = chain.exec(ExecInput::new(txs)).unwrap();
+        let coverage2 = exec2.coverage.expect("coverage must be present");
+        let update2 = global.merge(&coverage2);
+        assert!(
+            !SharedCoverage::is_interesting(&update2),
+            "identical second run should not be interesting"
         );
     }
 }
