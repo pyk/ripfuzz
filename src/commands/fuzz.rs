@@ -222,29 +222,23 @@ impl Default for ForkModeArgs {
     }
 }
 
-impl ForkModeArgs {}
-
-/// Build a [`forkdb::Config`](crate::evm::forkdb::Config) from CLI arguments.
-fn build_fork_config(
-    project_path: impl AsRef<Path>,
-    fork_mode: &ForkModeArgs,
-) -> Result<evm::forkdb::Config> {
-    let cache_dir = project_path.as_ref().join("raptor").join("cache");
-    let block = fork_mode
-        .rpc_block
-        .context("--rpc-block is required with --rpc-url")?;
-    let url = fork_mode
-        .rpc_url
-        .as_ref()
-        .context("--rpc-url is required")?;
-    let config = evm::forkdb::Config::new(url.clone())
-        .retries(fork_mode.rpc_retries)
-        .backoff_ms(fork_mode.rpc_backoff)
-        .rate_limit(fork_mode.rpc_rate_limit)
-        .timeout_ms(fork_mode.rpc_timeout)
-        .cache_dir(&cache_dir)
-        .block_number(block);
-    Ok(config)
+impl ForkModeArgs {
+    /// Build a [`forkdb::Config`](crate::evm::forkdb::Config) from CLI arguments.
+    pub fn build_fork_config(&self, project_path: impl AsRef<Path>) -> Result<evm::forkdb::Config> {
+        let cache_dir = project_path.as_ref().join("raptor").join("cache");
+        let block = self
+            .rpc_block
+            .context("--rpc-block is required with --rpc-url")?;
+        let url = self.rpc_url.as_ref().context("--rpc-url is required")?;
+        let config = evm::forkdb::Config::new(url.clone())
+            .retries(self.rpc_retries)
+            .backoff_ms(self.rpc_backoff)
+            .rate_limit(self.rpc_rate_limit)
+            .timeout_ms(self.rpc_timeout)
+            .cache_dir(&cache_dir)
+            .block_number(block);
+        Ok(config)
+    }
 }
 
 #[instrument(skip(args), fields(target = ?args.target, threads = args.threads, max_runs = args.max_runs))]
@@ -302,7 +296,7 @@ pub fn run(args: Args) -> Result<()> {
         .with_compiled_contracts(compiled_contracts)
         .coverage(true);
     if args.fork_mode.rpc_url.is_some() {
-        let fork_config = build_fork_config(&project_path, &args.fork_mode)?;
+        let fork_config = args.fork_mode.build_fork_config(&project_path)?;
         chain_config.fork = Some(fork_config);
         info!("forking a chain"); // TODO: add chain name, block number etc
     }
