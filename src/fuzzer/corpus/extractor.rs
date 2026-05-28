@@ -32,31 +32,33 @@ impl ExtractedLiterals {
     }
 }
 
-/// Walk every artifact AST and collect all literal values by kind.
-pub fn extract_literals(artifacts: &HashMap<ArtifactId, Artifact>) -> ExtractedLiterals {
-    artifacts
-        .values()
-        .par_bridge()
-        .fold(ExtractedLiterals::default, |mut out, artifact| {
-            visit_artifact(artifact, &mut out);
-            out
-        })
-        .reduce(ExtractedLiterals::default, |mut a, b| {
-            a.bool.extend(b.bool);
-            for (bits, vals) in b.uint {
-                a.uint.entry(bits).or_default().extend(vals);
-            }
-            for (bits, vals) in b.int {
-                a.int.entry(bits).or_default().extend(vals);
-            }
-            a.address.extend(b.address);
-            for (size, vals) in b.fixed_bytes {
-                a.fixed_bytes.entry(size).or_default().extend(vals);
-            }
-            a.bytes.extend(b.bytes);
-            a.string.extend(b.string);
-            a
-        })
+impl ExtractedLiterals {
+    /// Walk every artifact AST and collect all literal values by kind.
+    pub fn from_artifacts(artifacts: &HashMap<ArtifactId, Artifact>) -> Self {
+        artifacts
+            .values()
+            .par_bridge()
+            .fold(ExtractedLiterals::default, |mut out, artifact| {
+                visit_artifact(artifact, &mut out);
+                out
+            })
+            .reduce(ExtractedLiterals::default, |mut a, b| {
+                a.bool.extend(b.bool);
+                for (bits, vals) in b.uint {
+                    a.uint.entry(bits).or_default().extend(vals);
+                }
+                for (bits, vals) in b.int {
+                    a.int.entry(bits).or_default().extend(vals);
+                }
+                a.address.extend(b.address);
+                for (size, vals) in b.fixed_bytes {
+                    a.fixed_bytes.entry(size).or_default().extend(vals);
+                }
+                a.bytes.extend(b.bytes);
+                a.string.extend(b.string);
+                a
+            })
+    }
 }
 
 fn visit_artifact(artifact: &Artifact, out: &mut ExtractedLiterals) {
@@ -502,14 +504,14 @@ mod tests {
     #[test]
     fn extracts_bool_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         assert_eq!(literals.bool, vec![true, false]);
     }
 
     #[test]
     fn extracts_uint256_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let expected = vec![
             // useNumbers()
             U256::from(0),
@@ -567,7 +569,7 @@ mod tests {
     #[test]
     fn extracts_uint128_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let expected = vec![
             // useNumbers()
             U256::from(0),
@@ -617,7 +619,7 @@ mod tests {
     #[test]
     fn extracts_uint8_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let expected = vec![
             // useNumbers()
             U256::from(0),  // 0
@@ -662,7 +664,7 @@ mod tests {
     #[test]
     fn extracts_int256_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let expected = vec![
             // useNumbers()
             I256::try_from(0i64).unwrap(),
@@ -746,7 +748,7 @@ mod tests {
     #[test]
     fn extracts_int128_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let expected = vec![
             // useNumbers()
             I256::try_from(0i64).unwrap(),
@@ -821,7 +823,7 @@ mod tests {
     #[test]
     fn extracts_int8_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let expected = vec![
             // useNumbers()
             I256::try_from(0i64).unwrap(), // 0
@@ -880,7 +882,7 @@ mod tests {
     #[test]
     fn extracts_subdenomination_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         assert!(
             literals
                 .uint
@@ -939,7 +941,7 @@ mod tests {
     #[test]
     fn extracts_string_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let expected = vec![
             // useStrings()
             "".to_string(),             // empty
@@ -959,7 +961,7 @@ mod tests {
     #[test]
     fn extracts_hex_string_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
 
         // 20-byte hex string left-padded to 32 bytes
         let mut word1 = [0u8; 32];
@@ -995,7 +997,7 @@ mod tests {
     #[test]
     fn extracts_bytes32_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let bucket = literals.fixed_bytes.get(&32).unwrap();
 
         let expected = vec![
@@ -1082,7 +1084,7 @@ mod tests {
     #[test]
     fn extracts_bytes16_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let bucket = literals.fixed_bytes.get(&16).unwrap();
 
         let expected = vec![
@@ -1149,7 +1151,7 @@ mod tests {
     #[test]
     fn extracts_bytes1_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let bucket = literals.fixed_bytes.get(&1).unwrap();
 
         let expected = vec![
@@ -1194,7 +1196,7 @@ mod tests {
     #[test]
     fn extracts_address_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let expected = vec![
             // useNumbers()
             Address::from_slice(&hex::decode("0000000000000000000000000000000000000000").unwrap()),
@@ -1235,7 +1237,7 @@ mod tests {
     #[test]
     fn extracts_bytes_literals() {
         let artifacts = load_fixture();
-        let literals = extract_literals(&artifacts);
+        let literals = ExtractedLiterals::from_artifacts(&artifacts);
         let mut expected: Vec<Bytes> = vec![];
 
         // useNumbers()

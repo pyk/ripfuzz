@@ -13,6 +13,7 @@ use revm::primitives::{Bytes, U256};
 use tracing::{debug, info, instrument};
 
 use crate::evm::coverage::SharedCoverage;
+use crate::fuzzer::corpus::*;
 use crate::fuzzer::{CorpusReplayer, SharedMetrics};
 use crate::*;
 
@@ -342,7 +343,7 @@ pub fn run(args: Args) -> Result<()> {
     // Initialize shared corpus
     // Extract literals from build artifacts so the fuzzer can seed random value
     // generation with concrete values found across the entire project.
-    let literals = fuzzer::corpus::extract_literals(&build_artifacts);
+    let literals = ExtractedLiterals::from_artifacts(&build_artifacts);
     let base_corpus_dir = args
         .corpus_dir
         .unwrap_or_else(|| project_path.join("raptor").join("corpus"));

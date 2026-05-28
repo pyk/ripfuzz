@@ -21,7 +21,7 @@
 
 pub use call::Call;
 pub use config::Config;
-pub use extractor::{ExtractedLiterals, extract_literals};
+pub use extractor::ExtractedLiterals;
 pub use item::Item;
 
 pub use shared::SharedCorpus;
