@@ -469,7 +469,7 @@ pub fn run(args: Args) -> Result<()> {
             info!("[Call Sequence]");
             info!(
                 "{}",
-                crate::fuzzer::format_failure(&target_contract, failure, args.deployer_address)
+                failure.format(&target_contract, args.deployer_address)
             );
         }
         let total = target_contract.invariant_functions.len();

@@ -9,6 +9,7 @@ use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::Function;
 use alloy_primitives::Address;
 use anyhow::{Context, Result};
+use revm::primitives::Bytes;
 use tracing::{debug, info, instrument};
 
 use crate::evm;
@@ -31,6 +32,38 @@ pub struct RunOutput {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FailedAssertion {
     pub transactions: Vec<Transaction>,
+}
+
+impl FailedAssertion {
+    /// Format this failed assertion's call sequence as a flat, Medusa-style log.
+    pub fn format(&self, contract: &evm::Contract, sender: Address) -> String {
+        let mut lines = Vec::new();
+        for (i, tx) in self.transactions.iter().enumerate() {
+            let n = i + 1;
+
+            let block = n as u64;
+            let time = n as u64;
+
+            lines.push(format!(
+                "{}) {}::{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?})",
+                n,
+                contract.artifact_id.name,
+                format_calldata(&tx.calldata),
+                block,
+                time,
+                u64::MAX,
+                sender,
+            ));
+        }
+        lines.join("\n")
+    }
+}
+
+fn format_calldata(calldata: &Bytes) -> String {
+    if calldata.is_empty() {
+        return "()".into();
+    }
+    format!("0x{}", hex::encode(calldata))
 }
 
 /// Per-thread fuzzer that executes call sequences and reports results.

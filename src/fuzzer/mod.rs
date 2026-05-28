@@ -13,7 +13,6 @@
 //!   and runs directly on a cloned chain.
 
 pub use config::Config;
-pub use format::format_failure;
 pub use fuzzer::{FailedAssertion, Fuzzer, RunOutput};
 pub use metrics::{SharedMetrics, Snapshot};
 
@@ -21,7 +20,6 @@ pub use corpus::replayer::CorpusReplayer;
 
 pub mod config;
 pub mod corpus;
-pub mod format;
 #[allow(clippy::module_inception)]
 pub mod fuzzer;
 pub mod metrics;
@@ -33,7 +31,7 @@ mod tests {
     use crate::evm::Contract;
     use crate::evm::chain::Transaction;
     use crate::foundry;
-    use crate::fuzzer::{FailedAssertion, format_failure};
+    use crate::fuzzer::FailedAssertion;
 
     #[test]
     fn format_failure_uses_block_number_and_timestamp_labels() {
@@ -50,7 +48,7 @@ mod tests {
 
         let failure = FailedAssertion { transactions };
 
-        let output = format_failure(&contract, &failure, crate::evm::chain::DEFAULT_DEPLOYER);
+        let output = failure.format(&contract, crate::evm::chain::DEFAULT_DEPLOYER);
         assert!(
             output.contains("block_number="),
             "output should use block_number label:\n{}",
