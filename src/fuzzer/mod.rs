@@ -16,7 +16,7 @@ pub use config::Config;
 pub use engine::{CrashInfo, ExecutionOutcome, is_assert_failure};
 pub use factory::{Crash, Factory, FuzzerResult, format_failure};
 pub use fuzzer::Fuzzer;
-pub use metrics::{Shared, Snapshot};
+pub use metrics::{SharedMetrics, Snapshot};
 
 pub mod config;
 pub mod corpus;

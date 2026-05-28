@@ -9,7 +9,7 @@ use crate::fuzzer::config::Config;
 use crate::fuzzer::corpus::Call;
 use crate::fuzzer::corpus::SharedCorpus;
 use crate::fuzzer::fuzzer::Fuzzer;
-use crate::fuzzer::metrics::Shared as MetricsShared;
+use crate::fuzzer::metrics::SharedMetrics as MetricsShared;
 use crate::target;
 
 /// Result produced by a single fuzzer thread.

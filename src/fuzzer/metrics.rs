@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-/// Metrics snapshot produced by [`Shared::try_snapshot`].
+/// Metrics snapshot produced by [`SharedMetrics::try_snapshot`].
 #[derive(Debug, Clone, Copy)]
 pub struct Snapshot {
     pub elapsed: Duration,
@@ -14,12 +14,12 @@ pub struct Snapshot {
     pub failures: u64,
 }
 
-/// Mutable state held by [`Shared`] behind an [`Arc`].
+/// Mutable state held by [`SharedMetrics`] behind an [`Arc`].
 ///
-/// All fields are atomics or immutable so clones of [`Shared`] share
+/// All fields are atomics or immutable so clones of [`SharedMetrics`] share
 /// the same counters without requiring additional synchronization.
 #[derive(Debug)]
-struct SharedInner {
+struct SharedMetricsInner {
     runs: AtomicU64,
     calls: AtomicU64,
     gas: AtomicU64,
@@ -32,15 +32,15 @@ struct SharedInner {
 ///
 /// Only one thread may print per 3-second interval.
 #[derive(Debug, Clone)]
-pub struct Shared {
-    inner: Arc<SharedInner>,
+pub struct SharedMetrics {
+    inner: Arc<SharedMetricsInner>,
 }
 
-impl Shared {
+impl SharedMetrics {
     /// Create fresh metrics.
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(SharedInner {
+            inner: Arc::new(SharedMetricsInner {
                 runs: AtomicU64::new(0),
                 calls: AtomicU64::new(0),
                 gas: AtomicU64::new(0),
@@ -99,7 +99,7 @@ impl Shared {
     }
 }
 
-impl Default for Shared {
+impl Default for SharedMetrics {
     fn default() -> Self {
         Self::new()
     }

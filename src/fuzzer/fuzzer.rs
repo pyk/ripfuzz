@@ -26,7 +26,7 @@ pub struct Fuzzer {
     corpus: corpus::SharedCorpus,
 
     // Shared metrics
-    metrics: metrics::Shared,
+    metrics: metrics::SharedMetrics,
 
     contract: Arc<target::Contract>,
     deployed_address: Address,
@@ -45,7 +45,7 @@ impl Fuzzer {
         config: Config,
         caller: Address,
         corpus: corpus::SharedCorpus,
-        metrics: metrics::Shared,
+        metrics: metrics::SharedMetrics,
         rng: fastrand::Rng,
     ) -> Self {
         Self {
