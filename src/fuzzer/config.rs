@@ -8,6 +8,7 @@ use alloy_primitives::Address;
 use crate::evm;
 use crate::evm::coverage::SharedCoverage;
 use crate::fuzzer::corpus::SharedCorpus;
+use crate::fuzzer::metrics::SharedMetrics;
 
 /// Per-fuzzer configuration configured via a fluent builder API.
 #[derive(Clone, Debug)]
@@ -17,6 +18,7 @@ pub struct Config {
     pub target_address: Address,
     pub shared_corpus: SharedCorpus,
     pub shared_coverage: SharedCoverage,
+    pub shared_metrics: SharedMetrics,
     pub caller: Address,
     pub max_runs: u64,
     pub timeout: Option<Duration>,
@@ -31,6 +33,7 @@ impl Config {
             target_address: Address::ZERO,
             shared_corpus: SharedCorpus::new(crate::fuzzer::corpus::Config::new(PathBuf::new())),
             shared_coverage: SharedCoverage::new(),
+            shared_metrics: SharedMetrics::new(),
             caller: evm::chain::DEFAULT_DEPLOYER,
             max_runs: 0,
             timeout: None,
@@ -64,6 +67,12 @@ impl Config {
     /// Set the shared coverage map.
     pub fn shared_coverage(mut self, value: SharedCoverage) -> Self {
         self.shared_coverage = value;
+        self
+    }
+
+    /// Set the shared metrics.
+    pub fn shared_metrics(mut self, value: SharedMetrics) -> Self {
+        self.shared_metrics = value;
         self
     }
 

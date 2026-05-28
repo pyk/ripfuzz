@@ -372,6 +372,9 @@ pub fn run(args: Args) -> Result<()> {
         .deployed_address(deployed_address)
         .replay()?;
 
+    // Initialize shared metrics across all fuzzer threads.
+    let shared_metrics = fuzzer::SharedMetrics::new();
+
     let fuzzers = args.threads;
     let start = std::time::Instant::now();
     let timeout = args.timeout_secs.map(std::time::Duration::from_secs);
@@ -400,6 +403,8 @@ pub fn run(args: Args) -> Result<()> {
             .shared_corpus(corpus.clone())
             // checkrs: allow(clone_in_loops)
             .shared_coverage(shared_coverage.clone())
+            // checkrs: allow(clone_in_loops)
+            .shared_metrics(shared_metrics.clone())
             .caller(args.deployer_address)
             .max_runs(local_max_runs)
             .timeout(timeout);

@@ -10,7 +10,6 @@ use tracing::{info, instrument};
 use crate::evm::chain::ExecInput;
 use crate::fuzzer::config::Config;
 use crate::fuzzer::corpus::{Call, Item};
-use crate::fuzzer::metrics;
 
 /// Result produced by a single fuzzer thread.
 #[derive(Debug, Clone)]
@@ -77,8 +76,6 @@ impl Fuzzer {
         let mut total_calls = 0u64;
         let mut total_gas = 0u64;
 
-        let metrics = metrics::SharedMetrics::new();
-
         for _ in 0..self.config.max_runs {
             if let Some(t) = self.config.timeout
                 && start.elapsed() > t
@@ -86,7 +83,7 @@ impl Fuzzer {
                 break;
             }
 
-            if let Some(snapshot) = metrics.try_snapshot() {
+            if let Some(snapshot) = self.config.shared_metrics.try_snapshot() {
                 info!(
                     elapsed = ?snapshot.elapsed,
                     runs = snapshot.runs,
@@ -134,7 +131,7 @@ impl Fuzzer {
 
             total_calls += calls_count;
             total_gas += gas_sum;
-            metrics.record(calls_count, gas_sum);
+            self.config.shared_metrics.record(calls_count, gas_sum);
 
             if let Some(coverage) = exec.coverage {
                 let _ = self.config.shared_coverage.merge(&coverage);
@@ -150,7 +147,7 @@ impl Fuzzer {
 
             if let Some(crash) = crash {
                 local_failures.push(crash);
-                metrics.record_failure();
+                self.config.shared_metrics.record_failure();
             }
 
             runs += 1;
