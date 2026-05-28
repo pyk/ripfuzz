@@ -25,7 +25,6 @@ pub use extractor::ExtractedLiterals;
 pub use item::Item;
 
 pub use shared::SharedCorpus;
-pub use shared::get_dir;
 
 pub mod call;
 pub mod config;

@@ -347,7 +347,7 @@ pub fn run(args: Args) -> Result<()> {
     let base_corpus_dir = args
         .corpus_dir
         .unwrap_or_else(|| project_path.join("raptor").join("corpus"));
-    let corpus_dir = fuzzer::corpus::get_dir(&base_corpus_dir, &target_contract.artifact_id);
+    let corpus_dir = SharedCorpus::dir_for(&base_corpus_dir, &target_contract.artifact_id);
     let corpus_config = fuzzer::corpus::Config::new(corpus_dir)
         .target_functions(target_contract.target_functions.clone())
         .max_calls(args.max_calls)

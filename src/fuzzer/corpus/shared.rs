@@ -13,6 +13,7 @@ use alloy_json_abi::StateMutability;
 use anyhow::{Result, ensure};
 use tracing::debug;
 
+use crate::foundry::ArtifactId;
 use crate::fuzzer::corpus::random::RandomDynSolValue;
 use crate::fuzzer::corpus::{Call, Config, ExtractedLiterals, Item};
 
@@ -87,25 +88,24 @@ impl std::fmt::Debug for SharedCorpusInner {
 pub struct SharedCorpus {
     inner: Arc<SharedCorpusInner>,
 }
-
-/// Compute the namespaced corpus directory for a given artifact.
-///
-/// Only the file name component of `artifact_id.path` is used, so
-/// absolute source paths do not pollute the on-disk layout.
-pub fn get_dir(base: impl AsRef<Path>, artifact_id: &crate::foundry::ArtifactId) -> PathBuf {
-    let file_name = artifact_id
-        .path
-        .file_name()
-        .map(|f| f.to_os_string())
-        .unwrap_or_else(|| artifact_id.path.as_os_str().to_os_string());
-    base.as_ref().join(file_name).join(&artifact_id.name)
-}
-
 impl SharedCorpus {
+    /// Compute the namespaced corpus directory for a given artifact under `base`.
+    ///
+    /// Only the file name component of `artifact_id.path` is used, so
+    /// absolute source paths do not pollute the on-disk layout.
+    pub fn dir_for(base: impl AsRef<Path>, artifact_id: &ArtifactId) -> PathBuf {
+        let file_name = artifact_id
+            .path
+            .file_name()
+            .map(|f| f.to_os_string())
+            .unwrap_or_else(|| artifact_id.path.as_os_str().to_os_string());
+        base.as_ref().join(file_name).join(&artifact_id.name)
+    }
+
     /// Create an empty corpus from a [`Config`].
     ///
     /// `config.corpus_dir` should already be namespaced by artifact (use
-    /// [`get_dir`] to compute it). No disk I/O is performed until
+    /// [`SharedCorpus::dir_for`] to compute it). No disk I/O is performed until
     /// [`Self::load_items`] is called.
     pub fn new(config: Config) -> Self {
         let inner = Arc::new(SharedCorpusInner {
@@ -496,7 +496,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
@@ -575,7 +575,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(8)
@@ -627,7 +627,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
@@ -691,7 +691,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
@@ -718,7 +718,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
@@ -767,7 +767,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let max_calls = 64;
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
@@ -854,7 +854,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
@@ -934,7 +934,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
@@ -1015,7 +1015,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
@@ -1095,7 +1095,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
@@ -1177,7 +1177,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
@@ -1267,7 +1267,7 @@ mod tests {
             initcode: "0x".into(),
         };
 
-        let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = Config::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
