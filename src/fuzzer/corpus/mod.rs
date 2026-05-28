@@ -32,4 +32,5 @@ pub mod config;
 pub mod extractor;
 pub mod item;
 pub mod random;
+pub mod replayer;
 pub mod shared;

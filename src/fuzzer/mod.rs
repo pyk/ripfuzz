@@ -18,6 +18,8 @@ pub use factory::{Crash, Factory, FuzzerResult, format_failure};
 pub use fuzzer::Fuzzer;
 pub use metrics::{SharedMetrics, Snapshot};
 
+pub use corpus::replayer::CorpusReplayer;
+
 pub mod config;
 pub mod corpus;
 pub mod engine;

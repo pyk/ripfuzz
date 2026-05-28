@@ -181,6 +181,11 @@ impl SharedCorpus {
         })
     }
 
+    /// Return a cloned snapshot of all items currently in the corpus.
+    pub fn items(&self) -> Vec<Item> {
+        self.inner.items.read().vec.clone()
+    }
+
     /// Select a random existing item from the corpus.
     ///
     /// Used when `is_fresh_item` returns `false`.

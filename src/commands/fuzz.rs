@@ -11,6 +11,8 @@ use clap::Parser;
 use revm::primitives::{Bytes, U256};
 use tracing::{debug, info, instrument};
 
+use crate::evm::coverage::SharedCoverage;
+use crate::fuzzer::CorpusReplayer;
 use crate::*;
 
 fn default_threads() -> usize {
@@ -276,6 +278,18 @@ pub fn run(args: Args) -> Result<()> {
         args.target
     );
 
+    // Load target contract and prepare library dependencies.
+    info!("loading target contract");
+    let target_contract = evm::Contract::try_get(&build_artifacts, &args.target)?;
+    if !target_contract.libraries.is_empty() {
+        let lib_ids: Vec<&str> = target_contract
+            .libraries
+            .iter()
+            .map(|l| l.id.as_str())
+            .collect();
+        info!("linked external libraries: {:?}", lib_ids);
+    }
+
     // TODO(pyk): Create InitcodeRegistry
     // Build compiled-contract registry for vm.getCode
     let mut compiled_contracts = HashMap::new();
@@ -302,18 +316,6 @@ pub fn run(args: Args) -> Result<()> {
         info!("forking a chain"); // TODO: add chain name, block number etc
     }
     let mut chain = evm::Chain::new(chain_config)?;
-
-    // Load target contract and prepare library dependencies.
-    info!("loading target contract");
-    let target_contract = evm::Contract::try_get(&build_artifacts, &args.target)?;
-    if !target_contract.libraries.is_empty() {
-        let lib_ids: Vec<&str> = target_contract
-            .libraries
-            .iter()
-            .map(|l| l.id.as_str())
-            .collect();
-        info!("linked external libraries: {:?}", lib_ids);
-    }
 
     // Deploy target contract
     info!("deploying target contract");
@@ -373,6 +375,14 @@ pub fn run(args: Args) -> Result<()> {
         valid = corpus_stats.valid_count,
         "corpus loaded"
     );
+
+    // Initialize shared coverage and sync with corpus.
+    let shared_coverage = SharedCoverage::new();
+    CorpusReplayer::new(shared_coverage.clone())
+        .shared_corpus(corpus.clone())
+        .chain(chain.clone())
+        .deployed_address(deployed_address)
+        .replay()?;
 
     // Create fuzzer factory
     info!("creating fuzzer factory");
