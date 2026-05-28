@@ -117,7 +117,6 @@ impl Fuzzer {
                     runs = snapshot.runs,
                     calls = snapshot.calls,
                     gas = snapshot.gas,
-                    failures = snapshot.failures,
                     "fuzz",
                 );
             }

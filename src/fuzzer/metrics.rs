@@ -11,7 +11,6 @@ pub struct Snapshot {
     pub runs: u64,
     pub calls: u64,
     pub gas: u64,
-    pub failures: u64,
 }
 
 /// Mutable state held by [`SharedMetrics`] behind an [`Arc`].
@@ -23,7 +22,6 @@ struct SharedMetricsInner {
     runs: AtomicU64,
     calls: AtomicU64,
     gas: AtomicU64,
-    failures: AtomicU64,
     last_print: AtomicU64,
     start: Instant,
 }
@@ -44,7 +42,6 @@ impl SharedMetrics {
                 runs: AtomicU64::new(0),
                 calls: AtomicU64::new(0),
                 gas: AtomicU64::new(0),
-                failures: AtomicU64::new(0),
                 last_print: AtomicU64::new(0),
                 start: Instant::now(),
             }),
@@ -56,11 +53,6 @@ impl SharedMetrics {
         self.inner.runs.fetch_add(1, Ordering::Relaxed);
         self.inner.calls.fetch_add(calls, Ordering::Relaxed);
         self.inner.gas.fetch_add(gas, Ordering::Relaxed);
-    }
-
-    /// Record a discovered failure.
-    pub fn record_failure(&self) {
-        self.inner.failures.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Try to acquire the right to snapshot metrics.
@@ -94,7 +86,6 @@ impl SharedMetrics {
             runs: self.inner.runs.load(Ordering::Relaxed),
             calls: self.inner.calls.load(Ordering::Relaxed),
             gas: self.inner.gas.load(Ordering::Relaxed),
-            failures: self.inner.failures.load(Ordering::Relaxed),
         }
     }
 }

@@ -390,6 +390,17 @@ pub fn run(args: Args) -> Result<()> {
     let base_runs = args.max_runs / fuzzers_u64;
     let remainder = (args.max_runs % fuzzers_u64) as usize;
 
+    let initial_config = fuzzer::Config::new()
+        .chain(chain.clone())
+        .target_address(deployed_address)
+        .shared_corpus(corpus.clone())
+        .shared_coverage(shared_coverage.clone())
+        .shared_metrics(shared_metrics.clone())
+        .shutdown_signal(shutdown_signal.clone())
+        .invariant_functions(target_contract.invariant_functions.clone())
+        .caller(args.deployer_address)
+        .timeout(timeout);
+
     let mut handles = Vec::with_capacity(fuzzers);
     for fuzzer_id in 0..fuzzers {
         let local_max_runs = if fuzzer_id < remainder {
@@ -399,24 +410,10 @@ pub fn run(args: Args) -> Result<()> {
         };
         let seed = args.seed.wrapping_add(fuzzer_id as u64);
         // checkrs: allow(clone_in_loops)
-        let config = fuzzer::Config::new()
-            .seed(seed)
-            // checkrs: allow(clone_in_loops)
-            .chain(chain.clone())
-            .target_address(deployed_address)
-            // checkrs: allow(clone_in_loops)
-            .shared_corpus(corpus.clone())
-            // checkrs: allow(clone_in_loops)
-            .shared_coverage(shared_coverage.clone())
-            // checkrs: allow(clone_in_loops)
-            .shared_metrics(shared_metrics.clone())
-            // checkrs: allow(clone_in_loops)
-            .shutdown_signal(shutdown_signal.clone())
-            // checkrs: allow(clone_in_loops)
-            .invariant_functions(target_contract.invariant_functions.clone())
-            .caller(args.deployer_address)
-            .max_runs(local_max_runs)
-            .timeout(timeout);
+        let mut config = initial_config.clone();
+        config.max_runs = local_max_runs;
+        config.seed = seed;
+
         let fuzzer = fuzzer::Fuzzer::new(config);
         let handle = std::thread::spawn(move || fuzzer.run());
         handles.push((fuzzer_id, handle));
