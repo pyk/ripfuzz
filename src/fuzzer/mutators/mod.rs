@@ -58,9 +58,7 @@ mod tests {
         let contract = load_fixture("src/L1SimpleKnob.sol:SimpleKnob");
 
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
-        let deployment = chain
-            .deploy(DeployInput::new(contract.initcode.clone()))
-            .unwrap();
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let deployed_address = deployment.address.unwrap();
 

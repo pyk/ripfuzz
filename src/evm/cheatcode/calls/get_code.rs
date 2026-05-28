@@ -80,7 +80,7 @@ mod tests {
         let config = Config::new("fixtures/target-contract-with-cheatcodes")
             .with_compiled_contracts(load_compiled_contracts());
         let mut chain = Chain::new(config).unwrap();
-        let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 

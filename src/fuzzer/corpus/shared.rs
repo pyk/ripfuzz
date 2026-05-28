@@ -467,8 +467,6 @@ impl SharedCorpus {
 mod tests {
     use std::sync::Barrier;
 
-    use revm::primitives::Bytes;
-
     use crate::evm::Contract;
 
     use super::*;
@@ -486,7 +484,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
@@ -565,7 +563,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
@@ -617,7 +615,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
@@ -681,7 +679,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
@@ -708,7 +706,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
@@ -757,7 +755,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
@@ -844,7 +842,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
@@ -924,7 +922,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
@@ -1005,7 +1003,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
@@ -1085,7 +1083,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
@@ -1167,7 +1165,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);
@@ -1257,7 +1255,7 @@ mod tests {
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
-            initcode: Bytes::new(),
+            initcode: "0x".into(),
         };
 
         let corpus_dir = get_dir(tmp.path(), &contract.artifact_id);

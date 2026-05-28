@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {CounterWithLib} from "./CounterWithLib.sol";
+import {CounterWithLib} from "../src/CounterWithLib.sol";
 
 contract EmptyChainDeployContractWithLibInSetup {
     CounterWithLib public counter;

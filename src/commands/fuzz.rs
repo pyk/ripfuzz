@@ -317,7 +317,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Deploy target contract
     info!("deploying target contract");
-    let mut deploy_opts = evm::DeployInput::new(target_contract.initcode.clone())
+    let mut deploy_opts = evm::DeployInput::new(&target_contract.initcode)
         .caller(args.deployer_address)
         .value(args.deploy_value);
     let libraries = target_contract.libraries.clone();

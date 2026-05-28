@@ -5,7 +5,6 @@ use std::path::PathBuf;
 
 use alloy_json_abi::{Function, JsonAbi, StateMutability};
 use anyhow::{Context, Result, bail, ensure};
-use revm::primitives::Bytes;
 
 use crate::evm::DeployLibraryInput;
 use crate::foundry::{Artifact, ArtifactId, ContractArtifact};
@@ -27,8 +26,8 @@ pub struct Contract {
     pub invariant_functions: Vec<Function>,
     /// Optional setup function called once after deployment.
     pub setup_function: Option<Function>,
-    /// Initcode used to deploy the contract.
-    pub initcode: Bytes,
+    /// Hex-encoded initcode used to deploy the contract.
+    pub initcode: String,
     /// Linked libraries that must be deployed before the target contract.
     pub libraries: Vec<DeployLibraryInput>,
 }
@@ -39,7 +38,7 @@ impl Contract {
         libraries: Vec<DeployLibraryInput>,
     ) -> Result<Self> {
         let artifact_id = contract.id.clone();
-        let initcode: Bytes = contract.bytecode.object.parse().unwrap_or_default();
+        let initcode = contract.bytecode.object.clone();
 
         let all_functions: Vec<Function> = contract.abi.functions().cloned().collect();
 
@@ -129,7 +128,7 @@ impl Contract {
                     .with_context(|| format!("library artifact missing: {}", identifier))?;
 
                 let initcode = match lib_artifact {
-                    Artifact::Library(c) => c.bytecode.object.parse().unwrap_or_default(),
+                    Artifact::Library(c) => c.bytecode.object.as_str(),
                     _ => bail!("artifact {} is not a library", identifier),
                 };
 
@@ -168,6 +167,7 @@ impl Contract {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use revm::primitives::Bytes;
 
     #[test]
     fn bytes_from_str_empty() {

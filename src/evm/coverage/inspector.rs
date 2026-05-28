@@ -230,7 +230,7 @@ mod tests {
         let tx = TxEnv {
             caller: DEFAULT_DEPLOYER,
             kind: TxKind::Create,
-            data: contract.initcode,
+            data: contract.initcode.parse().unwrap_or_default(),
             gas_limit: GAS_LIMIT,
             ..Default::default()
         };

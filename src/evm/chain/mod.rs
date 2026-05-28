@@ -30,7 +30,7 @@ pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4
 pub struct DeployInput {
     pub caller: Address,
     pub value: U256,
-    pub initcode: Bytes,
+    pub initcode: String,
     pub libraries: Vec<DeployLibraryInput>,
     pub gas_limit: u64,
 }
@@ -39,16 +39,16 @@ pub struct DeployInput {
 #[derive(Debug, Clone)]
 pub struct DeployLibraryInput {
     pub id: String,
-    pub initcode: Bytes,
+    pub initcode: String,
     pub libraries: Vec<DeployLibraryInput>,
 }
 
 impl DeployLibraryInput {
     /// Create [`DeployLibraryInput`] with the given identifier and initcode.
-    pub fn new(id: impl Into<String>, initcode: Bytes) -> Self {
+    pub fn new(id: impl Into<String>, initcode: &str) -> Self {
         Self {
             id: id.into(),
-            initcode,
+            initcode: initcode.into(),
             libraries: Vec::new(),
         }
     }
@@ -64,11 +64,11 @@ impl DeployInput {
     /// Create [`DeployInput`] with the given initcode.
     ///
     /// Caller defaults to [`DEFAULT_DEPLOYER`]; override with [`Self::caller`].
-    pub fn new(initcode: Bytes) -> Self {
+    pub fn new(initcode: &str) -> Self {
         Self {
             caller: DEFAULT_DEPLOYER,
             value: U256::ZERO,
-            initcode,
+            initcode: initcode.into(),
             libraries: Vec::new(),
             gas_limit: u64::MAX,
         }
@@ -370,10 +370,15 @@ impl Chain {
         let initcode = if library_addrs.is_empty() {
             opts.initcode
         } else {
-            self.link_libraries(opts.initcode, &library_addrs)
+            self.link_libraries(&opts.initcode, &library_addrs)
         };
 
-        let mut output = self.deploy_raw(opts.caller, opts.value, initcode, opts.gas_limit)?;
+        let mut output = self.deploy_raw(
+            opts.caller,
+            opts.value,
+            initcode.parse().unwrap_or_default(),
+            opts.gas_limit,
+        )?;
         output.libraries = library_addrs
             .into_iter()
             .map(|(id, address)| DeployLibraryOutput { id, address })
@@ -425,10 +430,15 @@ impl Chain {
         }
 
         // Link the library initcode with already-deployed libraries.
-        let initcode = self.link_libraries(lib.initcode.clone(), library_addrs);
+        let initcode = self.link_libraries(&lib.initcode, library_addrs);
 
         // Deploy the library and return its output.
-        let deployment = self.deploy_raw(deployer, U256::ZERO, initcode, u64::MAX)?;
+        let deployment = self.deploy_raw(
+            deployer,
+            U256::ZERO,
+            initcode.parse().unwrap_or_default(),
+            u64::MAX,
+        )?;
         ensure!(
             deployment.result.success,
             "library deployment failed: {} (output: {:?})",
@@ -456,14 +466,14 @@ impl Chain {
     }
 
     /// Replace library placeholders in initcode with deployed addresses.
-    pub fn link_libraries(&self, initcode: Bytes, libraries: &HashMap<String, Address>) -> Bytes {
-        let mut hex = format!("0x{}", hex::encode(initcode));
+    pub fn link_libraries(&self, initcode: &str, libraries: &HashMap<String, Address>) -> String {
+        let mut hex = initcode.to_owned();
         for (identifier, address) in libraries {
             let placeholder = self.get_library_placeholder(identifier);
             let address_hex = hex::encode(address);
             hex = hex.replace(&placeholder, &address_hex);
         }
-        hex.parse().unwrap_or_default()
+        hex
     }
 
     /// Execute a raw CREATE transaction without library handling.
@@ -674,7 +684,7 @@ mod tests {
     fn deploy_and_setup_warp() -> (Chain, Address) {
         let contract = load_warp_fixture();
         let mut chain = Chain::new(Config::default()).unwrap();
-        let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
@@ -799,7 +809,7 @@ mod tests {
         let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
         let mut chain = Chain::new(Config::default()).unwrap();
         chain.config.coverage = true;
-        let deployment = chain.deploy(DeployInput::new(contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success);
         let target = deployment.address.unwrap();
 
