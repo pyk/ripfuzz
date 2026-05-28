@@ -5,7 +5,6 @@ use anyhow::{Context, Result};
 use tracing::info;
 
 use crate::evm;
-use crate::evm::chain::ExecInput;
 use crate::evm::coverage::SharedCoverage;
 use crate::fuzzer::corpus::SharedCorpus;
 
@@ -74,7 +73,7 @@ impl CorpusReplayer {
                 .iter()
                 .map(|call| call.into_transaction(deployed_address))
                 .collect();
-            let exec = chain.exec(ExecInput::new(transactions))?;
+            let exec = chain.exec(&transactions)?;
             let coverage = exec.coverage.context("coverage is required")?;
             let update = self.shared_coverage.merge(&coverage);
             info!(
@@ -98,7 +97,7 @@ mod tests {
     use alloy_sol_types::SolCall;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
     use crate::evm::coverage::SharedCoverage;
     use crate::foundry;
     use crate::fuzzer::corpus;
@@ -178,9 +177,9 @@ mod tests {
 
         // Execute the same item again and merge into shared coverage.
         let exec = chain
-            .exec(ExecInput::new(vec![Transaction::new(target).calldata(
+            .exec(&vec![Transaction::new(target).calldata(
                 CoverageBranch::branchCall::new((true,)).abi_encode().into(),
-            )]))
+            )])
             .unwrap();
         let exec_coverage = exec.coverage.expect("coverage must be present");
         let update = shared_coverage.merge(&exec_coverage);

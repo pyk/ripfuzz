@@ -3,12 +3,12 @@
 use revm::primitives::{Address, Bytes};
 
 use crate::evm;
-use crate::fuzzer::FailedAssertions;
+use crate::fuzzer::FailedAssertion;
 
 /// Format a failed assertion's call sequence as a flat, Medusa-style log.
 pub fn format_failure(
     contract: &evm::Contract,
-    failure: &FailedAssertions,
+    failure: &FailedAssertion,
     sender: Address,
 ) -> String {
     let mut lines = Vec::new();

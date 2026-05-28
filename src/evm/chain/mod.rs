@@ -230,25 +230,6 @@ impl Transaction {
     }
 }
 
-/// Options for executing a sequence of transactions.
-#[derive(Debug, Clone)]
-pub struct ExecInput {
-    pub transactions: Vec<Transaction>,
-}
-
-impl ExecInput {
-    /// Create an [`ExecInput`] with the given transactions.
-    pub fn new(transactions: Vec<Transaction>) -> Self {
-        Self { transactions }
-    }
-}
-
-impl Default for ExecInput {
-    fn default() -> Self {
-        Self::new(Vec::new())
-    }
-}
-
 /// Result of executing a sequence of transactions.
 #[derive(Debug, Clone)]
 pub struct ExecOutput {
@@ -553,7 +534,7 @@ impl Chain {
     /// The same inspector is reused across all transactions, so cheatcode
     /// effects (e.g. `vm.warp`) and coverage collection persist from one
     /// transaction to the next.
-    pub fn exec(&mut self, input: ExecInput) -> Result<ExecOutput> {
+    pub fn exec(&mut self, transactions: &[Transaction]) -> Result<ExecOutput> {
         let inspector = (
             cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
             (
@@ -569,7 +550,7 @@ impl Chain {
                 },
             ),
         );
-        let mut results = Vec::with_capacity(input.transactions.len());
+        let mut results = Vec::with_capacity(transactions.len());
         let mut panic_transactions = Vec::new();
 
         let db = self.database.take().context("database unavailable")?;
@@ -578,7 +559,7 @@ impl Chain {
         ctx.cfg = self.cfg_env.clone();
         let mut evm = ctx.build_mainnet_with_inspector(inspector);
 
-        for tx in input.transactions {
+        for tx in transactions {
             let tx_env = TxEnv {
                 caller: tx.caller,
                 kind: TxKind::Call(tx.target),
@@ -595,7 +576,8 @@ impl Chain {
             if let Some(ref output) = result.output
                 && result::is_assert_failure(output)
             {
-                panic_transactions.push(tx);
+                // checkrs: allow(clone_in_loops)
+                panic_transactions.push(tx.clone());
             }
             results.push(result);
         }
@@ -669,7 +651,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
     use crate::foundry;
 
     alloy_sol_types::sol! {
@@ -721,8 +703,7 @@ mod tests {
             )),
         ];
 
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(execution.results[0].success, "actionWarp must succeed");
         assert!(
@@ -746,8 +727,7 @@ mod tests {
             )),
         ];
 
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(execution.results.iter().all(|r| r.success));
 
@@ -768,8 +748,7 @@ mod tests {
             WarpTarget::actionWarpCall::new(()).abi_encode(),
         ))];
 
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(execution.results[0].success);
 
@@ -789,8 +768,8 @@ mod tests {
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             WarpTarget::actionWarpCall::new(()).abi_encode(),
         ))];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert!(execution.results[0].success);
 
         // Clone and run a view call on the clone.
@@ -798,8 +777,7 @@ mod tests {
         let view_txs = vec![Transaction::new(target).calldata(Bytes::from(
             WarpTarget::getBlockTimestampCall::new(()).abi_encode(),
         ))];
-        let view_input = ExecInput::new(view_txs);
-        let view_execution = cloned.exec(view_input).unwrap();
+        let view_execution = cloned.exec(&view_txs).unwrap();
         assert!(view_execution.results[0].success);
         let ts = WarpTarget::getBlockTimestampCall::abi_decode_returns(
             &view_execution.results[0].output.clone().unwrap(),
@@ -829,8 +807,7 @@ mod tests {
                 .calldata(Bytes::from([set_selector.as_slice(), &[0u8; 32]].concat())),
         ];
 
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+        let execution = chain.exec(&txs).unwrap();
         assert!(execution.results[0].success);
 
         let coverage = execution.coverage.expect("coverage must be present");

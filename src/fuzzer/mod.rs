@@ -14,7 +14,7 @@
 
 pub use config::Config;
 pub use format::format_failure;
-pub use fuzzer::{FailedAssertions, Fuzzer, FuzzerResult};
+pub use fuzzer::{FailedAssertion, Fuzzer, RunOutput};
 pub use metrics::{SharedMetrics, Snapshot};
 
 pub use corpus::replayer::CorpusReplayer;
@@ -33,7 +33,7 @@ mod tests {
     use crate::evm::Contract;
     use crate::evm::chain::Transaction;
     use crate::foundry;
-    use crate::fuzzer::{FailedAssertions, format_failure};
+    use crate::fuzzer::{FailedAssertion, format_failure};
 
     #[test]
     fn format_failure_uses_block_number_and_timestamp_labels() {
@@ -48,7 +48,7 @@ mod tests {
             Transaction::new(Address::ZERO),
         ];
 
-        let failure = FailedAssertions { transactions };
+        let failure = FailedAssertion { transactions };
 
         let output = format_failure(&contract, &failure, crate::evm::chain::DEFAULT_DEPLOYER);
         assert!(

@@ -22,7 +22,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::get_code;
     use crate::evm::cheatcode::state::ExecutionState;
     use crate::foundry;
@@ -144,8 +144,8 @@ mod tests {
                 GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -175,8 +175,8 @@ mod tests {
                 GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(execution.results[0].success, "actionGetCode must succeed");
         assert!(
@@ -199,8 +199,8 @@ mod tests {
                 GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -233,8 +233,8 @@ mod tests {
                 GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 3);
         assert!(
             execution.results[0].success,
@@ -262,8 +262,8 @@ mod tests {
                 GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = cloned.exec(input).unwrap();
+
+        let execution = cloned.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -298,8 +298,8 @@ mod tests {
                 GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 5);
         assert!(
             execution.results.iter().all(|r| r.success),

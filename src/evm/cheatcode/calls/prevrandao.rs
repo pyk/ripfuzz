@@ -24,7 +24,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::prevrandao;
     use crate::evm::cheatcode::state::ExecutionState;
     use crate::foundry;
@@ -103,8 +103,8 @@ mod tests {
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             PrevrandaoTarget::invariant_prevrandaoMatchCall::new(()).abi_encode(),
         ))];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(
             execution.results[0].success,
@@ -121,8 +121,8 @@ mod tests {
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             PrevrandaoTarget::getPrevrandaoCall::new(()).abi_encode(),
         ))];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(execution.results[0].success, "getPrevrandao must succeed");
         let value = PrevrandaoTarget::getPrevrandaoCall::abi_decode_returns(
@@ -154,8 +154,8 @@ mod tests {
                 PrevrandaoTarget::invariant_prevrandaoMatchCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -181,8 +181,8 @@ mod tests {
                 PrevrandaoTarget::invariant_prevrandaoMatchCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -208,8 +208,8 @@ mod tests {
                 PrevrandaoTarget::invariant_prevrandaoMatchCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -235,8 +235,8 @@ mod tests {
                 PrevrandaoTarget::invariant_prevrandaoMatchCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(execution.results[0].success, "actionSequence must succeed");
         assert!(
@@ -255,8 +255,8 @@ mod tests {
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             PrevrandaoTarget::invariant_prevrandaoMatchCall::new(()).abi_encode(),
         ))];
-        let input = ExecInput::new(txs);
-        let execution = cloned.exec(input).unwrap();
+
+        let execution = cloned.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(
             execution.results[0].success,

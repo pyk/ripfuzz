@@ -36,7 +36,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
     use crate::foundry;
 
     alloy_sol_types::sol! {
@@ -82,8 +82,8 @@ mod tests {
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
         ))];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(
             execution.results[0].success,
@@ -105,8 +105,8 @@ mod tests {
                 AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -132,8 +132,8 @@ mod tests {
                 AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -159,8 +159,8 @@ mod tests {
                 AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -179,8 +179,8 @@ mod tests {
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             AddrTarget::actionInvalidZeroCall::new(()).abi_encode(),
         ))];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(
             !execution.results[0].success,
@@ -195,8 +195,8 @@ mod tests {
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             AddrTarget::actionInvalidOrderCall::new(()).abi_encode(),
         ))];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(
             !execution.results[0].success,
@@ -219,7 +219,7 @@ mod tests {
                 AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
             )),
         ];
-        let execution = cloned.exec(ExecInput::new(txs)).unwrap();
+        let execution = cloned.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -255,8 +255,8 @@ mod tests {
                 AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 5);
         assert!(
             execution.results.iter().all(|r| r.success),

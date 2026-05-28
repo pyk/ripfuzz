@@ -221,7 +221,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
     use crate::evm::coverage::SharedCoverage;
     use crate::foundry;
 
@@ -287,7 +287,7 @@ mod tests {
         let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageBranch::branchCall::new((false,)).abi_encode(),
         ))];
-        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        let exec1 = chain.exec(&txs1).unwrap();
         let coverage1 = exec1.coverage.expect("coverage must be present");
         let baseline = global.merge(&coverage1);
         assert!(baseline.new_edges > 0, "baseline should hit edges");
@@ -295,7 +295,7 @@ mod tests {
         let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageBranch::branchCall::new((true,)).abi_encode(),
         ))];
-        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        let exec2 = chain.exec(&txs2).unwrap();
         let coverage2 = exec2.coverage.expect("coverage must be present");
         let update = global.merge(&coverage2);
         assert!(
@@ -316,14 +316,14 @@ mod tests {
         let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageBranch::branchCall::new((false,)).abi_encode(),
         ))];
-        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        let exec1 = chain.exec(&txs1).unwrap();
         let coverage1 = exec1.coverage.expect("coverage must be present");
         global.merge(&coverage1);
 
         let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageBranch::branchCall::new((true,)).abi_encode(),
         ))];
-        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        let exec2 = chain.exec(&txs2).unwrap();
         let coverage2 = exec2.coverage.expect("coverage must be present");
         let update = global.merge(&coverage2);
         assert!(
@@ -344,14 +344,14 @@ mod tests {
         let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageDepth::callDirectCall::new(()).abi_encode(),
         ))];
-        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        let exec1 = chain.exec(&txs1).unwrap();
         let coverage1 = exec1.coverage.expect("coverage must be present");
         global.merge(&coverage1);
 
         let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageDepth::callIndirectCall::new(()).abi_encode(),
         ))];
-        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        let exec2 = chain.exec(&txs2).unwrap();
         let coverage2 = exec2.coverage.expect("coverage must be present");
         let update = global.merge(&coverage2);
         assert!(update.new_depths > 0, "new call depth should be detected");
@@ -369,7 +369,7 @@ mod tests {
         let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageRevert::maybeRevertCall::new((false,)).abi_encode(),
         ))];
-        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        let exec1 = chain.exec(&txs1).unwrap();
         assert!(exec1.results[0].success, "first call should succeed");
         let coverage1 = exec1.coverage.expect("coverage must be present");
         global.merge(&coverage1);
@@ -377,7 +377,7 @@ mod tests {
         let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageRevert::maybeRevertCall::new((true,)).abi_encode(),
         ))];
-        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        let exec2 = chain.exec(&txs2).unwrap();
         assert!(!exec2.results[0].success, "second call should revert");
         let coverage2 = exec2.coverage.expect("coverage must be present");
         let update = global.merge(&coverage2);
@@ -396,14 +396,14 @@ mod tests {
         let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageLoop::loopNCall::new((U256::from(1),)).abi_encode(),
         ))];
-        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        let exec1 = chain.exec(&txs1).unwrap();
         let coverage1 = exec1.coverage.expect("coverage must be present");
         global.merge(&coverage1);
 
         let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageLoop::loopNCall::new((U256::from(3),)).abi_encode(),
         ))];
-        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        let exec2 = chain.exec(&txs2).unwrap();
         let coverage2 = exec2.coverage.expect("coverage must be present");
         let update = global.merge(&coverage2);
         assert!(
@@ -423,13 +423,13 @@ mod tests {
         let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageDuplicate::callChild1Call::new(()).abi_encode(),
         ))];
-        let exec1 = chain.exec(ExecInput::new(txs1)).unwrap();
+        let exec1 = chain.exec(&txs1).unwrap();
         let coverage1 = exec1.coverage.expect("coverage must be present");
 
         let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageDuplicate::callChild2Call::new(()).abi_encode(),
         ))];
-        let exec2 = chain.exec(ExecInput::new(txs2)).unwrap();
+        let exec2 = chain.exec(&txs2).unwrap();
         let coverage2 = exec2.coverage.expect("coverage must be present");
 
         // The child contract has the shortest bytecode.
@@ -470,7 +470,7 @@ mod tests {
 
         let global = SharedCoverage::new();
 
-        let exec1 = chain.exec(ExecInput::new(txs.clone())).unwrap();
+        let exec1 = chain.exec(&txs).unwrap();
         let coverage1 = exec1.coverage.expect("coverage must be present");
         let update1 = global.merge(&coverage1);
         assert!(
@@ -478,7 +478,7 @@ mod tests {
             "first run should be interesting"
         );
 
-        let exec2 = chain.exec(ExecInput::new(txs)).unwrap();
+        let exec2 = chain.exec(&txs).unwrap();
         let coverage2 = exec2.coverage.expect("coverage must be present");
         let update2 = global.merge(&coverage2);
         assert!(

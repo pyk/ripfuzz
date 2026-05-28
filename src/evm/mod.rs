@@ -13,7 +13,7 @@
 
 pub use chain::{
     Chain, DEFAULT_DEPLOYER, DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput,
-    ExecInput, ExecOutput, SetupInput, SetupOutput, Transaction,
+    ExecOutput, SetupInput, SetupOutput, Transaction,
 };
 pub use contract::Contract;
 pub use database::{Database, DatabaseError};

@@ -55,7 +55,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::nonce;
     use crate::foundry;
 
@@ -167,8 +167,8 @@ mod tests {
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
         ))];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(
             execution.results[0].success,
@@ -185,8 +185,8 @@ mod tests {
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             NonceTarget::getNonceDirectCall::new(()).abi_encode(),
         ))];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(execution.results[0].success, "getNonceDirect must succeed");
         let ret = NonceTarget::getNonceDirectCall::abi_decode_returns(
@@ -216,8 +216,8 @@ mod tests {
                 NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 3);
         assert!(execution.results[0].success, "actionBumpNonce must succeed");
         assert!(execution.results[1].success, "getStoredNonce must succeed");
@@ -255,8 +255,8 @@ mod tests {
                 NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 4);
         assert!(execution.results[2].success, "getStoredNonce must succeed");
         let stored: U256 = NonceTarget::getStoredNonceCall::abi_decode_returns(
@@ -291,8 +291,8 @@ mod tests {
                 NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 3);
         assert!(
             execution.results[0].success,
@@ -320,8 +320,8 @@ mod tests {
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             NonceTarget::actionRevertLowNonceCall::new(()).abi_encode(),
         ))];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(
             !execution.results[0].success,
@@ -347,8 +347,8 @@ mod tests {
                 NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = cloned.exec(input).unwrap();
+
+        let execution = cloned.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 3);
         assert!(
             execution.results[0].success,
@@ -384,8 +384,8 @@ mod tests {
                 NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 4);
         assert!(
             execution.results.iter().all(|r| r.success),

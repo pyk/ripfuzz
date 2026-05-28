@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use tracing::{info, instrument};
 
 use crate::evm;
-use crate::evm::chain::{ExecInput, Transaction};
+use crate::evm::chain::Transaction;
 use crate::evm::coverage::SharedCoverage;
 use crate::fuzzer::config::Config;
 use crate::fuzzer::corpus::{Call, SharedCorpus};
@@ -20,16 +20,16 @@ use crate::fuzzer::metrics::SharedMetrics;
 
 /// Result produced by a single fuzzer thread.
 #[derive(Debug, Clone)]
-pub struct FuzzerResult {
+pub struct RunOutput {
     pub runs: u64,
-    pub failures: Vec<FailedAssertions>,
+    pub failures: Vec<FailedAssertion>,
     pub total_calls: u64,
     pub total_gas: u64,
 }
 
 /// A single failed assertion (assert panic) discovered during fuzzing.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct FailedAssertions {
+pub struct FailedAssertion {
     pub transactions: Vec<Transaction>,
 }
 
@@ -76,7 +76,7 @@ impl Fuzzer {
     /// The fuzzer loop uses the shared corpus for mutation and the shared
     /// metrics for counters. It stops early if `timeout` is reached.
     #[instrument(skip(self), fields(max_runs = self.max_runs))]
-    pub fn run(mut self) -> Result<FuzzerResult> {
+    pub fn run(mut self) -> Result<RunOutput> {
         let start = Instant::now();
         let mut local_failures = Vec::new();
         let mut runs = 0u64;
@@ -135,7 +135,7 @@ impl Fuzzer {
             let calls_count = transactions.len();
 
             // Execute transactions
-            let exec = self.chain.exec(ExecInput::new(transactions))?;
+            let exec = self.chain.exec(&transactions)?;
 
             // Update shared coverage and shared corpus
             let coverage = exec.coverage.context("coverage expected")?;
@@ -156,15 +156,12 @@ impl Fuzzer {
             // Check for failed assertions
             if !exec.panic_transactions.is_empty() {
                 self.shutdown_signal.store(true, Ordering::Relaxed);
-                local_failures.push(FailedAssertions {
-                    // BUG(pyk): this should be transactions that leads to panic
-                    transactions: exec.panic_transactions,
-                });
+                local_failures.push(FailedAssertion { transactions });
             }
         }
 
         info!(runs, "fuzzer run finished");
-        Ok(FuzzerResult {
+        Ok(RunOutput {
             runs,
             failures: local_failures,
             total_calls,

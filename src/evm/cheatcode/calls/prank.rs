@@ -131,7 +131,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, ExecInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::prank;
     use crate::evm::cheatcode::state::ExecutionState;
     use crate::foundry;
@@ -306,8 +306,8 @@ mod tests {
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             PrankTarget::invariant_senderIsAdminCall::new(()).abi_encode(),
         ))];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(
             execution.results[0].success,
@@ -329,8 +329,8 @@ mod tests {
                 PrankTarget::invariant_senderIsAdminCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -356,8 +356,8 @@ mod tests {
                 PrankTarget::invariant_senderIsUserCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
@@ -382,8 +382,8 @@ mod tests {
                 PrankTarget::invariant_senderIsTargetCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(execution.results[0].success, "actionStopPrank must succeed");
         assert!(
@@ -412,8 +412,8 @@ mod tests {
                 PrankTarget::invariant_senderIsAdminCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 4);
         assert!(execution.results[0].success, "actionStopPrank must succeed");
         assert!(
@@ -450,8 +450,8 @@ mod tests {
                 PrankTarget::invariant_senderIsTargetCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 4);
         assert!(execution.results[0].success, "actionUseActor must succeed");
         assert!(execution.results[1].success, "getLastSender must succeed");
@@ -486,8 +486,8 @@ mod tests {
                 PrankTarget::actionRevertPrankOverStartCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = chain.exec(input).unwrap();
+
+        let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 3);
         assert!(!execution.results[0].success, "double prank must revert");
         assert!(
@@ -515,8 +515,8 @@ mod tests {
                 PrankTarget::invariant_senderIsAdminCall::new(()).abi_encode(),
             )),
         ];
-        let input = ExecInput::new(txs);
-        let execution = cloned.exec(input).unwrap();
+
+        let execution = cloned.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 2);
         assert!(
             execution.results[0].success,
