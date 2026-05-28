@@ -233,98 +233,48 @@ impl Default for ForkModeArgs {
 impl ForkModeArgs {}
 
 /// Build a [`forkdb::Config`](crate::evm::forkdb::Config) from CLI arguments.
-/// Deploy external libraries and link them into the target artifact.
+/// Build a tree of [`DeployLibraryInput`] from the target artifact's library
+/// dependencies.
 ///
-/// 1. Collect library dependencies from the target artifact's `link_references`.
-/// 2. For each dependency, find the library artifact, compute its deterministic
-///    CREATE address, deploy it on the chain, and link its address into the
-///    target's bytecode.
-/// 3. Returns a map of fully-qualified library identifiers (`path:name`) to
-///    their deployed addresses.
-fn deploy_and_link_libraries(
-    chain: &mut evm::Chain,
-    target_artifact: &mut foundry::Artifact,
-    build_artifacts: &mut HashMap<foundry::ArtifactId, foundry::Artifact>,
-    deployer: Address,
-) -> Result<HashMap<String, Address>> {
-    let mut library_addrs: HashMap<String, Address> = HashMap::new();
-    let mut nonce = 0u64;
-
-    let deps = match target_artifact {
+/// Recursively resolves each dependency from `build_artifacts` and collects
+/// the library initcode (including nested dependencies).
+fn build_deploy_libraries(
+    artifact: &foundry::Artifact,
+    build_artifacts: &HashMap<foundry::ArtifactId, foundry::Artifact>,
+) -> Result<Vec<evm::DeployLibraryInput>> {
+    let deps = match artifact {
         foundry::Artifact::Contract(c) => c.bytecode.library_dependencies(),
         foundry::Artifact::Library(c) => c.bytecode.library_dependencies(),
-        _ => return Ok(library_addrs),
+        _ => return Ok(Vec::new()),
     };
 
+    let mut libraries = Vec::new();
     for (file, names) in deps {
         for name in names {
             let identifier = format!("{}:{}", file, name);
 
-            // Skip already-linked libraries.
-            if library_addrs.contains_key(&identifier) {
-                continue;
-            }
-
-            // Compute the deterministic CREATE address for this library.
-            let address = deployer.create(nonce);
-            nonce += 1;
-
-            // Link the library artifact with its dependencies.
-            let mut link_map = HashMap::new();
-            link_map.insert(format!("{}:{}", file, name), address);
-
-            // Find the library artifact.
             let temp_id = crate::foundry::ArtifactId {
                 path: PathBuf::from(&file),
                 name,
             };
-            let mut lib_artifact = build_artifacts
-                .remove(&temp_id)
+            let lib_artifact = build_artifacts
+                .get(&temp_id)
                 .with_context(|| format!("library artifact missing: {}", identifier))?;
 
-            // Recursively link the library if it has its own dependencies.
-            let nested =
-                deploy_and_link_libraries(chain, &mut lib_artifact, build_artifacts, deployer)?;
-            library_addrs.extend(nested);
-
-            lib_artifact.link(&link_map);
-
-            // Deploy the library.
-            let initcode = match &lib_artifact {
-                foundry::Artifact::Library(c) => c.bytecode.to_bytes(),
+            let initcode = match lib_artifact {
+                foundry::Artifact::Library(c) => c.bytecode.object.parse().unwrap_or_default(),
                 _ => bail!("artifact {} is not a library", identifier),
             };
 
-            if !initcode.is_empty() {
-                let opts = evm::DeployInput::new(initcode).caller(deployer);
-                let deployment = chain.deploy(opts)?;
-                ensure!(
-                    deployment.result.success,
-                    "library deployment failed: {} (output: {:?})",
-                    identifier,
-                    deployment.result.output
-                );
-                let deployed_addr = deployment.address.with_context(|| {
-                    format!("library deployment missing address: {}", identifier)
-                })?;
-                ensure!(
-                    deployed_addr == address,
-                    "library deployed at wrong address: expected {}, got {} for {}",
-                    address,
-                    deployed_addr,
-                    identifier
-                );
+            let nested = build_deploy_libraries(lib_artifact, build_artifacts)?;
+            let mut lib_input = evm::DeployLibraryInput::new(identifier, initcode);
+            for nested_lib in nested {
+                lib_input = lib_input.add_library(nested_lib);
             }
-
-            // Record the address and put the artifact back.
-            library_addrs.insert(identifier, address);
-            build_artifacts.insert(temp_id, lib_artifact);
+            libraries.push(lib_input);
         }
     }
-
-    // Link the target artifact with all collected library addresses.
-    target_artifact.link(&library_addrs);
-    Ok(library_addrs)
+    Ok(libraries)
 }
 
 fn build_fork_config(
@@ -363,7 +313,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Load build artifacts
     info!("loading build artifacts");
-    let mut build_artifacts = project.load_artifacts()?;
+    let build_artifacts = project.load_artifacts()?;
     ensure!(
         build_artifacts.contains_key(&args.target),
         "target artifact `{}` not found in build artifacts",
@@ -399,30 +349,28 @@ pub fn run(args: Args) -> Result<()> {
     }
     let mut chain = evm::Chain::new(chain_config)?;
 
-    // Load target artifact and deploy external libraries if needed.
+    // Load target contract and prepare library dependencies.
     info!("loading target contract");
     let target_artifact = build_artifacts
         .get(&args.target)
         .context("target artifact not found")?;
-    let mut target_artifact = target_artifact.clone();
-    let library_addrs = deploy_and_link_libraries(
-        &mut chain,
-        &mut target_artifact,
-        &mut build_artifacts,
-        args.deployer_address,
-    )?;
-    if !library_addrs.is_empty() {
-        info!("linked external libraries: {:?}", library_addrs.keys());
-    }
+    let target_contract = target::Contract::try_from(target_artifact)?;
 
-    let target_contract = target::Contract::try_from(&target_artifact)?;
+    let libraries = build_deploy_libraries(target_artifact, &build_artifacts)?;
+    if !libraries.is_empty() {
+        let lib_ids: Vec<&str> = libraries.iter().map(|l| l.id.as_str()).collect();
+        info!("linked external libraries: {:?}", lib_ids);
+    }
 
     // Deploy target contract
     info!("deploying target contract");
-    let opts = evm::DeployInput::new(target_contract.initcode.clone())
+    let mut deploy_opts = evm::DeployInput::new(target_contract.initcode.clone())
         .caller(args.deployer_address)
         .value(args.deploy_value);
-    let deployment = chain.deploy(opts)?;
+    for lib in libraries {
+        deploy_opts = deploy_opts.add_library(lib);
+    }
+    let deployment = chain.deploy(deploy_opts)?;
     ensure!(
         deployment.result.success,
         "target contract deployment failed (output: {:?})\n\ntrace:\n{:#?}",

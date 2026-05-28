@@ -12,8 +12,8 @@
 //! 3. Return pure data structures for traces; never format or print them.
 
 pub use chain::{
-    Chain, DEFAULT_DEPLOYER, DeployInput, DeployOutput, ExecInput, ExecOutput, SetupInput,
-    SetupOutput, Transaction,
+    Chain, DEFAULT_DEPLOYER, DeployInput, DeployLibraryInput, DeployOutput, ExecInput, ExecOutput,
+    SetupInput, SetupOutput, Transaction,
 };
 pub use database::{Database, DatabaseError};
 pub use result::TransactionResult;

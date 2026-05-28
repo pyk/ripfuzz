@@ -208,7 +208,7 @@ impl ArtifactBytecode {
     /// Compute the Solidity placeholder string for a library identifier.
     ///
     /// The placeholder format is `__$<keccak256(identifier)[:34]>$__`.
-    fn placeholder_for(identifier: &str) -> String {
+    pub fn placeholder_for(identifier: &str) -> String {
         let hash = keccak256(identifier.as_bytes());
         let hex = alloy_primitives::hex::encode(hash);
         format!("__${}$__", &hex[..34])

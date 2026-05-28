@@ -1,8 +1,10 @@
 //! EVM chain state and executor.
 
+use std::collections::HashMap;
+
 use alloy_primitives::{Address, U256, address};
 use alloy_sol_types::SolCall;
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, ensure};
 use revm::{
     MainBuilder, MainContext,
     context::{BlockEnv, CfgEnv, Context, TxEnv},
@@ -15,6 +17,18 @@ use revm::{
 
 pub use crate::evm::chain::config::Config;
 use crate::evm::{cheatcode, coverage, database, result, trace};
+use crate::foundry;
+
+/// Replace library placeholders in initcode with deployed addresses.
+fn link_bytecode(initcode: Bytes, libs: &HashMap<String, Address>) -> Bytes {
+    let mut hex = format!("0x{}", hex::encode(initcode));
+    for (identifier, address) in libs {
+        let placeholder = foundry::ArtifactBytecode::placeholder_for(identifier);
+        let address_hex = hex::encode(address);
+        hex = hex.replace(&placeholder, &address_hex);
+    }
+    hex.parse().unwrap_or_default()
+}
 
 pub mod config;
 mod empty;
@@ -29,7 +43,33 @@ pub struct DeployInput {
     pub caller: Address,
     pub value: U256,
     pub initcode: Bytes,
+    pub libraries: Vec<DeployLibraryInput>,
     pub gas_limit: u64,
+}
+
+/// Configuration for a linked library deployment.
+#[derive(Debug, Clone)]
+pub struct DeployLibraryInput {
+    pub id: String,
+    pub initcode: Bytes,
+    pub libraries: Vec<DeployLibraryInput>,
+}
+
+impl DeployLibraryInput {
+    /// Create [`DeployLibraryInput`] with the given identifier and initcode.
+    pub fn new(id: impl Into<String>, initcode: Bytes) -> Self {
+        Self {
+            id: id.into(),
+            initcode,
+            libraries: Vec::new(),
+        }
+    }
+
+    /// Add a nested library dependency.
+    pub fn add_library(mut self, library: DeployLibraryInput) -> Self {
+        self.libraries.push(library);
+        self
+    }
 }
 
 impl DeployInput {
@@ -41,6 +81,7 @@ impl DeployInput {
             caller: DEFAULT_DEPLOYER,
             value: U256::ZERO,
             initcode,
+            libraries: Vec::new(),
             gas_limit: u64::MAX,
         }
     }
@@ -54,6 +95,12 @@ impl DeployInput {
     /// Set the wei value sent with the deployment transaction.
     pub fn value(mut self, value: U256) -> Self {
         self.value = value;
+        self
+    }
+
+    /// Add a linked library to deploy before the target contract.
+    pub fn add_library(mut self, library: DeployLibraryInput) -> Self {
+        self.libraries.push(library);
         self
     }
 
@@ -317,17 +364,99 @@ impl Chain {
     ///
     /// A [`cheatcode::Inspector`] is included so that target contracts can call
     /// raptor cheatcodes (e.g. `vm.warp`) during constructor execution.
+    ///
+    /// If `opts.libraries` is non-empty, the linked libraries are deployed first
+    /// (recursively, in dependency order), their addresses are collected, and the
+    /// target contract initcode is linked before deployment.
     pub fn deploy(&mut self, opts: DeployInput) -> Result<DeployOutput> {
+        let library_addrs = self.deploy_libraries(opts.libraries, opts.caller)?;
+
+        let initcode = if library_addrs.is_empty() {
+            opts.initcode
+        } else {
+            link_bytecode(opts.initcode, &library_addrs)
+        };
+
+        self.deploy_raw(opts.caller, opts.value, initcode, opts.gas_limit)
+    }
+
+    /// Deploy a list of libraries and return a map of their identifiers to
+    /// deployed addresses.
+    ///
+    /// Libraries are deployed recursively (nested dependencies first) and
+    /// shared dependencies are deduplicated.
+    pub fn deploy_libraries(
+        &mut self,
+        libraries: Vec<DeployLibraryInput>,
+        deployer: Address,
+    ) -> Result<HashMap<String, Address>> {
+        let mut library_addrs = HashMap::new();
+        for lib in libraries {
+            self.deploy_library(&lib, deployer, &mut library_addrs)?;
+        }
+        Ok(library_addrs)
+    }
+
+    /// Deploy a single library (including its nested dependencies) and return
+    /// its deployed address.
+    ///
+    /// `library_addrs` is used to deduplicate shared dependencies and to link
+    /// the library initcode with already-deployed libraries.
+    pub fn deploy_library(
+        &mut self,
+        lib: &DeployLibraryInput,
+        deployer: Address,
+        library_addrs: &mut HashMap<String, Address>,
+    ) -> Result<Address> {
+        // Deploy nested dependencies first.
+        for nested in &lib.libraries {
+            self.deploy_library(nested, deployer, library_addrs)?;
+        }
+
+        let identifier = lib.id.clone();
+
+        // Skip if this library was already deployed (e.g. shared dependency).
+        if let Some(&addr) = library_addrs.get(&identifier) {
+            return Ok(addr);
+        }
+
+        // Link the library initcode with already-deployed libraries.
+        let initcode = link_bytecode(lib.initcode.clone(), library_addrs);
+
+        // Deploy the library and return its actual address.
+        let deployment = self.deploy_raw(deployer, U256::ZERO, initcode, u64::MAX)?;
+        ensure!(
+            deployment.result.success,
+            "library deployment failed: {} (output: {:?})",
+            identifier,
+            deployment.result.output
+        );
+        let address = deployment
+            .address
+            .with_context(|| format!("library deployment missing address: {}", identifier))?;
+
+        library_addrs.insert(identifier, address);
+        Ok(address)
+    }
+
+    /// Execute a raw CREATE transaction without library handling.
+    fn deploy_raw(
+        &mut self,
+        caller: Address,
+        value: U256,
+        initcode: Bytes,
+        gas_limit: u64,
+    ) -> Result<DeployOutput> {
         let inspector = (
             trace::Inspector::new(),
             cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
         );
         let tx = TxEnv {
-            caller: opts.caller,
+            caller,
             kind: TxKind::Create,
-            data: opts.initcode,
-            gas_limit: opts.gas_limit,
-            value: opts.value,
+            data: initcode,
+            gas_limit,
+            value,
             ..Default::default()
         };
         let (result, (trace_inspector, cheatcode_inspector)) = self.inspect(tx, inspector)?;
