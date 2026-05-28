@@ -63,6 +63,77 @@ Solidity `assert` panic (`Panic(0x01)`). The fuzzer treats a crash as a bug and
 adds it to the set of objectives. Reverts caused by `require` or other reasons
 do not produce a crash. Synonyms: **objective**, **bug**.
 
+## Coverage Terms
+
+### Coverage-Guided Fuzzing
+
+The technique that steers the fuzzer toward unexplored code by observing which
+EVM instructions each input exercises. After every execution, raptor compares
+the coverage against all previously seen coverage. If the input reached a new
+instruction, branch, call depth, or revert path, it is considered
+**interesting** and added to the **corpus** for future mutation.
+
+### Coverage Map
+
+A data structure that records which parts of EVM bytecode were executed during a
+fuzzing campaign. Raptor maintains two kinds:
+
+- **Local Coverage**: collected by the `Inspector` during a single execution of
+  a call sequence. Reset for every sequence.
+- **Global Coverage** (Shared Coverage): the merged union of all local coverage
+  maps across every fuzzer thread. This is what the fuzzer checks to detect
+  novelty.
+
+### Coverage Update
+
+The result of merging a local coverage map into the global map. A
+`CoverageUpdate` counts how many genuinely new coverage points were discovered,
+across six dimensions:
+
+| Dimension           | Meaning                                      |
+| ------------------- | -------------------------------------------- |
+| `new_edges`         | A PC was executed for the first time         |
+| `new_features`      | A PC was hit more deeply (higher AFL bucket) |
+| `new_depths`        | A PC was hit at a new call-stack depth       |
+| `new_reverts`       | A new revert path was exercised              |
+| `new_jump_edges`    | A new JUMP/JUMPI destination was taken       |
+| `new_jump_features` | A known jump edge was taken more times       |
+
+If any of these counts is non-zero, the input is **interesting**.
+
+### AFL Bucket
+
+A coarse-grained classification of raw hit counts, borrowed from AFL. Raptor
+buckets raw hit counts into power-of-two buckets so that "hit 5 times" and "hit
+6 times" are treated as the same coverage, while "hit 7 times" and "hit 8 times"
+are treated as different (the loop crossed a threshold).
+
+| Raw hits | Bucket |
+| -------- | ------ |
+| 0        | 0      |
+| 1        | 1      |
+| 2        | 2      |
+| 3        | 4      |
+| 4-7      | 8      |
+| 8-15     | 16     |
+| 16-31    | 32     |
+| 32-127   | 64     |
+| 128-255  | 128    |
+
+### Jump Edge
+
+A coverage signal that records the source and destination PCs of a `JUMP` or
+`JUMPI` instruction. Two inputs that both reach a branch but take different
+directions produce different jump edges. Encoded as a 64-bit marker:
+`rotate_left(src_pc, 32) ^ dst_pc`.
+
+### Source Map / Source Coverage
+
+The mapping from EVM bytecode positions back to Solidity source code lines,
+branches, and functions. Used only at the end of a campaign to produce a
+human-readable coverage report. The fuzzing loop itself operates on raw bytecode
+coverage for speed.
+
 ## Correspondence with Other Fuzzers
 
 | Raptor          | Foundry (invariant) | Medusa        | Echidna       |
