@@ -298,8 +298,9 @@ pub fn run(args: Args) -> Result<()> {
 
     // Create test chain
     info!("creating test chain");
-    let mut chain_config =
-        evm::chain::Config::new(&project_path).with_compiled_contracts(compiled_contracts);
+    let mut chain_config = evm::chain::Config::new(&project_path)
+        .with_compiled_contracts(compiled_contracts)
+        .coverage(true);
     if args.fork_mode.rpc_url.is_some() {
         let fork_config = build_fork_config(&project_path, &args.fork_mode)?;
         chain_config.fork = Some(fork_config);
