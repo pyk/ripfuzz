@@ -9,7 +9,7 @@
 
 pub use artifact::{
     AbstractArtifact, Artifact, ArtifactBytecode, ArtifactId, ContractArtifact, InterfaceArtifact,
-    LibraryArtifact,
+    LibraryArtifact, LinkReference, LinkReferences,
 };
 pub use build_options::BuildOptions;
 pub use project::Project;

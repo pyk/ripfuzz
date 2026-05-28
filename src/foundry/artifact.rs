@@ -152,6 +152,19 @@ struct ArtifactJson {
     metadata: Option<ArtifactMetadata>,
 }
 
+/// A single link reference location within bytecode.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct LinkReference {
+    pub start: usize,
+    pub length: usize,
+}
+
+/// Link references grouped by source file and library name.
+///
+/// Outer key: source file path. Inner key: library name. Value: list of
+/// placeholder locations in the bytecode object.
+pub type LinkReferences = HashMap<String, HashMap<String, Vec<LinkReference>>>;
+
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ArtifactBytecode {
     #[serde(default)]
@@ -159,7 +172,7 @@ pub struct ArtifactBytecode {
     #[serde(default, rename = "sourceMap")]
     pub source_map: String,
     #[serde(default, rename = "linkReferences")]
-    pub link_references: serde_json::Value,
+    pub link_references: LinkReferences,
 }
 
 impl ArtifactBytecode {
@@ -173,14 +186,9 @@ impl ArtifactBytecode {
     /// The returned map maps a source file path to a list of library names.
     pub fn library_dependencies(&self) -> HashMap<String, Vec<String>> {
         let mut deps = HashMap::new();
-        let Some(refs) = self.link_references.as_object().cloned() else {
-            return deps;
-        };
+        let refs = self.link_references.clone();
         for (file, libs) in refs {
-            let Some(libs) = libs.as_object().cloned() else {
-                continue;
-            };
-            let names: Vec<String> = libs.into_iter().map(|(k, _)| k).collect();
+            let names: Vec<String> = libs.into_keys().collect();
             deps.insert(file, names);
         }
         deps
