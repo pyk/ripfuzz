@@ -1,4 +1,37 @@
-//! Coverage inspector that records EVM program counter hits into a per-contract local coverage map.
+//! Coverage Inspector: collects per-execution EVM bytecode coverage for the fuzzer.
+//!
+//! ## Design Goal
+//!
+//! Distinguish sequence of calls that exercise genuinely different behavior.
+//!
+//! ## What Different Behavior Means
+//!
+//! Two call sequences are "different" when they cause the EVM to execute
+//! bytecode in a way the fuzzer has never observed before. In practice this
+//! means one of the following happened:
+//!
+//! 1. **New instruction hit**: the sequence reached a bytecode index (PC)
+//!    that no previous sequence ever executed.
+//! 2. **New branch direction**: a `JUMPI` opcode was reached and the
+//!    condition evaluated to the opposite truth value (took the `else`
+//!    instead of the `if`, or vice versa).
+//! 3. **New call depth**: the same instruction was hit, but this time
+//!    inside a nested contract call (for example, a reentrancy guard at
+//!    depth 2 instead of depth 1).
+//! 4. **New revert path**: execution reverted at a PC that previously
+//!    always succeeded.
+//! 5. **Deeper execution**: the same loop body was hit more times than
+//!    before. Raptor uses AFL-style bucketing so that small
+//!    count differences are ignored, but crossing a power-of-two
+//!    threshold counts as novel.
+//!
+//! The inspector does not distinguish between different transaction
+//! outcomes (return true, return false, stop, out of gas) beyond
+//! "reverted or not". This is sufficient for Raptor because invariants
+//! are checked via `assert` panic, not via return value.
+//!
+//! The inspector records these signals so the fuzzer can decide whether
+//! a mutated sequence is worth keeping in the corpus.
 
 use alloy_primitives::ruint::UintTryTo;
 use revm::{
