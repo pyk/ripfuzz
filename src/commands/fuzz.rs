@@ -419,16 +419,10 @@ pub fn run(args: Args) -> Result<()> {
         handles.push((fuzzer_id, handle));
     }
 
-    let mut total_runs = 0u64;
-    let mut total_calls = 0u64;
-    let mut total_gas = 0u64;
     let mut all_failures = Vec::new();
     for (fuzzer_id, handle) in handles {
         match handle.join() {
             Ok(Ok(result)) => {
-                total_runs += result.runs;
-                total_calls += result.total_calls;
-                total_gas += result.total_gas;
                 all_failures.extend(result.failures);
             }
             Ok(Err(e)) => {
@@ -439,6 +433,11 @@ pub fn run(args: Args) -> Result<()> {
             }
         }
     }
+
+    let snapshot = shared_metrics.aggregate();
+    let total_runs = snapshot.runs;
+    let total_calls = snapshot.calls;
+    let total_gas = snapshot.gas;
 
     info!(
         runs = total_runs,
