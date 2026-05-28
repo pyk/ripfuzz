@@ -1,16 +1,21 @@
 //! Per-thread fuzzer that executes call sequences and reports results.
 
+use std::time::Duration;
 use std::time::Instant;
 
 use alloy_dyn_abi::DynSolValue;
-use alloy_primitives::Selector;
+use alloy_json_abi::Function;
+use alloy_primitives::{Address, Selector};
 use anyhow::Result;
 use revm::primitives::Bytes;
 use tracing::{info, instrument};
 
+use crate::evm;
 use crate::evm::chain::ExecInput;
+use crate::evm::coverage::SharedCoverage;
 use crate::fuzzer::config::Config;
-use crate::fuzzer::corpus::{Call, Item};
+use crate::fuzzer::corpus::{Call, Item, SharedCorpus};
+use crate::fuzzer::metrics::SharedMetrics;
 
 /// Result produced by a single fuzzer thread.
 #[derive(Debug, Clone)]
@@ -40,27 +45,35 @@ fn is_assert_failure(output: &Bytes) -> bool {
 /// Per-thread fuzzer that executes call sequences and reports results.
 ///
 /// Created via [`Fuzzer::new`] and run via [`Fuzzer::run`].
+#[derive(Debug)]
 pub struct Fuzzer {
-    config: Config,
+    chain: evm::Chain,
+    target_address: Address,
+    shared_corpus: SharedCorpus,
+    shared_coverage: SharedCoverage,
+    shared_metrics: SharedMetrics,
+    caller: Address,
+    invariant_functions: Vec<Function>,
+    max_runs: u64,
+    timeout: Option<Duration>,
     rng: fastrand::Rng,
 }
 
 impl Fuzzer {
     /// Create a new fuzzer with the given config.
     pub fn new(config: Config) -> Self {
-        let seed = config.seed;
         Self {
-            config,
-            rng: fastrand::Rng::with_seed(seed),
+            chain: config.chain,
+            target_address: config.target_address,
+            shared_corpus: config.shared_corpus,
+            shared_coverage: config.shared_coverage,
+            shared_metrics: config.shared_metrics,
+            caller: config.caller,
+            invariant_functions: config.invariant_functions,
+            max_runs: config.max_runs,
+            timeout: config.timeout,
+            rng: fastrand::Rng::with_seed(config.seed),
         }
-    }
-}
-
-impl std::fmt::Debug for Fuzzer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Fuzzer")
-            .field("config", &self.config)
-            .finish()
     }
 }
 
@@ -69,7 +82,7 @@ impl Fuzzer {
     ///
     /// The fuzzer loop uses the shared corpus for mutation and the shared
     /// metrics for counters. It stops early if `timeout` is reached.
-    #[instrument(skip(self), fields(max_runs = self.config.max_runs))]
+    #[instrument(skip(self), fields(max_runs = self.max_runs))]
     pub fn run(mut self) -> Result<FuzzerResult> {
         let start = Instant::now();
         let mut local_failures = Vec::new();
@@ -78,7 +91,6 @@ impl Fuzzer {
         let mut total_gas = 0u64;
 
         let invariant_calls: Vec<Call> = self
-            .config
             .invariant_functions
             .iter()
             // checkrs: allow(clone_in_iterator)
@@ -86,18 +98,18 @@ impl Fuzzer {
                 function: func.clone(),
                 args: DynSolValue::Tuple(vec![]),
                 value: None,
-                caller: self.config.caller,
+                caller: self.caller,
             })
             .collect();
 
-        for _ in 0..self.config.max_runs {
-            if let Some(t) = self.config.timeout
+        for _ in 0..self.max_runs {
+            if let Some(t) = self.timeout
                 && start.elapsed() > t
             {
                 break;
             }
 
-            if let Some(snapshot) = self.config.shared_metrics.try_snapshot() {
+            if let Some(snapshot) = self.shared_metrics.try_snapshot() {
                 info!(
                     elapsed = ?snapshot.elapsed,
                     runs = snapshot.runs,
@@ -108,15 +120,15 @@ impl Fuzzer {
                 );
             }
 
-            let item = self.config.shared_corpus.next_item(&mut self.rng);
+            let item = self.shared_corpus.next_item(&mut self.rng);
             let calls = item.calls;
 
             let transactions: Vec<crate::evm::chain::Transaction> = calls
                 .iter()
                 .chain(invariant_calls.iter())
-                .map(|call| call.into_transaction(self.config.target_address))
+                .map(|call| call.into_transaction(self.target_address))
                 .collect();
-            let exec = self.config.chain.exec(ExecInput::new(transactions))?;
+            let exec = self.chain.exec(ExecInput::new(transactions))?;
 
             let mut all_ok = true;
             let mut crash = None;
@@ -159,15 +171,15 @@ impl Fuzzer {
 
             total_calls += calls_count;
             total_gas += gas_sum;
-            self.config.shared_metrics.record(calls_count, gas_sum);
+            self.shared_metrics.record(calls_count, gas_sum);
 
             if let Some(coverage) = exec.coverage {
-                let _ = self.config.shared_coverage.merge(&coverage);
+                let _ = self.shared_coverage.merge(&coverage);
             }
 
             if all_ok {
                 // checkrs: allow(clone_in_loops)
-                let _ = self.config.shared_corpus.add_item(
+                let _ = self.shared_corpus.add_item(
                     // checkrs: allow(clone_in_loops)
                     Item::from(calls.clone()),
                 );
@@ -175,7 +187,7 @@ impl Fuzzer {
 
             if let Some(crash) = crash {
                 local_failures.push(crash);
-                self.config.shared_metrics.record_failure();
+                self.shared_metrics.record_failure();
             }
 
             runs += 1;
