@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use alloy_primitives::Address;
 use anyhow::{Context, Result, ensure};
@@ -19,17 +18,6 @@ fn default_threads() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1)
-}
-
-fn format_duration(d: std::time::Duration) -> String {
-    let secs = d.as_secs();
-    if secs >= 3600 {
-        format!("{}h{}m{}s", secs / 3600, (secs % 3600) / 60, secs % 60)
-    } else if secs >= 60 {
-        format!("{}m{}s", secs / 60, secs % 60)
-    } else {
-        format!("{}s", secs)
-    }
 }
 
 fn parse_threads(s: &str) -> Result<usize, String> {
@@ -404,53 +392,11 @@ pub fn run(args: Args) -> Result<()> {
     let start = std::time::Instant::now();
     let timeout = args.timeout_secs.map(std::time::Duration::from_secs);
 
-    info!("Fuzzing campaign started");
+    info!("fuzzing campaign started");
 
     let fuzzers_u64 = fuzzers as u64;
     let base_runs = args.max_runs / fuzzers_u64;
     let remainder = (args.max_runs % fuzzers_u64) as usize;
-
-    // Progress reporting thread.
-    let progress_shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let metrics = factory.metrics().clone();
-    let corpus = factory.corpus().clone();
-    let progress_handle = {
-        let shutdown = Arc::clone(&progress_shutdown);
-        std::thread::spawn(move || {
-            let mut last_calls = 0u64;
-            let mut last_gas = 0u64;
-            let mut last_time = std::time::Instant::now();
-            while !shutdown.load(std::sync::atomic::Ordering::Relaxed) {
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                let now = std::time::Instant::now();
-                let elapsed = now.duration_since(start);
-                let interval_secs = now.duration_since(last_time).as_secs_f64().max(1e-6);
-
-                let snapshot = metrics.aggregate();
-                let calls_delta = snapshot.calls.saturating_sub(last_calls);
-                let gas_delta = snapshot.gas.saturating_sub(last_gas);
-                let calls_per_sec = (calls_delta as f64 / interval_secs) as u64;
-                let gas_per_sec = (gas_delta as f64 / interval_secs) as u64;
-                let elapsed_str = format_duration(elapsed);
-                let calls_str = format!("{}({}/s)", snapshot.calls, calls_per_sec);
-                let corpus_stats = corpus.stats();
-
-                info!(
-                    elapsed = %elapsed_str,
-                    runs = snapshot.runs,
-                    calls = %calls_str,
-                    corpus = corpus_stats.item_count,
-                    failures = snapshot.failures,
-                    gas_per_sec = gas_per_sec,
-                    "fuzz:"
-                );
-
-                last_calls = snapshot.calls;
-                last_gas = snapshot.gas;
-                last_time = now;
-            }
-        })
-    };
 
     let mut handles = Vec::with_capacity(fuzzers);
     for fuzzer_id in 0..fuzzers {
@@ -484,9 +430,6 @@ pub fn run(args: Args) -> Result<()> {
             }
         }
     }
-
-    progress_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
-    let _ = progress_handle.join();
 
     info!(
         runs = total_runs,
