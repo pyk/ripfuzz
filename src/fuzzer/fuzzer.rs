@@ -2,6 +2,7 @@
 
 use std::time::Instant;
 
+use alloy_dyn_abi::DynSolValue;
 use alloy_primitives::Selector;
 use anyhow::Result;
 use revm::primitives::Bytes;
@@ -76,6 +77,19 @@ impl Fuzzer {
         let mut total_calls = 0u64;
         let mut total_gas = 0u64;
 
+        let invariant_calls: Vec<Call> = self
+            .config
+            .invariant_functions
+            .iter()
+            // checkrs: allow(clone_in_iterator)
+            .map(|func| Call {
+                function: func.clone(),
+                args: DynSolValue::Tuple(vec![]),
+                value: None,
+                caller: self.config.caller,
+            })
+            .collect();
+
         for _ in 0..self.config.max_runs {
             if let Some(t) = self.config.timeout
                 && start.elapsed() > t
@@ -99,6 +113,7 @@ impl Fuzzer {
 
             let transactions: Vec<crate::evm::chain::Transaction> = calls
                 .iter()
+                .chain(invariant_calls.iter())
                 .map(|call| call.into_transaction(self.config.target_address))
                 .collect();
             let exec = self.config.chain.exec(ExecInput::new(transactions))?;
@@ -116,10 +131,23 @@ impl Fuzzer {
                     if let Some(ref output) = result.output
                         && is_assert_failure(output)
                     {
+                        let (function_name, selector) = if idx < calls.len() {
+                            (
+                                // checkrs: allow(clone_in_loops)
+                                calls[idx].function.name.clone(),
+                                calls[idx].function.selector(),
+                            )
+                        } else {
+                            let inv = &invariant_calls[idx - calls.len()];
+                            (
+                                // checkrs: allow(clone_in_loops)
+                                inv.function.name.clone(),
+                                inv.function.selector(),
+                            )
+                        };
                         crash = Some(Crash {
-                            // checkrs: allow(clone_in_loops)
-                            function_name: calls[idx].function.name.clone(),
-                            selector: calls[idx].function.selector(),
+                            function_name,
+                            selector,
                             // checkrs: allow(clone_in_loops)
                             call_sequence: calls.clone(),
                         });

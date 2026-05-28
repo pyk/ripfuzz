@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use alloy_json_abi::Function;
 use alloy_primitives::Address;
 
 use crate::evm;
@@ -20,6 +21,7 @@ pub struct Config {
     pub shared_coverage: SharedCoverage,
     pub shared_metrics: SharedMetrics,
     pub caller: Address,
+    pub invariant_functions: Vec<Function>,
     pub max_runs: u64,
     pub timeout: Option<Duration>,
 }
@@ -35,6 +37,7 @@ impl Config {
             shared_coverage: SharedCoverage::new(),
             shared_metrics: SharedMetrics::new(),
             caller: evm::chain::DEFAULT_DEPLOYER,
+            invariant_functions: Vec::new(),
             max_runs: 0,
             timeout: None,
         }
@@ -73,6 +76,12 @@ impl Config {
     /// Set the shared metrics.
     pub fn shared_metrics(mut self, value: SharedMetrics) -> Self {
         self.shared_metrics = value;
+        self
+    }
+
+    /// Set the invariant functions to append after each corpus sequence.
+    pub fn invariant_functions(mut self, value: Vec<Function>) -> Self {
+        self.invariant_functions = value;
         self
     }
 

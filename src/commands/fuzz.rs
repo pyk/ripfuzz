@@ -405,6 +405,8 @@ pub fn run(args: Args) -> Result<()> {
             .shared_coverage(shared_coverage.clone())
             // checkrs: allow(clone_in_loops)
             .shared_metrics(shared_metrics.clone())
+            // checkrs: allow(clone_in_loops)
+            .invariant_functions(target_contract.invariant_functions.clone())
             .caller(args.deployer_address)
             .max_runs(local_max_runs)
             .timeout(timeout);
