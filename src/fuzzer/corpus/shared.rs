@@ -83,7 +83,7 @@ impl std::fmt::Debug for SharedCorpusInner {
 ///
 /// Cloning is cheap (shares the same inner state).
 #[derive(Debug, Clone)]
-pub struct Shared {
+pub struct SharedCorpus {
     inner: Arc<SharedCorpusInner>,
 }
 
@@ -100,7 +100,7 @@ pub fn get_dir(base: impl AsRef<Path>, artifact_id: &crate::foundry::ArtifactId)
     base.as_ref().join(file_name).join(&artifact_id.name)
 }
 
-impl Shared {
+impl SharedCorpus {
     /// Create an empty corpus from a [`Config`].
     ///
     /// `config.corpus_dir` should already be namespaced by artifact (use
@@ -493,7 +493,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
 
         let item = Item::from(vec![Call {
             function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
@@ -571,7 +571,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(8)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
 
         let threads = 16;
         let barrier = Arc::new(Barrier::new(threads));
@@ -622,7 +622,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with 20 unique items.
         for i in 0..20 {
@@ -685,7 +685,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
         let mut rng = fastrand::Rng::with_seed(42);
 
         assert!(corpus.is_fresh_item(&mut rng));
@@ -711,7 +711,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
         let item = Item::from(vec![Call {
             function: alloy_json_abi::Function::parse("foo(uint256)").unwrap(),
             args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
@@ -760,7 +760,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(max_calls)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 identical calls.
         let base_call = Call {
@@ -845,7 +845,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 distinct calls.
         let mut calls = Vec::with_capacity(32);
@@ -924,7 +924,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 distinct calls.
         let mut calls = Vec::with_capacity(32);
@@ -1004,7 +1004,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 distinct calls.
         let mut calls = Vec::with_capacity(32);
@@ -1083,7 +1083,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 distinct calls.
         let mut calls = Vec::with_capacity(32);
@@ -1164,7 +1164,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Seed the corpus with one item containing 32 calls,
         // every even index is payable.
@@ -1253,7 +1253,7 @@ mod tests {
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
-        let corpus = Shared::new(corpus_config);
+        let corpus = SharedCorpus::new(corpus_config);
 
         // Build a base item with 8 calls (mixed payable and non-payable).
         let mut calls = Vec::with_capacity(8);

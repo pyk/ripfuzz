@@ -7,7 +7,7 @@ use alloy_primitives::{Address, Selector};
 use crate::evm;
 use crate::fuzzer::config::Config;
 use crate::fuzzer::corpus::Call;
-use crate::fuzzer::corpus::Shared;
+use crate::fuzzer::corpus::SharedCorpus;
 use crate::fuzzer::fuzzer::Fuzzer;
 use crate::fuzzer::metrics::Shared as MetricsShared;
 use crate::target;
@@ -41,7 +41,7 @@ pub struct Factory {
     deployed_address: Address,
     config: Config,
     caller: Address,
-    corpus: Shared,
+    corpus: SharedCorpus,
     metrics: MetricsShared,
 }
 
@@ -52,7 +52,7 @@ impl Factory {
         contract: target::Contract,
         deployed_address: Address,
         config: Config,
-        corpus: Shared,
+        corpus: SharedCorpus,
     ) -> Self {
         Self {
             chain,
@@ -78,7 +78,7 @@ impl Factory {
     }
 
     /// Access the shared corpus.
-    pub fn corpus(&self) -> &Shared {
+    pub fn corpus(&self) -> &SharedCorpus {
         &self.corpus
     }
 

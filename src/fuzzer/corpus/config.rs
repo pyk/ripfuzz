@@ -1,16 +1,16 @@
-//! Builder configuration for [`Shared`](super::Shared).
+//! Builder configuration for [`SharedCorpus`](super::SharedCorpus).
 
 use std::path::{Path, PathBuf};
 
 use crate::fuzzer::corpus::extractor::ExtractedLiterals;
 
-/// Builder configuration for [`Shared`](super::Shared).
+/// Builder configuration for [`SharedCorpus`](super::SharedCorpus).
 ///
 /// # Example
 ///
 /// ```no_run
 /// use std::path::PathBuf;
-/// use raptor::fuzzer::corpus::{Config, Shared};
+/// use raptor::fuzzer::corpus::{Config, SharedCorpus};
 /// use raptor::fuzzer::corpus::extractor::ExtractedLiterals;
 ///
 /// let corpus_dir = PathBuf::from("/tmp/corpus");
@@ -20,7 +20,7 @@ use crate::fuzzer::corpus::extractor::ExtractedLiterals;
 ///     .target_functions(functions)
 ///     .max_calls(32)
 ///     .literals(literals);
-/// let corpus = Shared::new(config);
+/// let corpus = SharedCorpus::new(config);
 /// ```
 #[derive(Debug, Clone)]
 pub struct Config {

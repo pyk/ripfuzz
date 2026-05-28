@@ -2,12 +2,12 @@
 //!
 //! ## Separation of concerns
 //!
-//! * [`Shared`](corpus::Shared) owns the corpus lifecycle:
+//! * [`SharedCorpus`](corpus::SharedCorpus) owns the corpus lifecycle:
 //!   loading from disk, serialization, weighted random selection, mutation,
 //!   and coverage-driven insertion.
 //! * [`Fuzzer`](fuzzer::Fuzzer) owns the execution loop: calling
-//!   [`next`](corpus::Shared::next) to obtain an input, executing it
-//!   against a cloned chain, and calling [`add`](corpus::Shared::add)
+//!   [`next_item`](corpus::SharedCorpus::next_item) to obtain an input, executing it
+//!   against a cloned chain, and calling [`add_item`](corpus::SharedCorpus::add_item)
 //!   when the input is interesting.
 //! * [`Factory`](factory::Factory) creates per-thread [`Fuzzer`] instances
 //!   from the post-setup chain snapshot.

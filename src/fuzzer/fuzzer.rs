@@ -23,7 +23,7 @@ pub struct Fuzzer {
     chain: evm::Chain,
 
     // Shared corpus
-    corpus: corpus::Shared,
+    corpus: corpus::SharedCorpus,
 
     // Shared metrics
     metrics: metrics::Shared,
@@ -44,7 +44,7 @@ impl Fuzzer {
         deployed_address: Address,
         config: Config,
         caller: Address,
-        corpus: corpus::Shared,
+        corpus: corpus::SharedCorpus,
         metrics: metrics::Shared,
         rng: fastrand::Rng,
     ) -> Self {
