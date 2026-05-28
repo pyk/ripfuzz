@@ -9,25 +9,22 @@
 //!   [`next_item`](corpus::SharedCorpus::next_item) to obtain an input, executing it
 //!   against a cloned chain, and calling [`add_item`](corpus::SharedCorpus::add_item)
 //!   when the input is interesting.
-//! * [`Factory`](factory::Factory) creates per-thread [`Fuzzer`] instances
-//!   from the post-setup chain snapshot.
+//! * [`Fuzzer`](fuzzer::Fuzzer) is configured via [`Config`](config::Config)
+//!   and runs directly on a cloned chain.
 
 pub use config::Config;
-pub use engine::{CrashInfo, ExecutionOutcome, is_assert_failure};
-pub use factory::{Crash, Factory, FuzzerResult, format_failure};
-pub use fuzzer::Fuzzer;
+pub use format::format_failure;
+pub use fuzzer::{Crash, Fuzzer, FuzzerResult};
 pub use metrics::{SharedMetrics, Snapshot};
 
 pub use corpus::replayer::CorpusReplayer;
 
 pub mod config;
 pub mod corpus;
-pub mod engine;
-pub mod factory;
+pub mod format;
 #[allow(clippy::module_inception)]
 pub mod fuzzer;
 pub mod metrics;
-pub mod mutators;
 
 #[cfg(test)]
 mod tests {

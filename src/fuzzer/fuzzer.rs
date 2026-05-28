@@ -1,61 +1,57 @@
 //! Per-thread fuzzer that executes call sequences and reports results.
 
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use alloy_primitives::Address;
+use alloy_primitives::Selector;
 use anyhow::Result;
+use revm::primitives::Bytes;
 use tracing::{info, instrument};
 
-use crate::evm;
+use crate::evm::chain::ExecInput;
 use crate::fuzzer::config::Config;
-use crate::fuzzer::corpus;
-use crate::fuzzer::corpus::Item;
-use crate::fuzzer::engine;
-use crate::fuzzer::factory::{Crash, FuzzerResult};
+use crate::fuzzer::corpus::{Call, Item};
 use crate::fuzzer::metrics;
+
+/// Result produced by a single fuzzer thread.
+#[derive(Debug, Clone)]
+pub struct FuzzerResult {
+    pub runs: u64,
+    pub failures: Vec<Crash>,
+    pub total_calls: u64,
+    pub total_gas: u64,
+}
+
+/// A single crash (assert panic) discovered during fuzzing.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Crash {
+    pub function_name: String,
+    pub selector: Selector,
+    pub call_sequence: Vec<Call>,
+}
+
+/// Solidity `Panic(uint256)` selector: keccak256("Panic(uint256)")[:4]
+const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
+
+/// Detect a Solidity `assert` failure (`Panic(0x01)`) in revert output.
+fn is_assert_failure(output: &Bytes) -> bool {
+    output.len() >= 36 && output[..4] == PANIC_SELECTOR && output[35] == 0x01
+}
 
 /// Per-thread fuzzer that executes call sequences and reports results.
 ///
-/// Created by [`Factory::create`](super::factory::Factory::create) and run via [`Fuzzer::run`].
+/// Created via [`Fuzzer::new`] and run via [`Fuzzer::run`].
 pub struct Fuzzer {
-    chain: evm::Chain,
-
-    // Shared corpus
-    corpus: corpus::SharedCorpus,
-
-    // Shared metrics
-    metrics: metrics::SharedMetrics,
-
-    contract: Arc<evm::Contract>,
-    deployed_address: Address,
     config: Config,
-    caller: Address,
     rng: fastrand::Rng,
 }
 
 impl Fuzzer {
-    /// Create a new fuzzer with the given state.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        chain: evm::Chain,
-        contract: Arc<evm::Contract>,
-        deployed_address: Address,
-        config: Config,
-        caller: Address,
-        corpus: corpus::SharedCorpus,
-        metrics: metrics::SharedMetrics,
-        rng: fastrand::Rng,
-    ) -> Self {
+    /// Create a new fuzzer with the given config.
+    pub fn new(config: Config) -> Self {
+        let seed = config.seed;
         Self {
-            chain,
-            contract,
-            deployed_address,
             config,
-            caller,
-            corpus,
-            metrics,
-            rng,
+            rng: fastrand::Rng::with_seed(seed),
         }
     }
 }
@@ -63,13 +59,7 @@ impl Fuzzer {
 impl std::fmt::Debug for Fuzzer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Fuzzer")
-            .field("chain", &self.chain)
-            .field("contract", &self.contract)
-            .field("deployed_address", &self.deployed_address)
             .field("config", &self.config)
-            .field("caller", &self.caller)
-            .field("corpus", &self.corpus)
-            .field("metrics", &self.metrics)
             .finish()
     }
 }
@@ -79,22 +69,24 @@ impl Fuzzer {
     ///
     /// The fuzzer loop uses the shared corpus for mutation and the shared
     /// metrics for counters. It stops early if `timeout` is reached.
-    #[instrument(skip(self), fields(max_runs))]
-    pub fn run(&mut self, max_runs: u64, timeout: Option<Duration>) -> Result<FuzzerResult> {
+    #[instrument(skip(self), fields(max_runs = self.config.max_runs))]
+    pub fn run(mut self) -> Result<FuzzerResult> {
         let start = Instant::now();
         let mut local_failures = Vec::new();
         let mut runs = 0u64;
         let mut total_calls = 0u64;
         let mut total_gas = 0u64;
 
-        for _ in 0..max_runs {
-            if let Some(t) = timeout
+        let metrics = metrics::SharedMetrics::new();
+
+        for _ in 0..self.config.max_runs {
+            if let Some(t) = self.config.timeout
                 && start.elapsed() > t
             {
                 break;
             }
 
-            if let Some(snapshot) = self.metrics.try_snapshot() {
+            if let Some(snapshot) = metrics.try_snapshot() {
                 info!(
                     elapsed = ?snapshot.elapsed,
                     runs = snapshot.runs,
@@ -105,33 +97,60 @@ impl Fuzzer {
                 );
             }
 
-            let item = self.corpus.next_item(&mut self.rng);
+            let item = self.config.shared_corpus.next_item(&mut self.rng);
             let calls = item.calls;
 
-            let outcome = engine::execute_sequence(
-                &self.chain,
-                &self.contract,
-                self.deployed_address,
-                self.caller,
-                &calls,
-            )?;
+            let transactions: Vec<crate::evm::chain::Transaction> = calls
+                .iter()
+                .map(|call| call.into_transaction(self.config.target_address))
+                .collect();
+            let exec = self.config.chain.exec(ExecInput::new(transactions))?;
 
-            total_calls += outcome.total_calls;
-            total_gas += outcome.total_gas;
-            self.metrics.record(outcome.total_calls, outcome.total_gas);
+            let mut all_ok = true;
+            let mut crash = None;
+            let mut calls_count = 0u64;
+            let mut gas_sum = 0u64;
 
-            if outcome.all_ok {
-                // checkrs: allow(clone_in_loops)
-                let _ = self.corpus.add_item(Item::from(calls.clone()));
+            for (idx, result) in exec.results.iter().enumerate() {
+                calls_count += 1;
+                gas_sum += result.gas_used;
+
+                if !result.success {
+                    if let Some(ref output) = result.output
+                        && is_assert_failure(output)
+                    {
+                        crash = Some(Crash {
+                            // checkrs: allow(clone_in_loops)
+                            function_name: calls[idx].function.name.clone(),
+                            selector: calls[idx].function.selector(),
+                            // checkrs: allow(clone_in_loops)
+                            call_sequence: calls.clone(),
+                        });
+                    }
+                    all_ok = false;
+                    break;
+                }
             }
 
-            if let Some(crash_info) = outcome.crash {
-                local_failures.push(Crash {
-                    function_name: crash_info.name,
-                    selector: crash_info.selector,
-                    call_sequence: calls,
-                });
-                self.metrics.record_failure();
+            total_calls += calls_count;
+            total_gas += gas_sum;
+            metrics.record(calls_count, gas_sum);
+
+            if let Some(coverage) = exec.coverage {
+                let _ = self.config.shared_coverage.merge(&coverage);
+            }
+
+            if all_ok {
+                // checkrs: allow(clone_in_loops)
+                let _ = self.config.shared_corpus.add_item(
+                    // checkrs: allow(clone_in_loops)
+                    Item::from(calls.clone()),
+                );
+            }
+
+            if let Some(crash) = crash {
+                local_failures.push(crash);
+                metrics.record_failure();
             }
 
             runs += 1;

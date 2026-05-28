@@ -372,22 +372,6 @@ pub fn run(args: Args) -> Result<()> {
         .deployed_address(deployed_address)
         .replay()?;
 
-    // Create fuzzer factory
-    info!("creating fuzzer factory");
-    // Create fuzzer config first so the corpus can own mutators.
-    let fuzzer_config = fuzzer::Config {
-        seed: args.seed,
-        max_calls: args.max_calls,
-    };
-    let factory = fuzzer::Factory::new(
-        chain,
-        target_contract.clone(),
-        deployed_address,
-        fuzzer_config,
-        corpus,
-    )
-    .with_caller(args.deployer_address);
-
     let fuzzers = args.threads;
     let start = std::time::Instant::now();
     let timeout = args.timeout_secs.map(std::time::Duration::from_secs);
@@ -405,8 +389,22 @@ pub fn run(args: Args) -> Result<()> {
         } else {
             base_runs
         };
-        let mut fuzzer = factory.create(fuzzer_id);
-        let handle = std::thread::spawn(move || fuzzer.run(local_max_runs, timeout));
+        let seed = args.seed.wrapping_add(fuzzer_id as u64);
+        // checkrs: allow(clone_in_loops)
+        let config = fuzzer::Config::new()
+            .seed(seed)
+            // checkrs: allow(clone_in_loops)
+            .chain(chain.clone())
+            .target_address(deployed_address)
+            // checkrs: allow(clone_in_loops)
+            .shared_corpus(corpus.clone())
+            // checkrs: allow(clone_in_loops)
+            .shared_coverage(shared_coverage.clone())
+            .caller(args.deployer_address)
+            .max_runs(local_max_runs)
+            .timeout(timeout);
+        let fuzzer = fuzzer::Fuzzer::new(config);
+        let handle = std::thread::spawn(move || fuzzer.run());
         handles.push((fuzzer_id, handle));
     }
 
