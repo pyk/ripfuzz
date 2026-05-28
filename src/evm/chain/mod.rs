@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use alloy_primitives::{Address, U256, address};
+use alloy_primitives::{Address, U256, address, keccak256};
 use alloy_sol_types::SolCall;
 use anyhow::{Context as _, Result, ensure};
 use revm::{
@@ -17,18 +17,6 @@ use revm::{
 
 pub use crate::evm::chain::config::Config;
 use crate::evm::{cheatcode, coverage, database, result, trace};
-use crate::foundry;
-
-/// Replace library placeholders in initcode with deployed addresses.
-fn link_bytecode(initcode: Bytes, libs: &HashMap<String, Address>) -> Bytes {
-    let mut hex = format!("0x{}", hex::encode(initcode));
-    for (identifier, address) in libs {
-        let placeholder = foundry::ArtifactBytecode::placeholder_for(identifier);
-        let address_hex = hex::encode(address);
-        hex = hex.replace(&placeholder, &address_hex);
-    }
-    hex.parse().unwrap_or_default()
-}
 
 pub mod config;
 mod empty;
@@ -382,7 +370,7 @@ impl Chain {
         let initcode = if library_addrs.is_empty() {
             opts.initcode
         } else {
-            link_bytecode(opts.initcode, &library_addrs)
+            self.link_libraries(opts.initcode, &library_addrs)
         };
 
         let mut output = self.deploy_raw(opts.caller, opts.value, initcode, opts.gas_limit)?;
@@ -437,7 +425,7 @@ impl Chain {
         }
 
         // Link the library initcode with already-deployed libraries.
-        let initcode = link_bytecode(lib.initcode.clone(), library_addrs);
+        let initcode = self.link_libraries(lib.initcode.clone(), library_addrs);
 
         // Deploy the library and return its output.
         let deployment = self.deploy_raw(deployer, U256::ZERO, initcode, u64::MAX)?;
@@ -456,6 +444,26 @@ impl Chain {
             id: identifier,
             address,
         })
+    }
+
+    /// Compute the Solidity placeholder string for a library identifier.
+    ///
+    /// The placeholder format is `__$<keccak256(identifier)[:34]>$__`.
+    pub fn get_library_placeholder(&self, identifier: &str) -> String {
+        let hash = keccak256(identifier.as_bytes());
+        let hex = alloy_primitives::hex::encode(hash);
+        format!("__${}$__", &hex[..34])
+    }
+
+    /// Replace library placeholders in initcode with deployed addresses.
+    pub fn link_libraries(&self, initcode: Bytes, libraries: &HashMap<String, Address>) -> Bytes {
+        let mut hex = format!("0x{}", hex::encode(initcode));
+        for (identifier, address) in libraries {
+            let placeholder = self.get_library_placeholder(identifier);
+            let address_hex = hex::encode(address);
+            hex = hex.replace(&placeholder, &address_hex);
+        }
+        hex.parse().unwrap_or_default()
     }
 
     /// Execute a raw CREATE transaction without library handling.
