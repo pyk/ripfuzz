@@ -111,6 +111,13 @@ impl DeployInput {
     }
 }
 
+/// Result of a deployed library.
+#[derive(Debug, Clone)]
+pub struct DeployLibraryOutput {
+    pub id: String,
+    pub address: Address,
+}
+
 /// Result of a contract deployment, including the trace.
 ///
 /// `address` is `None` when the constructor reverts or halts, but `result`
@@ -118,6 +125,7 @@ impl DeployInput {
 #[derive(Debug, Clone)]
 pub struct DeployOutput {
     pub address: Option<Address>,
+    pub libraries: Vec<DeployLibraryOutput>,
     pub result: result::TransactionResult,
     pub trace: trace::Trace,
 }
@@ -377,7 +385,12 @@ impl Chain {
             link_bytecode(opts.initcode, &library_addrs)
         };
 
-        self.deploy_raw(opts.caller, opts.value, initcode, opts.gas_limit)
+        let mut output = self.deploy_raw(opts.caller, opts.value, initcode, opts.gas_limit)?;
+        output.libraries = library_addrs
+            .into_iter()
+            .map(|(id, address)| DeployLibraryOutput { id, address })
+            .collect();
+        Ok(output)
     }
 
     /// Deploy a list of libraries and return a map of their identifiers to
@@ -398,7 +411,7 @@ impl Chain {
     }
 
     /// Deploy a single library (including its nested dependencies) and return
-    /// its deployed address.
+    /// the deployment result.
     ///
     /// `library_addrs` is used to deduplicate shared dependencies and to link
     /// the library initcode with already-deployed libraries.
@@ -407,7 +420,7 @@ impl Chain {
         lib: &DeployLibraryInput,
         deployer: Address,
         library_addrs: &mut HashMap<String, Address>,
-    ) -> Result<Address> {
+    ) -> Result<DeployLibraryOutput> {
         // Deploy nested dependencies first.
         for nested in &lib.libraries {
             self.deploy_library(nested, deployer, library_addrs)?;
@@ -417,13 +430,16 @@ impl Chain {
 
         // Skip if this library was already deployed (e.g. shared dependency).
         if let Some(&addr) = library_addrs.get(&identifier) {
-            return Ok(addr);
+            return Ok(DeployLibraryOutput {
+                id: identifier,
+                address: addr,
+            });
         }
 
         // Link the library initcode with already-deployed libraries.
         let initcode = link_bytecode(lib.initcode.clone(), library_addrs);
 
-        // Deploy the library and return its actual address.
+        // Deploy the library and return its output.
         let deployment = self.deploy_raw(deployer, U256::ZERO, initcode, u64::MAX)?;
         ensure!(
             deployment.result.success,
@@ -435,8 +451,11 @@ impl Chain {
             .address
             .with_context(|| format!("library deployment missing address: {}", identifier))?;
 
-        library_addrs.insert(identifier, address);
-        Ok(address)
+        library_addrs.insert(identifier.clone(), address);
+        Ok(DeployLibraryOutput {
+            id: identifier,
+            address,
+        })
     }
 
     /// Execute a raw CREATE transaction without library handling.
@@ -465,6 +484,7 @@ impl Chain {
         let trace = trace_inspector.into_trace();
         Ok(DeployOutput {
             address,
+            libraries: Vec::new(),
             result,
             trace,
         })
