@@ -15,7 +15,8 @@ pub use config::Config;
 pub use db::ForkDB;
 pub use error::Error;
 pub use request::{Request, url_hash};
-pub use response::{Block, Response};
+pub use response::Response;
+#[cfg_attr(not(test), allow(unused_imports))]
 pub use transport::{MockTransport, Transport};
 
 mod backend;

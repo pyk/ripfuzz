@@ -14,8 +14,9 @@ use revm::{
 use crate::evm::chain;
 use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
 use crate::evm::cheatcode::*;
-use crate::evm::database::{Database, ForkDB};
+use crate::evm::database::Database;
 use crate::evm::forkdb;
+use crate::evm::forkdb::ForkDB;
 
 impl Chain {
     /// Create a forked EVM with a custom transport (used in tests).

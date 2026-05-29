@@ -4,6 +4,7 @@
 use revm::database_interface::DBErrorMarker;
 
 /// Error type for ForkDB operations.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone)]
 pub enum Error {
     /// RPC transport timed out (e.g., HTTP request exceeded deadline).

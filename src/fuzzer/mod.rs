@@ -13,23 +13,25 @@
 //!   and runs directly on a cloned chain.
 
 pub use config::Config;
+pub use corpus::Config as CorpusConfig;
+pub use corpus::{Call, ExtractedLiterals, Item, SharedCorpus};
 pub use fuzzer::{FailedAssertion, Fuzzer, RunOutput};
 pub use metrics::{SharedMetrics, Snapshot};
 
-pub use corpus::replayer::CorpusReplayer;
+pub use corpus::CorpusReplayer;
 
-pub mod config;
-pub mod corpus;
+mod config;
+mod corpus;
 #[allow(clippy::module_inception)]
-pub mod fuzzer;
-pub mod metrics;
+mod fuzzer;
+mod metrics;
 
 #[cfg(test)]
 mod tests {
     use alloy_primitives::Address;
 
     use crate::evm::Contract;
-    use crate::evm::chain::Transaction;
+    use crate::evm::Transaction;
     use crate::foundry;
     use crate::fuzzer::FailedAssertion;
 
@@ -48,7 +50,7 @@ mod tests {
 
         let failure = FailedAssertion { transactions };
 
-        let output = failure.format(&contract, crate::evm::chain::DEFAULT_DEPLOYER);
+        let output = failure.format(&contract, crate::evm::DEFAULT_DEPLOYER);
         assert!(
             output.contains("block_number="),
             "output should use block_number label:\n{}",

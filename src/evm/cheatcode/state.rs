@@ -46,19 +46,6 @@ pub struct PrankCheatState {
     pub original_origin: Option<Address>,
 }
 
-impl PrankCheatState {
-    pub fn caller_for_top_level(&self) -> Option<Address> {
-        self.start.as_ref().map(|s| s.caller)
-    }
-
-    pub fn origin_for_top_level(&self, default: Address) -> Address {
-        self.start
-            .as_ref()
-            .and_then(|s| s.origin)
-            .unwrap_or(default)
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PrankState {
     pub caller: Address,

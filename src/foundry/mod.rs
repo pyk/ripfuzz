@@ -13,6 +13,7 @@ pub use artifact::{
 };
 pub use build_options::BuildOptions;
 pub use project::Project;
-pub mod artifact;
-pub mod build_options;
-pub mod project;
+
+mod artifact;
+mod build_options;
+mod project;

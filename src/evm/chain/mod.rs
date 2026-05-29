@@ -18,7 +18,7 @@ use revm::{
 pub use crate::evm::chain::config::Config;
 use crate::evm::{cheatcode, coverage, database, result, trace};
 
-pub mod config;
+mod config;
 mod empty;
 mod fork;
 
@@ -235,7 +235,7 @@ impl Transaction {
 pub struct ExecOutput {
     pub results: Vec<result::TransactionResult>,
     pub trace: Option<trace::Trace>,
-    pub coverage: Option<coverage::exec::ExecutionCoverage>,
+    pub coverage: Option<crate::evm::ExecutionCoverage>,
     pub panic_transactions: Vec<Transaction>,
 }
 

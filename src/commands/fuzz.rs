@@ -12,9 +12,8 @@ use clap::Parser;
 use revm::primitives::{Bytes, U256};
 use tracing::{debug, info, instrument};
 
-use crate::evm::coverage::SharedCoverage;
-use crate::fuzzer::corpus::*;
-use crate::fuzzer::{CorpusReplayer, SharedMetrics};
+use crate::evm::SharedCoverage;
+use crate::fuzzer::{CorpusReplayer, ExtractedLiterals, SharedCorpus, SharedMetrics};
 use crate::*;
 
 fn default_threads() -> usize {
@@ -94,7 +93,7 @@ pub struct Args {
     /// Account address used to deploy the target contract.
     #[arg(
         long = "deployer",
-        default_value_t = crate::evm::chain::DEFAULT_DEPLOYER,
+        default_value_t = crate::evm::DEFAULT_DEPLOYER,
         value_parser = parse_address,
         value_name = "ADDRESS",
         help_heading = "Project & Deployment"
@@ -224,14 +223,14 @@ impl Default for ForkModeArgs {
 }
 
 impl ForkModeArgs {
-    /// Build a [`forkdb::Config`](crate::evm::forkdb::Config) from CLI arguments.
-    pub fn build_fork_config(&self, project_path: impl AsRef<Path>) -> Result<evm::forkdb::Config> {
+    /// Build a [`ForkConfig`](crate::evm::ForkConfig) from CLI arguments.
+    pub fn build_fork_config(&self, project_path: impl AsRef<Path>) -> Result<evm::ForkConfig> {
         let cache_dir = project_path.as_ref().join("raptor").join("cache");
         let block = self
             .rpc_block
             .context("--rpc-block is required with --rpc-url")?;
         let url = self.rpc_url.as_ref().context("--rpc-url is required")?;
-        let config = evm::forkdb::Config::new(url.clone())
+        let config = evm::ForkConfig::new(url.clone())
             .retries(self.rpc_retries)
             .backoff_ms(self.rpc_backoff)
             .rate_limit(self.rpc_rate_limit)
@@ -293,7 +292,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Create test chain
     info!("creating test chain");
-    let mut chain_config = evm::chain::Config::new(&project_path)
+    let mut chain_config = evm::ChainConfig::new(&project_path)
         .with_compiled_contracts(compiled_contracts)
         .coverage(true);
     if args.fork_mode.rpc_url.is_some() {
@@ -348,11 +347,11 @@ pub fn run(args: Args) -> Result<()> {
         .corpus_dir
         .unwrap_or_else(|| project_path.join("raptor").join("corpus"));
     let corpus_dir = SharedCorpus::dir_for(&base_corpus_dir, &target_contract.artifact_id);
-    let corpus_config = fuzzer::corpus::Config::new(corpus_dir)
+    let corpus_config = fuzzer::CorpusConfig::new(corpus_dir)
         .target_functions(target_contract.target_functions.clone())
         .max_calls(args.max_calls)
         .literals(literals);
-    let corpus = fuzzer::corpus::SharedCorpus::new(corpus_config);
+    let corpus = fuzzer::SharedCorpus::new(corpus_config);
     let corpus_stats = corpus.load_items()?;
     info!(
         total = corpus_stats.total_count,
@@ -491,7 +490,7 @@ mod tests {
     use revm::primitives::U256;
 
     use crate::commands::fuzz::ForkModeArgs;
-    use crate::evm::chain::DEFAULT_DEPLOYER;
+    use crate::evm::DEFAULT_DEPLOYER;
     use crate::foundry;
 
     use super::Args;

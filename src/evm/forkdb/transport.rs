@@ -33,16 +33,15 @@ impl Transport for ureq::Agent {
     }
 }
 
-type ResponseMap = HashMap<(String, String), serde_json::Value>;
-type CallCountMap = HashMap<(String, String), usize>;
-
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Default, Clone)]
 pub struct MockTransport {
-    responses: Arc<Mutex<ResponseMap>>,
+    responses: Arc<Mutex<HashMap<(String, String), serde_json::Value>>>,
     delay: Arc<Mutex<Option<Duration>>>,
-    call_count: Arc<Mutex<CallCountMap>>,
+    call_count: Arc<Mutex<HashMap<(String, String), usize>>>,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 impl MockTransport {
     /// Register a single mock response for a given URL and serialized payload.
     pub fn mock_response(
@@ -56,11 +55,6 @@ impl MockTransport {
         guard.insert((url.into(), payload_json), response);
     }
 
-    /// Set an artificial delay for every `exec` call.
-    pub fn set_delay(&self, delay: Duration) {
-        *self.delay.lock() = Some(delay);
-    }
-
     /// Return how many times a given request was dispatched.
     pub fn call_count(&self, url: &str, payload: &serde_json::Value) -> usize {
         let payload_json = serde_json::to_string(payload).unwrap_or_default();
@@ -69,6 +63,7 @@ impl MockTransport {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 impl Transport for MockTransport {
     fn exec(&self, url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
         if let Some(delay) = *self.delay.lock() {

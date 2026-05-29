@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use tracing::{debug, info};
 
 use crate::evm;
-use crate::evm::coverage::SharedCoverage;
+use crate::evm::SharedCoverage;
 use crate::fuzzer::corpus::{Call, SharedCorpus};
 
 /// Replays all corpus items against a cloned chain to populate a shared
@@ -35,7 +35,7 @@ impl CorpusReplayer {
             chain: None,
             deployed_address: None,
             invariant_functions: Vec::new(),
-            caller: crate::evm::chain::DEFAULT_DEPLOYER,
+            caller: crate::evm::DEFAULT_DEPLOYER,
         }
     }
 
@@ -101,7 +101,7 @@ impl CorpusReplayer {
         info!(count = items.len(), "replaying corpus items");
 
         for (idx, item) in items.iter().enumerate() {
-            let transactions: Vec<evm::chain::Transaction> = item
+            let transactions: Vec<evm::Transaction> = item
                 .calls
                 .iter()
                 .chain(invariant_calls.iter())
@@ -151,8 +151,8 @@ mod tests {
     use alloy_sol_types::SolCall;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
-    use crate::evm::coverage::SharedCoverage;
+    use crate::evm::SharedCoverage;
+    use crate::evm::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::foundry;
     use crate::fuzzer::corpus;
     use crate::fuzzer::corpus::replayer::CorpusReplayer;
@@ -172,7 +172,7 @@ mod tests {
     }
 
     fn deploy_and_setup(contract: &Contract) -> (Chain, Address) {
-        let config = Config::default().coverage(true);
+        let config = ChainConfig::default().coverage(true);
         let mut chain = Chain::new(config).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");

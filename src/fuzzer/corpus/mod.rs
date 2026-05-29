@@ -5,7 +5,7 @@
 //! [`SharedCorpus`] is responsible for:
 //! - Loading and validating corpus from disk.
 //! - Defining [`Item`] which is convertible to/from
-//!   [`evm::chain::ExecInput`](crate::evm::chain::ExecInput).
+//!   [`evm::Transaction`](crate::evm::Transaction).
 //! - Serializing corpus items as compact JSON.
 //! - Providing [`next_item`](SharedCorpus::next_item) to return a randomly
 //!   selected corpus item (mutated when sourced from the existing pool) for a
@@ -24,12 +24,13 @@ pub use config::Config;
 pub use extractor::ExtractedLiterals;
 pub use item::Item;
 
+pub use replayer::CorpusReplayer;
 pub use shared::SharedCorpus;
 
-pub mod call;
-pub mod config;
-pub mod extractor;
-pub mod item;
-pub mod random;
-pub mod replayer;
-pub mod shared;
+mod call;
+mod config;
+mod extractor;
+mod item;
+mod random;
+mod replayer;
+mod shared;

@@ -7,7 +7,7 @@ use revm::primitives::Bytes;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize};
 
-use crate::evm::chain;
+use crate::evm;
 
 /// A single call in a sequence.
 #[derive(Clone, Debug, PartialEq)]
@@ -34,7 +34,7 @@ impl Default for Call {
             },
             args: DynSolValue::Tuple(vec![]),
             value: None,
-            caller: crate::evm::chain::DEFAULT_DEPLOYER,
+            caller: crate::evm::DEFAULT_DEPLOYER,
         }
     }
 }
@@ -219,36 +219,13 @@ impl Call {
         keccak256(&buf).into()
     }
 
-    /// Convert this call into an EVM [`Transaction`](crate::evm::chain::Transaction)
+    /// Convert this call into an EVM [`Transaction`](crate::evm::Transaction)
     /// directed at `target`.
-    pub fn into_transaction(&self, target: Address) -> chain::Transaction {
-        chain::Transaction::new(target)
+    pub fn into_transaction(&self, target: Address) -> evm::Transaction {
+        evm::Transaction::new(target)
             .caller(self.caller)
             .calldata(self.calldata())
             .value(self.value.unwrap_or(U256::ZERO))
-    }
-}
-
-/// Generate a default [`DynSolValue`] for the given type.
-///
-/// Used to create placeholder arguments when generating random sequences.
-pub fn default_dyn_value(ty: &DynSolType) -> DynSolValue {
-    match ty {
-        DynSolType::Bool => DynSolValue::Bool(false),
-        DynSolType::Uint(sz) => DynSolValue::Uint(alloy_primitives::U256::ZERO, *sz),
-        DynSolType::Int(sz) => DynSolValue::Int(alloy_primitives::I256::ZERO, *sz),
-        DynSolType::FixedBytes(sz) => DynSolValue::FixedBytes(FixedBytes::default(), *sz),
-        DynSolType::Address => DynSolValue::Address(alloy_primitives::Address::ZERO),
-        DynSolType::Function => DynSolValue::Function(alloy_primitives::Function::ZERO),
-        DynSolType::Bytes => DynSolValue::Bytes(vec![]),
-        DynSolType::String => DynSolValue::String(String::new()),
-        DynSolType::Array(_) => DynSolValue::Array(vec![]),
-        DynSolType::FixedArray(inner, len) => {
-            DynSolValue::FixedArray((0..*len).map(|_| default_dyn_value(inner)).collect())
-        }
-        DynSolType::Tuple(types) => {
-            DynSolValue::Tuple(types.iter().map(default_dyn_value).collect())
-        }
     }
 }
 
@@ -279,7 +256,7 @@ mod tests {
             function: Function::parse("foo()").unwrap(),
             args: DynSolValue::Tuple(vec![]),
             value: None,
-            caller: crate::evm::chain::DEFAULT_DEPLOYER,
+            caller: crate::evm::DEFAULT_DEPLOYER,
         }
     }
 

@@ -8,8 +8,8 @@ use revm::{
     database_interface::DBErrorMarker, state::AccountInfo,
 };
 
-pub use crate::evm::forkdb;
-pub use crate::evm::forkdb::ForkDB;
+use crate::evm::forkdb;
+use crate::evm::forkdb::ForkDB;
 
 // ---------------------------------------------------------------------------
 // EmptyDB

@@ -62,11 +62,6 @@ impl Inspector {
         }
     }
 
-    pub fn with_shared_labels(mut self, labels: Arc<RwLock<HashMap<Address, String>>>) -> Self {
-        self.shared_labels = Some(labels);
-        self
-    }
-
     fn with_default_config() -> Self {
         Self::new(crate::evm::cheatcode::Config::default())
     }

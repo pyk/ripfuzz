@@ -10,13 +10,13 @@ use crate::fuzzer::corpus::extractor::ExtractedLiterals;
 ///
 /// ```no_run
 /// use std::path::PathBuf;
-/// use raptor::fuzzer::corpus::{Config, SharedCorpus};
-/// use raptor::fuzzer::corpus::extractor::ExtractedLiterals;
+/// use raptor::fuzzer::{CorpusConfig, SharedCorpus};
+/// use raptor::fuzzer::ExtractedLiterals;
 ///
 /// let corpus_dir = PathBuf::from("/tmp/corpus");
 /// let functions = vec![];
 /// let literals = ExtractedLiterals::default();
-/// let config = Config::new(corpus_dir)
+/// let config = CorpusConfig::new(corpus_dir)
 ///     .target_functions(functions)
 ///     .max_calls(32)
 ///     .literals(literals);

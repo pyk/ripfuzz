@@ -13,8 +13,8 @@ use revm::primitives::Bytes;
 use tracing::{debug, info, instrument};
 
 use crate::evm;
-use crate::evm::chain::Transaction;
-use crate::evm::coverage::SharedCoverage;
+use crate::evm::SharedCoverage;
+use crate::evm::Transaction;
 use crate::fuzzer::config::Config;
 use crate::fuzzer::corpus::{Call, SharedCorpus};
 use crate::fuzzer::metrics::SharedMetrics;
@@ -162,7 +162,7 @@ impl Fuzzer {
             let mut fresh_chain = self.chain.clone();
 
             // Convert corpus item to transactions
-            let transactions: Vec<crate::evm::chain::Transaction> = item
+            let transactions: Vec<crate::evm::Transaction> = item
                 .calls
                 .iter()
                 .chain(invariant_calls.iter())

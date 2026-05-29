@@ -9,7 +9,7 @@ use alloy_json_abi::Function;
 use alloy_primitives::Address;
 
 use crate::evm;
-use crate::evm::coverage::SharedCoverage;
+use crate::evm::SharedCoverage;
 use crate::fuzzer::corpus::SharedCorpus;
 use crate::fuzzer::metrics::SharedMetrics;
 
@@ -40,7 +40,7 @@ impl Config {
             shared_coverage: SharedCoverage::new(),
             shared_metrics: SharedMetrics::new(),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
-            caller: evm::chain::DEFAULT_DEPLOYER,
+            caller: evm::DEFAULT_DEPLOYER,
             invariant_functions: Vec::new(),
             max_runs: 0,
             timeout: None,

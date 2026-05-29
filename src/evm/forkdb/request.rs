@@ -9,6 +9,7 @@ use serde_json::json;
 /// isolated per chain. `GetChainId` is special: it carries `url_hash` so
 /// that the cache entry is scoped to the RPC endpoint without needing the
 /// chain identifier up front.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Request {
     GetChainId {

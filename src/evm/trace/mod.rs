@@ -3,10 +3,8 @@
 use revm::primitives::{Address, Bytes};
 
 pub use inspector::Inspector;
-pub use viewer::Viewer;
 
-pub mod inspector;
-pub mod viewer;
+mod inspector;
 
 /// Raw call trace tree.
 #[derive(Debug, Clone, Default)]
