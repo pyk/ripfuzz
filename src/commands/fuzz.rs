@@ -20,6 +20,7 @@ use crate::fuzzer::{
     Config as FuzzerConfig, CorpusConfig, CorpusReplayer, ExtractedLiterals, Fuzzer, SharedCorpus,
     SharedMetrics,
 };
+use crate::reporter::Reporter;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -256,10 +257,12 @@ pub fn run(args: Args) -> Result<()> {
     debug!(?project_path, "resolved project path");
 
     // Build project
-    info!("building project");
+    let mut reporter = Reporter::new();
+    reporter.begin(format!("building project: {}", project_path.display()))?;
     let project = Project::new(&project_path);
     let build_opts = BuildOptions::new().force(args.force);
     project.build(build_opts)?;
+    reporter.end()?;
 
     // Load build artifacts
     info!("loading build artifacts");

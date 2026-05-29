@@ -5,3 +5,4 @@ pub mod evm;
 pub mod foundry;
 pub mod fuzzer;
 pub mod logger;
+pub mod reporter;
