@@ -13,9 +13,9 @@ use alloy_json_abi::StateMutability;
 use anyhow::{Result, ensure};
 use tracing::debug;
 
+use crate::corpus::random::RandomDynSolValue;
+use crate::corpus::{Call, Config, ExtractedLiterals, Item};
 use crate::foundry::ArtifactId;
-use crate::fuzzer::corpus::random::RandomDynSolValue;
-use crate::fuzzer::corpus::{Call, Config, ExtractedLiterals, Item};
 
 /// Statistics produced by loading a corpus from disk.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -268,7 +268,7 @@ impl SharedCorpus {
             .map(|ty| ty.random(rng, &self.inner.literals))
             .collect();
         let value = if func.state_mutability == StateMutability::Payable {
-            Some(crate::fuzzer::corpus::random::random_uint(
+            Some(crate::corpus::random::random_uint(
                 rng,
                 256,
                 &self.inner.literals,
@@ -398,7 +398,7 @@ impl SharedCorpus {
             .collect();
         ensure!(!payable.is_empty(), "item contains no payable calls");
         let pos = payable[rng.usize(0..payable.len())];
-        item.calls[pos].value = Some(crate::fuzzer::corpus::random::random_uint(
+        item.calls[pos].value = Some(crate::corpus::random::random_uint(
             rng,
             256,
             &self.inner.literals,

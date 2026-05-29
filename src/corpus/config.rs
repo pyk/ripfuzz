@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::fuzzer::corpus::extractor::ExtractedLiterals;
+use crate::corpus::extractor::ExtractedLiterals;
 
 /// Builder configuration for [`SharedCorpus`](super::SharedCorpus).
 ///
@@ -10,8 +10,8 @@ use crate::fuzzer::corpus::extractor::ExtractedLiterals;
 ///
 /// ```no_run
 /// use std::path::PathBuf;
-/// use raptor::fuzzer::{CorpusConfig, SharedCorpus};
-/// use raptor::fuzzer::ExtractedLiterals;
+/// use raptor::corpus::{CorpusConfig, SharedCorpus};
+/// use raptor::corpus::ExtractedLiterals;
 ///
 /// let corpus_dir = PathBuf::from("/tmp/corpus");
 /// let functions = vec![];

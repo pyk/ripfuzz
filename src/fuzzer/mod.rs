@@ -1,37 +1,28 @@
 //! Coverage-guided, mutational stateful fuzzer.
 //!
-//! ## Separation of concerns
+//! [`Fuzzer`](fuzzer::Fuzzer) owns the execution loop: calling
+//! [`next_item`](crate::corpus::SharedCorpus::next_item) to obtain an input,
+//! executing it against a cloned chain, and calling
+//! [`add_item`](crate::corpus::SharedCorpus::add_item) to store interesting
+//! sequences discovered during execution.
 //!
-//! * [`SharedCorpus`](corpus::SharedCorpus) owns the corpus lifecycle:
-//!   loading from disk, serialization, weighted random selection, mutation,
-//!   and coverage-driven insertion.
-//! * [`Fuzzer`](fuzzer::Fuzzer) owns the execution loop: calling
-//!   [`next_item`](corpus::SharedCorpus::next_item) to obtain an input, executing it
-//!   against a cloned chain, and calling [`add_item`](corpus::SharedCorpus::add_item)
-//!   when the input is interesting.
-//! * [`Fuzzer`](fuzzer::Fuzzer) is configured via [`Config`](config::Config)
-//!   and runs directly on a cloned chain.
+//! [`Fuzzer`](fuzzer::Fuzzer) is configured via [`Config`](config::Config)
+//! and runs directly on a cloned chain.
 
 pub use config::Config;
-pub use corpus::Config as CorpusConfig;
-pub use corpus::{Call, ExtractedLiterals, Item, SharedCorpus, SharedFailedCorpusItem};
 pub use fuzzer::{FailedAssertion, Fuzzer, RunOutput};
 pub use metrics::{SharedMetrics, Snapshot};
-pub use shrinker::{Config as ShrinkerConfig, Shrinker, ShrinkerOutput};
-
-pub use corpus::CorpusReplayer;
 
 mod config;
-mod corpus;
 #[allow(clippy::module_inception)]
 mod fuzzer;
 mod metrics;
-mod shrinker;
 
 #[cfg(test)]
 mod tests {
     use alloy_primitives::Address;
 
+    use crate::corpus::Item;
     use crate::evm::Contract;
     use crate::evm::Transaction;
     use crate::foundry;
@@ -52,7 +43,7 @@ mod tests {
 
         let failure = FailedAssertion {
             transactions,
-            item: crate::fuzzer::corpus::Item::from(vec![]),
+            item: Item::from(vec![]),
         };
 
         let output = failure.format(&contract, crate::evm::DEFAULT_DEPLOYER);

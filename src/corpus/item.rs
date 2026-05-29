@@ -3,7 +3,7 @@
 use alloy_primitives::keccak256;
 use serde::{Deserialize, Serialize};
 
-use crate::fuzzer::corpus::Call;
+use crate::corpus::Call;
 
 /// A single item in the fuzzing corpus.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

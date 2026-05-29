@@ -6,9 +6,9 @@ use alloy_primitives::Address;
 use anyhow::{Context, Result};
 use tracing::debug;
 
+use crate::corpus::{Call, SharedCorpus};
 use crate::evm;
 use crate::evm::SharedCoverage;
-use crate::fuzzer::corpus::{Call, SharedCorpus};
 
 /// Replays all corpus items against a cloned chain to populate a shared
 /// coverage map before the fuzzing campaign starts.
@@ -138,13 +138,13 @@ mod tests {
     use alloy_primitives::{Address, Bytes};
     use alloy_sol_types::SolCall;
 
+    use crate::corpus;
+    use crate::corpus::replayer::CorpusReplayer;
+    use crate::corpus::{Call, Item, SharedCorpus};
     use crate::evm::Contract;
     use crate::evm::SharedCoverage;
     use crate::evm::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::foundry;
-    use crate::fuzzer::corpus;
-    use crate::fuzzer::corpus::replayer::CorpusReplayer;
-    use crate::fuzzer::corpus::{Call, Item, SharedCorpus};
 
     alloy_sol_types::sol! {
         interface CoverageBranch {

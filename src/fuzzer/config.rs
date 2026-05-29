@@ -8,9 +8,9 @@ use std::time::Duration;
 use alloy_json_abi::Function;
 use alloy_primitives::Address;
 
+use crate::corpus::SharedCorpus;
 use crate::evm;
 use crate::evm::SharedCoverage;
-use crate::fuzzer::corpus::SharedCorpus;
 use crate::fuzzer::metrics::SharedMetrics;
 
 /// Per-fuzzer configuration configured via a fluent builder API.
@@ -36,7 +36,7 @@ impl Config {
             seed: 0,
             chain: evm::Chain::default(),
             target_address: Address::ZERO,
-            shared_corpus: SharedCorpus::new(crate::fuzzer::corpus::Config::new(PathBuf::new())),
+            shared_corpus: SharedCorpus::new(crate::corpus::Config::new(PathBuf::new())),
             shared_coverage: SharedCoverage::new(),
             shared_metrics: SharedMetrics::new(),
             shutdown_signal: Arc::new(AtomicBool::new(false)),

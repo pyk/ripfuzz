@@ -12,15 +12,16 @@ use clap::Parser;
 use revm::primitives::{Bytes, U256};
 use tracing::{debug, instrument};
 
+use crate::corpus::{
+    CorpusConfig, CorpusReplayer, ExtractedLiterals, SharedCorpus, SharedFailedCorpusItem,
+};
 use crate::evm::{
     Chain, ChainConfig, Contract, DeployInput, ForkConfig, SetupInput, SharedCoverage,
 };
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
-use crate::fuzzer::{
-    Config as FuzzerConfig, CorpusConfig, CorpusReplayer, ExtractedLiterals, FailedAssertion,
-    Fuzzer, SharedCorpus, SharedFailedCorpusItem, SharedMetrics, Shrinker,
-};
+use crate::fuzzer::{Config as FuzzerConfig, FailedAssertion, Fuzzer, SharedMetrics};
 use crate::reporter::Reporter;
+use crate::shrinker::{Config as ShrinkerConfig, Shrinker};
 
 /// Format a number with comma-separated thousands.
 fn fmt_num(n: u64) -> String {
@@ -579,7 +580,7 @@ pub fn run(args: Args) -> Result<()> {
         let shrinker_shutdown = shrinker_shutdown.clone();
         // checkrs: allow(clone_in_loops)
         let shrinker_invariants = target_contract.invariant_functions.clone();
-        let shrinker_config = crate::fuzzer::ShrinkerConfig::new()
+        let shrinker_config = ShrinkerConfig::new()
             .chain(shrinker_chain)
             .target_address(deployed_address)
             .shared_failed_item(shrinker_shared_item)
@@ -620,11 +621,11 @@ pub fn run(args: Args) -> Result<()> {
     let mut trace_chain = chain.clone();
     trace_chain.set_trace(true);
 
-    let invariant_calls: Vec<crate::fuzzer::Call> = target_contract
+    let invariant_calls: Vec<crate::corpus::Call> = target_contract
         .invariant_functions
         .iter()
         // checkrs: allow(clone_in_iterator)
-        .map(|func| crate::fuzzer::Call {
+        .map(|func| crate::corpus::Call {
             function: func.clone(),
             args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
             value: None,

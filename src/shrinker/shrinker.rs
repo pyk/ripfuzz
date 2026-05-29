@@ -10,9 +10,9 @@ use alloy_primitives::Address;
 use anyhow::Result;
 use tracing::instrument;
 
+use crate::corpus::{Call, Item, SharedFailedCorpusItem};
 use crate::evm;
 use crate::evm::Transaction;
-use crate::fuzzer::corpus::{Call, Item, SharedFailedCorpusItem};
 
 /// Result produced by a single shrinker thread.
 #[derive(Debug, Clone)]
@@ -145,7 +145,7 @@ impl Config {
             target_address: Address::ZERO,
             shared_failed_item: SharedFailedCorpusItem::new(
                 Item::from(vec![]),
-                crate::fuzzer::corpus::Config::new(""),
+                crate::corpus::Config::new(""),
             ),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             caller: evm::DEFAULT_DEPLOYER,

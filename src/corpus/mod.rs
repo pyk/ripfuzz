@@ -1,6 +1,4 @@
-//! Thread-safe corpus shared across parallel fuzzer threads.
-//!
-//! ## Separation of concerns
+//! Corpus types and shared state for the Raptor fuzzer.
 //!
 //! [`SharedCorpus`] is responsible for:
 //! - Loading and validating corpus from disk.
@@ -8,19 +6,13 @@
 //!   [`evm::Transaction`](crate::evm::Transaction).
 //! - Serializing corpus items as compact JSON.
 //! - Providing [`next_item`](SharedCorpus::next_item) to return a randomly
-//!   selected corpus item (mutated when sourced from the existing pool) for a
-//!   fuzzer thread.
+//!   selected corpus item (mutated when sourced from the existing pool).
 //! - Providing [`add_item`](SharedCorpus::add_item) to add interesting sequences
 //!   to the collection.
-//!
-//! [`Fuzzer`](crate::fuzzer::Fuzzer) is responsible for:
-//! - Using [`next_item`](SharedCorpus::next_item) to obtain the next input to
-//!   execute.
-//! - Using [`add_item`](SharedCorpus::add_item) to store interesting sequences
-//!   discovered during execution.
 
 pub use call::Call;
 pub use config::Config;
+pub use config::Config as CorpusConfig;
 pub use extractor::ExtractedLiterals;
 pub use failed_item::SharedFailedCorpusItem;
 pub use item::Item;

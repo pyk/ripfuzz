@@ -4,7 +4,7 @@ use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_primitives::{Address, Bytes, FixedBytes, I256, U256};
 use fastrand::Rng;
 
-use crate::fuzzer::corpus::ExtractedLiterals;
+use crate::corpus::ExtractedLiterals;
 
 /// Generate a random boolean value.
 ///

@@ -12,11 +12,11 @@ use anyhow::{Context, Result};
 use revm::primitives::Bytes;
 use tracing::{debug, instrument};
 
+use crate::corpus::{Call, SharedCorpus};
 use crate::evm;
 use crate::evm::SharedCoverage;
 use crate::evm::Transaction;
 use crate::fuzzer::config::Config;
-use crate::fuzzer::corpus::{Call, SharedCorpus};
 use crate::fuzzer::metrics::SharedMetrics;
 
 /// Result produced by a single fuzzer thread.
@@ -33,7 +33,7 @@ pub struct RunOutput {
 pub struct FailedAssertion {
     pub transactions: Vec<Transaction>,
     /// The corpus item that produced this failure.
-    pub item: crate::fuzzer::corpus::Item,
+    pub item: crate::corpus::Item,
 }
 
 impl FailedAssertion {

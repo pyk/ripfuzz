@@ -7,14 +7,14 @@ use alloy_json_abi::StateMutability;
 use anyhow::{Result, ensure};
 use parking_lot::RwLock;
 
-use crate::fuzzer::corpus::random::RandomDynSolValue;
-use crate::fuzzer::corpus::{Call, Config, Item};
+use crate::corpus::random::RandomDynSolValue;
+use crate::corpus::{Call, Config, Item};
 
 #[derive(Debug)]
 struct SharedFailedCorpusItemInner {
     current: RwLock<Item>,
     target_functions: Vec<alloy_json_abi::Function>,
-    literals: crate::fuzzer::corpus::ExtractedLiterals,
+    literals: crate::corpus::ExtractedLiterals,
 }
 
 /// Thread-safe wrapper around a single failing corpus item that shrinker
@@ -156,7 +156,7 @@ impl SharedFailedCorpusItem {
             .map(|ty| ty.random(rng, &self.inner.literals))
             .collect();
         let value = if func.state_mutability == StateMutability::Payable {
-            Some(crate::fuzzer::corpus::random::random_uint(
+            Some(crate::corpus::random::random_uint(
                 rng,
                 256,
                 &self.inner.literals,
