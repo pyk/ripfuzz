@@ -248,17 +248,17 @@ pub struct ExecOutput {
 /// isolated fuzzing runs.
 #[derive(Clone, Debug)]
 pub struct Chain {
-    pub database: Option<database::Database>,
-    pub cfg_env: CfgEnv,
-    pub block_env: BlockEnv,
-    pub deployer: Address,
-    pub config: Config,
+    database: Option<database::Database>,
+    cfg_env: CfgEnv,
+    block_env: BlockEnv,
+    deployer: Address,
+    config: Config,
     /// Snapshotted cheatcode inspector state after deploy and setup.
     ///
     /// Required so that `vm.label`, `vm.prank`, `vm.warp`, and other
     /// cheatcodes that mutate inspector state during setup are visible
     /// to actions and invariants during `chain.exec`.
-    pub cheatcode_state: cheatcode::ExecutionState,
+    cheatcode_state: cheatcode::ExecutionState,
 }
 
 impl Chain {
