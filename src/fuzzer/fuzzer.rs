@@ -10,7 +10,7 @@ use alloy_json_abi::Function;
 use alloy_primitives::Address;
 use anyhow::{Context, Result};
 use revm::primitives::Bytes;
-use tracing::{debug, info, instrument};
+use tracing::{debug, instrument};
 
 use crate::evm;
 use crate::evm::SharedCoverage;
@@ -143,17 +143,6 @@ impl Fuzzer {
                 break;
             }
 
-            // Try snapshot and print progress
-            if let Some(snapshot) = self.shared_metrics.try_snapshot() {
-                info!(
-                    elapsed = ?snapshot.elapsed,
-                    runs = snapshot.runs,
-                    calls = snapshot.calls,
-                    gas = snapshot.gas,
-                    "fuzz",
-                );
-            }
-
             // Get the next corpus item
             let item = self.shared_corpus.next_item(&mut self.rng);
 
@@ -210,7 +199,6 @@ impl Fuzzer {
             }
         }
 
-        info!(runs, "fuzzer run finished");
         Ok(RunOutput {
             runs,
             failures: local_failures,

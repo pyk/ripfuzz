@@ -8,10 +8,11 @@ use std::io::{self, IsTerminal, Write};
 use std::time::{Duration, Instant};
 
 const GREEN: &str = "\x1b[32m";
+const DIM: &str = "\x1b[2m";
 const RESET: &str = "\x1b[0m";
 
-/// ANSI sequence to move up one line, return to the start, and clear it.
-const REPLACE_LINE: &str = "\x1b[1A\r\x1b[2K";
+/// ANSI sequence to return to the start of the current line and clear it.
+const REPLACE_LINE: &str = "\r\x1b[K";
 
 /// Console reporter for structured progress messages.
 pub struct Reporter<W> {
@@ -21,6 +22,17 @@ pub struct Reporter<W> {
     message: Option<String>,
     /// Overrides the real elapsed time in tests.
     elapsed: Option<Duration>,
+}
+
+impl<W> std::fmt::Debug for Reporter<W> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Reporter")
+            .field("is_terminal", &self.is_terminal)
+            .field("start", &self.start)
+            .field("message", &self.message)
+            .field("elapsed", &self.elapsed)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for Reporter<io::Stderr> {
@@ -67,12 +79,19 @@ impl<W: Write> Reporter<W> {
     /// The line is prefixed with a green `raptor` label. In a terminal the
     /// line will be replaced by the next call to [`Self::end`].
     pub fn begin(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        if self.start.is_some() {
+            return Ok(());
+        }
         let message = message.as_ref();
         self.message = Some(message.into());
         self.start = Some(Instant::now());
         self.elapsed = None;
         let prefix = self.prefix();
-        writeln!(self.output, "{prefix} {message}")
+        if self.is_terminal {
+            write!(self.output, "{prefix} {message}")
+        } else {
+            writeln!(self.output, "{prefix} {message}")
+        }
     }
 
     /// Replace the current line with a new progress message.
@@ -89,7 +108,7 @@ impl<W: Write> Reporter<W> {
         if self.is_terminal {
             write!(self.output, "{REPLACE_LINE}")?;
             let prefix = self.prefix();
-            writeln!(self.output, "{prefix} {message}")?;
+            write!(self.output, "{prefix} {message}")?;
         }
         Ok(())
     }
@@ -109,7 +128,14 @@ impl<W: Write> Reporter<W> {
         }
 
         let prefix = self.prefix();
-        writeln!(self.output, "{prefix} {message} ... done in {seconds:.2}s")
+        if self.is_terminal {
+            writeln!(
+                self.output,
+                "{prefix} {message} {DIM}[{seconds:.2}s]{RESET}"
+            )
+        } else {
+            writeln!(self.output, "{prefix} {message} [{seconds:.2}s]")
+        }
     }
 
     fn prefix(&self) -> String {
@@ -136,7 +162,7 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
         assert_eq!(
             output,
-            "raptor building project\nraptor building project ... done in 2.00s\n"
+            "raptor building project\nraptor building project [2.00s]\n"
         );
     }
 
@@ -153,7 +179,7 @@ mod tests {
         assert_eq!(
             output,
             format!(
-                "{prefix} building project\n{REPLACE_LINE}{prefix} building project ... done in 2.00s\n"
+                "{prefix} building project{REPLACE_LINE}{prefix} building project {DIM}[2.00s]{RESET}\n"
             )
         );
     }
@@ -180,7 +206,7 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
         assert_eq!(
             output,
-            "raptor first\nraptor first ... done in 1.00s\nraptor second\nraptor second ... done in 3.00s\n"
+            "raptor first\nraptor first [1.00s]\nraptor second\nraptor second [3.00s]\n"
         );
     }
 
@@ -198,9 +224,9 @@ mod tests {
         assert_eq!(
             output,
             format!(
-                "{prefix} loading build artifacts\n\
-                 {REPLACE_LINE}{prefix} loading build artifacts [1/12]\n\
-                 {REPLACE_LINE}{prefix} loading build artifacts [1/12] ... done in 2.00s\n"
+                "{prefix} loading build artifacts\
+                 {REPLACE_LINE}{prefix} loading build artifacts [1/12]\
+                 {REPLACE_LINE}{prefix} loading build artifacts [1/12] {DIM}[2.00s]{RESET}\n"
             )
         );
     }
@@ -219,7 +245,7 @@ mod tests {
         // the stored message so end() uses the latest text.
         assert_eq!(
             output,
-            "raptor loading build artifacts\nraptor loading build artifacts [1/12] ... done in 2.00s\n"
+            "raptor loading build artifacts\nraptor loading build artifacts [1/12] [2.00s]\n"
         );
     }
 
@@ -239,11 +265,11 @@ mod tests {
         assert_eq!(
             output,
             format!(
-                "{prefix} loading build artifacts\n\
-                 {REPLACE_LINE}{prefix} loading build artifacts [1/3]\n\
-                 {REPLACE_LINE}{prefix} loading build artifacts [2/3]\n\
-                 {REPLACE_LINE}{prefix} loading build artifacts [3/3]\n\
-                 {REPLACE_LINE}{prefix} loading build artifacts [3/3] ... done in 2.00s\n"
+                "{prefix} loading build artifacts\
+                 {REPLACE_LINE}{prefix} loading build artifacts [1/3]\
+                 {REPLACE_LINE}{prefix} loading build artifacts [2/3]\
+                 {REPLACE_LINE}{prefix} loading build artifacts [3/3]\
+                 {REPLACE_LINE}{prefix} loading build artifacts [3/3] {DIM}[2.00s]{RESET}\n"
             )
         );
     }

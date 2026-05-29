@@ -265,8 +265,14 @@ pub fn run(args: Args) -> Result<()> {
     reporter.end()?;
 
     // Load build artifacts
-    info!("loading build artifacts");
+    let mut reporter = Reporter::new();
+    reporter.begin("loading build artifacts")?;
     let build_artifacts = project.load_artifacts()?;
+    reporter.update(format!(
+        "loading build artifacts ({} artifacts)",
+        build_artifacts.len()
+    ))?;
+    reporter.end()?;
     ensure!(
         build_artifacts.contains_key(&args.target),
         "target artifact `{}` not found in build artifacts",
@@ -274,16 +280,20 @@ pub fn run(args: Args) -> Result<()> {
     );
 
     // Load target contract and prepare library dependencies.
-    info!("loading target contract");
+    let mut reporter = Reporter::new();
+    reporter.begin("loading target contract")?;
     let target_contract = Contract::try_get(&build_artifacts, &args.target)?;
-    if !target_contract.libraries.is_empty() {
-        let lib_ids: Vec<&str> = target_contract
-            .libraries
-            .iter()
-            .map(|l| l.id.as_str())
-            .collect();
-        info!("linked external libraries: {:?}", lib_ids);
-    }
+    let detail = if target_contract.libraries.is_empty() {
+        format!("loading target contract {}", args.target)
+    } else {
+        let lib_count = target_contract.libraries.len();
+        format!(
+            "loading target contract {} ({lib_count} libraries)",
+            args.target
+        )
+    };
+    reporter.update(detail)?;
+    reporter.end()?;
 
     // TODO(pyk): Create InitcodeRegistry
     // Build compiled-contract registry for vm.getCode
@@ -302,19 +312,22 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     // Create test chain
-    info!("creating test chain");
+    let mut reporter = Reporter::new();
+    reporter.begin("creating test chain")?;
     let mut chain_config = ChainConfig::new(&project_path)
         .with_compiled_contracts(compiled_contracts)
         .coverage(true);
     if args.fork_mode.rpc_url.is_some() {
+        reporter.update("forking chain")?;
         let fork_config = args.fork_mode.build_fork_config(&project_path)?;
         chain_config = chain_config.fork(fork_config);
-        info!("forking a chain"); // TODO: add chain name, block number etc
     }
     let mut chain = Chain::new(chain_config)?;
+    reporter.end()?;
 
     // Deploy target contract
-    info!("deploying target contract");
+    let mut reporter = Reporter::new();
+    reporter.begin("deploying target contract")?;
     let mut deploy_opts = DeployInput::new(&target_contract.initcode)
         .caller(args.deployer_address)
         .value(args.deploy_value);
@@ -332,27 +345,32 @@ pub fn run(args: Args) -> Result<()> {
     let deployed_address = deployment
         .address
         .context("deployment succeeded but created_address is missing")?;
-    info!(%deployed_address, "target contract deployed");
+    reporter.update(format!("deploying target contract @ {}", deployed_address))?;
+    reporter.end()?;
 
     // Run setup if present
     if let Some(ref setup) = target_contract.setup_function {
-        info!("calling setup");
-        let setup_opts = SetupInput::new(deployed_address)
-            .calldata(Bytes::from(setup.selector().as_slice().to_vec()))
-            .caller(args.deployer_address);
-        let setup_output = chain.setup(setup_opts)?;
+        let mut reporter = Reporter::new();
+        reporter.begin("calling setup")?;
+        let setup_output = chain.setup(
+            SetupInput::new(deployed_address)
+                .calldata(Bytes::from(setup.selector().as_slice().to_vec()))
+                .caller(args.deployer_address),
+        )?;
         ensure!(
             setup_output.result.success,
             "setup failed (output: {:?})\n\ntrace:\n{:#?}",
             setup_output.result.output,
             setup_output.trace
         );
-        info!("setup completed");
+        reporter.end()?;
     }
 
     // Initialize shared corpus
     // Extract literals from build artifacts so the fuzzer can seed random value
     // generation with concrete values found across the entire project.
+    let mut reporter = Reporter::new();
+    reporter.begin("loading corpus")?;
     let literals = ExtractedLiterals::from_artifacts(&build_artifacts);
     let base_corpus_dir = args
         .corpus_dir
@@ -364,15 +382,15 @@ pub fn run(args: Args) -> Result<()> {
         .literals(literals);
     let corpus = SharedCorpus::new(corpus_config);
     let corpus_stats = corpus.load_items()?;
-    info!(
-        total = corpus_stats.total_count,
-        parse_failed = corpus_stats.parse_failed_count,
-        invalid = corpus_stats.invalid_call_count,
-        valid = corpus_stats.valid_count,
-        "corpus loaded"
-    );
+    reporter.update(format!(
+        "loading corpus ({} items)",
+        corpus_stats.total_count
+    ))?;
+    reporter.end()?;
 
     // Initialize shared coverage and sync with corpus.
+    let mut reporter = Reporter::new();
+    reporter.begin("replaying corpus")?;
     let shared_coverage = SharedCoverage::new();
     CorpusReplayer::new(shared_coverage.clone())
         .shared_corpus(corpus.clone())
@@ -381,7 +399,11 @@ pub fn run(args: Args) -> Result<()> {
         .invariant_functions(target_contract.invariant_functions.clone())
         .caller(args.deployer_address)
         .replay()?;
-    info!(hit_count = shared_coverage.hit_count(), "after replay");
+    reporter.update(format!(
+        "replaying corpus ({} coverage)",
+        shared_coverage.hit_count()
+    ))?;
+    reporter.end()?;
 
     // Initialize shared metrics across all fuzzer threads.
     let shared_metrics = SharedMetrics::new();
@@ -392,8 +414,6 @@ pub fn run(args: Args) -> Result<()> {
     let fuzzers = args.threads;
     let start = std::time::Instant::now();
     let timeout = args.timeout_secs.map(std::time::Duration::from_secs);
-
-    info!("fuzzing campaign started");
 
     let fuzzers_u64 = fuzzers as u64;
     let base_runs = args.max_runs / fuzzers_u64;
@@ -428,6 +448,18 @@ pub fn run(args: Args) -> Result<()> {
         handles.push((fuzzer_id, handle));
     }
 
+    let mut reporter = Reporter::new();
+    reporter.begin("fuzzing")?;
+    while handles.iter().any(|(_, h)| !h.is_finished()) {
+        let snapshot = shared_metrics.aggregate();
+        reporter.update(format!(
+            "fuzzing ({} runs, {} calls)",
+            snapshot.runs, snapshot.calls
+        ))?;
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    reporter.end()?;
+
     let mut all_failures = Vec::new();
     for (fuzzer_id, handle) in handles {
         match handle.join() {
@@ -447,12 +479,6 @@ pub fn run(args: Args) -> Result<()> {
     let total_runs = snapshot.runs;
     let total_calls = snapshot.calls;
     let total_gas = snapshot.gas;
-
-    info!(
-        runs = total_runs,
-        failures = all_failures.len(),
-        "Campaign complete"
-    );
 
     let elapsed_secs = start.elapsed().as_secs_f64();
     let calls_per_sec = if elapsed_secs > 0.0 {

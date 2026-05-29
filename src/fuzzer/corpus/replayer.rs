@@ -4,7 +4,7 @@ use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::Function;
 use alloy_primitives::Address;
 use anyhow::{Context, Result};
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::evm;
 use crate::evm::SharedCoverage;
@@ -98,7 +98,7 @@ impl CorpusReplayer {
             .collect();
 
         let items = shared_corpus.items();
-        info!(count = items.len(), "replaying corpus items");
+        debug!(count = items.len(), "replaying corpus items");
 
         for (idx, item) in items.iter().enumerate() {
             let transactions: Vec<evm::Transaction> = item
@@ -123,18 +123,6 @@ impl CorpusReplayer {
                 new_jump_edges = update.new_jump_edges,
                 new_jump_features = update.new_jump_features,
                 hit_count = self.shared_coverage.hit_count(),
-                "corpus item replayed"
-            );
-            info!(
-                idx = idx + 1,
-                total = items.len(),
-                item_id = %item.id(),
-                new_edges = update.new_edges,
-                new_features = update.new_features,
-                new_depths = update.new_depths,
-                new_reverts = update.new_reverts,
-                new_jump_edges = update.new_jump_edges,
-                new_jump_features = update.new_jump_features,
                 "corpus item replayed"
             );
         }
