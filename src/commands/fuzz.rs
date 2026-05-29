@@ -12,15 +12,20 @@ use clap::Parser;
 use revm::primitives::{Bytes, U256};
 use tracing::{debug, info, instrument};
 
-use crate::evm::SharedCoverage;
-use crate::fuzzer::{CorpusReplayer, ExtractedLiterals, SharedCorpus, SharedMetrics};
-use crate::*;
+use crate::evm::{
+    Chain, ChainConfig, Contract, DeployInput, ForkConfig, SetupInput, SharedCoverage,
+};
+use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
+use crate::fuzzer::{
+    Config as FuzzerConfig, CorpusConfig, CorpusReplayer, ExtractedLiterals, Fuzzer, SharedCorpus,
+    SharedMetrics,
+};
 
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Target contract identifier (e.g. ./test/Contract.sol:Contract).
     #[arg(value_name = "TARGET")]
-    pub target: foundry::ArtifactId,
+    pub target: ArtifactId,
 
     // Project & Deployment
     /// Path to the Foundry project root.
@@ -227,13 +232,13 @@ impl Default for ForkModeArgs {
 
 impl ForkModeArgs {
     /// Build a [`ForkConfig`](crate::evm::ForkConfig) from CLI arguments.
-    pub fn build_fork_config(&self, project_path: impl AsRef<Path>) -> Result<evm::ForkConfig> {
+    pub fn build_fork_config(&self, project_path: impl AsRef<Path>) -> Result<ForkConfig> {
         let cache_dir = project_path.as_ref().join("raptor").join("cache");
         let block = self
             .rpc_block
             .context("--rpc-block is required with --rpc-url")?;
         let url = self.rpc_url.as_ref().context("--rpc-url is required")?;
-        let config = evm::ForkConfig::new(url.clone())
+        let config = ForkConfig::new(url.clone())
             .retries(self.rpc_retries)
             .backoff_ms(self.rpc_backoff)
             .rate_limit(self.rpc_rate_limit)
@@ -252,8 +257,8 @@ pub fn run(args: Args) -> Result<()> {
 
     // Build project
     info!("building project");
-    let project = foundry::Project::new(&project_path);
-    let build_opts = foundry::BuildOptions::new().force(args.force);
+    let project = Project::new(&project_path);
+    let build_opts = BuildOptions::new().force(args.force);
     project.build(build_opts)?;
 
     // Load build artifacts
@@ -267,7 +272,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Load target contract and prepare library dependencies.
     info!("loading target contract");
-    let target_contract = evm::Contract::try_get(&build_artifacts, &args.target)?;
+    let target_contract = Contract::try_get(&build_artifacts, &args.target)?;
     if !target_contract.libraries.is_empty() {
         let lib_ids: Vec<&str> = target_contract
             .libraries
@@ -282,8 +287,8 @@ pub fn run(args: Args) -> Result<()> {
     let mut compiled_contracts = HashMap::new();
     for (id, artifact) in &build_artifacts {
         let bytecode = match artifact {
-            foundry::Artifact::Contract(c) => &c.bytecode.object,
-            foundry::Artifact::Library(c) => &c.bytecode.object,
+            Artifact::Contract(c) => &c.bytecode.object,
+            Artifact::Library(c) => &c.bytecode.object,
             _ => continue,
         };
         let initcode: Bytes = bytecode.parse().unwrap_or_default();
@@ -295,7 +300,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Create test chain
     info!("creating test chain");
-    let mut chain_config = evm::ChainConfig::new(&project_path)
+    let mut chain_config = ChainConfig::new(&project_path)
         .with_compiled_contracts(compiled_contracts)
         .coverage(true);
     if args.fork_mode.rpc_url.is_some() {
@@ -303,11 +308,11 @@ pub fn run(args: Args) -> Result<()> {
         chain_config = chain_config.fork(fork_config);
         info!("forking a chain"); // TODO: add chain name, block number etc
     }
-    let mut chain = evm::Chain::new(chain_config)?;
+    let mut chain = Chain::new(chain_config)?;
 
     // Deploy target contract
     info!("deploying target contract");
-    let mut deploy_opts = evm::DeployInput::new(&target_contract.initcode)
+    let mut deploy_opts = DeployInput::new(&target_contract.initcode)
         .caller(args.deployer_address)
         .value(args.deploy_value);
     let libraries = target_contract.libraries.clone();
@@ -329,7 +334,7 @@ pub fn run(args: Args) -> Result<()> {
     // Run setup if present
     if let Some(ref setup) = target_contract.setup_function {
         info!("calling setup");
-        let setup_opts = evm::SetupInput::new(deployed_address)
+        let setup_opts = SetupInput::new(deployed_address)
             .calldata(Bytes::from(setup.selector().as_slice().to_vec()))
             .caller(args.deployer_address);
         let setup_output = chain.setup(setup_opts)?;
@@ -350,11 +355,11 @@ pub fn run(args: Args) -> Result<()> {
         .corpus_dir
         .unwrap_or_else(|| project_path.join("raptor").join("corpus"));
     let corpus_dir = SharedCorpus::dir_for(&base_corpus_dir, &target_contract.artifact_id);
-    let corpus_config = fuzzer::CorpusConfig::new(corpus_dir)
+    let corpus_config = CorpusConfig::new(corpus_dir)
         .target_functions(target_contract.target_functions.clone())
         .max_calls(args.max_calls)
         .literals(literals);
-    let corpus = fuzzer::SharedCorpus::new(corpus_config);
+    let corpus = SharedCorpus::new(corpus_config);
     let corpus_stats = corpus.load_items()?;
     info!(
         total = corpus_stats.total_count,
@@ -391,7 +396,7 @@ pub fn run(args: Args) -> Result<()> {
     let base_runs = args.max_runs / fuzzers_u64;
     let remainder = (args.max_runs % fuzzers_u64) as usize;
 
-    let initial_config = fuzzer::Config::new()
+    let initial_config = FuzzerConfig::new()
         .chain(chain.clone())
         .target_address(deployed_address)
         .shared_corpus(corpus.clone())
@@ -415,7 +420,7 @@ pub fn run(args: Args) -> Result<()> {
         config.max_runs = local_max_runs;
         config.seed = seed;
 
-        let fuzzer = fuzzer::Fuzzer::new(config);
+        let fuzzer = Fuzzer::new(config);
         let handle = std::thread::spawn(move || fuzzer.run());
         handles.push((fuzzer_id, handle));
     }
