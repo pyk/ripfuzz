@@ -573,9 +573,7 @@ impl Chain {
                 .inspect_tx_commit(tx_env)
                 .context("revm transaction failed")?;
             let result = result::TransactionResult::from(result);
-            if let Some(ref output) = result.output
-                && result::is_assert_failure(output)
-            {
+            if result.is_assert_failure() {
                 // checkrs: allow(clone_in_loops)
                 panic_transactions.push(tx.clone());
             }

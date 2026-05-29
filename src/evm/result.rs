@@ -6,11 +6,6 @@ use revm::primitives::{Address, Bytes};
 /// Solidity `Panic(uint256)` selector: keccak256("Panic(uint256)")[:4]
 const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
 
-/// Detect a Solidity `assert` failure (`Panic(0x01)`) in revert output.
-pub fn is_assert_failure(output: &Bytes) -> bool {
-    output.len() >= 36 && output[..4] == PANIC_SELECTOR && output[35] == 0x01
-}
-
 /// Result of a single EVM transaction execution.
 #[derive(Debug, Clone)]
 pub struct TransactionResult {
@@ -55,6 +50,18 @@ impl From<ExecutionResult> for TransactionResult {
                 logs,
                 created_address: None,
             },
+        }
+    }
+}
+
+impl TransactionResult {
+    /// Detect a Solidity `assert` failure (`Panic(0x01)`) in revert output.
+    pub fn is_assert_failure(&self) -> bool {
+        match &self.output {
+            Some(output) => {
+                output.len() >= 36 && output[..4] == PANIC_SELECTOR && output[35] == 0x01
+            }
+            None => false,
         }
     }
 }
