@@ -324,7 +324,7 @@ impl Chain {
     /// from a remote RPC node pinned to [`Config::fork_block_number`].
     /// Otherwise an empty sandbox chain is created.
     pub fn new(config: Config) -> Result<Self> {
-        match config.fork.clone() {
+        match config.fork_config().cloned() {
             Some(fork_config) => {
                 let agent_cfg = ureq::Agent::config_builder()
                     .timeout_global(Some(std::time::Duration::from_millis(
@@ -332,7 +332,7 @@ impl Chain {
                     )))
                     .build();
                 let agent = ureq::Agent::new_with_config(agent_cfg);
-                Self::fork_with_transport(fork_config, agent)
+                Self::fork_with_transport(config, fork_config, agent)
             }
             None => Ok(Self::empty(config)),
         }
@@ -538,12 +538,12 @@ impl Chain {
         let inspector = (
             cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
             (
-                if self.config.trace {
+                if self.config.trace_enabled() {
                     Either::Left(trace::Inspector::new())
                 } else {
                     Either::Right(NoOpInspector)
                 },
-                if self.config.coverage {
+                if self.config.coverage_enabled() {
                     Either::Left(coverage::Inspector::new())
                 } else {
                     Either::Right(NoOpInspector)
@@ -672,9 +672,9 @@ mod tests {
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
-    fn deploy_and_setup_warp() -> (Chain, Address) {
+    fn deploy_and_setup_warp(config: Config) -> (Chain, Address) {
         let contract = load_warp_fixture();
-        let mut chain = Chain::new(Config::default()).unwrap();
+        let mut chain = Chain::new(config).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
@@ -690,7 +690,7 @@ mod tests {
     /// cheatcode and the second observes the mutated state.
     #[test]
     fn execute_sequence_preserves_cheatcode_state() {
-        let (mut chain, target) = deploy_and_setup_warp();
+        let (mut chain, target) = deploy_and_setup_warp(Config::default());
 
         // First transaction: warp timestamp back to EXPECTED_TIMESTAMP.
         // Second transaction: invariant checks that block.timestamp matches.
@@ -715,8 +715,7 @@ mod tests {
     /// Coverage is collected across all transactions in a sequence.
     #[test]
     fn execute_with_coverage_collects_across_sequence() {
-        let (mut chain, target) = deploy_and_setup_warp();
-        chain.config.coverage = true;
+        let (mut chain, target) = deploy_and_setup_warp(Config::default().coverage(true));
 
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
@@ -741,8 +740,7 @@ mod tests {
     /// Trace is collected across all transactions in a sequence.
     #[test]
     fn execute_with_trace_collects_calls() {
-        let (mut chain, target) = deploy_and_setup_warp();
-        chain.config.trace = true;
+        let (mut chain, target) = deploy_and_setup_warp(Config::default().trace(true));
 
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             WarpTarget::actionWarpCall::new(()).abi_encode(),
@@ -762,7 +760,7 @@ mod tests {
     /// A cloned chain should produce independent execution results.
     #[test]
     fn execute_on_cloned_chain_is_isolated() {
-        let (mut chain, target) = deploy_and_setup_warp();
+        let (mut chain, target) = deploy_and_setup_warp(Config::default());
 
         // Mutate original chain.
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
@@ -794,8 +792,7 @@ mod tests {
         let artifact_id =
             foundry::ArtifactId::try_from("src/NamedMismatch.sol:DifferentName").unwrap();
         let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
-        let mut chain = Chain::new(Config::default()).unwrap();
-        chain.config.coverage = true;
+        let mut chain = Chain::new(Config::default().coverage(true)).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success);
         let target = deployment.address.unwrap();

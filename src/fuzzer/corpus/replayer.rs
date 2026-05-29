@@ -172,8 +172,8 @@ mod tests {
     }
 
     fn deploy_and_setup(contract: &Contract) -> (Chain, Address) {
-        let mut chain = Chain::new(Config::default()).unwrap();
-        chain.config.coverage = true;
+        let config = Config::default().coverage(true);
+        let mut chain = Chain::new(config).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();

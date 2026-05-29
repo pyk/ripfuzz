@@ -11,15 +11,10 @@ use crate::evm::forkdb;
 /// Campaign-level configuration that controls chain behaviour.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Cheatcode inspector configuration (`vm.ffi`, project root, etc.).
-    pub cheatcode: cheatcode::Config,
-    /// Enable trace collection.
-    pub trace: bool,
-    /// Enable coverage collection.
-    pub coverage: bool,
-    /// Fork configuration; when `Some` the chain is forked from a remote
-    /// RPC node instead of starting as an empty sandbox.
-    pub fork: Option<forkdb::Config>,
+    cheatcode: cheatcode::Config,
+    trace: bool,
+    coverage: bool,
+    fork: Option<forkdb::Config>,
 }
 
 impl Config {
@@ -56,6 +51,32 @@ impl Config {
     pub fn with_compiled_contracts(mut self, contracts: HashMap<String, Bytes>) -> Self {
         self.cheatcode = self.cheatcode.with_compiled_contracts(contracts);
         self
+    }
+
+    /// Enable or disable FFI via the cheatcode inspector.
+    pub fn ffi(mut self, enabled: bool) -> Self {
+        self.cheatcode = self.cheatcode.ffi(enabled);
+        self
+    }
+
+    /// Whether trace collection is enabled.
+    pub fn trace_enabled(&self) -> bool {
+        self.trace
+    }
+
+    /// Whether coverage collection is enabled.
+    pub fn coverage_enabled(&self) -> bool {
+        self.coverage
+    }
+
+    /// Fork configuration, if any.
+    pub fn fork_config(&self) -> Option<&forkdb::Config> {
+        self.fork.as_ref()
+    }
+
+    /// Cheatcode inspector configuration.
+    pub fn cheatcode(&self) -> &cheatcode::Config {
+        &self.cheatcode
     }
 }
 

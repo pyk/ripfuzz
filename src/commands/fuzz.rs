@@ -298,7 +298,7 @@ pub fn run(args: Args) -> Result<()> {
         .coverage(true);
     if args.fork_mode.rpc_url.is_some() {
         let fork_config = args.fork_mode.build_fork_config(&project_path)?;
-        chain_config.fork = Some(fork_config);
+        chain_config = chain_config.fork(fork_config);
         info!("forking a chain"); // TODO: add chain name, block number etc
     }
     let mut chain = evm::Chain::new(chain_config)?;

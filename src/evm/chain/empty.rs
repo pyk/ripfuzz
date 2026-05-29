@@ -12,7 +12,7 @@ use revm::{
 };
 
 use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER};
-use crate::evm::cheatcode::VM_ADDRESS;
+use crate::evm::cheatcode::*;
 use crate::evm::database::{Database, EmptyDB};
 
 impl Default for Chain {
@@ -75,13 +75,14 @@ impl Chain {
             },
         );
 
+        let cheatcode_state = ExecutionState::from_config(config.cheatcode());
         Self {
             database: Some(Database::Empty(db)),
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,
-            config: config.clone(),
-            cheatcode_state: crate::evm::cheatcode::ExecutionState::from_config(&config.cheatcode),
+            config,
+            cheatcode_state,
         }
     }
 }

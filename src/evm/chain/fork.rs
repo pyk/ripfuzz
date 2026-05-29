@@ -11,36 +11,39 @@ use revm::{
     state::AccountInfo,
 };
 
+use crate::evm::chain;
 use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
-use crate::evm::cheatcode::VM_ADDRESS;
+use crate::evm::cheatcode::*;
 use crate::evm::database::{Database, ForkDB};
-use crate::evm::forkdb::{Config, Request, Response, Transport};
+use crate::evm::forkdb;
 
 impl Chain {
     /// Create a forked EVM with a custom transport (used in tests).
     pub fn fork_with_transport(
-        config: Config,
-        transport: impl Transport + 'static,
+        chain_config: chain::Config,
+        forkdb_config: forkdb::Config,
+        transport: impl forkdb::Transport + 'static,
     ) -> Result<Self> {
-        let block_number = config.block_number;
-        let url_hash = crate::evm::forkdb::url_hash(&config.url);
-        let backend = crate::evm::forkdb::SharedBackend::new_with_transport(config, transport);
+        let block_number = forkdb_config.block_number;
+        let url_hash = crate::evm::forkdb::url_hash(&forkdb_config.url);
+        let backend =
+            crate::evm::forkdb::SharedBackend::new_with_transport(forkdb_config, transport);
 
         // resolve chain_id so every subsequent cache key is scoped.
         let mut responses = backend
-            .fetch_or_wait(&[Request::GetChainId { url_hash }])
+            .fetch_or_wait(&[forkdb::Request::GetChainId { url_hash }])
             .with_context(|| "fetching chain id for fork")?;
         let chain_id = responses
             .pop()
             .and_then(|r| match r {
-                Response::ChainId(v) => Some(v),
+                forkdb::Response::ChainId(v) => Some(v),
                 _ => None,
             })
             .context("missing ChainId response")?;
 
         // fetch the fork block using the real chain_id.
         let mut responses = backend
-            .fetch_or_wait(&[Request::GetBlockByNumber {
+            .fetch_or_wait(&[forkdb::Request::GetBlockByNumber {
                 chain_id,
                 block: block_number,
                 full_tx: false,
@@ -49,7 +52,7 @@ impl Chain {
         let block = responses
             .pop()
             .and_then(|r| match r {
-                Response::BlockByNumber(b) => Some(b),
+                forkdb::Response::BlockByNumber(b) => Some(b),
                 _ => None,
             })
             .context("missing BlockByNumber response")?;
@@ -126,14 +129,14 @@ impl Chain {
             },
         );
 
-        let config = super::Config::default();
+        let cheatcode_state = ExecutionState::from_config(chain_config.cheatcode());
         Ok(Self {
             database: Some(Database::Fork(database)),
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,
-            config: config.clone(),
-            cheatcode_state: crate::evm::cheatcode::ExecutionState::from_config(&config.cheatcode),
+            config: chain_config,
+            cheatcode_state,
         })
     }
 }
@@ -201,7 +204,12 @@ mod tests {
         );
 
         let config = Config::new(url).block_number(1);
-        let chain = Chain::fork_with_transport(config, transport.clone()).unwrap();
+        let chain = Chain::fork_with_transport(
+            crate::evm::chain::Config::default(),
+            config,
+            transport.clone(),
+        )
+        .unwrap();
         assert_eq!(chain.deployer(), DEFAULT_DEPLOYER);
 
         let chain_id_payload = json!([
@@ -256,7 +264,12 @@ mod tests {
         );
 
         let config = Config::new(url).block_number(1);
-        let chain = Chain::fork_with_transport(config, transport.clone()).unwrap();
+        let chain = Chain::fork_with_transport(
+            crate::evm::chain::Config::default(),
+            config,
+            transport.clone(),
+        )
+        .unwrap();
 
         let chain_id_payload = json!([
             {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
@@ -310,7 +323,12 @@ mod tests {
         );
 
         let config = Config::new(url).block_number(20_000_000);
-        let chain = Chain::fork_with_transport(config, transport.clone()).unwrap();
+        let chain = Chain::fork_with_transport(
+            crate::evm::chain::Config::default(),
+            config,
+            transport.clone(),
+        )
+        .unwrap();
         assert_eq!(
             chain.cfg_env().spec,
             SpecId::CANCUN,
@@ -344,7 +362,12 @@ mod tests {
         );
 
         let config = Config::new(url).block_number(9_000_000);
-        let chain = Chain::fork_with_transport(config, transport.clone()).unwrap();
+        let chain = Chain::fork_with_transport(
+            crate::evm::chain::Config::default(),
+            config,
+            transport.clone(),
+        )
+        .unwrap();
         assert_eq!(
             chain.cfg_env().spec,
             SpecId::CANCUN,
@@ -378,7 +401,12 @@ mod tests {
         );
 
         let config = Config::new(url).block_number(1);
-        let mut chain = Chain::fork_with_transport(config, transport.clone()).unwrap();
+        let mut chain = Chain::fork_with_transport(
+            crate::evm::chain::Config::default(),
+            config,
+            transport.clone(),
+        )
+        .unwrap();
 
         assert_eq!(
             chain.block_env().basefee,
@@ -423,7 +451,12 @@ mod tests {
         );
 
         let config = Config::new(url).block_number(1);
-        let chain = Chain::fork_with_transport(config, transport.clone()).unwrap();
+        let chain = Chain::fork_with_transport(
+            crate::evm::chain::Config::default(),
+            config,
+            transport.clone(),
+        )
+        .unwrap();
         let db = chain.database().unwrap();
 
         let hash = db.block_hash_ref(1).unwrap();
@@ -468,7 +501,12 @@ mod tests {
         );
 
         let config = Config::new(url).block_number(1);
-        let chain = Chain::fork_with_transport(config, transport.clone()).unwrap();
+        let chain = Chain::fork_with_transport(
+            crate::evm::chain::Config::default(),
+            config,
+            transport.clone(),
+        )
+        .unwrap();
         let blob_info = chain.block_env().blob_excess_gas_and_price.unwrap();
 
         assert_eq!(
@@ -507,7 +545,12 @@ mod tests {
         );
 
         let config = Config::new(url).block_number(1);
-        let chain = Chain::fork_with_transport(config, transport.clone()).unwrap();
+        let chain = Chain::fork_with_transport(
+            crate::evm::chain::Config::default(),
+            config,
+            transport.clone(),
+        )
+        .unwrap();
         assert_eq!(
             chain.cfg_env().limit_contract_initcode_size,
             Some(usize::MAX),
@@ -551,7 +594,11 @@ mod tests {
         );
 
         let config = Config::new(url).block_number(100);
-        let result = Chain::fork_with_transport(config, transport.clone());
+        let result = Chain::fork_with_transport(
+            crate::evm::chain::Config::default(),
+            config,
+            transport.clone(),
+        );
         assert!(
             result.is_err(),
             "Chain::fork must reject a block whose number does not match the requested height"
