@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 
 use alloy_primitives::{Address, U256, address, keccak256};
-use alloy_sol_types::SolCall;
 use anyhow::{Context as _, Result, ensure};
 use revm::{
     MainBuilder, MainContext,
@@ -16,228 +15,24 @@ use revm::{
 };
 
 pub use crate::evm::chain::config::Config;
+
+pub use deploy::{DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput};
+pub use exec::ExecOutput;
+pub use setup::{SetupInput, SetupOutput};
+pub use transaction::Transaction;
+
 use crate::evm::{cheatcode, coverage, database, result, trace};
 
 mod config;
+mod deploy;
 mod empty;
+mod exec;
 mod fork;
+mod setup;
+mod transaction;
 
 /// Default deployer address: `address(uint160(uint256(keccak256("raptor deployer"))))`.
 pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1");
-
-/// Configuration for a contract deployment.
-#[derive(Debug, Clone)]
-pub struct DeployInput {
-    pub caller: Address,
-    pub value: U256,
-    pub initcode: String,
-    pub libraries: Vec<DeployLibraryInput>,
-    pub gas_limit: u64,
-}
-
-/// Configuration for a linked library deployment.
-#[derive(Debug, Clone)]
-pub struct DeployLibraryInput {
-    pub id: String,
-    pub initcode: String,
-    pub libraries: Vec<DeployLibraryInput>,
-}
-
-impl DeployLibraryInput {
-    /// Create [`DeployLibraryInput`] with the given identifier and initcode.
-    pub fn new(id: impl Into<String>, initcode: &str) -> Self {
-        Self {
-            id: id.into(),
-            initcode: initcode.into(),
-            libraries: Vec::new(),
-        }
-    }
-
-    /// Add a nested library dependency.
-    pub fn add_library(mut self, library: DeployLibraryInput) -> Self {
-        self.libraries.push(library);
-        self
-    }
-}
-
-impl DeployInput {
-    /// Create [`DeployInput`] with the given initcode.
-    ///
-    /// Caller defaults to [`DEFAULT_DEPLOYER`]; override with [`Self::caller`].
-    pub fn new(initcode: &str) -> Self {
-        Self {
-            caller: DEFAULT_DEPLOYER,
-            value: U256::ZERO,
-            initcode: initcode.into(),
-            libraries: Vec::new(),
-            gas_limit: u64::MAX,
-        }
-    }
-
-    /// Set the account address used to deploy the contract.
-    pub fn caller(mut self, caller: Address) -> Self {
-        self.caller = caller;
-        self
-    }
-
-    /// Set the wei value sent with the deployment transaction.
-    pub fn value(mut self, value: U256) -> Self {
-        self.value = value;
-        self
-    }
-
-    /// Add a linked library to deploy before the target contract.
-    pub fn add_library(mut self, library: DeployLibraryInput) -> Self {
-        self.libraries.push(library);
-        self
-    }
-
-    /// Set the gas limit for the deployment transaction.
-    pub fn gas_limit(mut self, gas_limit: u64) -> Self {
-        self.gas_limit = gas_limit;
-        self
-    }
-}
-
-/// Result of a deployed library.
-#[derive(Debug, Clone)]
-pub struct DeployLibraryOutput {
-    pub id: String,
-    pub address: Address,
-}
-
-/// Result of a contract deployment, including the trace.
-///
-/// `address` is `None` when the constructor reverts or halts, but `result`
-/// and `trace` are still populated so the caller can inspect the failure.
-#[derive(Debug, Clone)]
-pub struct DeployOutput {
-    pub address: Option<Address>,
-    pub libraries: Vec<DeployLibraryOutput>,
-    pub result: result::TransactionResult,
-    pub trace: trace::Trace,
-}
-
-/// Result of a setup call, including the trace.
-#[derive(Debug, Clone)]
-pub struct SetupOutput {
-    pub result: result::TransactionResult,
-    pub trace: trace::Trace,
-}
-
-alloy_sol_types::sol! {
-    interface Setup {
-        function setup() external;
-    }
-}
-
-/// Configuration for a setup call.
-#[derive(Debug, Clone)]
-pub struct SetupInput {
-    pub caller: Address,
-    pub target: Address,
-    pub calldata: Bytes,
-    pub value: U256,
-    pub gas_limit: u64,
-}
-
-impl SetupInput {
-    /// Create [`SetupInput`] for the given target with the default `setup()` selector.
-    ///
-    /// Caller defaults to [`DEFAULT_DEPLOYER`]; override with [`Self::caller`].
-    pub fn new(target: Address) -> Self {
-        Self {
-            caller: DEFAULT_DEPLOYER,
-            target,
-            calldata: Bytes::from(Setup::setupCall::new(()).abi_encode()),
-            value: U256::ZERO,
-            gas_limit: u64::MAX,
-        }
-    }
-
-    /// Set the calldata for the setup transaction.
-    pub fn calldata(mut self, calldata: Bytes) -> Self {
-        self.calldata = calldata;
-        self
-    }
-
-    /// Set the account address used to send the setup transaction.
-    pub fn caller(mut self, caller: Address) -> Self {
-        self.caller = caller;
-        self
-    }
-
-    /// Set the wei value sent with the setup transaction.
-    pub fn value(mut self, value: U256) -> Self {
-        self.value = value;
-        self
-    }
-
-    /// Set the gas limit for the setup transaction.
-    pub fn gas_limit(mut self, gas_limit: u64) -> Self {
-        self.gas_limit = gas_limit;
-        self
-    }
-}
-
-/// A single CALL transaction to execute in a sequence.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Transaction {
-    pub caller: Address,
-    pub target: Address,
-    pub calldata: Bytes,
-    pub value: U256,
-    pub gas_limit: u64,
-}
-
-impl Transaction {
-    /// Create a [`Transaction`] for the given target.
-    ///
-    /// Caller defaults to [`DEFAULT_DEPLOYER`]; override with [`Self::caller`].
-    /// Calldata defaults to empty bytes; override with [`Self::calldata`].
-    pub fn new(target: Address) -> Self {
-        Self {
-            caller: DEFAULT_DEPLOYER,
-            target,
-            calldata: Bytes::new(),
-            value: U256::ZERO,
-            gas_limit: u64::MAX,
-        }
-    }
-
-    /// Set the calldata for the transaction.
-    pub fn calldata(mut self, calldata: Bytes) -> Self {
-        self.calldata = calldata;
-        self
-    }
-
-    /// Set the account address used to send the transaction.
-    pub fn caller(mut self, caller: Address) -> Self {
-        self.caller = caller;
-        self
-    }
-
-    /// Set the wei value sent with the transaction.
-    pub fn value(mut self, value: U256) -> Self {
-        self.value = value;
-        self
-    }
-
-    /// Set the gas limit for the transaction.
-    pub fn gas_limit(mut self, gas_limit: u64) -> Self {
-        self.gas_limit = gas_limit;
-        self
-    }
-}
-
-/// Result of executing a sequence of transactions.
-#[derive(Debug, Clone)]
-pub struct ExecOutput {
-    pub results: Vec<result::TransactionResult>,
-    pub trace: Option<trace::Trace>,
-    pub coverage: Option<crate::evm::ExecutionCoverage>,
-    pub panic_transactions: Vec<Transaction>,
-}
 
 /// EVM Chain state and executor.
 ///
