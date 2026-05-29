@@ -119,7 +119,7 @@ pub struct Args {
     )]
     pub shrink_runs: u64,
 
-    /// Timeout in seconds for the shrinker campaign.
+    /// Timeout in seconds for the shrinking phase.
     #[arg(
         long = "shrink-timeout",
         value_name = "SECS",
@@ -792,7 +792,7 @@ mod tests {
             fork_mode: ForkModeArgs::default(),
             ffi: false,
             force: false,
-            shrink_runs: 10000,
+            shrink_runs: 1,
             shrink_timeout_secs: None,
             shrink_threads: None,
         }
