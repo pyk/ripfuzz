@@ -38,7 +38,7 @@ pub struct Stats {
 /// The `map` provides O(1) deduplication by [`Item::id`]; the `vec`
 /// provides O(1) random sampling. Both are updated together atomically
 /// under a single [`parking_lot::RwLock`].
-pub struct SharedCorpusItems {
+struct SharedCorpusItems {
     pub ids: HashSet<String>,
     pub vec: Vec<Item>,
 }
@@ -60,7 +60,7 @@ impl SharedCorpusItems {
     }
 }
 
-pub struct SharedCorpusInner {
+struct SharedCorpusInner {
     pub corpus_dir: PathBuf,
     pub items: RwLock<SharedCorpusItems>,
     pub target_functions: Vec<alloy_json_abi::Function>,
