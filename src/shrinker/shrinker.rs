@@ -13,6 +13,7 @@ use tracing::instrument;
 use crate::corpus::{Call, Item, SharedFailedCorpusItem};
 use crate::evm;
 use crate::evm::Transaction;
+use crate::fuzzer::SharedMetrics;
 
 /// Result produced by a single shrinker thread.
 #[derive(Debug, Clone)]
@@ -36,6 +37,7 @@ pub struct Shrinker {
     invariant_functions: Vec<Function>,
     max_runs: u64,
     timeout: Option<Duration>,
+    shared_metrics: SharedMetrics,
     rng: fastrand::Rng,
 }
 
@@ -51,6 +53,7 @@ impl Shrinker {
             invariant_functions: config.invariant_functions,
             max_runs: config.max_runs,
             timeout: config.timeout,
+            shared_metrics: config.shared_metrics,
             rng: fastrand::Rng::with_seed(config.seed),
         }
     }
@@ -107,6 +110,7 @@ impl Shrinker {
 
             total_calls += calls_count as u64;
             total_gas += gas_sum;
+            self.shared_metrics.record(calls_count as u64, gas_sum);
             runs += 1;
 
             if !exec.panic_transactions.is_empty() {
@@ -134,6 +138,7 @@ pub struct Config {
     pub invariant_functions: Vec<Function>,
     pub max_runs: u64,
     pub timeout: Option<Duration>,
+    pub shared_metrics: SharedMetrics,
 }
 
 impl Config {
@@ -152,6 +157,7 @@ impl Config {
             invariant_functions: Vec::new(),
             max_runs: 0,
             timeout: None,
+            shared_metrics: SharedMetrics::new(),
         }
     }
 
@@ -206,6 +212,12 @@ impl Config {
     /// Set the timeout.
     pub fn timeout(mut self, value: Option<Duration>) -> Self {
         self.timeout = value;
+        self
+    }
+
+    /// Set the shared metrics.
+    pub fn shared_metrics(mut self, value: SharedMetrics) -> Self {
+        self.shared_metrics = value;
         self
     }
 }

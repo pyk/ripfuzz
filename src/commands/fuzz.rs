@@ -324,14 +324,43 @@ pub fn run(args: Args) -> Result<()> {
     let mut reporter = Reporter::new();
     reporter.begin("loading target contract")?;
     let target_contract = Contract::try_get(&build_artifacts, &args.target)?;
+    let target_count = target_contract.target_functions.len();
+    let invariant_count = target_contract.invariant_functions.len();
+    let target_word = if target_count == 1 {
+        "target function"
+    } else {
+        "target functions"
+    };
+    let invariant_word = if invariant_count == 1 {
+        "invariant function"
+    } else {
+        "invariant functions"
+    };
     let detail = if target_contract.libraries.is_empty() {
-        format!("loading target contract {}", args.target)
+        format!(
+            "loading target contract {} ({} {}, {} {})",
+            args.target,
+            fmt_num(target_count as u64),
+            target_word,
+            fmt_num(invariant_count as u64),
+            invariant_word,
+        )
     } else {
         let lib_count = target_contract.libraries.len();
+        let lib_word = if lib_count == 1 {
+            "library"
+        } else {
+            "libraries"
+        };
         format!(
-            "loading target contract {} ({lib_count} libraries)",
+            "loading target contract {} ({} {}, {} {}, {} {})",
             args.target,
-            lib_count = fmt_num(lib_count as u64)
+            fmt_num(target_count as u64),
+            target_word,
+            fmt_num(invariant_count as u64),
+            invariant_word,
+            fmt_num(lib_count as u64),
+            lib_word,
         )
     };
     reporter.update(detail)?;
@@ -506,7 +535,8 @@ pub fn run(args: Args) -> Result<()> {
         };
         reporter.update_with_elapsed(
             format!(
-                "fuzzing {} runs {} calls/s {} gas/s",
+                "fuzzing: {} threads {} runs {} calls/s {} gas/s",
+                fmt_num(fuzzers as u64),
                 fmt_num(snapshot.runs),
                 fmt_num(calls_per_sec),
                 fmt_num(gas_per_sec),
@@ -515,7 +545,6 @@ pub fn run(args: Args) -> Result<()> {
         )?;
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    reporter.end()?;
 
     let mut all_failures = Vec::new();
     for (fuzzer_id, handle) in handles {
@@ -532,17 +561,29 @@ pub fn run(args: Args) -> Result<()> {
         }
     }
 
-    // Report campaign result
     if all_failures.is_empty() {
-        println!("All invariants passed");
+        reporter.update("fuzzing: all invariants passed")?;
+        reporter.end()?;
         return Ok(());
     }
 
-    // Pick the smallest failed corpus item.
     let smallest_failure = all_failures
         .iter()
         .min_by_key(|f| f.item.calls.len())
         .context("no failures found")?;
+
+    let failed_count = all_failures.len();
+    let selected_calls = smallest_failure.item.calls.len();
+    let failed_item_word = if failed_count == 1 { "item" } else { "items" };
+    let selected_call_word = if selected_calls == 1 { "call" } else { "calls" };
+    reporter.update(format!(
+        "fuzzing: found {} failed corpus {}, selecting smallest ({} {})",
+        fmt_num(failed_count as u64),
+        failed_item_word,
+        fmt_num(selected_calls as u64),
+        selected_call_word,
+    ))?;
+    reporter.end()?;
 
     // Initialize shared failed corpus item for the shrinker.
     let failed_corpus_config = CorpusConfig::new(PathBuf::new())
@@ -556,6 +597,7 @@ pub fn run(args: Args) -> Result<()> {
     let shrink_threads = args.shrink_threads.unwrap_or(args.threads);
     let shrink_timeout = args.shrink_timeout_secs.map(std::time::Duration::from_secs);
     let shrinker_shutdown = Arc::new(AtomicBool::new(false));
+    let shrinker_metrics = SharedMetrics::new();
 
     let shrinkers_u64 = shrink_threads as u64;
     let base_shrink_runs = args.shrink_runs / shrinkers_u64;
@@ -589,7 +631,9 @@ pub fn run(args: Args) -> Result<()> {
             .caller(args.deployer_address)
             .max_runs(local_max_runs)
             .timeout(shrink_timeout)
-            .seed(seed);
+            .seed(seed)
+            // checkrs: allow(clone_in_loops)
+            .shared_metrics(shrinker_metrics.clone());
         let shrinker = Shrinker::new(shrinker_config);
         let handle = std::thread::spawn(move || shrinker.run());
         shrinker_handles.push(handle);
@@ -598,9 +642,30 @@ pub fn run(args: Args) -> Result<()> {
     let mut reporter = Reporter::new();
     reporter.begin("shrinking")?;
     while shrinker_handles.iter().any(|h| !h.is_finished()) {
+        let snapshot = shrinker_metrics.aggregate();
+        let elapsed_secs = snapshot.elapsed.as_secs_f64();
+        let calls_per_sec = if elapsed_secs > 0.0 {
+            (snapshot.calls as f64 / elapsed_secs) as u64
+        } else {
+            0
+        };
+        let gas_per_sec = if elapsed_secs > 0.0 {
+            (snapshot.gas as f64 / elapsed_secs) as u64
+        } else {
+            0
+        };
+        reporter.update_with_elapsed(
+            format!(
+                "shrinking: {} threads {} runs {} calls/s {} gas/s",
+                fmt_num(shrink_threads as u64),
+                fmt_num(snapshot.runs),
+                fmt_num(calls_per_sec),
+                fmt_num(gas_per_sec),
+            ),
+            elapsed_secs,
+        )?;
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    reporter.end()?;
 
     for handle in shrinker_handles {
         match handle.join() {
@@ -616,6 +681,14 @@ pub fn run(args: Args) -> Result<()> {
 
     // Retrieve the smallest item found by the shrinkers.
     let shrunk_item = shared_failed_item.item();
+    let shrunk_calls = shrunk_item.calls.len();
+    let shrunk_call_word = if shrunk_calls == 1 { "call" } else { "calls" };
+    reporter.update(format!(
+        "shrinking: found smallest ({} {})",
+        fmt_num(shrunk_calls as u64),
+        shrunk_call_word,
+    ))?;
+    reporter.end()?;
 
     // Re-run the shrunk item with the chain tracer enabled.
     let mut trace_chain = chain.clone();
