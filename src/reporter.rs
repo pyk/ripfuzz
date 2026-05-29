@@ -75,6 +75,25 @@ impl<W: Write> Reporter<W> {
         writeln!(self.output, "{prefix} {message}")
     }
 
+    /// Replace the current line with a new progress message.
+    ///
+    /// Only has an effect when `self.is_terminal` is true and a matching
+    /// [`Self::begin`] call was made. In non-terminal mode this is a no-op
+    /// so logs do not get spammed.
+    pub fn update(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        let message = message.as_ref();
+        if self.start.is_none() {
+            return Ok(());
+        }
+        self.message = Some(message.into());
+        if self.is_terminal {
+            write!(self.output, "{REPLACE_LINE}")?;
+            let prefix = self.prefix();
+            writeln!(self.output, "{prefix} {message}")?;
+        }
+        Ok(())
+    }
+
     /// Replace the line printed by the matching [`Self::begin`] call.
     ///
     /// If no matching `begin` call was made, this is a no-op.
@@ -163,5 +182,77 @@ mod tests {
             output,
             "raptor first\nraptor first ... done in 1.00s\nraptor second\nraptor second ... done in 3.00s\n"
         );
+    }
+
+    #[test]
+    fn reporter_update_terminal() {
+        let mut buf = Vec::new();
+        let mut reporter = Reporter::with_writer(&mut buf, true);
+        reporter.begin("loading build artifacts").unwrap();
+        reporter.update("loading build artifacts [1/12]").unwrap();
+        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
+        reporter.end().unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        let prefix = format!("{GREEN}raptor{RESET}");
+        assert_eq!(
+            output,
+            format!(
+                "{prefix} loading build artifacts\n\
+                 {REPLACE_LINE}{prefix} loading build artifacts [1/12]\n\
+                 {REPLACE_LINE}{prefix} loading build artifacts [1/12] ... done in 2.00s\n"
+            )
+        );
+    }
+
+    #[test]
+    fn reporter_update_non_terminal() {
+        let mut buf = Vec::new();
+        let mut reporter = Reporter::with_writer(&mut buf, false);
+        reporter.begin("loading build artifacts").unwrap();
+        reporter.update("loading build artifacts [1/12]").unwrap();
+        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
+        reporter.end().unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        // update does not write in non-terminal mode, but it still updates
+        // the stored message so end() uses the latest text.
+        assert_eq!(
+            output,
+            "raptor loading build artifacts\nraptor loading build artifacts [1/12] ... done in 2.00s\n"
+        );
+    }
+
+    #[test]
+    fn reporter_multiple_updates_terminal() {
+        let mut buf = Vec::new();
+        let mut reporter = Reporter::with_writer(&mut buf, true);
+        reporter.begin("loading build artifacts").unwrap();
+        reporter.update("loading build artifacts [1/3]").unwrap();
+        reporter.update("loading build artifacts [2/3]").unwrap();
+        reporter.update("loading build artifacts [3/3]").unwrap();
+        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
+        reporter.end().unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        let prefix = format!("{GREEN}raptor{RESET}");
+        assert_eq!(
+            output,
+            format!(
+                "{prefix} loading build artifacts\n\
+                 {REPLACE_LINE}{prefix} loading build artifacts [1/3]\n\
+                 {REPLACE_LINE}{prefix} loading build artifacts [2/3]\n\
+                 {REPLACE_LINE}{prefix} loading build artifacts [3/3]\n\
+                 {REPLACE_LINE}{prefix} loading build artifacts [3/3] ... done in 2.00s\n"
+            )
+        );
+    }
+
+    #[test]
+    fn reporter_update_without_begin_is_noop() {
+        let mut buf = Vec::new();
+        let mut reporter = Reporter::with_writer(&mut buf, true);
+        reporter.update("loading build artifacts [1/12]").unwrap();
+        assert!(buf.is_empty());
     }
 }
