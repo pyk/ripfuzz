@@ -176,7 +176,7 @@ impl Fuzzer {
             // Update shared coverage and shared corpus
             let coverage = exec.coverage.context("coverage expected")?;
             let coverage_update = self.shared_coverage.merge(&coverage);
-            let interesting = SharedCoverage::is_interesting(&coverage_update);
+            let interesting = coverage_update.is_interesting();
             debug!(
                 runs = runs,
                 item_id = %item.id(),

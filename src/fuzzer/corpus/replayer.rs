@@ -241,7 +241,7 @@ mod tests {
         // Since the replayer already populated the map, re-running the same
         // input should produce no new coverage.
         assert!(
-            !SharedCoverage::is_interesting(&update),
+            !update.is_interesting(),
             "re-running a replayed corpus item should not be interesting"
         );
     }

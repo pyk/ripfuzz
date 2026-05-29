@@ -473,16 +473,13 @@ mod tests {
         let exec1 = chain.exec(&txs).unwrap();
         let coverage1 = exec1.coverage.expect("coverage must be present");
         let update1 = global.merge(&coverage1);
-        assert!(
-            SharedCoverage::is_interesting(&update1),
-            "first run should be interesting"
-        );
+        assert!(update1.is_interesting(), "first run should be interesting");
 
         let exec2 = chain.exec(&txs).unwrap();
         let coverage2 = exec2.coverage.expect("coverage must be present");
         let update2 = global.merge(&coverage2);
         assert!(
-            !SharedCoverage::is_interesting(&update2),
+            !update2.is_interesting(),
             "identical second run should not be interesting"
         );
     }

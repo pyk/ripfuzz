@@ -193,15 +193,17 @@ impl SharedCoverage {
         let jump_hits: usize = guard.iter().map(|(_, c)| c.jump_edges.len()).sum();
         edge_hits + jump_hits
     }
+}
 
-    /// Whether the update represents interesting new coverage.
-    pub fn is_interesting(update: &CoverageUpdate) -> bool {
-        update.new_edges > 0
-            || update.new_features > 0
-            || update.new_depths > 0
-            || update.new_reverts > 0
-            || update.new_jump_edges > 0
-            || update.new_jump_features > 0
+impl CoverageUpdate {
+    /// Whether this update represents interesting new coverage.
+    pub fn is_interesting(&self) -> bool {
+        self.new_edges > 0
+            || self.new_features > 0
+            || self.new_depths > 0
+            || self.new_reverts > 0
+            || self.new_jump_edges > 0
+            || self.new_jump_features > 0
     }
 }
 
@@ -275,7 +277,7 @@ mod tests {
                 total.new_reverts += update.new_reverts;
                 total.new_jump_edges += update.new_jump_edges;
                 total.new_jump_features += update.new_jump_features;
-                if SharedCoverage::is_interesting(&update) {
+                if update.is_interesting() {
                     interesting_count += 1;
                 }
             }
@@ -344,7 +346,7 @@ mod tests {
                     barrier_ref.wait();
                     let update = shared.merge(&local);
                     assert!(
-                        SharedCoverage::is_interesting(&update),
+                        update.is_interesting(),
                         "thread {i} should be interesting with unique coverage"
                     );
                     update
