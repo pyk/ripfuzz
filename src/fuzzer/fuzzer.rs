@@ -32,6 +32,8 @@ pub struct RunOutput {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FailedAssertion {
     pub transactions: Vec<Transaction>,
+    /// The corpus item that produced this failure.
+    pub item: crate::fuzzer::corpus::Item,
 }
 
 impl FailedAssertion {
@@ -180,8 +182,10 @@ impl Fuzzer {
                 "coverage merge"
             );
             if interesting {
+                // checkrs: allow(clone_in_loops)
+                let item_to_add = item.clone();
                 self.shared_corpus
-                    .add_item(item)
+                    .add_item(item_to_add)
                     .context("failed to add corpus item")?;
             }
 
@@ -195,7 +199,12 @@ impl Fuzzer {
             // Check for failed assertions
             if !exec.panic_transactions.is_empty() {
                 self.shutdown_signal.store(true, Ordering::Relaxed);
-                local_failures.push(FailedAssertion { transactions });
+                // checkrs: allow(clone_in_loops)
+                let failure_item = item.clone();
+                local_failures.push(FailedAssertion {
+                    transactions,
+                    item: failure_item,
+                });
             }
         }
 

@@ -59,6 +59,11 @@ impl Config {
         self
     }
 
+    /// Enable or disable trace collection on an existing config.
+    pub fn set_trace(&mut self, enabled: bool) {
+        self.trace = enabled;
+    }
+
     /// Whether trace collection is enabled.
     pub fn trace_enabled(&self) -> bool {
         self.trace

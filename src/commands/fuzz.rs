@@ -10,15 +10,15 @@ use alloy_primitives::Address;
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use revm::primitives::{Bytes, U256};
-use tracing::{debug, info, instrument};
+use tracing::{debug, instrument};
 
 use crate::evm::{
     Chain, ChainConfig, Contract, DeployInput, ForkConfig, SetupInput, SharedCoverage,
 };
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
 use crate::fuzzer::{
-    Config as FuzzerConfig, CorpusConfig, CorpusReplayer, ExtractedLiterals, Fuzzer, SharedCorpus,
-    SharedMetrics,
+    Config as FuzzerConfig, CorpusConfig, CorpusReplayer, ExtractedLiterals, FailedAssertion,
+    Fuzzer, SharedCorpus, SharedFailedCorpusItem, SharedMetrics, Shrinker,
 };
 use crate::reporter::Reporter;
 
@@ -107,6 +107,33 @@ pub struct Args {
         help_heading = "Fuzzing Parameters"
     )]
     pub seed: u64,
+
+    // Shrinker
+    /// Maximum number of shrink runs across all shrinker threads.
+    #[arg(
+        long = "shrink-runs",
+        default_value = "10000",
+        value_name = "N",
+        help_heading = "Shrinker"
+    )]
+    pub shrink_runs: u64,
+
+    /// Timeout in seconds for the shrinker campaign.
+    #[arg(
+        long = "shrink-timeout",
+        value_name = "SECS",
+        help_heading = "Shrinker"
+    )]
+    pub shrink_timeout_secs: Option<u64>,
+
+    /// Number of parallel shrinker threads to spawn.
+    #[arg(
+        long = "shrink-threads",
+        value_parser = Args::parse_threads,
+        value_name = "N",
+        help_heading = "Shrinker"
+    )]
+    pub shrink_threads: Option<usize>,
 
     // Corpus
     /// Directory to load and persist coverage-guided corpus files.
@@ -393,7 +420,7 @@ pub fn run(args: Args) -> Result<()> {
     let corpus_config = CorpusConfig::new(corpus_dir)
         .target_functions(target_contract.target_functions.clone())
         .max_calls(args.max_calls)
-        .literals(literals);
+        .literals(literals.clone());
     let corpus = SharedCorpus::new(corpus_config);
     let corpus_stats = corpus.load_items()?;
     reporter.update(format!(
@@ -426,7 +453,6 @@ pub fn run(args: Args) -> Result<()> {
     let shutdown_signal = Arc::new(AtomicBool::new(false));
 
     let fuzzers = args.threads;
-    let start = std::time::Instant::now();
     let timeout = args.timeout_secs.map(std::time::Duration::from_secs);
 
     let fuzzers_u64 = fuzzers as u64;
@@ -505,46 +531,147 @@ pub fn run(args: Args) -> Result<()> {
         }
     }
 
-    let snapshot = shared_metrics.aggregate();
-    let total_runs = snapshot.runs;
-    let total_calls = snapshot.calls;
-    let total_gas = snapshot.gas;
-
-    let elapsed_secs = start.elapsed().as_secs_f64();
-    let calls_per_sec = if elapsed_secs > 0.0 {
-        total_calls as f64 / elapsed_secs
-    } else {
-        0.0
-    };
-    let avg_gas_per_call = if total_calls > 0 {
-        total_gas as f64 / total_calls as f64
-    } else {
-        0.0
-    };
-
     // Report campaign result
-    info!(runs = total_runs, calls = total_calls, "Fuzzing completed");
-    info!(calls_per_sec = calls_per_sec, "Throughput");
-    info!(avg_gas_per_call = avg_gas_per_call, "Average gas per call");
     if all_failures.is_empty() {
-        info!("All invariants passed");
-    } else {
-        for failure in &all_failures {
-            info!("");
-            info!(contract = %target_contract.artifact_id.name, "[FAILED] Invariant Test");
-            info!(contract = %target_contract.artifact_id.name, "Test failed after the following call sequence");
-            info!("[Call Sequence]");
-            info!(
-                "{}",
-                failure.format(&target_contract, args.deployer_address)
-            );
-        }
-        let total = target_contract.invariant_functions.len();
-        let failed = all_failures.len();
-        let passed = total.saturating_sub(failed);
-        info!("");
-        info!(passed = passed, failed = failed, "Test summary");
+        println!("All invariants passed");
+        return Ok(());
     }
+
+    // Pick the smallest failed corpus item.
+    let smallest_failure = all_failures
+        .iter()
+        .min_by_key(|f| f.item.calls.len())
+        .context("no failures found")?;
+
+    // Initialize shared failed corpus item for the shrinker.
+    let failed_corpus_config = CorpusConfig::new(PathBuf::new())
+        .target_functions(target_contract.target_functions.clone())
+        .max_calls(args.max_calls)
+        .literals(literals);
+    let shared_failed_item =
+        SharedFailedCorpusItem::new(smallest_failure.item.clone(), failed_corpus_config);
+
+    // Spawn shrinker threads.
+    let shrink_threads = args.shrink_threads.unwrap_or(args.threads);
+    let shrink_timeout = args.shrink_timeout_secs.map(std::time::Duration::from_secs);
+    let shrinker_shutdown = Arc::new(AtomicBool::new(false));
+
+    let shrinkers_u64 = shrink_threads as u64;
+    let base_shrink_runs = args.shrink_runs / shrinkers_u64;
+    let shrink_remainder = (args.shrink_runs % shrinkers_u64) as usize;
+
+    let mut shrinker_handles = Vec::with_capacity(shrink_threads);
+    for shrinker_id in 0..shrink_threads {
+        let local_max_runs = if shrinker_id < shrink_remainder {
+            base_shrink_runs + 1
+        } else {
+            base_shrink_runs
+        };
+        let seed = args
+            .seed
+            .wrapping_add(shrinker_id as u64)
+            .wrapping_add(1000);
+        // checkrs: allow(clone_in_loops)
+        let shrinker_chain = chain.clone();
+        // checkrs: allow(clone_in_loops)
+        let shrinker_shared_item = shared_failed_item.clone();
+        // checkrs: allow(clone_in_loops)
+        let shrinker_shutdown = shrinker_shutdown.clone();
+        // checkrs: allow(clone_in_loops)
+        let shrinker_invariants = target_contract.invariant_functions.clone();
+        let shrinker_config = crate::fuzzer::ShrinkerConfig::new()
+            .chain(shrinker_chain)
+            .target_address(deployed_address)
+            .shared_failed_item(shrinker_shared_item)
+            .shutdown_signal(shrinker_shutdown)
+            .invariant_functions(shrinker_invariants)
+            .caller(args.deployer_address)
+            .max_runs(local_max_runs)
+            .timeout(shrink_timeout)
+            .seed(seed);
+        let shrinker = Shrinker::new(shrinker_config);
+        let handle = std::thread::spawn(move || shrinker.run());
+        shrinker_handles.push(handle);
+    }
+
+    let mut reporter = Reporter::new();
+    reporter.begin("shrinking")?;
+    while shrinker_handles.iter().any(|h| !h.is_finished()) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    reporter.end()?;
+
+    for handle in shrinker_handles {
+        match handle.join() {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => {
+                tracing::error!(%e, "shrinker failed");
+            }
+            Err(e) => {
+                tracing::error!(?e, "shrinker panicked");
+            }
+        }
+    }
+
+    // Retrieve the smallest item found by the shrinkers.
+    let shrunk_item = shared_failed_item.item();
+
+    // Re-run the shrunk item with the chain tracer enabled.
+    let mut trace_chain = chain.clone();
+    trace_chain.set_trace(true);
+
+    let invariant_calls: Vec<crate::fuzzer::Call> = target_contract
+        .invariant_functions
+        .iter()
+        // checkrs: allow(clone_in_iterator)
+        .map(|func| crate::fuzzer::Call {
+            function: func.clone(),
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+            value: None,
+            caller: args.deployer_address,
+        })
+        .collect();
+
+    let transactions: Vec<crate::evm::Transaction> = shrunk_item
+        .calls
+        .iter()
+        .chain(invariant_calls.iter())
+        .map(|call| call.into_transaction(deployed_address))
+        .collect();
+
+    let exec = trace_chain.exec(&transactions)?;
+
+    let failure = FailedAssertion {
+        transactions,
+        item: shrunk_item,
+    };
+
+    println!();
+    println!(
+        "[FAILED] Invariant Test contract={}",
+        target_contract.artifact_id.name
+    );
+    println!(
+        "Test failed after the following call sequence contract={}",
+        target_contract.artifact_id.name
+    );
+    println!("[Call Sequence]");
+    println!(
+        "{}",
+        failure.format(&target_contract, args.deployer_address)
+    );
+
+    if let Some(trace) = exec.trace {
+        println!();
+        println!("[Trace]");
+        println!("{trace:#?}");
+    }
+
+    let total = target_contract.invariant_functions.len();
+    let failed = all_failures.len();
+    let passed = total.saturating_sub(failed);
+    println!();
+    println!("Test summary passed={passed} failed={failed}");
 
     Ok(())
 }
@@ -591,6 +718,9 @@ mod tests {
             fork_mode: ForkModeArgs::default(),
             ffi: false,
             force: false,
+            shrink_runs: 10000,
+            shrink_timeout_secs: None,
+            shrink_threads: None,
         }
     }
 

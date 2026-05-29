@@ -14,9 +14,10 @@
 
 pub use config::Config;
 pub use corpus::Config as CorpusConfig;
-pub use corpus::{Call, ExtractedLiterals, Item, SharedCorpus};
+pub use corpus::{Call, ExtractedLiterals, Item, SharedCorpus, SharedFailedCorpusItem};
 pub use fuzzer::{FailedAssertion, Fuzzer, RunOutput};
 pub use metrics::{SharedMetrics, Snapshot};
+pub use shrinker::{Config as ShrinkerConfig, Shrinker, ShrinkerOutput};
 
 pub use corpus::CorpusReplayer;
 
@@ -25,6 +26,7 @@ mod corpus;
 #[allow(clippy::module_inception)]
 mod fuzzer;
 mod metrics;
+mod shrinker;
 
 #[cfg(test)]
 mod tests {
@@ -48,7 +50,10 @@ mod tests {
             Transaction::new(Address::ZERO),
         ];
 
-        let failure = FailedAssertion { transactions };
+        let failure = FailedAssertion {
+            transactions,
+            item: crate::fuzzer::corpus::Item::from(vec![]),
+        };
 
         let output = failure.format(&contract, crate::evm::DEFAULT_DEPLOYER);
         assert!(

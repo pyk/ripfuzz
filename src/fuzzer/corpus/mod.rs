@@ -22,6 +22,7 @@
 pub use call::Call;
 pub use config::Config;
 pub use extractor::ExtractedLiterals;
+pub use failed_item::SharedFailedCorpusItem;
 pub use item::Item;
 
 pub use replayer::CorpusReplayer;
@@ -30,6 +31,7 @@ pub use shared::SharedCorpus;
 mod call;
 mod config;
 mod extractor;
+mod failed_item;
 mod item;
 mod random;
 mod replayer;

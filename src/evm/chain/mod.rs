@@ -93,6 +93,11 @@ impl Chain {
         &self.cfg_env
     }
 
+    /// Enable or disable trace collection on this chain.
+    pub fn set_trace(&mut self, enabled: bool) {
+        self.config.set_trace(enabled);
+    }
+
     /// Immutable access to the deployer address.
     pub fn deployer(&self) -> Address {
         self.deployer
