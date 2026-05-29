@@ -16,60 +16,6 @@ use crate::evm::SharedCoverage;
 use crate::fuzzer::{CorpusReplayer, ExtractedLiterals, SharedCorpus, SharedMetrics};
 use crate::*;
 
-fn default_threads() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
-}
-
-fn parse_threads(s: &str) -> Result<usize, String> {
-    let n = s
-        .parse::<usize>()
-        .map_err(|e| format!("invalid thread count: {e}"))?;
-    if n == 0 {
-        return Err("threads must be at least 1".into());
-    }
-    Ok(n)
-}
-
-fn parse_balance(s: &str) -> Result<U256, String> {
-    let trimmed = s.trim();
-    if trimmed.is_empty() {
-        return Ok(U256::ZERO);
-    }
-
-    let lower = trimmed.to_lowercase();
-    if let Some(stripped) = lower.strip_prefix("0x") {
-        return U256::from_str_radix(stripped, 16).map_err(|e| format!("invalid hex balance: {e}"));
-    }
-
-    if trimmed.contains(['e', 'E']) {
-        let f = trimmed
-            .parse::<f64>()
-            .map_err(|e| format!("invalid scientific notation balance: {e}"))?;
-        let plain = format!("{:.0}", f);
-        return U256::from_str_radix(&plain, 10)
-            .map_err(|e| format!("invalid scientific notation balance: {e}"));
-    }
-
-    U256::from_str_radix(trimmed, 10).map_err(|e| format!("invalid decimal balance: {e}"))
-}
-
-fn parse_address(s: &str) -> Result<Address, String> {
-    let trimmed = s.trim();
-    let mut hex = String::from(trimmed.trim_start_matches("0x").trim_start_matches("0X"));
-    if !hex.len().is_multiple_of(2) {
-        hex.insert(0, '0');
-    }
-    let bytes = hex::decode(&hex).map_err(|e| format!("invalid hex address: {e}"))?;
-    if bytes.len() > 20 {
-        return Err("address exceeds 20 bytes".into());
-    }
-    let mut padded = [0u8; 20];
-    padded[20 - bytes.len()..].copy_from_slice(&bytes);
-    Ok(Address::new(padded))
-}
-
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Target contract identifier (e.g. ./test/Contract.sol:Contract).
@@ -87,14 +33,14 @@ pub struct Args {
     pub project_path: Option<PathBuf>,
 
     /// Wei to send during target contract deployment.
-    #[arg(long = "deploy-value", default_value = "0", value_parser = parse_balance, value_name = "WEI", help_heading = "Project & Deployment")]
+    #[arg(long = "deploy-value", default_value = "0", value_parser = Args::parse_balance, value_name = "WEI", help_heading = "Project & Deployment")]
     pub deploy_value: U256,
 
     /// Account address used to deploy the target contract.
     #[arg(
         long = "deployer",
         default_value_t = crate::evm::DEFAULT_DEPLOYER,
-        value_parser = parse_address,
+        value_parser = Args::parse_address,
         value_name = "ADDRESS",
         help_heading = "Project & Deployment"
     )]
@@ -102,7 +48,7 @@ pub struct Args {
 
     // Campaign Limits
     /// Number of parallel fuzzer threads to spawn.
-    #[arg(short = 'w', long = "threads", default_value_t = default_threads(), value_parser = parse_threads, value_name = "N", help_heading = "Campaign Limits")]
+    #[arg(short = 'w', long = "threads", default_value_t = Args::default_threads(), value_parser = Args::parse_threads, value_name = "N", help_heading = "Campaign Limits")]
     pub threads: usize,
 
     /// Maximum number of campaign runs across all fuzzers.
@@ -165,6 +111,63 @@ pub struct Args {
     /// Skip cache and force recompilation.
     #[arg(long = "force", help_heading = "Foundry")]
     pub force: bool,
+}
+
+impl Args {
+    fn default_threads() -> usize {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    }
+
+    fn parse_threads(s: &str) -> Result<usize, String> {
+        let n = s
+            .parse::<usize>()
+            .map_err(|e| format!("invalid thread count: {e}"))?;
+        if n == 0 {
+            return Err("threads must be at least 1".into());
+        }
+        Ok(n)
+    }
+
+    fn parse_balance(s: &str) -> Result<U256, String> {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            return Ok(U256::ZERO);
+        }
+
+        let lower = trimmed.to_lowercase();
+        if let Some(stripped) = lower.strip_prefix("0x") {
+            return U256::from_str_radix(stripped, 16)
+                .map_err(|e| format!("invalid hex balance: {e}"));
+        }
+
+        if trimmed.contains(['e', 'E']) {
+            let f = trimmed
+                .parse::<f64>()
+                .map_err(|e| format!("invalid scientific notation balance: {e}"))?;
+            let plain = format!("{:.0}", f);
+            return U256::from_str_radix(&plain, 10)
+                .map_err(|e| format!("invalid scientific notation balance: {e}"));
+        }
+
+        U256::from_str_radix(trimmed, 10).map_err(|e| format!("invalid decimal balance: {e}"))
+    }
+
+    fn parse_address(s: &str) -> Result<Address, String> {
+        let trimmed = s.trim();
+        let mut hex = String::from(trimmed.trim_start_matches("0x").trim_start_matches("0X"));
+        if !hex.len().is_multiple_of(2) {
+            hex.insert(0, '0');
+        }
+        let bytes = hex::decode(&hex).map_err(|e| format!("invalid hex address: {e}"))?;
+        if bytes.len() > 20 {
+            return Err("address exceeds 20 bytes".into());
+        }
+        let mut padded = [0u8; 20];
+        padded[20 - bytes.len()..].copy_from_slice(&bytes);
+        Ok(Address::new(padded))
+    }
 }
 
 #[derive(Debug, Parser)]
