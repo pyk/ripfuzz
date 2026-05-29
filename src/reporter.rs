@@ -113,6 +113,33 @@ impl<W: Write> Reporter<W> {
         Ok(())
     }
 
+    /// Replace the current line with a progress message that includes a dimmed
+    /// elapsed-time suffix.
+    ///
+    /// The elapsed time is rendered as `[{secs:.1}s]` in dim colour. The stored
+    /// message is the base text (without the suffix) so that [`Self::end`] can
+    /// append its own final timestamp without duplication.
+    pub fn update_with_elapsed(
+        &mut self,
+        message: impl AsRef<str>,
+        elapsed_secs: f64,
+    ) -> io::Result<()> {
+        let message = message.as_ref();
+        if self.start.is_none() {
+            return Ok(());
+        }
+        self.message = Some(message.into());
+        if self.is_terminal {
+            write!(self.output, "{REPLACE_LINE}")?;
+            let prefix = self.prefix();
+            write!(
+                self.output,
+                "{prefix} {message} {DIM}[{elapsed_secs:.1}s]{RESET}"
+            )?;
+        }
+        Ok(())
+    }
+
     /// Replace the line printed by the matching [`Self::begin`] call.
     ///
     /// If no matching `begin` call was made, this is a no-op.

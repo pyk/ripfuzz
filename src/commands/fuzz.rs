@@ -22,6 +22,19 @@ use crate::fuzzer::{
 };
 use crate::reporter::Reporter;
 
+/// Format a number with comma-separated thousands.
+fn fmt_num(n: u64) -> String {
+    let s = format!("{n}");
+    let mut result = String::with_capacity(s.len() + s.len() / 3);
+    for (count, c) in s.chars().rev().enumerate() {
+        if count > 0 && count % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result.chars().rev().collect()
+}
+
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Target contract identifier (e.g. ./test/Contract.sol:Contract).
@@ -270,7 +283,7 @@ pub fn run(args: Args) -> Result<()> {
     let build_artifacts = project.load_artifacts()?;
     reporter.update(format!(
         "loading build artifacts ({} artifacts)",
-        build_artifacts.len()
+        fmt_num(build_artifacts.len() as u64)
     ))?;
     reporter.end()?;
     ensure!(
@@ -289,7 +302,8 @@ pub fn run(args: Args) -> Result<()> {
         let lib_count = target_contract.libraries.len();
         format!(
             "loading target contract {} ({lib_count} libraries)",
-            args.target
+            args.target,
+            lib_count = fmt_num(lib_count as u64)
         )
     };
     reporter.update(detail)?;
@@ -384,7 +398,7 @@ pub fn run(args: Args) -> Result<()> {
     let corpus_stats = corpus.load_items()?;
     reporter.update(format!(
         "loading corpus ({} items)",
-        corpus_stats.total_count
+        fmt_num(corpus_stats.total_count as u64)
     ))?;
     reporter.end()?;
 
@@ -401,7 +415,7 @@ pub fn run(args: Args) -> Result<()> {
         .replay()?;
     reporter.update(format!(
         "replaying corpus ({} coverage)",
-        shared_coverage.hit_count()
+        fmt_num(shared_coverage.hit_count() as u64)
     ))?;
     reporter.end()?;
 
@@ -452,10 +466,26 @@ pub fn run(args: Args) -> Result<()> {
     reporter.begin("fuzzing")?;
     while handles.iter().any(|(_, h)| !h.is_finished()) {
         let snapshot = shared_metrics.aggregate();
-        reporter.update(format!(
-            "fuzzing ({} runs, {} calls)",
-            snapshot.runs, snapshot.calls
-        ))?;
+        let elapsed_secs = snapshot.elapsed.as_secs_f64();
+        let calls_per_sec = if elapsed_secs > 0.0 {
+            (snapshot.calls as f64 / elapsed_secs) as u64
+        } else {
+            0
+        };
+        let gas_per_sec = if elapsed_secs > 0.0 {
+            (snapshot.gas as f64 / elapsed_secs) as u64
+        } else {
+            0
+        };
+        reporter.update_with_elapsed(
+            format!(
+                "fuzzing {} runs {} calls/s {} gas/s",
+                fmt_num(snapshot.runs),
+                fmt_num(calls_per_sec),
+                fmt_num(gas_per_sec),
+            ),
+            elapsed_secs,
+        )?;
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     reporter.end()?;
