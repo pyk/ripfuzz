@@ -1,37 +1,76 @@
 [8580115] → new BasicConstructorComplexRevert@0x9e5ad3669316a49c9039ed97e39803f90ff1ed63
     ├─ [5951271] → new Counter@0xbf7f846fb616b0f7d67ec410d79e1ef1c913c007
+    │   ├─  storage changes:
+    │   │   @ value: 0 -> 42
     │   └─ ← [Return] 5031 bytes of code
     ├─ [663] Counter::increment()
+    │   ├─  storage changes:
+    │   │   @ value: 42 -> 43
     │   └─ ← [Stop]
     ├─ [663] Counter::increment()
+    │   ├─  storage changes:
+    │   │   @ value: 43 -> 44
     │   └─ ← [Stop]
     ├─ [581] Counter::setValue(42)
+    │   ├─  storage changes:
+    │   │   @ value: 44 -> 42
     │   └─ ← [Stop]
     ├─ [543] Counter::getValue() [staticcall]
     │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000000002a
     ├─ [581] Counter::setValue(100)
+    │   ├─  storage changes:
+    │   │   @ value: 42 -> 100
     │   └─ ← [Stop]
     ├─ [43739] Counter::setString(hello)
+    │   ├─  storage changes:
+    │   │   @ strValue: 0 -> 47219736118171679016481614208494153725245902603978864281390662590579859259402
     │   └─ ← [Stop]
     ├─ [43131] Counter::setBool(true)
+    │   ├─  storage changes:
+    │   │   @ boolValue: 0 -> 1
     │   └─ ← [Stop]
     ├─ [85703] Counter::pushArray(1)
+    │   ├─  storage changes:
+    │   │   @ arrValues: 0 -> 1
+    │   │   @ 87903029871075914254377627908054574944891091886930582284385770809450030037083: 0 -> 1
     │   └─ ← [Stop]
     ├─ [43335] Counter::pushArray(2)
+    │   ├─  storage changes:
+    │   │   @ arrValues: 1 -> 2
+    │   │   @ 87903029871075914254377627908054574944891091886930582284385770809450030037084: 0 -> 2
     │   └─ ← [Stop]
     ├─ [43252] Counter::setMap(10, 100)
+    │   ├─  storage changes:
+    │   │   @ 41801854427993646812867331196612054047220998399216167790632367036446383739027: 0 -> 100
     │   └─ ← [Stop]
     ├─ [129538] Counter::setArray([3, 4, 5])
+    │   ├─  storage changes:
+    │   │   @ arrValues: 2 -> 3
+    │   │   @ 87903029871075914254377627908054574944891091886930582284385770809450030037085: 0 -> 3
+    │   │   @ arrValues: 3 -> 4
+    │   │   @ 87903029871075914254377627908054574944891091886930582284385770809450030037086: 0 -> 4
+    │   │   @ arrValues: 4 -> 5
+    │   │   @ 87903029871075914254377627908054574944891091886930582284385770809450030037087: 0 -> 5
     │   └─ ← [Stop]
     ├─ [673] Counter::setStruct((7, 8))
+    │   ├─  storage changes:
+    │   │   @ value: 100 -> 15
     │   └─ ← [Stop]
     ├─ [1104] Counter::setNestedStruct(((1, 2), (3, 4)))
+    │   ├─  storage changes:
+    │   │   @ value: 15 -> 10
     │   └─ ← [Stop]
     ├─ [43782] Counter::setBytes(0xdeadbeef)
+    │   ├─  storage changes:
+    │   │   @ byteValue: 0 -> 100720434702924942364018397558880508427273416251376888068364465368051161759752
     │   └─ ← [Stop]
     ├─ [43006] Counter::setFixedBytes(0xcafebabe00000000000000000000000000000000000000000000000000000000)
+    │   ├─  storage changes:
+    │   │   @ fixedByteValue: 0 -> 91817263415483889874611661774929753653955012082364678752355419495563853299712
     │   └─ ← [Stop]
     ├─ [670] Counter::doInternal()
+    │   ├─  storage changes:
+    │   │   @ value: 10 -> 15
     │   └─ ← [Stop]
     ├─ [5019] Counter::doLibraryCall(10, 20) [staticcall]
     │   ├─ [910] Counter::add(10, 20)
@@ -41,23 +80,35 @@
     │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000000001e
     ├─ [1559] Counter::selfCall(50)
     │   ├─ [581] Counter::setValue(50)
+    │   │   ├─  storage changes:
+    │   │   │   @ value: 15 -> 50
     │   │   └─ ← [Stop]
     │   └─ ← [Stop]
     ├─ [342] Counter::payableCall()
+    │   ├─  storage changes:
+    │   │   @ value: 50 -> 1000
     │   └─ ← [Stop]
     ├─ [0] RaptorVm::warp(1234567890)
     │   └─ ← [Stop]
     ├─ [1827579] → new DeepContract@0x2c0cd89b28e26798db89da48e29f8b8d0a7378a7
     │   ├─ [752835] → new CounterHelper@0x3de67e219caa3135e36b7a70860abb4280fc6f9a
     │   │   └─ ← [Return] 641 bytes of code
+    │   ├─  storage changes:
+    │   │   @ helper: 0 -> 353388596001505020398765780205339132959949352858
     │   └─ ← [Return] 759 bytes of code
     ├─ [5221] DeepContract::run(0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007)
     │   ├─ [663] Counter::increment()
+    │   │   ├─  storage changes:
+    │   │   │   @ value: 1000 -> 1001
     │   │   └─ ← [Stop]
     │   ├─ [2913] CounterHelper::help(0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007)
     │   │   ├─ [581] Counter::setValue(999)
+    │   │   │   ├─  storage changes:
+    │   │   │   │   @ value: 1001 -> 999
     │   │   │   └─ ← [Stop]
     │   │   ├─ [763] Counter::setBool(false)
+    │   │   │   ├─  storage changes:
+    │   │   │   │   @ boolValue: 1 -> 0
     │   │   │   └─ ← [Stop]
     │   │   └─ ← [Stop]
     │   └─ ← [Stop]

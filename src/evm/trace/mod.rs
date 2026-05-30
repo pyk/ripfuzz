@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use alloy_primitives::U256;
 use revm::interpreter::CallScheme;
 use revm::primitives::{Address, Bytes};
 
@@ -11,6 +12,14 @@ pub use inspector::Inspector;
 
 mod context;
 mod inspector;
+
+/// A single storage change recorded during a frame's execution.
+#[derive(Debug, Clone)]
+pub struct StorageChange {
+    pub slot: U256,
+    pub old_value: U256,
+    pub new_value: U256,
+}
 
 /// Raw call trace tree.
 ///
@@ -156,6 +165,49 @@ impl<'a> TraceDisplay<'a> {
             self.write_frame(f, child, &child_has_next, false)?;
         }
 
+        // Write storage changes as pseudo-children
+        if !frame.storage_changes.is_empty() {
+            let mut storage_prefix = String::new();
+            for h in &child_has_next {
+                if *h {
+                    storage_prefix.push_str("│   ");
+                } else {
+                    storage_prefix.push_str("    ");
+                }
+            }
+            storage_prefix.push_str("├─ ");
+            writeln!(f, "{storage_prefix} storage changes:")?;
+
+            let mut change_prefix = String::new();
+            for h in &child_has_next {
+                if *h {
+                    change_prefix.push_str("│   ");
+                } else {
+                    change_prefix.push_str("    ");
+                }
+            }
+            change_prefix.push_str("│   ");
+
+            for change in &frame.storage_changes {
+                let name = frame
+                    .address
+                    .and_then(|addr| {
+                        self.labels
+                            .get(&addr)
+                            .map(|s| s.as_str())
+                            .or_else(|| self.ctx.get_label(&addr))
+                            .and_then(|label| self.ctx.resolve_storage_name(label, &change.slot))
+                    })
+                    .map(|s| s.into())
+                    .unwrap_or_else(|| format!("{}", change.slot));
+                writeln!(
+                    f,
+                    "{change_prefix}@ {name}: {} -> {}",
+                    change.old_value, change.new_value
+                )?;
+            }
+        }
+
         // Write result as a pseudo-child
         let mut result_prefix = String::new();
         for h in &child_has_next {
@@ -214,4 +266,5 @@ pub struct CallFrame {
     pub gas_used: u64,
     pub success: bool,
     pub children: Vec<CallFrame>,
+    pub storage_changes: Vec<StorageChange>,
 }

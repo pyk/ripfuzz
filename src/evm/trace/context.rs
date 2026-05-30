@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_json_abi::JsonAbi;
-use alloy_primitives::{B256, FixedBytes, keccak256};
+use alloy_primitives::{B256, FixedBytes, U256, keccak256};
 use alloy_sol_types::SolError;
 use anyhow::Result;
 use revm::primitives::{Address, Bytes};
@@ -32,6 +32,8 @@ pub struct TraceContext {
     labels: HashMap<Address, String>,
     abis: Vec<JsonAbi>,
     bytecode_entries: Vec<BytecodeEntry>,
+    /// Maps contract name -> (slot -> storage variable name).
+    storage_names: HashMap<String, HashMap<U256, String>>,
 }
 
 impl Default for TraceContext {
@@ -42,6 +44,7 @@ impl Default for TraceContext {
             labels,
             abis: Vec::new(),
             bytecode_entries: Vec::new(),
+            storage_names: HashMap::new(),
         }
     }
 }
@@ -79,6 +82,9 @@ impl TraceContext {
                     base_hash: keccak256(&masked),
                     positions,
                 });
+            }
+            if let Some(names) = parse_storage_layout(&artifact) {
+                ctx.storage_names.insert(artifact.name().into(), names);
             }
             ctx.abis.push(artifact.into_abi());
         }
@@ -132,6 +138,17 @@ impl TraceContext {
             }
         }
         None
+    }
+
+    /// Look up the human-readable name for a storage slot in a contract.
+    ///
+    /// The `contract_name` is the label or name that was registered for the
+    /// contract address (e.g. via bytecode matching or explicit `with_label`).
+    pub fn resolve_storage_name(&self, contract_name: &str, slot: &U256) -> Option<&str> {
+        self.storage_names
+            .get(contract_name)
+            .and_then(|map| map.get(slot))
+            .map(|s| s.as_str())
     }
 
     /// Decode a function call from its input data.
@@ -244,6 +261,18 @@ pub(super) fn format_args(values: &[DynSolValue]) -> String {
 }
 
 use crate::foundry::LinkReferences;
+
+/// Parse state-variable names from an artifact's `storageLayout` output.
+fn parse_storage_layout(artifact: &Artifact) -> Option<HashMap<U256, String>> {
+    let layout = artifact.storage_layout()?;
+    let mut names = HashMap::new();
+    for entry in &layout.storage {
+        let slot = entry.slot.parse::<U256>().ok()?;
+        // checkrs: allow(clone_in_loops)
+        names.insert(slot, entry.label.clone());
+    }
+    Some(names).filter(|n| !n.is_empty())
+}
 
 /// Collect all link-reference positions from a [`LinkReferences`] map.
 fn collect_link_positions(link_refs: &LinkReferences) -> Vec<(usize, usize)> {

@@ -1,12 +1,16 @@
 //! Raw trace inspector that collects [`CallFrame`] trees without formatting
 //! or address labeling.
 
+use revm::bytecode::opcode::SSTORE;
+use revm::context::JournalTr;
 use revm::inspector::Inspector as RevmInspector;
+use revm::interpreter::interpreter_types::{InputsTr, Jumps};
 use revm::interpreter::{CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome};
 use revm::primitives::Bytes;
 
 use crate::evm::trace::CallFrame;
 use crate::evm::trace::CallFrameKind;
+use crate::evm::trace::StorageChange;
 use crate::evm::trace::Trace;
 
 /// Raw trace inspector that collects [`CallFrame`] trees without formatting
@@ -28,6 +32,34 @@ impl Inspector {
 }
 
 impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
+    fn step(&mut self, interp: &mut revm::interpreter::Interpreter, context: &mut CTX) {
+        if interp.bytecode.opcode() != SSTORE {
+            return;
+        }
+        let stack = interp.stack.data();
+        let len = stack.len();
+        if len < 2 {
+            return;
+        }
+        let slot = stack[len - 1];
+        let new_value = stack[len - 2];
+        let address = interp.input.target_address();
+        let old_value = context
+            .journal_mut()
+            .sload_skip_cold_load(address, slot, true)
+            .ok()
+            .map(|s| s.data)
+            .unwrap_or_default();
+
+        if let Some(frame) = self.stack.last_mut() {
+            frame.storage_changes.push(StorageChange {
+                slot,
+                old_value,
+                new_value,
+            });
+        }
+    }
+
     fn call(&mut self, _context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         let input = inputs.input.bytes_local(_context.local());
         self.stack.push(CallFrame {
@@ -39,6 +71,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             gas_used: 0,
             success: false,
             children: Vec::new(),
+            storage_changes: Vec::new(),
         });
         None
     }
@@ -53,11 +86,15 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             gas_used: 0,
             success: false,
             children: Vec::new(),
+            storage_changes: Vec::new(),
         });
         let ir = &outcome.result;
         frame.gas_used = ir.gas.total_gas_spent();
         frame.success = ir.result.is_ok();
         frame.output = ir.output.clone();
+        if !frame.success {
+            frame.storage_changes.clear();
+        }
 
         if let Some(parent) = self.stack.last_mut() {
             parent.children.push(frame);
@@ -76,6 +113,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             gas_used: 0,
             success: false,
             children: Vec::new(),
+            storage_changes: Vec::new(),
         });
         None
     }
@@ -95,6 +133,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             gas_used: 0,
             success: false,
             children: Vec::new(),
+            storage_changes: Vec::new(),
         });
         let ir = &outcome.result;
         frame.gas_used = ir.gas.total_gas_spent();
@@ -102,6 +141,9 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
         frame.output = ir.output.clone();
         if let Some(addr) = outcome.address {
             frame.address = Some(addr);
+        }
+        if !frame.success {
+            frame.storage_changes.clear();
         }
 
         if let Some(parent) = self.stack.last_mut() {
