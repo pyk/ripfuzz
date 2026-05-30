@@ -92,7 +92,10 @@ impl Chain {
             number: U256::from(block.number),
             beneficiary: block.coinbase,
             timestamp: U256::from(block.timestamp),
-            gas_limit: block.gas_limit.to(),
+            // Use u64::MAX for the block gas limit so that transactions with
+            // gas_limit = u64::MAX (the default for deploy/call) do not fail
+            // revm validation with CallerGasLimitMoreThanBlock.
+            gas_limit: u64::MAX,
             // Zero basefee so that transactions with gas_price = 0 (the default
             // for deploy/call) do not fail validation with GasPriceLessThanBasefee.
             basefee: 0,
@@ -612,6 +615,90 @@ mod tests {
         assert!(
             err_msg.contains("1"),
             "error message must mention the returned block number: {err_msg}"
+        );
+    }
+
+    /// Regression: Chain::fork must set the block gas limit to `u64::MAX`
+    /// so that deployment transactions with gas limit `u64::MAX` do not fail
+    /// revm validation with `CallerGasLimitMoreThanBlock`.
+    #[test]
+    fn chain_fork_allows_deployment_with_max_gas_limit() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+
+        // Use a realistic mainnet block gas limit (30M) to reproduce the bug.
+        mock_fork_setup(
+            &transport,
+            url,
+            21_204_781,
+            "0x1",
+            json!({
+                "number":"0x1438f2d",
+                "timestamp":"0x6739e2b3",
+                "miner":"0x0000000000000000000000000000000000000000",
+                "gasLimit":"0x1c9c380",
+                "baseFeePerGas":"0x0",
+                "difficulty":"0x0",
+                "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "excessBlobGas":"0x0",
+                "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+            }),
+        );
+
+        // Mock the ForkDB response for the target contract address.
+        let target_addr_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0xb48bd837cb11a87bead45ea4b7ea3164e8af71f2","0x1438f2d"]},
+            {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":["0xb48bd837cb11a87bead45ea4b7ea3164e8af71f2","0x1438f2d"]},
+            {"jsonrpc":"2.0","id":2,"method":"eth_getCode","params":["0xb48bd837cb11a87bead45ea4b7ea3164e8af71f2","0x1438f2d"]}
+        ]);
+        transport.mock_response(
+            url,
+            &target_addr_payload,
+            json!([
+                {"jsonrpc":"2.0","id":0,"result":"0x0"},
+                {"jsonrpc":"2.0","id":1,"result":"0x0"},
+                {"jsonrpc":"2.0","id":2,"result":"0x"}
+            ]),
+        );
+
+        // Mock the ForkDB response for Address::ZERO (coinbase).
+        let zero_addr_payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000000","0x1438f2d"]},
+            {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":["0x0000000000000000000000000000000000000000","0x1438f2d"]},
+            {"jsonrpc":"2.0","id":2,"method":"eth_getCode","params":["0x0000000000000000000000000000000000000000","0x1438f2d"]}
+        ]);
+        transport.mock_response(
+            url,
+            &zero_addr_payload,
+            json!([
+                {"jsonrpc":"2.0","id":0,"result":"0x0"},
+                {"jsonrpc":"2.0","id":1,"result":"0x0"},
+                {"jsonrpc":"2.0","id":2,"result":"0x"}
+            ]),
+        );
+
+        let config = Config::new(url).block_number(21_204_781);
+        let mut chain = Chain::fork_with_transport(
+            crate::evm::chain::Config::default(),
+            config,
+            transport.clone(),
+        )
+        .unwrap();
+
+        // Load a simple contract from the fixture project.
+        let project = crate::foundry::Project::new("fixtures/target-contract-deployment");
+        let artifacts = project.load_artifacts().unwrap();
+        let artifact_id =
+            crate::foundry::ArtifactId::try_from("test/EmptyChainNoSetup.sol:EmptyChainNoSetup")
+                .unwrap();
+        let contract = crate::evm::Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+        let deployment = chain
+            .deploy(crate::evm::chain::DeployInput::new(&contract.initcode))
+            .unwrap();
+        assert!(
+            deployment.result.success,
+            "deployment must succeed on forked chain even when the real block has a limited gas limit"
         );
     }
 }
