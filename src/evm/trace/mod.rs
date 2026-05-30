@@ -3,47 +3,80 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use alloy_dyn_abi::{DynSolType, DynSolValue};
-use alloy_json_abi::JsonAbi;
-use alloy_primitives::FixedBytes;
-use alloy_sol_types::SolError;
 use revm::interpreter::CallScheme;
 use revm::primitives::{Address, Bytes};
 
+pub use context::TraceContext;
 pub use inspector::Inspector;
 
+mod context;
 mod inspector;
 
 /// Raw call trace tree.
+///
+/// Holds only the execution frames. To format a trace with address labels
+/// and ABI-decoded calls, use [`Trace::display_with`] together with a
+/// [`TraceContext`].
 #[derive(Debug, Clone, Default)]
 pub struct Trace {
     pub roots: Vec<CallFrame>,
-    pub labels: HashMap<Address, String>,
-    pub abis: Vec<JsonAbi>,
 }
 
 impl Trace {
     /// Create a new [`Trace`] with the given roots.
     pub fn new(roots: Vec<CallFrame>) -> Self {
-        Self {
-            roots,
-            labels: HashMap::new(),
-            abis: Vec::new(),
+        Self { roots }
+    }
+
+    /// Return a [`Display`](fmt::Display)-able view of this trace using the
+    /// given [`TraceContext`] for labels and ABI decoding.
+    pub fn display_with<'a>(&'a self, ctx: &'a TraceContext) -> TraceDisplay<'a> {
+        let mut labels = HashMap::new();
+        for root in &self.roots {
+            Self::collect_create_labels(root, ctx, &mut labels);
+        }
+        TraceDisplay {
+            trace: self,
+            ctx,
+            labels,
         }
     }
 
-    /// Set an address label for formatting.
-    pub fn with_label(mut self, address: Address, label: impl Into<String>) -> Self {
-        self.labels.insert(address, label.into());
-        self
+    fn collect_create_labels(
+        frame: &CallFrame,
+        ctx: &TraceContext,
+        labels: &mut HashMap<Address, String>,
+    ) {
+        if frame.kind == CallFrameKind::Create
+            && let Some(name) = ctx.resolve_by_bytecode(&frame.output)
+            && let Some(addr) = frame.address
+        {
+            labels.insert(addr, name.into());
+        }
+        for child in &frame.children {
+            Self::collect_create_labels(child, ctx, labels);
+        }
     }
+}
 
-    /// Add an ABI for decoding function calls and revert reasons.
-    pub fn with_abi(mut self, abi: JsonAbi) -> Self {
-        self.abis.push(abi);
-        self
+/// A [`Display`](fmt::Display) wrapper for a [`Trace`] backed by a
+/// [`TraceContext`].
+pub struct TraceDisplay<'a> {
+    trace: &'a Trace,
+    ctx: &'a TraceContext,
+    labels: HashMap<Address, String>,
+}
+
+impl<'a> fmt::Display for TraceDisplay<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for root in &self.trace.roots {
+            self.write_frame(f, root, &[], true)?;
+        }
+        Ok(())
     }
+}
 
+impl<'a> TraceDisplay<'a> {
     fn write_frame(
         &self,
         f: &mut fmt::Formatter<'_>,
@@ -72,14 +105,22 @@ impl Trace {
         let label = frame.address.map(|addr| {
             self.labels
                 .get(&addr)
-                .cloned()
+                .map(|s| s.as_str())
+                .or_else(|| self.ctx.get_label(&addr))
+                .map(|s| s.into())
                 .unwrap_or_else(|| format!("{addr:#x}"))
         });
 
         if matches!(frame.kind, CallFrameKind::Create) {
-            let label = frame
-                .address
-                .and_then(|addr| self.labels.get(&addr).map(|s| s.as_str()))
+            let label = self
+                .ctx
+                .resolve_by_bytecode(&frame.output)
+                .or_else(|| frame.address.and_then(|addr| self.ctx.get_label(&addr)))
+                .or_else(|| {
+                    frame
+                        .address
+                        .and_then(|addr| self.labels.get(&addr).map(|s| s.as_str()))
+                })
                 .unwrap_or("<unknown>");
             let addr = frame
                 .address
@@ -93,7 +134,7 @@ impl Trace {
             } else {
                 format!("0x{}", hex::encode(&frame.input))
             };
-            let (func_name, args) = self.decode_call(&frame.input);
+            let (func_name, args) = self.ctx.decode_call(&frame.input);
             let func_name = func_name.unwrap_or(&selector);
             let scheme_suffix = match frame.kind {
                 CallFrameKind::Call(CallScheme::StaticCall) => " [staticcall]",
@@ -147,123 +188,10 @@ impl Trace {
                 }
             }
         } else {
-            let revert = self.decode_revert(&frame.output);
+            let revert = self.ctx.decode_revert(&frame.output);
             writeln!(f, "{result_prefix}← [Revert] {revert}")?;
         }
 
-        Ok(())
-    }
-
-    fn decode_call(&self, data: &Bytes) -> (Option<&str>, String) {
-        if data.len() < 4 {
-            return (None, String::new());
-        }
-        let sel: [u8; 4] = data[..4].try_into().unwrap_or_default();
-        for abi in &self.abis {
-            if let Some(func) = abi.function_by_selector(FixedBytes::new(sel)) {
-                let types: Vec<DynSolType> = func
-                    .inputs
-                    .iter()
-                    .filter_map(|p| DynSolType::parse(&p.selector_type()).ok())
-                    .collect();
-                let args = if types.is_empty() {
-                    String::new()
-                } else {
-                    let tuple = DynSolType::Tuple(types);
-                    match tuple.abi_decode_params(&data[4..]) {
-                        Ok(DynSolValue::Tuple(values)) => format_args(&values),
-                        Ok(other) => format_args(&[other]),
-                        Err(_) => "...".into(),
-                    }
-                };
-                return (Some(func.name.as_str()), args);
-            }
-        }
-        (None, "...".into())
-    }
-
-    fn decode_revert(&self, data: &Bytes) -> String {
-        if data.is_empty() {
-            return "reverted".into();
-        }
-
-        // Try generic Error(string) first
-        if data.len() >= 4 {
-            let sel: [u8; 4] = data[..4].try_into().unwrap_or_default();
-            if sel == [0x08, 0xc3, 0x79, 0xa0]
-                && let Ok(revert) = alloy_sol_types::Revert::abi_decode(data)
-            {
-                return revert.reason;
-            }
-        }
-
-        // Try Solidity panic
-        if data.len() >= 4 {
-            let sel: [u8; 4] = data[..4].try_into().unwrap_or_default();
-            if sel == [0x4e, 0x48, 0x7b, 0x71]
-                && let Ok(panic) = alloy_sol_types::Panic::abi_decode(data)
-            {
-                return panic.as_geth_str().into();
-            }
-        }
-
-        // Try ABI errors
-        if data.len() >= 4 {
-            let sel: FixedBytes<4> = FixedBytes::new(data[..4].try_into().unwrap_or_default());
-            for abi in &self.abis {
-                for error in abi.errors() {
-                    if error.selector().as_slice() == sel.as_slice() {
-                        if error.inputs.is_empty() {
-                            return format!("{}()", error.name);
-                        } else {
-                            return format!("{}(...)", error.name);
-                        }
-                    }
-                }
-            }
-        }
-
-        format!("0x{}", hex::encode(data))
-    }
-}
-
-fn format_value(v: &DynSolValue) -> String {
-    match v {
-        DynSolValue::Bool(b) => format!("{b}"),
-        DynSolValue::Uint(n, _) => format!("{n}"),
-        DynSolValue::Int(n, _) => format!("{n}"),
-        DynSolValue::Address(a) => format!("{a}"),
-        DynSolValue::String(s) => s.into(),
-        DynSolValue::Bytes(b) => format!("0x{}", hex::encode(b)),
-        DynSolValue::FixedBytes(b, _) => format!("0x{}", hex::encode(b)),
-        DynSolValue::Array(arr) | DynSolValue::FixedArray(arr) => {
-            let inner: Vec<String> = arr.iter().map(format_value).collect();
-            format!("[{inner}]", inner = inner.join(", "))
-        }
-        DynSolValue::Tuple(vals) => {
-            let inner: Vec<String> = vals.iter().map(format_value).collect();
-            format!("({inner})", inner = inner.join(", "))
-        }
-        _ => format!("{v:?}"),
-    }
-}
-
-fn format_args(values: &[DynSolValue]) -> String {
-    if values.is_empty() {
-        return String::new();
-    }
-    values
-        .iter()
-        .map(format_value)
-        .collect::<Vec<String>>()
-        .join(", ")
-}
-
-impl fmt::Display for Trace {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for root in &self.roots {
-            self.write_frame(f, root, &[], true)?;
-        }
         Ok(())
     }
 }

@@ -116,11 +116,8 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
 mod tests {
     use std::fs;
 
-    use revm::primitives::Address;
-
     use crate::evm::Contract;
     use crate::evm::chain::{Chain, Config, DeployInput};
-    use crate::evm::trace::CallFrameKind;
     use crate::foundry::{ArtifactId, Project};
 
     struct TestCase {
@@ -177,14 +174,13 @@ mod tests {
             );
 
             let deploy_address = deployment.trace.roots[0].address.unwrap();
-            let trace = deployment.trace.with_label(deploy_address, case.label);
-            let trace = if case.with_abi {
-                trace.with_abi(contract.abi)
-            } else {
-                trace
-            };
+            let mut ctx =
+                crate::evm::trace::TraceContext::new().with_label(deploy_address, case.label);
+            if case.with_abi {
+                ctx = ctx.with_abi(contract.abi);
+            }
 
-            let formatted = format!("{trace}");
+            let formatted = format!("{}", deployment.trace.display_with(&ctx));
             let expected = fs::read_to_string(case.expected_file).unwrap_or_else(|_| {
                 panic!(
                     "{}: expected file not found. actual output:\n{formatted}",
@@ -206,95 +202,36 @@ mod tests {
             load_fixture("src/BasicConstructorComplexRevert.sol:BasicConstructorComplexRevert");
 
         let project = Project::new("fixtures/trace-inspector");
-        let artifacts = project.load_artifacts().unwrap();
-
-        let get_abi = |id: &str| {
-            let artifact_id = ArtifactId::try_from(id).unwrap();
-            artifacts
-                .get(&artifact_id)
-                .unwrap_or_else(|| panic!("artifact {id} not found"))
-                .abi()
-                .clone()
-        };
-        let counter_abi = get_abi("src/BasicConstructorComplexRevert.sol:Counter");
-        let deep_abi = get_abi("src/BasicConstructorComplexRevert.sol:DeepContract");
-        let helper_abi = get_abi("src/BasicConstructorComplexRevert.sol:CounterHelper");
-        let vm_abi = get_abi("src/Vm.sol:Vm");
-
-        let math_lib_id =
-            ArtifactId::try_from("src/BasicConstructorComplexRevert.sol:MathLib").unwrap();
-        let math_lib_artifact = artifacts
-            .get(&math_lib_id)
-            .expect("MathLib artifact missing");
-        let crate::foundry::Artifact::Library(math_lib) = math_lib_artifact else {
-            panic!("MathLib must be a library artifact");
-        };
-        let math_lib_initcode = math_lib.bytecode.object.clone();
-        let math_lib_abi = math_lib_artifact.abi().clone();
+        let mut ctx = crate::evm::trace::TraceContext::from_project(&project).unwrap();
 
         let mut chain = Chain::empty(Config::default().trace(true));
-        let deployment = chain
-            .deploy(
-                DeployInput::new(&outer.initcode)
-                    .value(alloy_primitives::U256::from(10000))
-                    .add_library(crate::evm::chain::DeployLibraryInput::new(
-                        "src/BasicConstructorComplexRevert.sol:MathLib",
-                        &math_lib_initcode,
-                    )),
-            )
-            .unwrap();
+        let mut deploy_opts =
+            DeployInput::new(&outer.initcode).value(alloy_primitives::U256::from(10000));
+        for lib in &outer.libraries {
+            deploy_opts = deploy_opts.add_library(lib.clone());
+        }
+        let deployment = chain.deploy(deploy_opts).unwrap();
         assert!(!deployment.result.success, "deployment must fail");
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
 
         let root = &deployment.trace.roots[0];
         let deploy_address = root.address.unwrap();
 
-        // Collect all child CREATE addresses recursively
-        fn collect_creates(frame: &crate::evm::trace::CallFrame) -> Vec<Address> {
-            let mut out = Vec::new();
-            for child in &frame.children {
-                if child.kind == CallFrameKind::Create {
-                    if let Some(addr) = child.address {
-                        out.push(addr);
-                    }
-                }
-                out.extend(collect_creates(child));
-            }
-            out
-        }
-
-        let creates = collect_creates(root);
-        let mut trace = deployment
-            .trace
-            .with_label(deploy_address, "BasicConstructorComplexRevert")
-            .with_abi(outer.abi)
-            .with_abi(counter_abi)
-            .with_abi(deep_abi)
-            .with_abi(helper_abi)
-            .with_abi(math_lib_abi)
-            .with_abi(vm_abi);
+        ctx = ctx.with_label(deploy_address, outer.artifact_id.name.clone());
 
         // Label library address
         for lib in &deployment.libraries {
-            trace = trace.with_label(lib.address, "MathLib");
+            ctx = ctx.with_label(lib.address, "MathLib");
         }
         // Label VM cheatcode address
-        trace = trace.with_label(
+        ctx = ctx.with_label(
             "0x7109709ECfa91a80626fF3989D68f67F5b1DD12D"
                 .parse()
                 .unwrap(),
             "Vm",
         );
 
-        // Label child CREATEs: Counter, DeepContract, CounterHelper
-        let labels = ["Counter", "DeepContract", "CounterHelper"];
-        for (idx, addr) in creates.iter().enumerate() {
-            if let Some(label) = labels.get(idx) {
-                trace = trace.with_label(*addr, *label);
-            }
-        }
-
-        let formatted = format!("{trace}");
+        let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected = fs::read_to_string(
             "fixtures/trace-inspector/expected/BasicConstructorComplexRevert.txt",
         )

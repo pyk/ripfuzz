@@ -24,7 +24,7 @@ pub use database::{Database, DatabaseError};
 pub use forkdb::Config as ForkConfig;
 pub use result::TransactionResult;
 pub use specs::get_spec_id;
-pub use trace::{CallFrame, Inspector, Trace};
+pub use trace::{CallFrame, Inspector, Trace, TraceContext};
 
 mod chain;
 mod cheatcode;

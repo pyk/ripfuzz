@@ -339,6 +339,25 @@ impl Artifact {
             Self::Abstract(a) => &a.abi,
         }
     }
+
+    /// Consume the artifact and return its JSON ABI.
+    pub fn into_abi(self) -> JsonAbi {
+        match self {
+            Self::Contract(a) => a.abi,
+            Self::Interface(a) => a.abi,
+            Self::Library(a) => a.abi,
+            Self::Abstract(a) => a.abi,
+        }
+    }
+
+    /// The deployed bytecode, if the artifact has any.
+    pub fn deployed_bytecode(&self) -> Option<&ArtifactBytecode> {
+        match self {
+            Self::Contract(a) => Some(&a.deployed_bytecode),
+            Self::Library(a) => Some(&a.deployed_bytecode),
+            _ => None,
+        }
+    }
 }
 
 /// Extract `ArtifactId` from the artifact metadata.
