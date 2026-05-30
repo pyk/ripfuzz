@@ -426,7 +426,8 @@ impl TraceContext {
             if sel == [0x4e, 0x48, 0x7b, 0x71]
                 && let Ok(panic) = alloy_sol_types::Panic::abi_decode(data)
             {
-                return panic.as_geth_str().into();
+                let msg = panic.kind().map(|k| k.as_str()).unwrap_or("unknown code");
+                return format!("panic: {msg}");
             }
         }
 

@@ -1,2 +1,2 @@
 [94] → new BasicConstructorAssertionFailed@0xb48bd837cb11a87bead45ea4b7ea3164e8af71f2
-    └─ ← [Revert] assert(false)
+    └─ ← [revert] panic: assertion failed

@@ -112,4 +112,4 @@
     │   │   │   └─ ← [Stop]
     │   │   └─ ← [Stop]
     │   └─ ← [Stop]
-    └─ ← [Revert] constructor always reverts
+    └─ ← [revert] constructor always reverts

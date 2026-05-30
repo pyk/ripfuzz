@@ -445,7 +445,7 @@ impl<'a> TraceDisplay<'a> {
             }
         } else {
             let revert = self.ctx.decode_revert(&frame.output);
-            writeln!(f, "{result_prefix}← [Revert] {revert}")?;
+            writeln!(f, "{result_prefix}← [revert] {revert}")?;
         }
 
         Ok(())
