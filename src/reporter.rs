@@ -88,6 +88,19 @@ impl<W: Write> Reporter<W> {
         )
     }
 
+    /// Print a one-off success line.
+    ///
+    /// The line is prefixed with a dim `[+]` and always terminated with a
+    /// newline.
+    pub fn print_success(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        let prefix = self.success_prefix();
+        writeln!(
+            self.output,
+            "{prefix} {message}",
+            message = message.as_ref()
+        )
+    }
+
     /// Print a progress line to stderr.
     ///
     /// The line is prefixed with a green `[*]`. In a terminal the

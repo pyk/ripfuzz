@@ -403,7 +403,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Create test chain
     let mut reporter = Reporter::new();
-    reporter.begin("creating test chain")?;
+    reporter.begin("spawning test chain ...")?;
     let mut chain_config = ChainConfig::new(&project_path)
         .with_compiled_contracts(compiled_contracts)
         .coverage(true);
@@ -413,7 +413,15 @@ pub fn run(args: Args) -> Result<()> {
         chain_config = chain_config.fork(fork_config);
     }
     let mut chain = Chain::new(chain_config)?;
+    reporter.update("spawned test chain")?;
     reporter.end()?;
+    reporter.print_success(format!(
+        "chain id: {} | evm: {} | block: #{} | timestamp: {}",
+        chain.cfg_env().chain_id,
+        chain.cfg_env().spec.to_string().to_lowercase(),
+        chain.block_env().number,
+        chain.block_env().timestamp,
+    ))?;
 
     // Deploy target contract
     let mut reporter = Reporter::new();
