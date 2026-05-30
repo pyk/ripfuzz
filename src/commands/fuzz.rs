@@ -504,7 +504,7 @@ pub fn run(args: Args) -> Result<()> {
     // Extract literals from build artifacts so the fuzzer can seed random value
     // generation with concrete values found across the entire project.
     let mut reporter = Reporter::new();
-    reporter.begin("loading corpus")?;
+    reporter.begin("loading corpus items ...")?;
     let literals = ExtractedLiterals::from_artifacts(&build_artifacts);
     let base_corpus_dir = args
         .corpus_dir
@@ -517,10 +517,16 @@ pub fn run(args: Args) -> Result<()> {
     let corpus = SharedCorpus::new(corpus_config);
     let corpus_stats = corpus.load_items()?;
     reporter.update(format!(
-        "loading corpus ({} items)",
-        fmt_num(corpus_stats.total_count as u64)
+        "loaded {} corpus items",
+        fmt_num(corpus_stats.valid_count as u64)
     ))?;
     reporter.end()?;
+    reporter.print_success(format!(
+        "on disk: {} | valid: {} | invalid: {}",
+        fmt_num(corpus_stats.total_count as u64),
+        fmt_num(corpus_stats.valid_count as u64),
+        fmt_num((corpus_stats.parse_failed_count + corpus_stats.invalid_call_count) as u64)
+    ))?;
 
     // Initialize shared coverage and sync with corpus.
     let mut reporter = Reporter::new();
