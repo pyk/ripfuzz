@@ -20,7 +20,7 @@ build-fixtures: ## Force-rebuild all test fixtures with --ast
 	@echo "Building fixtures"
 	@for d in $(FIXTURE_DIRS); do \
 		echo "  $$d"; \
-		forge build --root "$$d" --ast --force || true; \
+		forge build --root "$$d" --ast --extra-output storageLayout --force || true; \
 	done
 
 .PHONY: bin
