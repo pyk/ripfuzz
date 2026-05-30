@@ -35,7 +35,12 @@ impl Project {
     /// The `out/` directory is created or refreshed as a side effect.
     pub fn build(&self, opts: BuildOptions) -> Result<()> {
         let mut cmd = Command::new("forge");
-        cmd.arg("build").arg("--ast").arg("--root").arg(&self.path);
+        cmd.arg("build")
+            .arg("--ast")
+            .arg("--extra-output")
+            .arg("storageLayout")
+            .arg("--root")
+            .arg(&self.path);
 
         if opts.is_force() {
             cmd.arg("--force");

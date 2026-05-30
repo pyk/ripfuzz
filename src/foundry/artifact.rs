@@ -106,6 +106,7 @@ pub struct ContractArtifact {
     pub abi: JsonAbi,
     pub bytecode: ArtifactBytecode,
     pub deployed_bytecode: ArtifactBytecode,
+    pub storage_layout: Option<StorageLayout>,
 }
 
 impl ContractArtifact {
@@ -132,6 +133,7 @@ pub struct LibraryArtifact {
     pub abi: JsonAbi,
     pub bytecode: ArtifactBytecode,
     pub deployed_bytecode: ArtifactBytecode,
+    pub storage_layout: Option<StorageLayout>,
 }
 
 /// An abstract contract artifact.
@@ -142,6 +144,25 @@ pub struct AbstractArtifact {
     pub abi: JsonAbi,
 }
 
+/// A single storage slot entry from the Solidity `storageLayout` output.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct StorageSlot {
+    #[serde(rename = "astId")]
+    pub ast_id: u64,
+    pub contract: String,
+    pub label: String,
+    pub offset: u64,
+    pub slot: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+}
+
+/// The `storageLayout` section of a compiled artifact.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct StorageLayout {
+    pub storage: Vec<StorageSlot>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct ArtifactJson {
     abi: JsonAbi,
@@ -150,6 +171,8 @@ struct ArtifactJson {
     deployed_bytecode: ArtifactBytecode,
     ast: solc::ast::SourceUnit,
     metadata: Option<ArtifactMetadata>,
+    #[serde(rename = "storageLayout")]
+    storage_layout: Option<StorageLayout>,
 }
 
 /// A single link reference location within bytecode.
@@ -278,6 +301,7 @@ impl Artifact {
                     abi: json.abi,
                     bytecode: json.bytecode,
                     deployed_bytecode: json.deployed_bytecode,
+                    storage_layout: json.storage_layout,
                 })
             }
             solc::ast::ContractKind::Contract => Self::Abstract(AbstractArtifact {
@@ -296,6 +320,7 @@ impl Artifact {
                 abi: json.abi,
                 bytecode: json.bytecode,
                 deployed_bytecode: json.deployed_bytecode,
+                storage_layout: json.storage_layout,
             }),
         })
     }
@@ -355,6 +380,15 @@ impl Artifact {
         match self {
             Self::Contract(a) => Some(&a.deployed_bytecode),
             Self::Library(a) => Some(&a.deployed_bytecode),
+            _ => None,
+        }
+    }
+
+    /// The storage layout, if the artifact has any.
+    pub fn storage_layout(&self) -> Option<&StorageLayout> {
+        match self {
+            Self::Contract(a) => a.storage_layout.as_ref(),
+            Self::Library(a) => a.storage_layout.as_ref(),
             _ => None,
         }
     }
