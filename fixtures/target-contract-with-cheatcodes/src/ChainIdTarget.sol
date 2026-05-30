@@ -8,7 +8,7 @@ import "./Vm.sol";
 ///         `vm.chainId` cheatcode. Setup establishes a canonical chain id and
 ///         actions mutate or restore it. Invariants verify deterministic control.
 contract ChainIdTarget {
-    Vm constant vm = Vm(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1);
+    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     uint256 constant EXPECTED_CHAIN_ID = 42;
 

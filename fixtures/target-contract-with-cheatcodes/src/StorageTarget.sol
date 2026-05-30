@@ -9,7 +9,7 @@ import "./Vm.sol";
 /// and reads it back via vm.load. Actions mutate storage; invariants verify
 /// the canonical value is intact.
 contract StorageTarget {
-    Vm constant vm = Vm(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1);
+    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     bytes32 constant SLOT = bytes32(uint256(0));
     bytes32 constant EXPECTED = bytes32(uint256(42));

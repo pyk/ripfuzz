@@ -1,18 +1,14 @@
 //! Raptor VM contract address.
 
-use revm::primitives::Address;
+use alloy_primitives::{Address, address};
 
-/// Raptor VM contract address.
+/// Cheat code address.
 ///
-/// Derived from `address(uint160(uint256(keccak256("raptor vm"))))`.
+/// Calculated as `address(uint160(uint256(keccak256("hevm cheat code"))))`.
 ///
-/// NOTE: The raptor VM is **not** Foundry VM compatible. It does not
-/// implement all Foundry cheatcodes - only the subset documented in the
-/// raptor cheatcode module.
-pub const VM_ADDRESS: Address = Address::new([
-    0x26, 0x3a, 0xf5, 0x13, 0xa0, 0x43, 0x5e, 0xbc, 0x9d, 0x5c, 0x36, 0x2c, 0xf7, 0x62, 0x52, 0xf8,
-    0x71, 0x73, 0xf8, 0xf1,
-]);
+/// This is the same address used by Foundry, ensuring compatibility with
+/// existing contracts that reference `vm` at this hardcoded address.
+pub const VM_ADDRESS: Address = address!("0x7109709ECfa91a80626fF3989D68f67F5b1DD12D");
 
 #[cfg(test)]
 mod tests {
@@ -20,8 +16,8 @@ mod tests {
     use alloy_primitives::utils::keccak256;
 
     #[test]
-    fn vm_address_matches_raptor_vm_string() {
-        let hash = keccak256(b"raptor vm");
+    fn vm_address_matches_hevm_cheat_code_string() {
+        let hash = keccak256(b"hevm cheat code");
         let expected = Address::from_word(hash);
         assert_eq!(expected, VM_ADDRESS);
     }

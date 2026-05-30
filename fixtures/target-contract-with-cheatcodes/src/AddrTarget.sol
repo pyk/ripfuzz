@@ -8,7 +8,7 @@ import "./Vm.sol";
 ///         keys during setup and re-derives them in actions. Invariants verify
 ///         that `vm.addr` remains deterministic across the campaign.
 contract AddrTarget {
-    Vm constant vm = Vm(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1);
+    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     /// Largest valid secp256k1 private key (curve order - 1).
     uint256 constant MAX_VALID_KEY =

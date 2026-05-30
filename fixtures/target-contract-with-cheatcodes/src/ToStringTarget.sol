@@ -8,7 +8,7 @@ import "./Vm.sol";
 /// Setup converts well-known values to strings via vm.toString and stores them.
 /// Actions re-convert all values; invariants verify the stored strings match.
 contract ToStringTarget {
-    Vm constant vm = Vm(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1);
+    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     address constant TEST_ADDR = 0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf;
     bool constant TEST_BOOL = true;

@@ -9,7 +9,7 @@ import "./Vm.sol";
 /// Actions mutate or restore the value; invariants verify the canonical
 /// state is intact.
 contract PrevrandaoTarget {
-    Vm constant vm = Vm(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1);
+    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     bytes32 constant CANONICAL =
         bytes32(

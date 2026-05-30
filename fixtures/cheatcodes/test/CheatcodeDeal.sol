@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {Vm} from "../src/Vm.sol";
 
 contract CheatcodeDeal {
-    Vm constant vm = Vm(address(0x263Af513A0435EBC9D5C362Cf76252F87173F8f1));
+    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
 
     uint256 public recordedBalance;
     address public constant TARGET = address(0xBEEF);
