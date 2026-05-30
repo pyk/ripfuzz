@@ -197,6 +197,48 @@ mod tests {
                 expected_file: "fixtures/trace-inspector/expected/BasicConstructorAssertionFailed.txt",
                 with_abi: true,
             },
+            TestCase {
+                artifact_id: "src/PanicArithmeticOverflow.sol:PanicArithmeticOverflow",
+                label: "PanicArithmeticOverflow",
+                expected_file: "fixtures/trace-inspector/expected/PanicArithmeticOverflow.txt",
+                with_abi: true,
+            },
+            TestCase {
+                artifact_id: "src/PanicDivisionByZero.sol:PanicDivisionByZero",
+                label: "PanicDivisionByZero",
+                expected_file: "fixtures/trace-inspector/expected/PanicDivisionByZero.txt",
+                with_abi: true,
+            },
+            TestCase {
+                artifact_id: "src/PanicArrayOutOfBounds.sol:PanicArrayOutOfBounds",
+                label: "PanicArrayOutOfBounds",
+                expected_file: "fixtures/trace-inspector/expected/PanicArrayOutOfBounds.txt",
+                with_abi: true,
+            },
+            TestCase {
+                artifact_id: "src/PanicEnumConversionError.sol:PanicEnumConversionError",
+                label: "PanicEnumConversionError",
+                expected_file: "fixtures/trace-inspector/expected/PanicEnumConversionError.txt",
+                with_abi: true,
+            },
+            TestCase {
+                artifact_id: "src/PanicEmptyArrayPop.sol:PanicEmptyArrayPop",
+                label: "PanicEmptyArrayPop",
+                expected_file: "fixtures/trace-inspector/expected/PanicEmptyArrayPop.txt",
+                with_abi: true,
+            },
+            TestCase {
+                artifact_id: "src/PanicInvalidInternalFunction.sol:PanicInvalidInternalFunction",
+                label: "PanicInvalidInternalFunction",
+                expected_file: "fixtures/trace-inspector/expected/PanicInvalidInternalFunction.txt",
+                with_abi: true,
+            },
+            TestCase {
+                artifact_id: "src/PanicResourceError.sol:PanicResourceError",
+                label: "PanicResourceError",
+                expected_file: "fixtures/trace-inspector/expected/PanicResourceError.txt",
+                with_abi: true,
+            },
         ];
 
         for case in &cases {

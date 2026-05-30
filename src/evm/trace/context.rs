@@ -426,7 +426,28 @@ impl TraceContext {
             if sel == [0x4e, 0x48, 0x7b, 0x71]
                 && let Ok(panic) = alloy_sol_types::Panic::abi_decode(data)
             {
-                let msg = panic.kind().map(|k| k.as_str()).unwrap_or("unknown code");
+                let msg = match panic.kind() {
+                    Some(kind) => match kind {
+                        alloy_sol_types::PanicKind::Generic => "generic panic",
+                        alloy_sol_types::PanicKind::Assert => "assertion failed",
+                        alloy_sol_types::PanicKind::UnderOverflow => {
+                            "arithmetic overflow/underflow"
+                        }
+                        alloy_sol_types::PanicKind::DivisionByZero => "division by zero",
+                        alloy_sol_types::PanicKind::EnumConversionError => "enum conversion error",
+                        alloy_sol_types::PanicKind::StorageEncodingError => {
+                            "storage encoding error"
+                        }
+                        alloy_sol_types::PanicKind::EmptyArrayPop => "empty array pop",
+                        alloy_sol_types::PanicKind::ArrayOutOfBounds => "array out of bounds",
+                        alloy_sol_types::PanicKind::ResourceError => "resource error",
+                        alloy_sol_types::PanicKind::InvalidInternalFunction => {
+                            "invalid internal function"
+                        }
+                        _ => kind.as_str(),
+                    },
+                    None => "unknown code",
+                };
                 return format!("panic: {msg}");
             }
         }
