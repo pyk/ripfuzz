@@ -311,10 +311,10 @@ pub fn run(args: Args) -> Result<()> {
 
     // Load build artifacts
     let mut reporter = Reporter::new();
-    reporter.begin("loading build artifacts")?;
+    reporter.begin("loading build artifacts ...")?;
     let build_artifacts = project.load_artifacts()?;
     reporter.update(format!(
-        "loading build artifacts ({} artifacts)",
+        "loaded {} build artifacts",
         fmt_num(build_artifacts.len() as u64)
     ))?;
     reporter.end()?;
