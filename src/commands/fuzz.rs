@@ -393,7 +393,6 @@ pub fn run(args: Args) -> Result<()> {
         .caller(args.deployer_address)
         .value(args.deploy_value);
     let libraries = target_contract.libraries.clone();
-    let library_count = libraries.len();
     for lib in libraries {
         deploy_opts = deploy_opts.add_library(lib);
     }
@@ -416,17 +415,17 @@ pub fn run(args: Args) -> Result<()> {
         .as_ref()
         .map(|b| b.len())
         .unwrap_or(0);
-    let mut details = format!(
-        "address: {deployed_address} | size: {}",
-        fmt_kb(contract_size)
-    );
-    if args.deploy_value > U256::ZERO {
-        details.push_str(&format!(" | msg value: {}", fmt_eth(args.deploy_value)));
-    }
-    if library_count > 0 {
-        details.push_str(&format!(" | linked libraries: {library_count}"));
-    }
-    reporter.print_success(details)?;
+    reporter.print_line(format!(
+        "    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}",
+        "deployer",
+        args.deployer_address,
+        "msg value",
+        fmt_eth(args.deploy_value),
+        "contract address",
+        deployed_address,
+        "contract size",
+        fmt_kb(contract_size),
+    ))?;
 
     // Run setup if present
     if let Some(ref setup) = target_contract.setup_function {
