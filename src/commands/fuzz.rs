@@ -377,8 +377,8 @@ pub fn run(args: Args) -> Result<()> {
     let mut chain = Chain::new(chain_config)?;
     reporter.update("spawned test chain")?;
     reporter.end()?;
-    reporter.print_success(format!(
-        "chain id: {} | evm: {} | block: #{} | timestamp: {}",
+    reporter.print_line(format!(
+        "    chain id        : {}\n    evm version     : {}\n    block number    : #{}\n    block timestamp : {}",
         chain.cfg_env().chain_id,
         chain.cfg_env().spec.to_string().to_lowercase(),
         chain.block_env().number,

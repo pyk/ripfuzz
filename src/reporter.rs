@@ -101,6 +101,11 @@ impl<W: Write> Reporter<W> {
         )
     }
 
+    /// Print a line without any status prefix.
+    pub fn print_line(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        writeln!(self.output, "{message}", message = message.as_ref())
+    }
+
     /// Print a progress line to stderr.
     ///
     /// The line is prefixed with a green `[*]`. In a terminal the
