@@ -45,7 +45,7 @@
     │   └─ ← [Stop]
     ├─ [342] Counter::payableCall()
     │   └─ ← [Stop]
-    ├─ [0] Vm::warp(1234567890)
+    ├─ [0] RaptorVm::warp(1234567890)
     │   └─ ← [Stop]
     ├─ [1827579] → new DeepContract@0x2c0cd89b28e26798db89da48e29f8b8d0a7378a7
     │   ├─ [752835] → new CounterHelper@0x3de67e219caa3135e36b7a70860abb4280fc6f9a

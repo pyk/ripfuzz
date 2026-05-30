@@ -12,6 +12,7 @@ use alloy_sol_types::SolError;
 use anyhow::Result;
 use revm::primitives::{Address, Bytes};
 
+use crate::evm::cheatcode::VM_ADDRESS;
 use crate::foundry::{Artifact, ArtifactId, Project};
 
 /// A single bytecode entry for matching runtime code against artifacts.
@@ -26,11 +27,23 @@ struct BytecodeEntry {
 ///
 /// Collects ABIs, address labels, and runtime bytecode hashes from build
 /// artifacts, then provides lookup methods for the trace display logic.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TraceContext {
     labels: HashMap<Address, String>,
     abis: Vec<JsonAbi>,
     bytecode_entries: Vec<BytecodeEntry>,
+}
+
+impl Default for TraceContext {
+    fn default() -> Self {
+        let mut labels = HashMap::new();
+        labels.insert(VM_ADDRESS, "RaptorVm".into());
+        Self {
+            labels,
+            abis: Vec::new(),
+            bytecode_entries: Vec::new(),
+        }
+    }
 }
 
 impl TraceContext {
@@ -47,7 +60,7 @@ impl TraceContext {
 
     /// Build a [`TraceContext`] from a map of build artifacts.
     pub fn from_artifacts(artifacts: HashMap<ArtifactId, Artifact>) -> Self {
-        let mut abis = Vec::with_capacity(artifacts.len());
+        let mut ctx = Self::default();
         let mut bytecode_entries = Vec::new();
         for artifact in artifacts.into_values() {
             let bytecode = artifact.deployed_bytecode();
@@ -67,13 +80,10 @@ impl TraceContext {
                     positions,
                 });
             }
-            abis.push(artifact.into_abi());
+            ctx.abis.push(artifact.into_abi());
         }
-        Self {
-            labels: HashMap::new(),
-            abis,
-            bytecode_entries,
-        }
+        ctx.bytecode_entries = bytecode_entries;
+        ctx
     }
 
     /// Set an address label for formatting.
@@ -294,6 +304,7 @@ mod tests {
     use alloy_primitives::Address;
     use revm::primitives::Bytes;
 
+    use crate::evm::cheatcode::VM_ADDRESS;
     use crate::foundry::{Artifact, ArtifactId, Project};
 
     use super::TraceContext;
@@ -387,5 +398,14 @@ mod tests {
             None,
             "unknown bytecode must not match"
         );
+    }
+
+    #[test]
+    fn vm_address_is_labeled_by_default() {
+        let ctx = TraceContext::new();
+        assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RaptorVm"));
+
+        let ctx = TraceContext::from_project(&Project::new("fixtures/trace-context")).unwrap();
+        assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RaptorVm"));
     }
 }

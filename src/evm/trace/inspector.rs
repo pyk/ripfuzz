@@ -219,18 +219,6 @@ mod tests {
 
         ctx = ctx.with_label(deploy_address, outer.artifact_id.name.clone());
 
-        // Label library address
-        for lib in &deployment.libraries {
-            ctx = ctx.with_label(lib.address, "MathLib");
-        }
-        // Label VM cheatcode address
-        ctx = ctx.with_label(
-            "0x7109709ECfa91a80626fF3989D68f67F5b1DD12D"
-                .parse()
-                .unwrap(),
-            "Vm",
-        );
-
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected = fs::read_to_string(
             "fixtures/trace-inspector/expected/BasicConstructorComplexRevert.txt",
