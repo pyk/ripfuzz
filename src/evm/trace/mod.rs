@@ -338,7 +338,12 @@ impl<'a> TraceDisplay<'a> {
         }
 
         // Write storage changes as pseudo-children
-        if !frame.storage_changes.is_empty() {
+        let actual_changes: Vec<&StorageChange> = frame
+            .storage_changes
+            .iter()
+            .filter(|c| c.old_value != c.new_value)
+            .collect();
+        if !actual_changes.is_empty() {
             let mut storage_prefix = String::new();
             for h in &child_has_next {
                 if *h {
@@ -360,10 +365,7 @@ impl<'a> TraceDisplay<'a> {
             }
             change_prefix.push_str("│   ");
 
-            for change in &frame.storage_changes {
-                if change.old_value == change.new_value {
-                    continue;
-                }
+            for change in actual_changes {
                 let label = frame.address.and_then(|addr| {
                     self.labels
                         .get(&addr)
