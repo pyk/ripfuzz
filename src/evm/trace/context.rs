@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
-use alloy_json_abi::JsonAbi;
+use alloy_json_abi::{JsonAbi, Param};
 use alloy_primitives::{B256, FixedBytes, U256, keccak256};
 use alloy_sol_types::SolError;
 use anyhow::Result;
@@ -311,8 +311,8 @@ impl TraceContext {
                 } else {
                     let tuple = DynSolType::Tuple(types);
                     match tuple.abi_decode_params(&data[4..]) {
-                        Ok(DynSolValue::Tuple(values)) => format_args(&values),
-                        Ok(other) => format_args(&[other]),
+                        Ok(DynSolValue::Tuple(values)) => format_abi_args(&values, &func.inputs),
+                        Ok(other) => format_abi_args(&[other], &func.inputs),
                         Err(_) => "...".into(),
                     }
                 };
@@ -389,13 +389,49 @@ pub(super) fn format_value(v: &DynSolValue) -> String {
     }
 }
 
-pub(super) fn format_args(values: &[DynSolValue]) -> String {
+/// Format a single decoded value using ABI parameter metadata so that structs
+/// are rendered with their type name and field names.
+pub(super) fn format_abi_value(value: &DynSolValue, param: &Param) -> String {
+    match value {
+        DynSolValue::Tuple(vals) => {
+            if param.is_struct() {
+                let name = param
+                    .internal_type()
+                    .and_then(|it| it.as_struct())
+                    .map(|(_, n)| n.split('[').next().unwrap_or(n))
+                    .unwrap_or("tuple");
+                let inner: Vec<String> = vals
+                    .iter()
+                    .zip(param.components.iter())
+                    .map(|(v, p)| format!("{}: {}", p.name(), format_abi_value(v, p)))
+                    .collect();
+                format!("{}({{ {inner} }})", name, inner = inner.join(", "))
+            } else {
+                let inner: Vec<String> = vals
+                    .iter()
+                    .zip(param.components.iter())
+                    .map(|(v, p)| format_abi_value(v, p))
+                    .collect();
+                format!("({inner})", inner = inner.join(", "))
+            }
+        }
+        DynSolValue::Array(vals) | DynSolValue::FixedArray(vals) => {
+            let inner: Vec<String> = vals.iter().map(|v| format_abi_value(v, param)).collect();
+            format!("[{inner}]", inner = inner.join(", "))
+        }
+        _ => format_value(value),
+    }
+}
+
+/// Format a list of decoded values using ABI parameter metadata.
+pub(super) fn format_abi_args(values: &[DynSolValue], params: &[Param]) -> String {
     if values.is_empty() {
         return String::new();
     }
     values
         .iter()
-        .map(format_value)
+        .zip(params.iter())
+        .map(|(v, p)| format_abi_value(v, p))
         .collect::<Vec<String>>()
         .join(", ")
 }

@@ -52,11 +52,11 @@
     │   │   @ arrValues.length: 4 -> 5
     │   │   @ arrValues[4]: 0 -> 5
     │   └─ ← [Stop]
-    ├─ [673] Counter::setStruct((7, 8))
+    ├─ [673] Counter::setStruct(Point({ x: 7, y: 8 }))
     │   ├─  storage changes:
     │   │   @ value: 100 -> 15
     │   └─ ← [Stop]
-    ├─ [1104] Counter::setNestedStruct(((1, 2), (3, 4)))
+    ├─ [1104] Counter::setNestedStruct(Line({ start: Point({ x: 1, y: 2 }), end: Point({ x: 3, y: 4 }) }))
     │   ├─  storage changes:
     │   │   @ value: 15 -> 10
     │   └─ ← [Stop]

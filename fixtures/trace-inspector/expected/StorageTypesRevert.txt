@@ -80,7 +80,7 @@
     │   │   @ uintArray.length: 2 -> 3
     │   │   @ uintArray[2]: 0 -> 3
     │   └─ ← [Stop]
-    ├─ [87108] StorageTypes::pushStructArray((5, 6))
+    ├─ [87108] StorageTypes::pushStructArray(Point({ x: 5, y: 6 }))
     │   ├─  storage changes:
     │   │   @ structArray.length: 2 -> 3
     │   │   @ structArray[2].x: 0 -> 5
@@ -103,11 +103,11 @@
     │   │   @ uint128Value: 0 -> 0
     │   │   @ uint256Value: 0 -> 0
     │   └─ ← [Stop]
-    ├─ [764] StorageTypes::setStruct((0, 0))
+    ├─ [764] StorageTypes::setStruct(Point({ x: 0, y: 0 }))
     │   ├─  storage changes:
     │   │   @ uint256Value: 0 -> 0
     │   └─ ← [Stop]
-    ├─ [1128] StorageTypes::setNestedStruct(((0, 0), (0, 0)))
+    ├─ [1128] StorageTypes::setNestedStruct(Line({ start: Point({ x: 0, y: 0 }), end: Point({ x: 0, y: 0 }) }))
     │   ├─  storage changes:
     │   │   @ uint256Value: 0 -> 0
     │   └─ ← [Stop]
