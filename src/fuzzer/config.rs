@@ -38,7 +38,7 @@ impl Config {
             target_address: Address::ZERO,
             shared_corpus: SharedCorpus::new(crate::corpus::Config::new(PathBuf::new())),
             shared_coverage: SharedCoverage::new(),
-            shared_metrics: SharedMetrics::new(),
+            shared_metrics: SharedMetrics::new(Vec::new()),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             caller: evm::DEFAULT_DEPLOYER,
             invariant_functions: Vec::new(),

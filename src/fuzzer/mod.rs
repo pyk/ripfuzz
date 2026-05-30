@@ -11,7 +11,7 @@
 
 pub use config::Config;
 pub use fuzzer::{FailedAssertion, Fuzzer, RunOutput};
-pub use metrics::{FunctionMetrics, SharedMetrics, Snapshot};
+pub use metrics::{FunctionMetricsSnapshot, SharedMetrics, Snapshot};
 
 mod config;
 #[allow(clippy::module_inception)]

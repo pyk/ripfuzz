@@ -73,7 +73,7 @@ fn fmt_giga_gas(n: u64) -> String {
 /// Format the multi-line fuzzing statistics block.
 fn format_fuzzing_stats(
     snapshot: &crate::fuzzer::Snapshot,
-    function_metrics: &HashMap<String, crate::fuzzer::FunctionMetrics>,
+    function_metrics: &[(String, crate::fuzzer::FunctionMetricsSnapshot)],
     shared_coverage: &SharedCoverage,
     corpus: &SharedCorpus,
     target_functions: &[alloy_json_abi::Function],
@@ -122,7 +122,11 @@ fn format_fuzzing_stats(
         let target_width = target_labels.iter().map(|l| l.len()).max().unwrap_or(0);
         for (func, label) in target_functions.iter().zip(target_labels.iter()) {
             let sig = func.signature();
-            let metrics = function_metrics.get(&sig).copied().unwrap_or_default();
+            let metrics = function_metrics
+                .iter()
+                .find(|(s, _)| s == &sig)
+                .map(|(_, m)| *m)
+                .unwrap_or_default();
             output.push_str(&format!(
                 "\n    {:target_width$} : {:>8} calls {:>10} gas {:>8} reverts",
                 label,
@@ -145,7 +149,11 @@ fn format_fuzzing_stats(
         let invariant_width = invariant_labels.iter().map(|l| l.len()).max().unwrap_or(0);
         for (func, label) in invariant_functions.iter().zip(invariant_labels.iter()) {
             let sig = func.signature();
-            let metrics = function_metrics.get(&sig).copied().unwrap_or_default();
+            let metrics = function_metrics
+                .iter()
+                .find(|(s, _)| s == &sig)
+                .map(|(_, m)| *m)
+                .unwrap_or_default();
             output.push_str(&format!(
                 "\n    {:invariant_width$} : {:>8} calls {:>10} gas {:>8} reverts",
                 label,
@@ -612,7 +620,13 @@ pub fn run(args: Args) -> Result<()> {
     ))?;
 
     // Initialize shared metrics across all fuzzer threads.
-    let shared_metrics = SharedMetrics::new();
+    let all_function_signatures: Vec<String> = target_contract
+        .target_functions
+        .iter()
+        .chain(target_contract.invariant_functions.iter())
+        .map(|f| f.signature())
+        .collect();
+    let shared_metrics = SharedMetrics::new(all_function_signatures.clone());
 
     // Initialize shared shutdown signal across all fuzzer threads.
     let shutdown_signal = Arc::new(AtomicBool::new(false));
@@ -759,7 +773,7 @@ pub fn run(args: Args) -> Result<()> {
     let shrink_threads = args.shrink_threads.unwrap_or(args.threads);
     let shrink_timeout = args.shrink_timeout_secs.map(std::time::Duration::from_secs);
     let shrinker_shutdown = Arc::new(AtomicBool::new(false));
-    let shrinker_metrics = SharedMetrics::new();
+    let shrinker_metrics = SharedMetrics::new(all_function_signatures);
 
     let shrinkers_u64 = shrink_threads as u64;
     let base_shrink_runs = args.shrink_runs / shrinkers_u64;

@@ -5,7 +5,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use parking_lot::Mutex;
+/// Atomic counter set for one function.
+#[derive(Debug)]
+struct AtomicFunctionMetrics {
+    calls: AtomicU64,
+    gas: AtomicU64,
+    reverts: AtomicU64,
+}
 
 /// Metrics snapshot produced by [`SharedMetrics::try_snapshot`].
 #[derive(Debug, Clone, Copy)]
@@ -16,9 +22,9 @@ pub struct Snapshot {
     pub gas: u64,
 }
 
-/// Per-function metrics (calls, gas, reverts).
+/// Per-function metrics snapshot (calls, gas, reverts).
 #[derive(Debug, Clone, Copy, Default)]
-pub struct FunctionMetrics {
+pub struct FunctionMetricsSnapshot {
     pub calls: u64,
     pub gas: u64,
     pub reverts: u64,
@@ -26,8 +32,11 @@ pub struct FunctionMetrics {
 
 /// Mutable state held by [`SharedMetrics`] behind an [`Arc`].
 ///
-/// All fields are atomics or immutable so clones of [`SharedMetrics`] share
-/// the same counters without requiring additional synchronization.
+/// Simple counters use atomics so threads can increment them lock-free.
+/// Per-function metrics are stored in a pre-allocated array because each
+/// function requires three counters (calls, gas, reverts) and must be
+/// dynamically keyed by signature. A read-only `HashMap` maps signatures
+/// to indices.
 #[derive(Debug)]
 struct SharedMetricsInner {
     runs: AtomicU64,
@@ -35,7 +44,8 @@ struct SharedMetricsInner {
     gas: AtomicU64,
     last_print: AtomicU64,
     start: Instant,
-    functions: Mutex<HashMap<String, FunctionMetrics>>,
+    function_index: HashMap<String, usize>,
+    functions: Vec<AtomicFunctionMetrics>,
 }
 
 /// Thread-safe metrics shared across all fuzzer threads.
@@ -47,8 +57,18 @@ pub struct SharedMetrics {
 }
 
 impl SharedMetrics {
-    /// Create fresh metrics.
-    pub fn new() -> Self {
+    /// Create fresh metrics with a pre-allocated counter for each function.
+    pub fn new(signatures: Vec<String>) -> Self {
+        let mut function_index = HashMap::with_capacity(signatures.len());
+        let mut functions = Vec::with_capacity(signatures.len());
+        for (i, sig) in signatures.into_iter().enumerate() {
+            function_index.insert(sig, i);
+            functions.push(AtomicFunctionMetrics {
+                calls: AtomicU64::new(0),
+                gas: AtomicU64::new(0),
+                reverts: AtomicU64::new(0),
+            });
+        }
         Self {
             inner: Arc::new(SharedMetricsInner {
                 runs: AtomicU64::new(0),
@@ -56,7 +76,8 @@ impl SharedMetrics {
                 gas: AtomicU64::new(0),
                 last_print: AtomicU64::new(0),
                 start: Instant::now(),
-                functions: Mutex::new(HashMap::new()),
+                function_index,
+                functions,
             }),
         }
     }
@@ -70,16 +91,31 @@ impl SharedMetrics {
 
     /// Record per-function metrics for a single transaction.
     pub fn record_function(&self, signature: &str, calls: u64, gas: u64, reverts: u64) {
-        let mut functions = self.inner.functions.lock();
-        let metrics = functions.entry(signature.into()).or_default();
-        metrics.calls += calls;
-        metrics.gas += gas;
-        metrics.reverts += reverts;
+        if let Some(&idx) = self.inner.function_index.get(signature) {
+            let metrics = &self.inner.functions[idx];
+            metrics.calls.fetch_add(calls, Ordering::Relaxed);
+            metrics.gas.fetch_add(gas, Ordering::Relaxed);
+            metrics.reverts.fetch_add(reverts, Ordering::Relaxed);
+        }
     }
 
-    /// Return a clone of the per-function metrics map.
-    pub fn function_metrics(&self) -> HashMap<String, FunctionMetrics> {
-        self.inner.functions.lock().clone()
+    /// Return a clone of the per-function metrics as a vector of tuples.
+    pub fn function_metrics(&self) -> Vec<(String, FunctionMetricsSnapshot)> {
+        let mut result = Vec::with_capacity(self.inner.function_index.len());
+        // checkrs: allow(clone_in_loops)
+        let index = self.inner.function_index.clone();
+        for (sig, idx) in index {
+            let metrics = &self.inner.functions[idx];
+            result.push((
+                sig,
+                FunctionMetricsSnapshot {
+                    calls: metrics.calls.load(Ordering::Relaxed),
+                    gas: metrics.gas.load(Ordering::Relaxed),
+                    reverts: metrics.reverts.load(Ordering::Relaxed),
+                },
+            ));
+        }
+        result
     }
 
     /// Try to acquire the right to snapshot metrics.
@@ -119,6 +155,6 @@ impl SharedMetrics {
 
 impl Default for SharedMetrics {
     fn default() -> Self {
-        Self::new()
+        Self::new(Vec::new())
     }
 }

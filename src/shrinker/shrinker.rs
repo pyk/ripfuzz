@@ -157,7 +157,7 @@ impl Config {
             invariant_functions: Vec::new(),
             max_runs: 0,
             timeout: None,
-            shared_metrics: SharedMetrics::new(),
+            shared_metrics: SharedMetrics::new(Vec::new()),
         }
     }
 
