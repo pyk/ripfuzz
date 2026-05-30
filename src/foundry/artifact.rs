@@ -166,6 +166,18 @@ pub struct StorageTypeInfo {
     pub number_of_bytes: String,
     #[serde(default)]
     pub base: Option<String>,
+    #[serde(default)]
+    pub members: Vec<StructMember>,
+}
+
+/// A single member field of a struct type in the `storageLayout` output.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct StructMember {
+    pub label: String,
+    pub offset: u64,
+    pub slot: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
 }
 
 /// The `storageLayout` section of a compiled artifact.

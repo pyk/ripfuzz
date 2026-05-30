@@ -27,6 +27,14 @@ struct BytecodeEntry {
 ///
 /// Collects ABIs, address labels, and runtime bytecode hashes from build
 /// artifacts, then provides lookup methods for the trace display logic.
+/// A single field within a struct element of an array.
+#[derive(Debug, Clone)]
+struct StructField {
+    name: String,
+    slot_offset: usize,
+    ty: super::StorageType,
+}
+
 /// Metadata for an array variable so that hashed element slots can be
 /// resolved back to `array[index]`.
 #[derive(Debug, Clone)]
@@ -37,6 +45,8 @@ struct ArrayInfo {
     start_slot: U256,
     /// Fixed length for fixed arrays; `None` for dynamic arrays.
     len: Option<usize>,
+    /// Struct field layout when the element type is a struct.
+    struct_fields: Option<Vec<StructField>>,
 }
 
 #[derive(Debug, Clone)]
@@ -204,7 +214,15 @@ impl TraceContext {
             if let Some(array) = best {
                 let offset = slot - array.start_slot;
                 let index = offset / U256::from(array.element_slots);
-                return Some(format!("{}[{}]", array.name, index));
+                let field_offset =
+                    u64::try_from(offset % U256::from(array.element_slots)).unwrap_or(0) as usize;
+                let name = format!("{}[{}]", array.name, index);
+                if let Some(fields) = &array.struct_fields
+                    && let Some(field) = fields.iter().find(|f| f.slot_offset == field_offset)
+                {
+                    return Some(format!("{}.{}", name, field.name));
+                }
+                return Some(name);
             }
         }
         None
@@ -259,6 +277,14 @@ impl TraceContext {
                 }
             }
             if let Some(array) = best {
+                let offset = slot - array.start_slot;
+                let field_offset =
+                    u64::try_from(offset % U256::from(array.element_slots)).unwrap_or(0) as usize;
+                if let Some(fields) = &array.struct_fields
+                    && let Some(field) = fields.iter().find(|f| f.slot_offset == field_offset)
+                {
+                    return Some(&field.ty);
+                }
                 return Some(&array.element_type);
             }
         }
@@ -408,6 +434,7 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
             };
 
             let element_slots = element_byte_slots(&layout.types, &entry.type_name);
+            let struct_fields = parse_struct_fields(&layout.types, &entry.type_name);
             arrays.push(ArrayInfo {
                 // checkrs: allow(clone_in_loops)
                 name: entry.label.clone(),
@@ -416,6 +443,7 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
                 element_slots,
                 start_slot,
                 len: *array_len,
+                struct_fields,
             });
         }
     }
@@ -439,6 +467,34 @@ fn element_byte_slots(
         .or_else(|| info.and_then(|t| t.number_of_bytes.parse::<usize>().ok()))
         .unwrap_or(32);
     bytes.div_ceil(32)
+}
+
+/// Parse struct field layout for an array whose element type is a struct.
+///
+/// Returns `None` if the element type is not a struct or if member info is
+/// unavailable.
+fn parse_struct_fields(
+    types: &HashMap<String, crate::foundry::StorageTypeInfo>,
+    array_type_name: &str,
+) -> Option<Vec<StructField>> {
+    let info = types.get(array_type_name)?;
+    let base_type_name = info.base.as_ref()?;
+    let base_type = types.get(base_type_name)?;
+    if base_type.members.is_empty() {
+        return None;
+    }
+    let mut fields = Vec::new();
+    for member in &base_type.members {
+        let slot_offset = member.slot.parse::<usize>().ok()?;
+        let ty = super::StorageType::parse(&member.type_name)?;
+        fields.push(StructField {
+            // checkrs: allow(clone_in_loops)
+            name: member.label.clone(),
+            slot_offset,
+            ty,
+        });
+    }
+    Some(fields)
 }
 
 /// Collect all link-reference positions from a [`LinkReferences`] map.

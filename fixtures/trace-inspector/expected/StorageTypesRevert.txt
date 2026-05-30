@@ -18,11 +18,11 @@
     │   │   @ uintArray.length: 1 -> 2
     │   │   @ uintArray[1]: 0 -> 2
     │   │   @ structArray.length: 0 -> 1
-    │   │   @ structArray[0]: 0 -> 1
-    │   │   @ structArray[0]: 0 -> 2
+    │   │   @ structArray[0].x: 0 -> 1
+    │   │   @ structArray[0].y: 0 -> 2
     │   │   @ structArray.length: 1 -> 2
-    │   │   @ structArray[1]: 0 -> 3
-    │   │   @ structArray[1]: 0 -> 4
+    │   │   @ structArray[1].x: 0 -> 3
+    │   │   @ structArray[1].y: 0 -> 4
     │   │   @ fixedArray[0]: 0 -> 10
     │   │   @ fixedArray[1]: 0 -> 20
     │   │   @ fixedArray[2]: 0 -> 30
@@ -83,8 +83,8 @@
     ├─ [87108] StorageTypes::pushStructArray((5, 6))
     │   ├─  storage changes:
     │   │   @ structArray.length: 2 -> 3
-    │   │   @ structArray[2]: 0 -> 5
-    │   │   @ structArray[2]: 0 -> 6
+    │   │   @ structArray[2].x: 0 -> 5
+    │   │   @ structArray[2].y: 0 -> 6
     │   └─ ← [Stop]
     ├─ [803] StorageTypes::setFixedArray(0, 0)
     │   ├─  storage changes:
