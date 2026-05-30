@@ -27,6 +27,18 @@ struct BytecodeEntry {
 ///
 /// Collects ABIs, address labels, and runtime bytecode hashes from build
 /// artifacts, then provides lookup methods for the trace display logic.
+/// Metadata for an array variable so that hashed element slots can be
+/// resolved back to `array[index]`.
+#[derive(Debug, Clone)]
+struct ArrayInfo {
+    name: String,
+    element_type: super::StorageType,
+    element_slots: usize,
+    start_slot: U256,
+    /// Fixed length for fixed arrays; `None` for dynamic arrays.
+    len: Option<usize>,
+}
+
 #[derive(Debug, Clone)]
 pub struct TraceContext {
     labels: HashMap<Address, String>,
@@ -34,6 +46,8 @@ pub struct TraceContext {
     bytecode_entries: Vec<BytecodeEntry>,
     /// Maps contract name -> (slot -> (label, storage_type)).
     storage_names: HashMap<String, HashMap<U256, (String, super::StorageType)>>,
+    /// Maps contract name -> list of arrays for element-slot resolution.
+    array_info: HashMap<String, Vec<ArrayInfo>>,
 }
 
 impl Default for TraceContext {
@@ -45,6 +59,7 @@ impl Default for TraceContext {
             abis: Vec::new(),
             bytecode_entries: Vec::new(),
             storage_names: HashMap::new(),
+            array_info: HashMap::new(),
         }
     }
 }
@@ -83,8 +98,9 @@ impl TraceContext {
                     positions,
                 });
             }
-            if let Some(names) = parse_storage_layout(&artifact) {
+            if let Some((names, arrays)) = parse_storage_layout(&artifact) {
                 ctx.storage_names.insert(artifact.name().into(), names);
+                ctx.array_info.insert(artifact.name().into(), arrays);
             }
             ctx.abis.push(artifact.into_abi());
         }
@@ -144,11 +160,54 @@ impl TraceContext {
     ///
     /// The `contract_name` is the label or name that was registered for the
     /// contract address (e.g. via bytecode matching or explicit `with_label`).
-    pub fn resolve_storage_name(&self, contract_name: &str, slot: &U256) -> Option<&str> {
-        self.storage_names
+    pub fn resolve_storage_name(&self, contract_name: &str, slot: &U256) -> Option<String> {
+        if let Some((label, ty)) = self
+            .storage_names
             .get(contract_name)
             .and_then(|map| map.get(slot))
-            .map(|(label, _)| label.as_str())
+        {
+            return match ty {
+                // Fixed array: base slot is the first element.
+                super::StorageType::Array { len: Some(_), .. } => Some(format!("{label}[0]")),
+                // Dynamic array: base slot holds the length.
+                super::StorageType::Array { len: None, .. } => Some(format!("{label}.length")),
+                _ => Some(label.clone()),
+            };
+        }
+        // Check if the slot belongs to an array element.
+        // Pick the array with the largest start_slot that is <= the target
+        // slot (most specific match).
+        if let Some(arrays) = self.array_info.get(contract_name) {
+            let mut best: Option<&ArrayInfo> = None;
+            for array in arrays {
+                if *slot >= array.start_slot {
+                    let offset = slot - array.start_slot;
+                    let index = offset / U256::from(array.element_slots);
+                    let in_bounds = match array.len {
+                        Some(len) => match usize::try_from(index) {
+                            Ok(idx) => idx < len,
+                            Err(_) => false,
+                        },
+                        None => true,
+                    };
+                    if !in_bounds {
+                        continue;
+                    }
+                    if best
+                        .map(|b| array.start_slot > b.start_slot)
+                        .unwrap_or(true)
+                    {
+                        best = Some(array);
+                    }
+                }
+            }
+            if let Some(array) = best {
+                let offset = slot - array.start_slot;
+                let index = offset / U256::from(array.element_slots);
+                return Some(format!("{}[{}]", array.name, index));
+            }
+        }
+        None
     }
 
     /// Look up the storage type for a storage slot in a contract.
@@ -157,10 +216,53 @@ impl TraceContext {
         contract_name: &str,
         slot: &U256,
     ) -> Option<&super::StorageType> {
-        self.storage_names
+        if let Some((_, ty)) = self
+            .storage_names
             .get(contract_name)
             .and_then(|map| map.get(slot))
-            .map(|(_, ty)| ty)
+        {
+            return match ty {
+                // Fixed array: base slot is the first element.
+                super::StorageType::Array {
+                    element,
+                    len: Some(_),
+                    ..
+                } => Some(element),
+                _ => Some(ty),
+            };
+        }
+        // Check if the slot belongs to an array element.
+        // Pick the array with the largest start_slot that is <= the target
+        // slot (most specific match).
+        if let Some(arrays) = self.array_info.get(contract_name) {
+            let mut best: Option<&ArrayInfo> = None;
+            for array in arrays {
+                if *slot >= array.start_slot {
+                    let offset = slot - array.start_slot;
+                    let index = offset / U256::from(array.element_slots);
+                    let in_bounds = match array.len {
+                        Some(len) => match usize::try_from(index) {
+                            Ok(idx) => idx < len,
+                            Err(_) => false,
+                        },
+                        None => true,
+                    };
+                    if !in_bounds {
+                        continue;
+                    }
+                    if best
+                        .map(|b| array.start_slot > b.start_slot)
+                        .unwrap_or(true)
+                    {
+                        best = Some(array);
+                    }
+                }
+            }
+            if let Some(array) = best {
+                return Some(&array.element_type);
+            }
+        }
+        None
     }
 
     /// Decode a function call from its input data.
@@ -274,19 +376,69 @@ pub(super) fn format_args(values: &[DynSolValue]) -> String {
 
 use crate::foundry::LinkReferences;
 
-/// Parse state-variable names and types from an artifact's `storageLayout` output.
-fn parse_storage_layout(
-    artifact: &Artifact,
-) -> Option<HashMap<U256, (String, super::StorageType)>> {
+type StorageLayoutResult = (HashMap<U256, (String, super::StorageType)>, Vec<ArrayInfo>);
+
+/// Parse state-variable names, types, and array metadata from an artifact's
+/// `storageLayout` output.
+fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
     let layout = artifact.storage_layout()?;
     let mut names = HashMap::new();
+    let mut arrays = Vec::new();
     for entry in &layout.storage {
         let slot = entry.slot.parse::<U256>().ok()?;
         let ty = super::StorageType::parse(&entry.type_name)?;
         // checkrs: allow(clone_in_loops)
-        names.insert(slot, (entry.label.clone(), ty));
+        names.insert(slot, (entry.label.clone(), ty.clone()));
+
+        // Build array metadata for element-slot resolution.
+        // checkrs: allow(nested_if_let)
+        if let super::StorageType::Array {
+            element,
+            len: array_len,
+        } = &ty
+        {
+            let start_slot = if array_len.is_some() {
+                // Fixed array: elements start at the base slot.
+                slot
+            } else {
+                // Dynamic array: elements start at keccak256(base_slot).
+                let mut base_bytes = [0u8; 32];
+                base_bytes.copy_from_slice(&slot.to_be_bytes::<32>());
+                U256::from_be_bytes(keccak256(base_bytes).0)
+            };
+
+            let element_slots = element_byte_slots(&layout.types, &entry.type_name);
+            arrays.push(ArrayInfo {
+                // checkrs: allow(clone_in_loops)
+                name: entry.label.clone(),
+                // checkrs: allow(clone_in_loops)
+                element_type: *element.clone(),
+                element_slots,
+                start_slot,
+                len: *array_len,
+            });
+        }
     }
-    Some(names).filter(|n| !n.is_empty())
+    arrays.sort_by(|a, b| b.start_slot.cmp(&a.start_slot));
+    Some((names, arrays)).filter(|(n, _)| !n.is_empty())
+}
+
+/// Compute how many 32-byte slots a single array element occupies.
+///
+/// Looks up the array's `base` type in the `storageLayout` types map and
+/// uses the base type's `numberOfBytes`.
+fn element_byte_slots(
+    types: &HashMap<String, crate::foundry::StorageTypeInfo>,
+    array_type_name: &str,
+) -> usize {
+    let info = types.get(array_type_name);
+    let base_type = info.and_then(|t| t.base.as_ref());
+    let bytes = base_type
+        .and_then(|base| types.get(base))
+        .and_then(|t| t.number_of_bytes.parse::<usize>().ok())
+        .or_else(|| info.and_then(|t| t.number_of_bytes.parse::<usize>().ok()))
+        .unwrap_or(32);
+    bytes.div_ceil(32)
 }
 
 /// Collect all link-reference positions from a [`LinkReferences`] map.

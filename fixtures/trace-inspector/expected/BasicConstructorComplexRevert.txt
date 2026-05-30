@@ -31,13 +31,13 @@
     │   └─ ← [Stop]
     ├─ [85703] Counter::pushArray(1)
     │   ├─  storage changes:
-    │   │   @ arrValues: 0 -> 1
-    │   │   @ 87903029871075914254377627908054574944891091886930582284385770809450030037083: 0 -> 1
+    │   │   @ arrValues.length: 0 -> 1
+    │   │   @ arrValues[0]: 0 -> 1
     │   └─ ← [Stop]
     ├─ [43335] Counter::pushArray(2)
     │   ├─  storage changes:
-    │   │   @ arrValues: 1 -> 2
-    │   │   @ 87903029871075914254377627908054574944891091886930582284385770809450030037084: 0 -> 2
+    │   │   @ arrValues.length: 1 -> 2
+    │   │   @ arrValues[1]: 0 -> 2
     │   └─ ← [Stop]
     ├─ [43252] Counter::setMap(10, 100)
     │   ├─  storage changes:
@@ -45,12 +45,12 @@
     │   └─ ← [Stop]
     ├─ [129538] Counter::setArray([3, 4, 5])
     │   ├─  storage changes:
-    │   │   @ arrValues: 2 -> 3
-    │   │   @ 87903029871075914254377627908054574944891091886930582284385770809450030037085: 0 -> 3
-    │   │   @ arrValues: 3 -> 4
-    │   │   @ 87903029871075914254377627908054574944891091886930582284385770809450030037086: 0 -> 4
-    │   │   @ arrValues: 4 -> 5
-    │   │   @ 87903029871075914254377627908054574944891091886930582284385770809450030037087: 0 -> 5
+    │   │   @ arrValues.length: 2 -> 3
+    │   │   @ arrValues[2]: 0 -> 3
+    │   │   @ arrValues.length: 3 -> 4
+    │   │   @ arrValues[3]: 0 -> 4
+    │   │   @ arrValues.length: 4 -> 5
+    │   │   @ arrValues[4]: 0 -> 5
     │   └─ ← [Stop]
     ├─ [673] Counter::setStruct((7, 8))
     │   ├─  storage changes:

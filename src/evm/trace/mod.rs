@@ -40,6 +40,25 @@ pub enum StorageType {
     Struct,
 }
 
+/// Find the index of the matching closing parenthesis for the first
+/// opening parenthesis in `s`, accounting for nested pairs.
+fn find_matching_paren(s: &str) -> Option<usize> {
+    let mut depth = 1;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 impl StorageType {
     /// Parse a `storageLayout` type string into a strongly typed [`StorageType`].
     pub fn parse(type_name: &str) -> Option<Self> {
@@ -70,7 +89,7 @@ impl StorageType {
         }
         if t.starts_with("t_array(") {
             let inner = t.strip_prefix("t_array(")?;
-            let end = inner.find(')')?;
+            let end = find_matching_paren(inner)?;
             let element = Self::parse(&inner[..end])?;
             let rest = &inner[end + 1..];
             let len = if rest.starts_with("dyn_") {
@@ -344,7 +363,6 @@ impl<'a> TraceDisplay<'a> {
                                 Some((name, ty))
                             })
                     })
-                    .map(|(name, ty)| (name.into(), ty))
                     .unwrap_or_else(|| (format!("{}", change.slot), None));
                 let old = ty
                     .map(|t| t.format_value(change.old_value))

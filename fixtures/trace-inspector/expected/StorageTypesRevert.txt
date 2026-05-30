@@ -13,19 +13,19 @@
     │   │   @ addressValue: 0x0000000000000000000000000000000000000000 -> 0xc34296175b9e78f66edbeaeb7acea4c615c092e1
     │   │   @ bytesValue: 0x00 -> 0xcafebabe00000000000000000000000000000000000000000000000000000008
     │   │   @ stringValue: "" -> "hello"
-    │   │   @ uintArray: 0 -> 1
-    │   │   @ 46529144392117707452946260303848603952187628831689540306122340668716214558864: 0 -> 1
-    │   │   @ uintArray: 1 -> 2
-    │   │   @ 46529144392117707452946260303848603952187628831689540306122340668716214558865: 0 -> 2
-    │   │   @ structArray: 0 -> 1
-    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346220: 0 -> 1
-    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346221: 0 -> 2
-    │   │   @ structArray: 1 -> 2
-    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346222: 0 -> 3
-    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346223: 0 -> 4
-    │   │   @ fixedArray: 0 -> 10
-    │   │   @ 22: 0 -> 20
-    │   │   @ 23: 0 -> 30
+    │   │   @ uintArray.length: 0 -> 1
+    │   │   @ uintArray[0]: 0 -> 1
+    │   │   @ uintArray.length: 1 -> 2
+    │   │   @ uintArray[1]: 0 -> 2
+    │   │   @ structArray.length: 0 -> 1
+    │   │   @ structArray[0]: 0 -> 1
+    │   │   @ structArray[0]: 0 -> 2
+    │   │   @ structArray.length: 1 -> 2
+    │   │   @ structArray[1]: 0 -> 3
+    │   │   @ structArray[1]: 0 -> 4
+    │   │   @ fixedArray[0]: 0 -> 10
+    │   │   @ fixedArray[1]: 0 -> 20
+    │   │   @ fixedArray[2]: 0 -> 30
     │   └─ ← [Return] 6525 bytes of code
     ├─ [785] StorageTypes::setBool(false)
     │   ├─  storage changes:
@@ -77,26 +77,26 @@
     │   └─ ← [Stop]
     ├─ [43400] StorageTypes::pushUintArray(3)
     │   ├─  storage changes:
-    │   │   @ uintArray: 2 -> 3
-    │   │   @ 46529144392117707452946260303848603952187628831689540306122340668716214558866: 0 -> 3
+    │   │   @ uintArray.length: 2 -> 3
+    │   │   @ uintArray[2]: 0 -> 3
     │   └─ ← [Stop]
     ├─ [87108] StorageTypes::pushStructArray((5, 6))
     │   ├─  storage changes:
-    │   │   @ structArray: 2 -> 3
-    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346224: 0 -> 5
-    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346225: 0 -> 6
+    │   │   @ structArray.length: 2 -> 3
+    │   │   @ structArray[2]: 0 -> 5
+    │   │   @ structArray[2]: 0 -> 6
     │   └─ ← [Stop]
     ├─ [803] StorageTypes::setFixedArray(0, 0)
     │   ├─  storage changes:
-    │   │   @ fixedArray: 10 -> 0
+    │   │   @ fixedArray[0]: 10 -> 0
     │   └─ ← [Stop]
     ├─ [803] StorageTypes::setFixedArray(1, 0)
     │   ├─  storage changes:
-    │   │   @ 22: 20 -> 0
+    │   │   @ fixedArray[1]: 20 -> 0
     │   └─ ← [Stop]
     ├─ [803] StorageTypes::setFixedArray(2, 0)
     │   ├─  storage changes:
-    │   │   @ 23: 30 -> 0
+    │   │   @ fixedArray[2]: 30 -> 0
     │   └─ ← [Stop]
     ├─ [1057] StorageTypes::setTuple(0, 0)
     │   ├─  storage changes:

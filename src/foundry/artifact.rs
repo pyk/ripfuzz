@@ -157,10 +157,23 @@ pub struct StorageSlot {
     pub type_name: String,
 }
 
+/// Type information for a single entry in the `storageLayout` `types` map.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct StorageTypeInfo {
+    pub encoding: String,
+    pub label: String,
+    #[serde(rename = "numberOfBytes")]
+    pub number_of_bytes: String,
+    #[serde(default)]
+    pub base: Option<String>,
+}
+
 /// The `storageLayout` section of a compiled artifact.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct StorageLayout {
     pub storage: Vec<StorageSlot>,
+    #[serde(default)]
+    pub types: HashMap<String, StorageTypeInfo>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
