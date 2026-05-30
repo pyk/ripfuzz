@@ -21,6 +21,7 @@ pub struct Reporter<W> {
     is_terminal: bool,
     start: Option<Instant>,
     message: Option<String>,
+    last_lines: usize,
     /// Overrides the real elapsed time in tests.
     elapsed: Option<Duration>,
 }
@@ -31,6 +32,7 @@ impl<W> std::fmt::Debug for Reporter<W> {
             .field("is_terminal", &self.is_terminal)
             .field("start", &self.start)
             .field("message", &self.message)
+            .field("last_lines", &self.last_lines)
             .field("elapsed", &self.elapsed)
             .finish_non_exhaustive()
     }
@@ -55,6 +57,7 @@ impl Reporter<io::Stderr> {
             is_terminal,
             start: None,
             message: None,
+            last_lines: 0,
             elapsed: None,
         }
     }
@@ -71,6 +74,7 @@ impl<W: Write> Reporter<W> {
             is_terminal,
             start: None,
             message: None,
+            last_lines: 0,
             elapsed: None,
         }
     }
@@ -104,6 +108,61 @@ impl<W: Write> Reporter<W> {
     /// Print a line without any status prefix.
     pub fn print_line(&mut self, message: impl AsRef<str>) -> io::Result<()> {
         writeln!(self.output, "{message}", message = message.as_ref())
+    }
+
+    /// Replace the stored message without writing to the output.
+    pub fn set_message(&mut self, message: impl AsRef<str>) {
+        self.message = Some(message.as_ref().into());
+    }
+
+    /// Write a newline in terminal mode (no-op otherwise).
+    pub fn new_line(&mut self) -> io::Result<()> {
+        if self.is_terminal {
+            writeln!(self.output)?;
+        }
+        Ok(())
+    }
+
+    /// Print a multi-line message, replacing the previous one in terminal mode.
+    pub fn print_clearable(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        let message = message.as_ref();
+        let prev_lines = self.last_lines;
+        if self.is_terminal && prev_lines > 0 {
+            write!(self.output, "\r\x1b[K")?;
+            for _ in 0..prev_lines - 1 {
+                write!(self.output, "\x1b[A\r\x1b[K")?;
+            }
+            write!(self.output, "\x1b[A")?;
+        }
+        writeln!(self.output, "{message}")?;
+        self.last_lines = message.matches('\n').count() + 1;
+        Ok(())
+    }
+
+    /// End the current status, clearing any multi-line output and replacing the
+    /// title line with the success message.
+    pub fn clear_and_end(&mut self) -> io::Result<()> {
+        let (Some(message), Some(start)) = (self.message.take(), self.start.take()) else {
+            return Ok(());
+        };
+        let elapsed = self.elapsed.take().unwrap_or_else(|| start.elapsed());
+        let seconds = elapsed.as_secs_f64();
+        let clear_lines = self.last_lines;
+        self.last_lines = 0;
+
+        if self.is_terminal {
+            if clear_lines > 0 {
+                write!(self.output, "\r\x1b[K")?;
+                for _ in 0..clear_lines + 1 {
+                    write!(self.output, "\x1b[A\r\x1b[K")?;
+                }
+            } else {
+                write!(self.output, "\x1b[A\r\x1b[K")?;
+            }
+        }
+
+        let prefix = self.success_prefix();
+        writeln!(self.output, "{prefix} {message} in {seconds:.2}s")
     }
 
     /// Print a progress line to stderr.

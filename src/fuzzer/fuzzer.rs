@@ -191,6 +191,20 @@ impl Fuzzer {
 
             let gas_sum = exec.results.iter().map(|r| r.gas_used).sum::<u64>();
 
+            for (call, result) in item
+                .calls
+                .iter()
+                .chain(invariant_calls.iter())
+                .zip(exec.results.iter())
+            {
+                let signature = call.function.signature();
+                let calls = 1;
+                let gas = result.gas_used;
+                let reverts = if result.success { 0 } else { 1 };
+                self.shared_metrics
+                    .record_function(&signature, calls, gas, reverts);
+            }
+
             total_calls += calls_count as u64;
             total_gas += gas_sum;
             self.shared_metrics.record(calls_count as u64, gas_sum);

@@ -1,8 +1,11 @@
 //! Shared metrics across parallel fuzzer threads.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
 
 /// Metrics snapshot produced by [`SharedMetrics::try_snapshot`].
 #[derive(Debug, Clone, Copy)]
@@ -11,6 +14,14 @@ pub struct Snapshot {
     pub runs: u64,
     pub calls: u64,
     pub gas: u64,
+}
+
+/// Per-function metrics (calls, gas, reverts).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FunctionMetrics {
+    pub calls: u64,
+    pub gas: u64,
+    pub reverts: u64,
 }
 
 /// Mutable state held by [`SharedMetrics`] behind an [`Arc`].
@@ -24,6 +35,7 @@ struct SharedMetricsInner {
     gas: AtomicU64,
     last_print: AtomicU64,
     start: Instant,
+    functions: Mutex<HashMap<String, FunctionMetrics>>,
 }
 
 /// Thread-safe metrics shared across all fuzzer threads.
@@ -44,6 +56,7 @@ impl SharedMetrics {
                 gas: AtomicU64::new(0),
                 last_print: AtomicU64::new(0),
                 start: Instant::now(),
+                functions: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -53,6 +66,20 @@ impl SharedMetrics {
         self.inner.runs.fetch_add(1, Ordering::Relaxed);
         self.inner.calls.fetch_add(calls, Ordering::Relaxed);
         self.inner.gas.fetch_add(gas, Ordering::Relaxed);
+    }
+
+    /// Record per-function metrics for a single transaction.
+    pub fn record_function(&self, signature: &str, calls: u64, gas: u64, reverts: u64) {
+        let mut functions = self.inner.functions.lock();
+        let metrics = functions.entry(signature.into()).or_default();
+        metrics.calls += calls;
+        metrics.gas += gas;
+        metrics.reverts += reverts;
+    }
+
+    /// Return a clone of the per-function metrics map.
+    pub fn function_metrics(&self) -> HashMap<String, FunctionMetrics> {
+        self.inner.functions.lock().clone()
     }
 
     /// Try to acquire the right to snapshot metrics.

@@ -52,6 +52,113 @@ fn fmt_eth(value: U256) -> String {
     format!("{trimmed} ETH")
 }
 
+/// Format a call count using K/M/B suffixes.
+fn fmt_kmb(n: u64) -> String {
+    if n < 1_000 {
+        format!("{n}")
+    } else if n < 1_000_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else if n < 1_000_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else {
+        format!("{:.1}B", n as f64 / 1_000_000_000.0)
+    }
+}
+
+/// Format a gas value as giga-gas.
+fn fmt_giga_gas(n: u64) -> String {
+    format!("{:.2} G", n as f64 / 1_000_000_000.0)
+}
+
+/// Format the multi-line fuzzing statistics block.
+fn format_fuzzing_stats(
+    snapshot: &crate::fuzzer::Snapshot,
+    function_metrics: &HashMap<String, crate::fuzzer::FunctionMetrics>,
+    shared_coverage: &SharedCoverage,
+    corpus: &SharedCorpus,
+    target_functions: &[alloy_json_abi::Function],
+    invariant_functions: &[alloy_json_abi::Function],
+) -> String {
+    let elapsed_secs = snapshot.elapsed.as_secs_f64();
+    let calls_per_sec = if elapsed_secs > 0.0 {
+        (snapshot.calls as f64 / elapsed_secs) as u64
+    } else {
+        0
+    };
+    let gas_per_sec = if elapsed_secs > 0.0 {
+        (snapshot.gas as f64 / elapsed_secs) as u64
+    } else {
+        0
+    };
+
+    let mut output = format!(
+        "\n    ⊕ global stats\n    total runs   : {}\n    total calls  : {}\n    elapsed time : {:.2}s\n\n    ⊕ throughput\n    call/s : {}\n    gas/s  : {}",
+        fmt_num(snapshot.runs),
+        fmt_num(snapshot.calls),
+        elapsed_secs,
+        fmt_num(calls_per_sec),
+        fmt_giga_gas(gas_per_sec),
+    );
+
+    output.push_str(&format!(
+        "\n\n    ⊕ coverage stats\n    unique contracts : {}\n    total edges      : {}\n    total depths     : {}\n    total reverts    : {}\n    total jumps      : {}\n    total corpus     : {}",
+        fmt_num(shared_coverage.contract_count() as u64),
+        fmt_num(shared_coverage.edge_count() as u64),
+        fmt_num(shared_coverage.depth_count() as u64),
+        fmt_num(shared_coverage.revert_count() as u64),
+        fmt_num(shared_coverage.jump_count() as u64),
+        fmt_num(corpus.stats().item_count as u64),
+    ));
+
+    if !target_functions.is_empty() {
+        output.push_str(&format!(
+            "\n\n    ⊕ target functions ({})",
+            target_functions.len()
+        ));
+        let target_labels: Vec<String> = target_functions
+            .iter()
+            .map(|f| format!("{} ({})", f.name, f.selector()))
+            .collect();
+        let target_width = target_labels.iter().map(|l| l.len()).max().unwrap_or(0);
+        for (func, label) in target_functions.iter().zip(target_labels.iter()) {
+            let sig = func.signature();
+            let metrics = function_metrics.get(&sig).copied().unwrap_or_default();
+            output.push_str(&format!(
+                "\n    {:target_width$} : {:>8} calls {:>10} gas {:>8} reverts",
+                label,
+                fmt_kmb(metrics.calls),
+                fmt_giga_gas(metrics.gas),
+                fmt_kmb(metrics.reverts),
+            ));
+        }
+    }
+
+    if !invariant_functions.is_empty() {
+        output.push_str(&format!(
+            "\n\n    ⊕ invariants ({})",
+            invariant_functions.len()
+        ));
+        let invariant_labels: Vec<String> = invariant_functions
+            .iter()
+            .map(|f| format!("{} ({})", f.name, f.selector()))
+            .collect();
+        let invariant_width = invariant_labels.iter().map(|l| l.len()).max().unwrap_or(0);
+        for (func, label) in invariant_functions.iter().zip(invariant_labels.iter()) {
+            let sig = func.signature();
+            let metrics = function_metrics.get(&sig).copied().unwrap_or_default();
+            output.push_str(&format!(
+                "\n    {:invariant_width$} : {:>8} calls {:>10} gas {:>8} reverts",
+                label,
+                fmt_kmb(metrics.calls),
+                fmt_giga_gas(metrics.gas),
+                fmt_kmb(metrics.reverts),
+            ));
+        }
+    }
+
+    output
+}
+
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Target contract identifier (e.g. ./test/Contract.sol:Contract).
@@ -547,30 +654,42 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     let mut reporter = Reporter::new();
-    reporter.begin("fuzzing")?;
+    let contract_name = &target_contract.artifact_id.name;
+    reporter.begin(format!(
+        "fuzzing {contract_name} with {fuzzers} threads ..."
+    ))?;
+    reporter.new_line()?;
+
+    // Print initial stats immediately so the user sees the dashboard
+    // right after the title line, then refresh every 100ms.
+    let mut snapshot = shared_metrics.aggregate();
+    let mut function_metrics = shared_metrics.function_metrics();
+    let mut stats = format_fuzzing_stats(
+        &snapshot,
+        &function_metrics,
+        &shared_coverage,
+        &corpus,
+        &target_contract.target_functions,
+        &target_contract.invariant_functions,
+    );
+    reporter.print_clearable(stats)?;
+    let mut last_print = std::time::Instant::now();
+
     while handles.iter().any(|(_, h)| !h.is_finished()) {
-        let snapshot = shared_metrics.aggregate();
-        let elapsed_secs = snapshot.elapsed.as_secs_f64();
-        let calls_per_sec = if elapsed_secs > 0.0 {
-            (snapshot.calls as f64 / elapsed_secs) as u64
-        } else {
-            0
-        };
-        let gas_per_sec = if elapsed_secs > 0.0 {
-            (snapshot.gas as f64 / elapsed_secs) as u64
-        } else {
-            0
-        };
-        reporter.update_with_elapsed(
-            format!(
-                "fuzzing: {} threads {} runs {} calls/s {} gas/s",
-                fmt_num(fuzzers as u64),
-                fmt_num(snapshot.runs),
-                fmt_num(calls_per_sec),
-                fmt_num(gas_per_sec),
-            ),
-            elapsed_secs,
-        )?;
+        snapshot = shared_metrics.aggregate();
+        if last_print.elapsed().as_millis() >= 100 {
+            function_metrics = shared_metrics.function_metrics();
+            stats = format_fuzzing_stats(
+                &snapshot,
+                &function_metrics,
+                &shared_coverage,
+                &corpus,
+                &target_contract.target_functions,
+                &target_contract.invariant_functions,
+            );
+            reporter.print_clearable(stats)?;
+            last_print = std::time::Instant::now();
+        }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
@@ -590,8 +709,21 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     if all_failures.is_empty() {
-        reporter.update("fuzzing: all invariants passed")?;
-        reporter.end()?;
+        reporter.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
+        reporter.clear_and_end()?;
+        let function_metrics = shared_metrics.function_metrics();
+        let stats = format_fuzzing_stats(
+            &shared_metrics.aggregate(),
+            &function_metrics,
+            &shared_coverage,
+            &corpus,
+            &target_contract.target_functions,
+            &target_contract.invariant_functions,
+        );
+        reporter.print_line(stats)?;
+        reporter.new_line()?;
+        reporter.print("no failed assertions found!")?;
+        reporter.print("raptor out. see ya")?;
         return Ok(());
     }
 
@@ -600,18 +732,20 @@ pub fn run(args: Args) -> Result<()> {
         .min_by_key(|f| f.item.calls.len())
         .context("no failures found")?;
 
-    let failed_count = all_failures.len();
-    let selected_calls = smallest_failure.item.calls.len();
-    let failed_item_word = if failed_count == 1 { "item" } else { "items" };
-    let selected_call_word = if selected_calls == 1 { "call" } else { "calls" };
-    reporter.update(format!(
-        "fuzzing: found {} failed corpus {}, selecting smallest ({} {})",
-        fmt_num(failed_count as u64),
-        failed_item_word,
-        fmt_num(selected_calls as u64),
-        selected_call_word,
-    ))?;
-    reporter.end()?;
+    let _failed_count = all_failures.len();
+    let _selected_calls = smallest_failure.item.calls.len();
+    reporter.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
+    reporter.clear_and_end()?;
+    let function_metrics = shared_metrics.function_metrics();
+    let stats = format_fuzzing_stats(
+        &shared_metrics.aggregate(),
+        &function_metrics,
+        &shared_coverage,
+        &corpus,
+        &target_contract.target_functions,
+        &target_contract.invariant_functions,
+    );
+    reporter.print_line(stats)?;
 
     // Initialize shared failed corpus item for the shrinker.
     let failed_corpus_config = CorpusConfig::new(PathBuf::new())
