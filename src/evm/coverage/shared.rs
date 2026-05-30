@@ -193,6 +193,59 @@ impl SharedCoverage {
         let jump_hits: usize = guard.iter().map(|(_, c)| c.jump_edges.len()).sum();
         edge_hits + jump_hits
     }
+
+    /// Number of unique contracts in the coverage map.
+    pub fn contract_count(&self) -> usize {
+        self.inner.contracts.pin().len()
+    }
+
+    /// Total number of hit edges across all contracts.
+    pub fn edge_count(&self) -> usize {
+        let guard = self.inner.contracts.pin();
+        guard
+            .iter()
+            .map(|(_, c)| {
+                c.edges
+                    .iter()
+                    .filter(|e| e.load(Ordering::Relaxed) != 0)
+                    .count()
+            })
+            .sum()
+    }
+
+    /// Total number of hit depths across all contracts.
+    pub fn depth_count(&self) -> usize {
+        let guard = self.inner.contracts.pin();
+        guard
+            .iter()
+            .map(|(_, c)| {
+                c.depths
+                    .iter()
+                    .map(|d| d.load(Ordering::Relaxed).count_ones() as usize)
+                    .sum::<usize>()
+            })
+            .sum()
+    }
+
+    /// Total number of hit reverts across all contracts.
+    pub fn revert_count(&self) -> usize {
+        let guard = self.inner.contracts.pin();
+        guard
+            .iter()
+            .map(|(_, c)| {
+                c.reverts
+                    .iter()
+                    .map(|r| r.load(Ordering::Relaxed).count_ones() as usize)
+                    .sum::<usize>()
+            })
+            .sum()
+    }
+
+    /// Total number of jump edges across all contracts.
+    pub fn jump_count(&self) -> usize {
+        let guard = self.inner.contracts.pin();
+        guard.iter().map(|(_, c)| c.jump_edges.len()).sum()
+    }
 }
 
 impl CoverageUpdate {

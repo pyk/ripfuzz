@@ -530,7 +530,8 @@ pub fn run(args: Args) -> Result<()> {
 
     // Initialize shared coverage and sync with corpus.
     let mut reporter = Reporter::new();
-    reporter.begin("replaying corpus")?;
+    let replay_count = corpus_stats.valid_count;
+    reporter.begin(format!("replaying {replay_count} corpus items ..."))?;
     let shared_coverage = SharedCoverage::new();
     CorpusReplayer::new(shared_coverage.clone())
         .shared_corpus(corpus.clone())
@@ -539,11 +540,16 @@ pub fn run(args: Args) -> Result<()> {
         .invariant_functions(target_contract.invariant_functions.clone())
         .caller(args.deployer_address)
         .replay()?;
-    reporter.update(format!(
-        "replaying corpus ({} coverage)",
-        fmt_num(shared_coverage.hit_count() as u64)
-    ))?;
+    reporter.update(format!("replayed {replay_count} corpus items"))?;
     reporter.end()?;
+    reporter.print_success(format!(
+        "{} unique contracts | {} total edges | {} total depths | {} total reverts | {} total jumps",
+        fmt_num(shared_coverage.contract_count() as u64),
+        fmt_num(shared_coverage.edge_count() as u64),
+        fmt_num(shared_coverage.depth_count() as u64),
+        fmt_num(shared_coverage.revert_count() as u64),
+        fmt_num(shared_coverage.jump_count() as u64)
+    ))?;
 
     // Initialize shared metrics across all fuzzer threads.
     let shared_metrics = SharedMetrics::new();
