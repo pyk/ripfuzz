@@ -1,0 +1,64 @@
+[8580115] → new BasicConstructorComplexRevert@0x9e5ad3669316a49c9039ed97e39803f90ff1ed63
+    ├─ [5951271] → new Counter@0xbf7f846fb616b0f7d67ec410d79e1ef1c913c007
+    │   └─ ← [Return] 5031 bytes of code
+    ├─ [663] Counter::increment()
+    │   └─ ← [Stop]
+    ├─ [663] Counter::increment()
+    │   └─ ← [Stop]
+    ├─ [581] Counter::setValue(42)
+    │   └─ ← [Stop]
+    ├─ [543] Counter::getValue() [staticcall]
+    │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000000002a
+    ├─ [581] Counter::setValue(100)
+    │   └─ ← [Stop]
+    ├─ [43739] Counter::setString(hello)
+    │   └─ ← [Stop]
+    ├─ [43131] Counter::setBool(true)
+    │   └─ ← [Stop]
+    ├─ [85703] Counter::pushArray(1)
+    │   └─ ← [Stop]
+    ├─ [43335] Counter::pushArray(2)
+    │   └─ ← [Stop]
+    ├─ [43252] Counter::setMap(10, 100)
+    │   └─ ← [Stop]
+    ├─ [129538] Counter::setArray([3, 4, 5])
+    │   └─ ← [Stop]
+    ├─ [673] Counter::setStruct((7, 8))
+    │   └─ ← [Stop]
+    ├─ [1104] Counter::setNestedStruct(((1, 2), (3, 4)))
+    │   └─ ← [Stop]
+    ├─ [43782] Counter::setBytes(0xdeadbeef)
+    │   └─ ← [Stop]
+    ├─ [43006] Counter::setFixedBytes(0xcafebabe00000000000000000000000000000000000000000000000000000000)
+    │   └─ ← [Stop]
+    ├─ [670] Counter::doInternal()
+    │   └─ ← [Stop]
+    ├─ [5019] Counter::doLibraryCall(10, 20) [staticcall]
+    │   ├─ [910] Counter::add(10, 20)
+    │   │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000000001e
+    │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000000001e
+    ├─ [910] BasicConstructorComplexRevert::add(10, 20)
+    │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000000001e
+    ├─ [1559] Counter::selfCall(50)
+    │   ├─ [581] Counter::setValue(50)
+    │   │   └─ ← [Stop]
+    │   └─ ← [Stop]
+    ├─ [342] Counter::payableCall()
+    │   └─ ← [Stop]
+    ├─ [0] Vm::warp(1234567890)
+    │   └─ ← [Stop]
+    ├─ [1827579] → new DeepContract@0x2c0cd89b28e26798db89da48e29f8b8d0a7378a7
+    │   ├─ [752835] → new CounterHelper@0x3de67e219caa3135e36b7a70860abb4280fc6f9a
+    │   │   └─ ← [Return] 641 bytes of code
+    │   └─ ← [Return] 759 bytes of code
+    ├─ [5221] DeepContract::run(0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007)
+    │   ├─ [663] Counter::increment()
+    │   │   └─ ← [Stop]
+    │   ├─ [2913] CounterHelper::help(0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007)
+    │   │   ├─ [581] Counter::setValue(999)
+    │   │   │   └─ ← [Stop]
+    │   │   ├─ [763] Counter::setBool(false)
+    │   │   │   └─ ← [Stop]
+    │   │   └─ ← [Stop]
+    │   └─ ← [Stop]
+    └─ ← [Revert] constructor always reverts
