@@ -49,13 +49,31 @@ struct ArrayInfo {
     struct_fields: Option<Vec<StructField>>,
 }
 
+/// A single packed variable within a storage slot.
+#[derive(Debug, Clone)]
+struct StorageEntry {
+    offset: usize,
+    name: String,
+    ty: super::StorageType,
+    bytes: usize,
+}
+
+/// A single changed variable resolved from a packed storage slot.
+#[derive(Debug)]
+pub struct StorageChangeInfo<'a> {
+    pub name: String,
+    pub ty: &'a super::StorageType,
+    pub offset: usize,
+    pub bytes: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct TraceContext {
     labels: HashMap<Address, String>,
     abis: Vec<JsonAbi>,
     bytecode_entries: Vec<BytecodeEntry>,
-    /// Maps contract name -> (slot -> (label, storage_type)).
-    storage_names: HashMap<String, HashMap<U256, (String, super::StorageType)>>,
+    /// Maps contract name -> (slot -> list of packed variables).
+    storage_names: HashMap<String, HashMap<U256, Vec<StorageEntry>>>,
     /// Maps contract name -> list of arrays for element-slot resolution.
     array_info: HashMap<String, Vec<ArrayInfo>>,
 }
@@ -171,17 +189,22 @@ impl TraceContext {
     /// The `contract_name` is the label or name that was registered for the
     /// contract address (e.g. via bytecode matching or explicit `with_label`).
     pub fn resolve_storage_name(&self, contract_name: &str, slot: &U256) -> Option<String> {
-        if let Some((label, ty)) = self
+        if let Some(entries) = self
             .storage_names
             .get(contract_name)
             .and_then(|map| map.get(slot))
+            && let Some(entry) = entries.first()
         {
-            return match ty {
+            return match entry.ty {
                 // Fixed array: base slot is the first element.
-                super::StorageType::Array { len: Some(_), .. } => Some(format!("{label}[0]")),
+                super::StorageType::Array { len: Some(_), .. } => {
+                    Some(format!("{}[0]", entry.name))
+                }
                 // Dynamic array: base slot holds the length.
-                super::StorageType::Array { len: None, .. } => Some(format!("{label}.length")),
-                _ => Some(label.clone()),
+                super::StorageType::Array { len: None, .. } => {
+                    Some(format!("{}.length", entry.name))
+                }
+                _ => Some(entry.name.clone()),
             };
         }
         // Check if the slot belongs to an array element.
@@ -234,19 +257,20 @@ impl TraceContext {
         contract_name: &str,
         slot: &U256,
     ) -> Option<&super::StorageType> {
-        if let Some((_, ty)) = self
+        if let Some(entries) = self
             .storage_names
             .get(contract_name)
             .and_then(|map| map.get(slot))
+            && let Some(entry) = entries.first()
         {
-            return match ty {
+            return match &entry.ty {
                 // Fixed array: base slot is the first element.
                 super::StorageType::Array {
                     element,
                     len: Some(_),
                     ..
-                } => Some(element),
-                _ => Some(ty),
+                } => Some(element.as_ref()),
+                _ => Some(&entry.ty),
             };
         }
         // Check if the slot belongs to an array element.
@@ -289,6 +313,64 @@ impl TraceContext {
             }
         }
         None
+    }
+
+    /// Resolve all packed variables that changed within a storage slot.
+    ///
+    /// Returns a list of [`StorageChangeInfo`] for every variable whose
+    /// extracted value differs between `old_value` and `new_value`.
+    pub fn resolve_storage_changes(
+        &self,
+        contract_name: &str,
+        slot: &U256,
+        old_value: U256,
+        new_value: U256,
+    ) -> Vec<StorageChangeInfo<'_>> {
+        let mut changes = Vec::new();
+        // checkrs: allow(nested_if_let)
+        if let Some(entries) = self
+            .storage_names
+            .get(contract_name)
+            .and_then(|map| map.get(slot))
+        {
+            for entry in entries {
+                let old_extracted = if entry.offset == 0 && entry.bytes >= 32 {
+                    old_value
+                } else {
+                    let shifted = old_value >> (entry.offset * 8);
+                    let mask = (U256::from(1) << (entry.bytes * 8)) - U256::from(1);
+                    shifted & mask
+                };
+                let new_extracted = if entry.offset == 0 && entry.bytes >= 32 {
+                    new_value
+                } else {
+                    let shifted = new_value >> (entry.offset * 8);
+                    let mask = (U256::from(1) << (entry.bytes * 8)) - U256::from(1);
+                    shifted & mask
+                };
+                if old_extracted != new_extracted {
+                    let name = match entry.ty {
+                        super::StorageType::Array { len: Some(_), .. } => {
+                            format!("{}[0]", entry.name)
+                        }
+                        super::StorageType::Array { len: None, .. } => {
+                            format!("{}.length", entry.name)
+                        }
+                        _ => {
+                            // checkrs: allow(clone_in_loops)
+                            entry.name.clone()
+                        }
+                    };
+                    changes.push(StorageChangeInfo {
+                        name,
+                        ty: &entry.ty,
+                        offset: entry.offset,
+                        bytes: entry.bytes,
+                    });
+                }
+            }
+        }
+        changes
     }
 
     /// Decode a function call from its input data.
@@ -438,19 +520,31 @@ pub(super) fn format_abi_args(values: &[DynSolValue], params: &[Param]) -> Strin
 
 use crate::foundry::LinkReferences;
 
-type StorageLayoutResult = (HashMap<U256, (String, super::StorageType)>, Vec<ArrayInfo>);
+type StorageLayoutResult = (HashMap<U256, Vec<StorageEntry>>, Vec<ArrayInfo>);
 
 /// Parse state-variable names, types, and array metadata from an artifact's
 /// `storageLayout` output.
 fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
     let layout = artifact.storage_layout()?;
-    let mut names = HashMap::new();
+    let mut names: HashMap<U256, Vec<StorageEntry>> = HashMap::new();
     let mut arrays = Vec::new();
     for entry in &layout.storage {
         let slot = entry.slot.parse::<U256>().ok()?;
         let ty = super::StorageType::parse(&entry.type_name)?;
-        // checkrs: allow(clone_in_loops)
-        names.insert(slot, (entry.label.clone(), ty.clone()));
+        let offset = entry.offset as usize;
+        let bytes = layout
+            .types
+            .get(&entry.type_name)
+            .and_then(|t| t.number_of_bytes.parse::<usize>().ok())
+            .unwrap_or(32);
+        names.entry(slot).or_default().push(StorageEntry {
+            offset,
+            // checkrs: allow(clone_in_loops)
+            name: entry.label.clone(),
+            // checkrs: allow(clone_in_loops)
+            ty: ty.clone(),
+            bytes,
+        });
 
         // Build array metadata for element-slot resolution.
         // checkrs: allow(nested_if_let)

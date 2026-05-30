@@ -13,22 +13,15 @@ struct Line {
 
 contract StorageTypes {
     bool public boolValue;
-    uint256 private _pad0;
     uint8 public uint8Value;
-    uint256 private _pad1;
     uint128 public uint128Value;
-    uint256 private _pad2;
     uint256 public uint256Value;
     int8 public int8Value;
-    uint256 private _pad3;
     int128 public int128Value;
-    uint256 private _pad4;
     int256 public int256Value;
     bytes1 public bytes1Value;
-    uint256 private _pad5;
     bytes32 public bytes32Value;
     address public addressValue;
-    uint256 private _pad6;
     bytes public bytesValue;
     string public stringValue;
     uint256[] public uintArray;

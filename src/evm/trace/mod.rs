@@ -116,21 +116,32 @@ impl StorageType {
     }
 
     /// Format a raw storage slot value according to this type.
-    pub fn format_value(&self, value: U256) -> String {
+    ///
+    /// `offset` is the byte offset within the 32-byte word, and `bytes` is the
+    /// number of bytes this variable occupies, so that packed storage slots are
+    /// rendered correctly.
+    pub fn format_value(&self, value: U256, offset: usize, bytes: usize) -> String {
+        let extracted = if offset == 0 && bytes >= 32 {
+            value
+        } else {
+            let shifted = value >> (offset * 8);
+            let mask = (U256::from(1) << (bytes * 8)) - U256::from(1);
+            shifted & mask
+        };
         match self {
             Self::Bool => {
-                if value.is_zero() {
+                if extracted.is_zero() {
                     "false".into()
                 } else {
                     "true".into()
                 }
             }
             Self::Address => {
-                let bytes = value.to_be_bytes::<32>();
+                let bytes = extracted.to_be_bytes::<32>();
                 format!("0x{}", hex::encode(&bytes[12..]))
             }
             Self::FixedBytes(_) | Self::DynamicBytes => {
-                let bytes = value.to_be_bytes::<32>();
+                let bytes = extracted.to_be_bytes::<32>();
                 let hex_str = hex::encode(bytes);
                 let trimmed = hex_str.trim_start_matches('0');
                 if trimmed.is_empty() {
@@ -167,16 +178,16 @@ impl StorageType {
                 if bits < 256 {
                     let mask = U256::from(1).wrapping_shl(bits);
                     let half = U256::from(1).wrapping_shl(bits - 1);
-                    if value >= half {
-                        let neg = mask - value;
+                    if extracted >= half {
+                        let neg = mask - extracted;
                         return format!("-{neg}");
                     }
                 }
-                let i = I256::from_raw(value);
+                let i = I256::from_raw(extracted);
                 format!("{i}")
             }
             Self::Uint(_) | Self::Array { .. } | Self::Mapping | Self::Struct => {
-                format!("{value}")
+                format!("{extracted}")
             }
         }
     }
@@ -350,27 +361,52 @@ impl<'a> TraceDisplay<'a> {
             change_prefix.push_str("│   ");
 
             for change in &frame.storage_changes {
-                let (name, ty) = frame
-                    .address
-                    .and_then(|addr| {
-                        self.labels
-                            .get(&addr)
-                            .map(|s| s.as_str())
-                            .or_else(|| self.ctx.get_label(&addr))
-                            .and_then(|label| {
-                                let name = self.ctx.resolve_storage_name(label, &change.slot)?;
-                                let ty = self.ctx.resolve_storage_type(label, &change.slot);
-                                Some((name, ty))
-                            })
+                if change.old_value == change.new_value {
+                    continue;
+                }
+                let label = frame.address.and_then(|addr| {
+                    self.labels
+                        .get(&addr)
+                        .map(|s| s.as_str())
+                        .or_else(|| self.ctx.get_label(&addr))
+                });
+                let packed_changes = label
+                    .map(|l| {
+                        self.ctx.resolve_storage_changes(
+                            l,
+                            &change.slot,
+                            change.old_value,
+                            change.new_value,
+                        )
                     })
-                    .unwrap_or_else(|| (format!("{}", change.slot), None));
-                let old = ty
-                    .map(|t| t.format_value(change.old_value))
-                    .unwrap_or_else(|| format!("{}", change.old_value));
-                let new = ty
-                    .map(|t| t.format_value(change.new_value))
-                    .unwrap_or_else(|| format!("{}", change.new_value));
-                writeln!(f, "{change_prefix}@ {name}: {old} -> {new}")?;
+                    .unwrap_or_default();
+
+                if packed_changes.is_empty() {
+                    let (name, ty) = label
+                        .and_then(|l| {
+                            let name = self.ctx.resolve_storage_name(l, &change.slot)?;
+                            let ty = self.ctx.resolve_storage_type(l, &change.slot);
+                            Some((name, ty))
+                        })
+                        .unwrap_or_else(|| (format!("{}", change.slot), None));
+                    let old = ty
+                        .map(|t| t.format_value(change.old_value, 0, 32))
+                        .unwrap_or_else(|| format!("{}", change.old_value));
+                    let new = ty
+                        .map(|t| t.format_value(change.new_value, 0, 32))
+                        .unwrap_or_else(|| format!("{}", change.new_value));
+                    writeln!(f, "{change_prefix}@ {name}: {old} -> {new}")?;
+                } else {
+                    for info in packed_changes {
+                        let old = info
+                            .ty
+                            .format_value(change.old_value, info.offset, info.bytes);
+                        let new = info
+                            .ty
+                            .format_value(change.new_value, info.offset, info.bytes);
+                        writeln!(f, "{change_prefix}@ {}: {old} -> {new}", info.name)?;
+                    }
+                }
             }
         }
 
