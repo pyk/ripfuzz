@@ -166,6 +166,16 @@ impl Trace {
             }
         }
 
+        // Try Solidity panic
+        if data.len() >= 4 {
+            let sel: [u8; 4] = data[..4].try_into().unwrap_or_default();
+            if sel == [0x4e, 0x48, 0x7b, 0x71]
+                && let Ok(panic) = alloy_sol_types::Panic::abi_decode(data)
+            {
+                return panic.as_geth_str().into();
+            }
+        }
+
         // Try ABI errors
         if let Some(abi) = &self.abi
             && data.len() >= 4

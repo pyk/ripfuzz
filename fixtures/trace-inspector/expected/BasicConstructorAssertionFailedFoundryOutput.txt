@@ -1,0 +1,25 @@
+No files changed, compilation skipped
+
+Ran 1 test for test/BasicConstructorAssertionFailed.t.sol:BasicConstructorAssertionFailedTest
+[FAIL: panic: assertion failed (0x01)] testDeploy() (gas: 32407)
+Traces:
+  [32407] BasicConstructorAssertionFailedTest::testDeploy()
+    ├─ [94] → new <unknown>@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+    │   └─ ← [Revert] 0x4e487b710000000000000000000000000000000000000000000000000000000000000001
+    └─ ← [Revert] panic: assertion failed (0x01)
+
+Backtrace:
+  at 0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+  at BasicConstructorAssertionFailedTest.testDeploy (test/BasicConstructorAssertionFailed.t.sol:8:46)
+
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 244.03µs (94.91µs CPU time)
+
+Ran 1 test suite in 6.56ms (244.03µs CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/BasicConstructorAssertionFailed.t.sol:BasicConstructorAssertionFailedTest
+[FAIL: panic: assertion failed (0x01)] testDeploy() (gas: 32407)
+
+Encountered a total of 1 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test

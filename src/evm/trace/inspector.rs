@@ -120,83 +120,80 @@ mod tests {
     use crate::evm::chain::{Chain, Config, DeployInput};
     use crate::foundry::{ArtifactId, Project};
 
-    fn load_fixture() -> Contract {
+    struct TestCase {
+        artifact_id: &'static str,
+        label: &'static str,
+        expected_file: &'static str,
+        with_abi: bool,
+    }
+
+    fn load_fixture(artifact_id: &str) -> Contract {
         let project = Project::new("fixtures/trace-inspector");
         let artifacts = project.load_artifacts().unwrap();
-        let id =
-            ArtifactId::try_from("src/BasicConstructorRevert.sol:BasicConstructorRevert").unwrap();
+        let id = ArtifactId::try_from(artifact_id).unwrap();
         Contract::try_get(&artifacts, &id).unwrap()
     }
 
     #[test]
-    fn basic_constructor_revert_trace() {
-        let contract = load_fixture();
-        let mut chain = Chain::empty(Config::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
-        assert!(
-            !deployment.result.success,
-            "deployment must fail because constructor reverts"
-        );
-        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+    fn constructor_revert_traces() {
+        let cases = [
+            TestCase {
+                artifact_id: "src/BasicConstructorRevert.sol:BasicConstructorRevert",
+                label: "BasicConstructorRevert",
+                expected_file: "fixtures/trace-inspector/expected/BasicConstructorRevert.txt",
+                with_abi: false,
+            },
+            TestCase {
+                artifact_id: "src/BasicConstructorCustomErrorRevert.sol:BasicConstructorCustomErrorRevert",
+                label: "BasicConstructorCustomErrorRevert",
+                expected_file: "fixtures/trace-inspector/expected/BasicConstructorCustomErrorRevert.txt",
+                with_abi: true,
+            },
+            TestCase {
+                artifact_id: "src/BasicConstructorAssertionFailed.sol:BasicConstructorAssertionFailed",
+                label: "BasicConstructorAssertionFailed",
+                expected_file: "fixtures/trace-inspector/expected/BasicConstructorAssertionFailed.txt",
+                with_abi: true,
+            },
+        ];
 
-        let deploy_address = deployment.trace.roots[0].address.unwrap();
-        let trace = deployment
-            .trace
-            .with_label(deploy_address, "BasicConstructorRevert");
+        for case in &cases {
+            let contract = load_fixture(case.artifact_id);
+            let mut chain = Chain::empty(Config::default().trace(true));
+            let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+            assert!(
+                !deployment.result.success,
+                "{}: deployment must fail",
+                case.label
+            );
+            assert_eq!(
+                deployment.trace.roots.len(),
+                1,
+                "{}: trace must have one root",
+                case.label
+            );
 
-        let formatted = format!("{trace}");
-        let expected =
-            fs::read_to_string("fixtures/trace-inspector/expected/BasicConstructorRevert.txt")
-                .unwrap_or_else(|_| {
-                    // If expected file doesn't exist, print the actual output for debugging
-                    panic!("expected file not found. actual output:\n{formatted}")
-                });
-        assert_eq!(
-            formatted.trim(),
-            expected.trim(),
-            "trace output must match expected"
-        );
-    }
+            let deploy_address = deployment.trace.roots[0].address.unwrap();
+            let trace = deployment.trace.with_label(deploy_address, case.label);
+            let trace = if case.with_abi {
+                trace.with_abi(contract.abi)
+            } else {
+                trace
+            };
 
-    fn load_custom_error_fixture() -> Contract {
-        let project = Project::new("fixtures/trace-inspector");
-        let artifacts = project.load_artifacts().unwrap();
-        let id = ArtifactId::try_from(
-            "src/BasicConstructorCustomErrorRevert.sol:BasicConstructorCustomErrorRevert",
-        )
-        .unwrap();
-        Contract::try_get(&artifacts, &id).unwrap()
-    }
-
-    #[test]
-    fn basic_constructor_custom_error_revert_trace() {
-        let contract = load_custom_error_fixture();
-        let mut chain = Chain::empty(Config::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
-        assert!(
-            !deployment.result.success,
-            "deployment must fail because constructor reverts with custom error"
-        );
-        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
-
-        let deploy_address = deployment.trace.roots[0].address.unwrap();
-        let trace = deployment
-            .trace
-            .with_label(deploy_address, "BasicConstructorCustomErrorRevert")
-            .with_abi(contract.abi);
-
-        let formatted = format!("{trace}");
-        let expected = fs::read_to_string(
-            "fixtures/trace-inspector/expected/BasicConstructorCustomErrorRevert.txt",
-        )
-        .unwrap_or_else(|_| {
-            // If expected file doesn't exist, print the actual output for debugging
-            panic!("expected file not found. actual output:\n{formatted}")
-        });
-        assert_eq!(
-            formatted.trim(),
-            expected.trim(),
-            "trace output must match expected"
-        );
+            let formatted = format!("{trace}");
+            let expected = fs::read_to_string(case.expected_file).unwrap_or_else(|_| {
+                panic!(
+                    "{}: expected file not found. actual output:\n{formatted}",
+                    case.label
+                )
+            });
+            assert_eq!(
+                formatted.trim(),
+                expected.trim(),
+                "{}: trace output must match expected",
+                case.label
+            );
+        }
     }
 }
