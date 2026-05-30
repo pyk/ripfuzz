@@ -326,7 +326,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Load target contract and prepare library dependencies.
     let mut reporter = Reporter::new();
-    reporter.begin("loading target contract")?;
+    reporter.begin(format!("loading target contract {} ...", args.target.name))?;
     let target_contract = Contract::try_get(&build_artifacts, &args.target)?;
     let target_count = target_contract.target_functions.len();
     let invariant_count = target_contract.invariant_functions.len();
@@ -336,19 +336,22 @@ pub fn run(args: Args) -> Result<()> {
         "target functions"
     };
     let invariant_word = if invariant_count == 1 {
-        "invariant function"
+        "invariant"
     } else {
-        "invariant functions"
+        "invariants"
     };
     let detail = if target_contract.libraries.is_empty() {
-        format!(
-            "loading target contract {} ({} {}, {} {})",
-            args.target,
-            fmt_num(target_count as u64),
-            target_word,
-            fmt_num(invariant_count as u64),
-            invariant_word,
-        )
+        if invariant_count == 0 {
+            format!("({} {})", fmt_num(target_count as u64), target_word,)
+        } else {
+            format!(
+                "({} {}, {} {})",
+                fmt_num(target_count as u64),
+                target_word,
+                fmt_num(invariant_count as u64),
+                invariant_word,
+            )
+        }
     } else {
         let lib_count = target_contract.libraries.len();
         let lib_word = if lib_count == 1 {
@@ -356,18 +359,30 @@ pub fn run(args: Args) -> Result<()> {
         } else {
             "libraries"
         };
-        format!(
-            "loading target contract {} ({} {}, {} {}, {} {})",
-            args.target,
-            fmt_num(target_count as u64),
-            target_word,
-            fmt_num(invariant_count as u64),
-            invariant_word,
-            fmt_num(lib_count as u64),
-            lib_word,
-        )
+        if invariant_count == 0 {
+            format!(
+                "({} {}, {} {})",
+                fmt_num(target_count as u64),
+                target_word,
+                fmt_num(lib_count as u64),
+                lib_word,
+            )
+        } else {
+            format!(
+                "({} {}, {} {}, {} {})",
+                fmt_num(target_count as u64),
+                target_word,
+                fmt_num(invariant_count as u64),
+                invariant_word,
+                fmt_num(lib_count as u64),
+                lib_word,
+            )
+        }
     };
-    reporter.update(detail)?;
+    reporter.update(format!(
+        "loaded target contract {} {}",
+        args.target.name, detail
+    ))?;
     reporter.end()?;
 
     // TODO(pyk): Create InitcodeRegistry
