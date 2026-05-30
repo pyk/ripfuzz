@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, utils::format_ether};
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use revm::primitives::{Bytes, U256};
@@ -34,6 +34,22 @@ fn fmt_num(n: u64) -> String {
         result.push(c);
     }
     result.chars().rev().collect()
+}
+
+/// Format a byte size as a human-readable KB string.
+fn fmt_kb(size: usize) -> String {
+    let kb = size as f64 / 1024.0;
+    format!("{kb:.1} KB")
+}
+
+/// Format a wei value as a human-readable ETH string, trimming trailing zeros.
+fn fmt_eth(value: U256) -> String {
+    if value == U256::ZERO {
+        return "0 ETH".into();
+    }
+    let s = format_ether(value);
+    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
+    format!("{trimmed} ETH")
 }
 
 #[derive(Debug, Parser)]
@@ -425,11 +441,13 @@ pub fn run(args: Args) -> Result<()> {
 
     // Deploy target contract
     let mut reporter = Reporter::new();
-    reporter.begin("deploying target contract")?;
+    let contract_name = &target_contract.artifact_id.name;
+    reporter.begin(format!("deploying {contract_name}..."))?;
     let mut deploy_opts = DeployInput::new(&target_contract.initcode)
         .caller(args.deployer_address)
         .value(args.deploy_value);
     let libraries = target_contract.libraries.clone();
+    let library_count = libraries.len();
     for lib in libraries {
         deploy_opts = deploy_opts.add_library(lib);
     }
@@ -443,8 +461,26 @@ pub fn run(args: Args) -> Result<()> {
     let deployed_address = deployment
         .address
         .context("deployment succeeded but created_address is missing")?;
-    reporter.update(format!("deploying target contract @ {}", deployed_address))?;
+    reporter.update(format!("deployed {contract_name}"))?;
     reporter.end()?;
+
+    let contract_size = deployment
+        .result
+        .output
+        .as_ref()
+        .map(|b| b.len())
+        .unwrap_or(0);
+    let mut details = format!(
+        "address: {deployed_address} | size: {}",
+        fmt_kb(contract_size)
+    );
+    if args.deploy_value > U256::ZERO {
+        details.push_str(&format!(" | msg value: {}", fmt_eth(args.deploy_value)));
+    }
+    if library_count > 0 {
+        details.push_str(&format!(" | linked libraries: {library_count}"));
+    }
+    reporter.print_success(details)?;
 
     // Run setup if present
     if let Some(ref setup) = target_contract.setup_function {
