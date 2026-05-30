@@ -344,61 +344,7 @@ pub fn run(args: Args) -> Result<()> {
     let mut reporter = Reporter::new();
     reporter.begin(format!("loading target contract {} ...", args.target.name))?;
     let target_contract = Contract::try_get(&build_artifacts, &args.target)?;
-    let target_count = target_contract.target_functions.len();
-    let invariant_count = target_contract.invariant_functions.len();
-    let target_word = if target_count == 1 {
-        "target function"
-    } else {
-        "target functions"
-    };
-    let invariant_word = if invariant_count == 1 {
-        "invariant"
-    } else {
-        "invariants"
-    };
-    let detail = if target_contract.libraries.is_empty() {
-        if invariant_count == 0 {
-            format!("({} {})", fmt_num(target_count as u64), target_word,)
-        } else {
-            format!(
-                "({} {}, {} {})",
-                fmt_num(target_count as u64),
-                target_word,
-                fmt_num(invariant_count as u64),
-                invariant_word,
-            )
-        }
-    } else {
-        let lib_count = target_contract.libraries.len();
-        let lib_word = if lib_count == 1 {
-            "library"
-        } else {
-            "libraries"
-        };
-        if invariant_count == 0 {
-            format!(
-                "({} {}, {} {})",
-                fmt_num(target_count as u64),
-                target_word,
-                fmt_num(lib_count as u64),
-                lib_word,
-            )
-        } else {
-            format!(
-                "({} {}, {} {}, {} {})",
-                fmt_num(target_count as u64),
-                target_word,
-                fmt_num(invariant_count as u64),
-                invariant_word,
-                fmt_num(lib_count as u64),
-                lib_word,
-            )
-        }
-    };
-    reporter.update(format!(
-        "loaded target contract {} {}",
-        args.target.name, detail
-    ))?;
+    reporter.update(format!("loaded {} as target contract", args.target.name))?;
     reporter.end()?;
 
     // TODO(pyk): Create InitcodeRegistry
