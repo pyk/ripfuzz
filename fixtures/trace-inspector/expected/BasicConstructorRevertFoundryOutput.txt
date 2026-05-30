@@ -1,0 +1,27 @@
+Compiling 2 files with Solc 0.8.28
+Solc 0.8.28 finished in 5.27ms
+Compiler run successful!
+
+Ran 1 test for test/ConstructorRevert.t.sol:ConstructorRevertTest
+[FAIL: constructor always reverts] testDeploy() (gas: 32623)
+Traces:
+  [32623] ConstructorRevertTest::testDeploy()
+    ├─ [336] → new <unknown>@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+    │   └─ ← [Revert] 0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001a636f6e7374727563746f7220616c776179732072657665727473000000000000
+    └─ ← [Revert] constructor always reverts
+
+Backtrace:
+  at 0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+  at ConstructorRevertTest.testDeploy (test/ConstructorRevert.t.sol:8:46)
+
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 5.42ms (274.59µs CPU time)
+
+Ran 1 test suite in 19.28ms (5.42ms CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/ConstructorRevert.t.sol:ConstructorRevertTest
+[FAIL: constructor always reverts] testDeploy() (gas: 32623)
+
+Encountered a total of 1 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test

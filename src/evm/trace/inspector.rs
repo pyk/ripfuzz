@@ -6,6 +6,7 @@ use revm::interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome};
 use revm::primitives::Bytes;
 
 use crate::evm::trace::CallFrame;
+use crate::evm::trace::CallFrameKind;
 use crate::evm::trace::Trace;
 
 /// Raw trace inspector that collects [`CallFrame`] trees without formatting
@@ -22,7 +23,7 @@ impl Inspector {
     }
 
     pub fn into_trace(self) -> Trace {
-        Trace { roots: self.roots }
+        Trace::new(self.roots)
     }
 }
 
@@ -31,6 +32,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
         let input = inputs.input.bytes_local(_context.local());
         self.stack.push(CallFrame {
             depth: self.stack.len(),
+            kind: CallFrameKind::Call,
             address: Some(inputs.target_address),
             input,
             output: Bytes::new(),
@@ -44,6 +46,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
     fn call_end(&mut self, _context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
         let mut frame = self.stack.pop().unwrap_or_else(|| CallFrame {
             depth: 0,
+            kind: CallFrameKind::Call,
             address: None,
             input: Bytes::new(),
             output: Bytes::new(),
@@ -66,6 +69,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
     fn create(&mut self, _context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         self.stack.push(CallFrame {
             depth: self.stack.len(),
+            kind: CallFrameKind::Create,
             address: None,
             input: inputs.init_code().clone(),
             output: Bytes::new(),
@@ -84,6 +88,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
     ) {
         let mut frame = self.stack.pop().unwrap_or_else(|| CallFrame {
             depth: 0,
+            kind: CallFrameKind::Create,
             address: None,
             input: Bytes::new(),
             output: Bytes::new(),
@@ -104,5 +109,52 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
         } else {
             self.roots.push(frame);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use crate::evm::Contract;
+    use crate::evm::chain::{Chain, Config, DeployInput};
+    use crate::foundry::{ArtifactId, Project};
+
+    fn load_fixture() -> Contract {
+        let project = Project::new("fixtures/trace-inspector");
+        let artifacts = project.load_artifacts().unwrap();
+        let id =
+            ArtifactId::try_from("src/BasicConstructorRevert.sol:BasicConstructorRevert").unwrap();
+        Contract::try_get(&artifacts, &id).unwrap()
+    }
+
+    #[test]
+    fn basic_constructor_revert_trace() {
+        let contract = load_fixture();
+        let mut chain = Chain::empty(Config::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(
+            !deployment.result.success,
+            "deployment must fail because constructor reverts"
+        );
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+
+        let deploy_address = deployment.trace.roots[0].address.unwrap();
+        let trace = deployment
+            .trace
+            .with_label(deploy_address, "BasicConstructorRevert");
+
+        let formatted = format!("{trace}");
+        let expected =
+            fs::read_to_string("fixtures/trace-inspector/expected/BasicConstructorRevert.txt")
+                .unwrap_or_else(|_| {
+                    // If expected file doesn't exist, print the actual output for debugging
+                    panic!("expected file not found. actual output:\n{formatted}")
+                });
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "trace output must match expected"
+        );
     }
 }
