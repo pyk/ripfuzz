@@ -23,11 +23,11 @@
     │   └─ ← [Stop]
     ├─ [43739] Counter::setString(hello)
     │   ├─  storage changes:
-    │   │   @ strValue: 0 -> 47219736118171679016481614208494153725245902603978864281390662590579859259402
+    │   │   @ strValue: "" -> "hello"
     │   └─ ← [Stop]
     ├─ [43131] Counter::setBool(true)
     │   ├─  storage changes:
-    │   │   @ boolValue: 0 -> 1
+    │   │   @ boolValue: false -> true
     │   └─ ← [Stop]
     ├─ [85703] Counter::pushArray(1)
     │   ├─  storage changes:
@@ -62,11 +62,11 @@
     │   └─ ← [Stop]
     ├─ [43782] Counter::setBytes(0xdeadbeef)
     │   ├─  storage changes:
-    │   │   @ byteValue: 0 -> 100720434702924942364018397558880508427273416251376888068364465368051161759752
+    │   │   @ byteValue: 0x00 -> 0xdeadbeef00000000000000000000000000000000000000000000000000000008
     │   └─ ← [Stop]
     ├─ [43006] Counter::setFixedBytes(0xcafebabe00000000000000000000000000000000000000000000000000000000)
     │   ├─  storage changes:
-    │   │   @ fixedByteValue: 0 -> 91817263415483889874611661774929753653955012082364678752355419495563853299712
+    │   │   @ fixedByteValue: 0x00 -> 0xcafebabe00000000000000000000000000000000000000000000000000000000
     │   └─ ← [Stop]
     ├─ [670] Counter::doInternal()
     │   ├─  storage changes:
@@ -94,7 +94,7 @@
     │   ├─ [752835] → new CounterHelper@0x3de67e219caa3135e36b7a70860abb4280fc6f9a
     │   │   └─ ← [Return] 641 bytes of code
     │   ├─  storage changes:
-    │   │   @ helper: 0 -> 353388596001505020398765780205339132959949352858
+    │   │   @ helper: 0x0000000000000000000000000000000000000000 -> 0x3de67e219caa3135e36b7a70860abb4280fc6f9a
     │   └─ ← [Return] 759 bytes of code
     ├─ [5221] DeepContract::run(0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007)
     │   ├─ [663] Counter::increment()
@@ -108,7 +108,7 @@
     │   │   │   └─ ← [Stop]
     │   │   ├─ [763] Counter::setBool(false)
     │   │   │   ├─  storage changes:
-    │   │   │   │   @ boolValue: 1 -> 0
+    │   │   │   │   @ boolValue: true -> false
     │   │   │   └─ ← [Stop]
     │   │   └─ ← [Stop]
     │   └─ ← [Stop]

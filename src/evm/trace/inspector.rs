@@ -272,4 +272,34 @@ mod tests {
             "trace output must match expected"
         );
     }
+
+    #[test]
+    fn storage_types_trace() {
+        let outer = load_fixture("src/StorageTypes.sol:StorageTypesRevert");
+
+        let project = Project::new("fixtures/trace-inspector");
+        let mut ctx = crate::evm::trace::TraceContext::from_project(&project).unwrap();
+
+        let mut chain = Chain::empty(Config::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&outer.initcode)).unwrap();
+        assert!(!deployment.result.success, "deployment must fail");
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+
+        let root = &deployment.trace.roots[0];
+        let deploy_address = root.address.unwrap();
+
+        ctx = ctx.with_label(deploy_address, outer.artifact_id.name.clone());
+
+        let formatted = format!("{}", deployment.trace.display_with(&ctx));
+        let expected =
+            fs::read_to_string("fixtures/trace-inspector/expected/StorageTypesRevert.txt")
+                .unwrap_or_else(
+                    |_| panic!("expected file not found. actual output:\n{formatted}",),
+                );
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "trace output must match expected"
+        );
+    }
 }

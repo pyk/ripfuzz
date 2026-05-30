@@ -1,0 +1,114 @@
+[8947288] → new StorageTypesRevert@0xb48bd837cb11a87bead45ea4b7ea3164e8af71f2
+    ├─ [8645058] → new StorageTypes@0xb70839f72ca9d90009fe83f9d6d7497be0bd57b0
+    │   ├─  storage changes:
+    │   │   @ boolValue: false -> true
+    │   │   @ uint8Value: 0 -> 255
+    │   │   @ uint128Value: 0 -> 340282366920938463463374607431768211455
+    │   │   @ uint256Value: 0 -> 115792089237316195423570985008687907853269984665640564039457584007913129639935
+    │   │   @ int8Value: 0 -> -128
+    │   │   @ int128Value: 0 -> -170141183460469231731687303715884105728
+    │   │   @ int256Value: 0 -> -57896044618658097711785492504343953926634992332820282019728792003956564819968
+    │   │   @ bytes1Value: 0x00 -> 0x1
+    │   │   @ bytes32Value: 0x00 -> 0xdeadbeef00000000000000000000000000000000000000000000000000000000
+    │   │   @ addressValue: 0x0000000000000000000000000000000000000000 -> 0xc34296175b9e78f66edbeaeb7acea4c615c092e1
+    │   │   @ bytesValue: 0x00 -> 0xcafebabe00000000000000000000000000000000000000000000000000000008
+    │   │   @ stringValue: "" -> "hello"
+    │   │   @ uintArray: 0 -> 1
+    │   │   @ 46529144392117707452946260303848603952187628831689540306122340668716214558864: 0 -> 1
+    │   │   @ uintArray: 1 -> 2
+    │   │   @ 46529144392117707452946260303848603952187628831689540306122340668716214558865: 0 -> 2
+    │   │   @ structArray: 0 -> 1
+    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346220: 0 -> 1
+    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346221: 0 -> 2
+    │   │   @ structArray: 1 -> 2
+    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346222: 0 -> 3
+    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346223: 0 -> 4
+    │   │   @ fixedArray: 0 -> 10
+    │   │   @ 22: 0 -> 20
+    │   │   @ 23: 0 -> 30
+    │   └─ ← [Return] 6525 bytes of code
+    ├─ [785] StorageTypes::setBool(false)
+    │   ├─  storage changes:
+    │   │   @ boolValue: true -> false
+    │   └─ ← [Stop]
+    ├─ [764] StorageTypes::setUint8(0)
+    │   ├─  storage changes:
+    │   │   @ uint8Value: 255 -> 0
+    │   └─ ← [Stop]
+    ├─ [720] StorageTypes::setUint128(0)
+    │   ├─  storage changes:
+    │   │   @ uint128Value: 340282366920938463463374607431768211455 -> 0
+    │   └─ ← [Stop]
+    ├─ [582] StorageTypes::setUint256(0)
+    │   ├─  storage changes:
+    │   │   @ uint256Value: 115792089237316195423570985008687907853269984665640564039457584007913129639935 -> 0
+    │   └─ ← [Stop]
+    ├─ [792] StorageTypes::setInt8(0)
+    │   ├─  storage changes:
+    │   │   @ int8Value: -128 -> 0
+    │   └─ ← [Stop]
+    ├─ [728] StorageTypes::setInt128(0)
+    │   ├─  storage changes:
+    │   │   @ int128Value: -170141183460469231731687303715884105728 -> 0
+    │   └─ ← [Stop]
+    ├─ [605] StorageTypes::setInt256(0)
+    │   ├─  storage changes:
+    │   │   @ int256Value: -57896044618658097711785492504343953926634992332820282019728792003956564819968 -> 0
+    │   └─ ← [Stop]
+    ├─ [783] StorageTypes::setBytes1(0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   ├─  storage changes:
+    │   │   @ bytes1Value: 0x1 -> 0x00
+    │   └─ ← [Stop]
+    ├─ [626] StorageTypes::setBytes32(0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   ├─  storage changes:
+    │   │   @ bytes32Value: 0xdeadbeef00000000000000000000000000000000000000000000000000000000 -> 0x00
+    │   └─ ← [Stop]
+    ├─ [781] StorageTypes::setAddress(0x0000000000000000000000000000000000000000)
+    │   ├─  storage changes:
+    │   │   @ addressValue: 0xc34296175b9e78f66edbeaeb7acea4c615c092e1 -> 0x0000000000000000000000000000000000000000
+    │   └─ ← [Stop]
+    ├─ [1354] StorageTypes::setBytes(0x)
+    │   ├─  storage changes:
+    │   │   @ bytesValue: 0xcafebabe00000000000000000000000000000000000000000000000000000008 -> 0x00
+    │   └─ ← [Stop]
+    ├─ [1355] StorageTypes::setString()
+    │   ├─  storage changes:
+    │   │   @ stringValue: "hello" -> ""
+    │   └─ ← [Stop]
+    ├─ [43400] StorageTypes::pushUintArray(3)
+    │   ├─  storage changes:
+    │   │   @ uintArray: 2 -> 3
+    │   │   @ 46529144392117707452946260303848603952187628831689540306122340668716214558866: 0 -> 3
+    │   └─ ← [Stop]
+    ├─ [87108] StorageTypes::pushStructArray((5, 6))
+    │   ├─  storage changes:
+    │   │   @ structArray: 2 -> 3
+    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346224: 0 -> 5
+    │   │   @ 93369884277498597659590946175997448338802118867485977633968544981113634346225: 0 -> 6
+    │   └─ ← [Stop]
+    ├─ [803] StorageTypes::setFixedArray(0, 0)
+    │   ├─  storage changes:
+    │   │   @ fixedArray: 10 -> 0
+    │   └─ ← [Stop]
+    ├─ [803] StorageTypes::setFixedArray(1, 0)
+    │   ├─  storage changes:
+    │   │   @ 22: 20 -> 0
+    │   └─ ← [Stop]
+    ├─ [803] StorageTypes::setFixedArray(2, 0)
+    │   ├─  storage changes:
+    │   │   @ 23: 30 -> 0
+    │   └─ ← [Stop]
+    ├─ [1057] StorageTypes::setTuple(0, 0)
+    │   ├─  storage changes:
+    │   │   @ uint128Value: 0 -> 0
+    │   │   @ uint256Value: 0 -> 0
+    │   └─ ← [Stop]
+    ├─ [764] StorageTypes::setStruct((0, 0))
+    │   ├─  storage changes:
+    │   │   @ uint256Value: 0 -> 0
+    │   └─ ← [Stop]
+    ├─ [1128] StorageTypes::setNestedStruct(((0, 0), (0, 0)))
+    │   ├─  storage changes:
+    │   │   @ uint256Value: 0 -> 0
+    │   └─ ← [Stop]
+    └─ ← [Revert] storage types revert

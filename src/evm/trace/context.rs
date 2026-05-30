@@ -32,8 +32,8 @@ pub struct TraceContext {
     labels: HashMap<Address, String>,
     abis: Vec<JsonAbi>,
     bytecode_entries: Vec<BytecodeEntry>,
-    /// Maps contract name -> (slot -> storage variable name).
-    storage_names: HashMap<String, HashMap<U256, String>>,
+    /// Maps contract name -> (slot -> (label, storage_type)).
+    storage_names: HashMap<String, HashMap<U256, (String, super::StorageType)>>,
 }
 
 impl Default for TraceContext {
@@ -148,7 +148,19 @@ impl TraceContext {
         self.storage_names
             .get(contract_name)
             .and_then(|map| map.get(slot))
-            .map(|s| s.as_str())
+            .map(|(label, _)| label.as_str())
+    }
+
+    /// Look up the storage type for a storage slot in a contract.
+    pub fn resolve_storage_type(
+        &self,
+        contract_name: &str,
+        slot: &U256,
+    ) -> Option<&super::StorageType> {
+        self.storage_names
+            .get(contract_name)
+            .and_then(|map| map.get(slot))
+            .map(|(_, ty)| ty)
     }
 
     /// Decode a function call from its input data.
@@ -262,14 +274,17 @@ pub(super) fn format_args(values: &[DynSolValue]) -> String {
 
 use crate::foundry::LinkReferences;
 
-/// Parse state-variable names from an artifact's `storageLayout` output.
-fn parse_storage_layout(artifact: &Artifact) -> Option<HashMap<U256, String>> {
+/// Parse state-variable names and types from an artifact's `storageLayout` output.
+fn parse_storage_layout(
+    artifact: &Artifact,
+) -> Option<HashMap<U256, (String, super::StorageType)>> {
     let layout = artifact.storage_layout()?;
     let mut names = HashMap::new();
     for entry in &layout.storage {
         let slot = entry.slot.parse::<U256>().ok()?;
+        let ty = super::StorageType::parse(&entry.type_name)?;
         // checkrs: allow(clone_in_loops)
-        names.insert(slot, entry.label.clone());
+        names.insert(slot, (entry.label.clone(), ty));
     }
     Some(names).filter(|n| !n.is_empty())
 }

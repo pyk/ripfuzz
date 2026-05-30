@@ -1,0 +1,67 @@
+No files changed, compilation skipped
+
+Ran 1 test for test/StorageTypes.t.sol:StorageTypesTest
+[FAIL: storage types revert] testDeploy() (gas: 1985739)
+Traces:
+  [1985739] StorageTypesTest::testDeploy()
+    ├─ [1950058] → new <unknown>@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+    │   ├─ [1817720] → new StorageTypes@0x104fBc016F4bb334D775a19E8A6510109AC63E00
+    │   │   └─ ← [Return] 6525 bytes of code
+    │   ├─ [785] StorageTypes::setBool(false)
+    │   │   └─ ← [Stop]
+    │   ├─ [764] StorageTypes::setUint8(0)
+    │   │   └─ ← [Stop]
+    │   ├─ [720] StorageTypes::setUint128(0)
+    │   │   └─ ← [Stop]
+    │   ├─ [582] StorageTypes::setUint256(0)
+    │   │   └─ ← [Stop]
+    │   ├─ [792] StorageTypes::setInt8(0)
+    │   │   └─ ← [Stop]
+    │   ├─ [728] StorageTypes::setInt128(0)
+    │   │   └─ ← [Stop]
+    │   ├─ [605] StorageTypes::setInt256(0)
+    │   │   └─ ← [Stop]
+    │   ├─ [783] StorageTypes::setBytes1(0x00)
+    │   │   └─ ← [Stop]
+    │   ├─ [626] StorageTypes::setBytes32(0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   │   └─ ← [Stop]
+    │   ├─ [781] StorageTypes::setAddress(0x0000000000000000000000000000000000000000)
+    │   │   └─ ← [Stop]
+    │   ├─ [1354] StorageTypes::setBytes(0x)
+    │   │   └─ ← [Stop]
+    │   ├─ [1355] StorageTypes::setString("")
+    │   │   └─ ← [Stop]
+    │   ├─ [22932] StorageTypes::pushUintArray(3)
+    │   │   └─ ← [Stop]
+    │   ├─ [46172] StorageTypes::pushStructArray(Point({ x: 5, y: 6 }))
+    │   │   └─ ← [Stop]
+    │   ├─ [803] StorageTypes::setFixedArray(0, 0)
+    │   │   └─ ← [Stop]
+    │   ├─ [803] StorageTypes::setFixedArray(1, 0)
+    │   │   └─ ← [Stop]
+    │   ├─ [803] StorageTypes::setFixedArray(2, 0)
+    │   │   └─ ← [Stop]
+    │   ├─ [1057] StorageTypes::setTuple(0, 0)
+    │   │   └─ ← [Stop]
+    │   ├─ [764] StorageTypes::setStruct(Point({ x: 0, y: 0 }))
+    │   │   └─ ← [Stop]
+    │   ├─ [1128] StorageTypes::setNestedStruct(Line({ start: Point({ x: 0, y: 0 }), end: Point({ x: 0, y: 0 }) }))
+    │   │   └─ ← [Stop]
+    │   └─ ← [Revert] 0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001473746f7261676520747970657320726576657274000000000000000000000000
+    └─ ← [Revert] storage types revert
+
+Backtrace:
+  at 0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+  at StorageTypesTest.testDeploy
+
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 569.38µs (337.35µs CPU time)
+
+Ran 1 test suite in 7.16ms (569.38µs CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/StorageTypes.t.sol:StorageTypesTest
+[FAIL: storage types revert] testDeploy() (gas: 1985739)
+
+Encountered a total of 1 failing tests, 0 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test

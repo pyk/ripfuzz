@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use alloy_primitives::U256;
+use alloy_primitives::{I256, U256};
 use revm::interpreter::CallScheme;
 use revm::primitives::{Address, Bytes};
 
@@ -19,6 +19,148 @@ pub struct StorageChange {
     pub slot: U256,
     pub old_value: U256,
     pub new_value: U256,
+}
+
+/// Format a storage value according to its Solidity type.
+/// A strongly typed Solidity storage type derived from the `storageLayout` output.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StorageType {
+    Bool,
+    Uint(usize),
+    Int(usize),
+    Address,
+    FixedBytes(usize),
+    DynamicBytes,
+    String,
+    Array {
+        element: Box<StorageType>,
+        len: Option<usize>,
+    },
+    Mapping,
+    Struct,
+}
+
+impl StorageType {
+    /// Parse a `storageLayout` type string into a strongly typed [`StorageType`].
+    pub fn parse(type_name: &str) -> Option<Self> {
+        let t = type_name;
+        if t == "t_bool" {
+            return Some(Self::Bool);
+        }
+        if t == "t_address" {
+            return Some(Self::Address);
+        }
+        if t == "t_bytes_storage" {
+            return Some(Self::DynamicBytes);
+        }
+        if t == "t_string_storage" {
+            return Some(Self::String);
+        }
+        if let Some(bits) = t.strip_prefix("t_uint") {
+            let bits = bits.parse::<usize>().ok()?;
+            return Some(Self::Uint(bits));
+        }
+        if let Some(bits) = t.strip_prefix("t_int") {
+            let bits = bits.parse::<usize>().ok()?;
+            return Some(Self::Int(bits));
+        }
+        if let Some(sz) = t.strip_prefix("t_bytes") {
+            let sz = sz.parse::<usize>().ok()?;
+            return Some(Self::FixedBytes(sz));
+        }
+        if t.starts_with("t_array(") {
+            let inner = t.strip_prefix("t_array(")?;
+            let end = inner.find(')')?;
+            let element = Self::parse(&inner[..end])?;
+            let rest = &inner[end + 1..];
+            let len = if rest.starts_with("dyn_") {
+                None
+            } else {
+                let n = rest.split('_').next()?;
+                Some(n.parse::<usize>().ok()?)
+            };
+            return Some(Self::Array {
+                element: Box::new(element),
+                len,
+            });
+        }
+        if t.starts_with("t_mapping(") {
+            return Some(Self::Mapping);
+        }
+        if t.starts_with("t_struct(") {
+            return Some(Self::Struct);
+        }
+        if t.starts_with("t_contract(") {
+            return Some(Self::Address);
+        }
+        None
+    }
+
+    /// Format a raw storage slot value according to this type.
+    pub fn format_value(&self, value: U256) -> String {
+        match self {
+            Self::Bool => {
+                if value.is_zero() {
+                    "false".into()
+                } else {
+                    "true".into()
+                }
+            }
+            Self::Address => {
+                let bytes = value.to_be_bytes::<32>();
+                format!("0x{}", hex::encode(&bytes[12..]))
+            }
+            Self::FixedBytes(_) | Self::DynamicBytes => {
+                let bytes = value.to_be_bytes::<32>();
+                let hex_str = hex::encode(bytes);
+                let trimmed = hex_str.trim_start_matches('0');
+                if trimmed.is_empty() {
+                    "0x00".into()
+                } else {
+                    format!("0x{trimmed}")
+                }
+            }
+            Self::String => {
+                let bytes = value.to_be_bytes::<32>();
+                let low_byte = bytes[31];
+                if low_byte & 1 == 0 {
+                    // Short string: length = low_byte / 2, data in high 31 bytes
+                    let len = (low_byte / 2) as usize;
+                    if len == 0 {
+                        return "\"\"".into();
+                    }
+                    let data = &bytes[..len];
+                    if let Ok(s) = std::str::from_utf8(data) {
+                        return format!("\"{s}\"");
+                    }
+                }
+                // Long string or invalid UTF-8: fall back to hex
+                let hex_str = hex::encode(bytes);
+                let trimmed = hex_str.trim_start_matches('0');
+                if trimmed.is_empty() {
+                    "0x00".into()
+                } else {
+                    format!("0x{trimmed}")
+                }
+            }
+            Self::Int(bits) => {
+                let bits = *bits;
+                if bits < 256 {
+                    let mask = U256::from(1).wrapping_shl(bits);
+                    let half = U256::from(1).wrapping_shl(bits - 1);
+                    if value >= half {
+                        let neg = mask - value;
+                        return format!("-{neg}");
+                    }
+                }
+                let i = I256::from_raw(value);
+                format!("{i}")
+            }
+            Self::Uint(_) | Self::Array { .. } | Self::Mapping | Self::Struct => {
+                format!("{value}")
+            }
+        }
+    }
 }
 
 /// Raw call trace tree.
@@ -189,22 +331,28 @@ impl<'a> TraceDisplay<'a> {
             change_prefix.push_str("│   ");
 
             for change in &frame.storage_changes {
-                let name = frame
+                let (name, ty) = frame
                     .address
                     .and_then(|addr| {
                         self.labels
                             .get(&addr)
                             .map(|s| s.as_str())
                             .or_else(|| self.ctx.get_label(&addr))
-                            .and_then(|label| self.ctx.resolve_storage_name(label, &change.slot))
+                            .and_then(|label| {
+                                let name = self.ctx.resolve_storage_name(label, &change.slot)?;
+                                let ty = self.ctx.resolve_storage_type(label, &change.slot);
+                                Some((name, ty))
+                            })
                     })
-                    .map(|s| s.into())
-                    .unwrap_or_else(|| format!("{}", change.slot));
-                writeln!(
-                    f,
-                    "{change_prefix}@ {name}: {} -> {}",
-                    change.old_value, change.new_value
-                )?;
+                    .map(|(name, ty)| (name.into(), ty))
+                    .unwrap_or_else(|| (format!("{}", change.slot), None));
+                let old = ty
+                    .map(|t| t.format_value(change.old_value))
+                    .unwrap_or_else(|| format!("{}", change.old_value));
+                let new = ty
+                    .map(|t| t.format_value(change.new_value))
+                    .unwrap_or_else(|| format!("{}", change.new_value));
+                writeln!(f, "{change_prefix}@ {name}: {old} -> {new}")?;
             }
         }
 
