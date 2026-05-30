@@ -466,10 +466,13 @@ pub fn run(args: Args) -> Result<()> {
         fmt_num(corpus_stats.valid_count as u64)
     ))?;
     reporter.end()?;
-    reporter.print_success(format!(
-        "on disk: {} | valid: {} | invalid: {}",
+    reporter.print_line(format!(
+        "    {:8}: {} items\n    {:8}: {} items\n    {:8}: {} items",
+        "on disk",
         fmt_num(corpus_stats.total_count as u64),
+        "valid",
         fmt_num(corpus_stats.valid_count as u64),
+        "invalid",
         fmt_num((corpus_stats.parse_failed_count + corpus_stats.invalid_call_count) as u64)
     ))?;
 
