@@ -1,2 +1,0 @@
-[336] → new SimpleRevert@0xe3a207e4225d459095491ea75d30b31968dff887
-  └─ ← [Revert] simple revert reason

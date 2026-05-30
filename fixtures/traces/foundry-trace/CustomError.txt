@@ -1,7 +1,0 @@
-  [109631] CustomErrorTest::testCustomError()
-    ├─ [76321] → new CustomError@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
-    │   └─ ← [Return] 381 bytes of code
-    ├─ [634] CustomError::trigger() [staticcall]
-    │   └─ ← [Revert] MyCustomError(404, "not found")
-    └─ ← [Revert] MyCustomError(404, "not found")
-

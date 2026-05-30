@@ -1,6 +1,0 @@
-[109561] → new CustomErrorTrace@0xe3a207e4225d459095491ea75d30b31968dff887
-  ├─ [76321] → new CustomError@0x3642dabb61aba79183301c78991452600fb35c90
-  │  └─ ← [Return] 381 bytes of code
-  ├─ [634] CustomError::trigger() [staticcall]
-  │  └─ ← [Revert] MyCustomError(404, "not found")
-  └─ ← [Revert] MyCustomError(404, "not found")

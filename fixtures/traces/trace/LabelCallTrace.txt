@@ -1,6 +1,0 @@
-[39833] → new LabelCallTrace@0xe3a207e4225d459095491ea75d30b31968dff887
-  ├─ [22536] ExternalTarget::setValue(42)
-  │  └─ ← [Stop]
-  ├─ [409] ExternalTarget::getValue()
-  │  └─ ← [Return] 42
-  └─ ← [Return] 62 bytes of code

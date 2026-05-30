@@ -1,2 +1,0 @@
-[15724] → new VmLabelTrace@0xe3a207e4225d459095491ea75d30b31968dff887
-  └─ ← [Return] 62 bytes of code

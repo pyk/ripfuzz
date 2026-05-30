@@ -1,6 +1,0 @@
-[203985] → new NestedRevert@0xe3a207e4225d459095491ea75d30b31968dff887
-  ├─ [148194] → new Helper@0x3642dabb61aba79183301c78991452600fb35c90
-  │  └─ ← [Return] 740 bytes of code
-  ├─ [22559] Helper::setValue(200)
-  │  └─ ← [Stop]
-  └─ ← [Revert] nested revert reason
