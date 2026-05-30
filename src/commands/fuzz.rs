@@ -490,12 +490,17 @@ pub fn run(args: Args) -> Result<()> {
         .replay()?;
     reporter.update(format!("replayed {replay_count} corpus items"))?;
     reporter.end()?;
-    reporter.print_success(format!(
-        "{} unique contracts | {} total edges | {} total depths | {} total reverts | {} total jumps",
+    reporter.print_line(format!(
+        "    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}",
+        "unique contracts",
         fmt_num(shared_coverage.contract_count() as u64),
+        "total edges",
         fmt_num(shared_coverage.edge_count() as u64),
+        "total depths",
         fmt_num(shared_coverage.depth_count() as u64),
+        "total reverts",
         fmt_num(shared_coverage.revert_count() as u64),
+        "total jumps",
         fmt_num(shared_coverage.jump_count() as u64)
     ))?;
 
