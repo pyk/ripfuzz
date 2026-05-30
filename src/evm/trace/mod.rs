@@ -173,7 +173,11 @@ impl Trace {
             let sel: FixedBytes<4> = FixedBytes::new(data[..4].try_into().unwrap_or_default());
             for error in abi.errors() {
                 if error.selector().as_slice() == sel.as_slice() {
-                    return format!("{}(...)", error.name);
+                    if error.inputs.is_empty() {
+                        return format!("{}()", error.name);
+                    } else {
+                        return format!("{}(...)", error.name);
+                    }
                 }
             }
         }

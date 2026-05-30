@@ -157,4 +157,46 @@ mod tests {
             "trace output must match expected"
         );
     }
+
+    fn load_custom_error_fixture() -> Contract {
+        let project = Project::new("fixtures/trace-inspector");
+        let artifacts = project.load_artifacts().unwrap();
+        let id = ArtifactId::try_from(
+            "src/BasicConstructorCustomErrorRevert.sol:BasicConstructorCustomErrorRevert",
+        )
+        .unwrap();
+        Contract::try_get(&artifacts, &id).unwrap()
+    }
+
+    #[test]
+    fn basic_constructor_custom_error_revert_trace() {
+        let contract = load_custom_error_fixture();
+        let mut chain = Chain::empty(Config::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(
+            !deployment.result.success,
+            "deployment must fail because constructor reverts with custom error"
+        );
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+
+        let deploy_address = deployment.trace.roots[0].address.unwrap();
+        let trace = deployment
+            .trace
+            .with_label(deploy_address, "BasicConstructorCustomErrorRevert")
+            .with_abi(contract.abi);
+
+        let formatted = format!("{trace}");
+        let expected = fs::read_to_string(
+            "fixtures/trace-inspector/expected/BasicConstructorCustomErrorRevert.txt",
+        )
+        .unwrap_or_else(|_| {
+            // If expected file doesn't exist, print the actual output for debugging
+            panic!("expected file not found. actual output:\n{formatted}")
+        });
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "trace output must match expected"
+        );
+    }
 }
