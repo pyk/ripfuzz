@@ -1,13 +1,14 @@
 //! User-friendly console reporter for the Raptor CLI.
 //!
-//! Provides a [`Reporter`] that prints status messages to stderr with a green
-//! `raptor` prefix. When running in a terminal, `begin` / `end` pairs replace
+//! Provides a [`Reporter`] that prints status messages to stderr with coloured
+//! status prefixes. When running in a terminal, `begin` / `end` pairs replace
 //! the previous line so the user only sees the final result.
 
 use std::io::{self, IsTerminal, Write};
 use std::time::{Duration, Instant};
 
 const GREEN: &str = "\x1b[32m";
+const RED: &str = "\x1b[31m";
 const DIM: &str = "\x1b[2m";
 const RESET: &str = "\x1b[0m";
 
@@ -76,7 +77,7 @@ impl<W: Write> Reporter<W> {
 
     /// Print a progress line to stderr.
     ///
-    /// The line is prefixed with a green `raptor` label. In a terminal the
+    /// The line is prefixed with a green `[*]`. In a terminal the
     /// line will be replaced by the next call to [`Self::end`].
     pub fn begin(&mut self, message: impl AsRef<str>) -> io::Result<()> {
         if self.start.is_some() {
@@ -86,7 +87,7 @@ impl<W: Write> Reporter<W> {
         self.message = Some(message.into());
         self.start = Some(Instant::now());
         self.elapsed = None;
-        let prefix = self.prefix();
+        let prefix = self.start_prefix();
         if self.is_terminal {
             write!(self.output, "{prefix} {message}")
         } else {
@@ -107,7 +108,7 @@ impl<W: Write> Reporter<W> {
         self.message = Some(message.into());
         if self.is_terminal {
             write!(self.output, "{REPLACE_LINE}")?;
-            let prefix = self.prefix();
+            let prefix = self.start_prefix();
             write!(self.output, "{prefix} {message}")?;
         }
         Ok(())
@@ -131,7 +132,7 @@ impl<W: Write> Reporter<W> {
         self.message = Some(message.into());
         if self.is_terminal {
             write!(self.output, "{REPLACE_LINE}")?;
-            let prefix = self.prefix();
+            let prefix = self.start_prefix();
             write!(
                 self.output,
                 "{prefix} {message} {DIM}[{elapsed_secs:.1}s]{RESET}"
@@ -154,22 +155,50 @@ impl<W: Write> Reporter<W> {
             write!(self.output, "{REPLACE_LINE}")?;
         }
 
-        let prefix = self.prefix();
+        let prefix = self.success_prefix();
+        writeln!(self.output, "{prefix} {message} in {seconds:.2}s")
+    }
+
+    /// Replace the line printed by the matching [`Self::begin`] call with a
+    /// failure indicator.
+    ///
+    /// If no matching `begin` call was made, this is a no-op.
+    pub fn fail(&mut self) -> io::Result<()> {
+        let (Some(message), Some(start)) = (self.message.take(), self.start.take()) else {
+            return Ok(());
+        };
+        let elapsed = self.elapsed.take().unwrap_or_else(|| start.elapsed());
+        let seconds = elapsed.as_secs_f64();
+
         if self.is_terminal {
-            writeln!(
-                self.output,
-                "{prefix} {message} {DIM}[{seconds:.2}s]{RESET}"
-            )
+            write!(self.output, "{REPLACE_LINE}")?;
+        }
+
+        let prefix = self.fail_prefix();
+        writeln!(self.output, "{prefix} {message} in {seconds:.2}s")
+    }
+
+    fn start_prefix(&self) -> String {
+        if self.is_terminal {
+            format!("{GREEN}[*]{RESET}")
         } else {
-            writeln!(self.output, "{prefix} {message} [{seconds:.2}s]")
+            "[*]".into()
         }
     }
 
-    fn prefix(&self) -> String {
+    fn success_prefix(&self) -> String {
         if self.is_terminal {
-            format!("{GREEN}raptor{RESET}")
+            format!("{DIM}[+]{RESET}")
         } else {
-            "raptor".into()
+            "[+]".into()
+        }
+    }
+
+    fn fail_prefix(&self) -> String {
+        if self.is_terminal {
+            format!("{RED}[!]{RESET}")
+        } else {
+            "[!]".into()
         }
     }
 }
@@ -189,7 +218,7 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
         assert_eq!(
             output,
-            "raptor building project\nraptor building project [2.00s]\n"
+            "[*] building project\n[+] building project in 2.00s\n"
         );
     }
 
@@ -202,11 +231,12 @@ mod tests {
         reporter.end().unwrap();
 
         let output = String::from_utf8(buf).unwrap();
-        let prefix = format!("{GREEN}raptor{RESET}");
+        let prefix_start = format!("{GREEN}[*]{RESET}");
+        let prefix_end = format!("{DIM}[+]{RESET}");
         assert_eq!(
             output,
             format!(
-                "{prefix} building project{REPLACE_LINE}{prefix} building project {DIM}[2.00s]{RESET}\n"
+                "{prefix_start} building project{REPLACE_LINE}{prefix_end} building project in 2.00s\n"
             )
         );
     }
@@ -216,6 +246,14 @@ mod tests {
         let mut buf = Vec::new();
         let mut reporter = Reporter::with_writer(&mut buf, false);
         reporter.end().unwrap();
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn reporter_fail_without_begin_is_noop() {
+        let mut buf = Vec::new();
+        let mut reporter = Reporter::with_writer(&mut buf, false);
+        reporter.fail().unwrap();
         assert!(buf.is_empty());
     }
 
@@ -233,7 +271,7 @@ mod tests {
         let output = String::from_utf8(buf).unwrap();
         assert_eq!(
             output,
-            "raptor first\nraptor first [1.00s]\nraptor second\nraptor second [3.00s]\n"
+            "[*] first\n[+] first in 1.00s\n[*] second\n[+] second in 3.00s\n"
         );
     }
 
@@ -247,13 +285,14 @@ mod tests {
         reporter.end().unwrap();
 
         let output = String::from_utf8(buf).unwrap();
-        let prefix = format!("{GREEN}raptor{RESET}");
+        let prefix_start = format!("{GREEN}[*]{RESET}");
+        let prefix_end = format!("{DIM}[+]{RESET}");
         assert_eq!(
             output,
             format!(
-                "{prefix} loading build artifacts\
-                 {REPLACE_LINE}{prefix} loading build artifacts [1/12]\
-                 {REPLACE_LINE}{prefix} loading build artifacts [1/12] {DIM}[2.00s]{RESET}\n"
+                "{prefix_start} loading build artifacts\
+                 {REPLACE_LINE}{prefix_start} loading build artifacts [1/12]\
+                 {REPLACE_LINE}{prefix_end} loading build artifacts [1/12] in 2.00s\n"
             )
         );
     }
@@ -272,7 +311,7 @@ mod tests {
         // the stored message so end() uses the latest text.
         assert_eq!(
             output,
-            "raptor loading build artifacts\nraptor loading build artifacts [1/12] [2.00s]\n"
+            "[*] loading build artifacts\n[+] loading build artifacts [1/12] in 2.00s\n"
         );
     }
 
@@ -288,15 +327,16 @@ mod tests {
         reporter.end().unwrap();
 
         let output = String::from_utf8(buf).unwrap();
-        let prefix = format!("{GREEN}raptor{RESET}");
+        let prefix_start = format!("{GREEN}[*]{RESET}");
+        let prefix_end = format!("{DIM}[+]{RESET}");
         assert_eq!(
             output,
             format!(
-                "{prefix} loading build artifacts\
-                 {REPLACE_LINE}{prefix} loading build artifacts [1/3]\
-                 {REPLACE_LINE}{prefix} loading build artifacts [2/3]\
-                 {REPLACE_LINE}{prefix} loading build artifacts [3/3]\
-                 {REPLACE_LINE}{prefix} loading build artifacts [3/3] {DIM}[2.00s]{RESET}\n"
+                "{prefix_start} loading build artifacts\
+                 {REPLACE_LINE}{prefix_start} loading build artifacts [1/3]\
+                 {REPLACE_LINE}{prefix_start} loading build artifacts [2/3]\
+                 {REPLACE_LINE}{prefix_start} loading build artifacts [3/3]\
+                 {REPLACE_LINE}{prefix_end} loading build artifacts [3/3] in 2.00s\n"
             )
         );
     }
@@ -307,5 +347,39 @@ mod tests {
         let mut reporter = Reporter::with_writer(&mut buf, true);
         reporter.update("loading build artifacts [1/12]").unwrap();
         assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn reporter_fail_non_terminal() {
+        let mut buf = Vec::new();
+        let mut reporter = Reporter::with_writer(&mut buf, false);
+        reporter.begin("building project").unwrap();
+        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
+        reporter.fail().unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(
+            output,
+            "[*] building project\n[!] building project in 2.00s\n"
+        );
+    }
+
+    #[test]
+    fn reporter_fail_terminal() {
+        let mut buf = Vec::new();
+        let mut reporter = Reporter::with_writer(&mut buf, true);
+        reporter.begin("building project").unwrap();
+        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
+        reporter.fail().unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        let prefix_start = format!("{GREEN}[*]{RESET}");
+        let prefix_fail = format!("{RED}[!]{RESET}");
+        assert_eq!(
+            output,
+            format!(
+                "{prefix_start} building project{REPLACE_LINE}{prefix_fail} building project in 2.00s\n"
+            )
+        );
     }
 }

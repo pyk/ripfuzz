@@ -299,10 +299,11 @@ pub fn run(args: Args) -> Result<()> {
 
     // Build project
     let mut reporter = Reporter::new();
-    reporter.begin(format!("building project: {}", project_path.display()))?;
+    reporter.begin("building foundry project ...")?;
     let project = Project::new(&project_path);
     let build_opts = BuildOptions::new().force(args.force);
     project.build(build_opts)?;
+    reporter.update("built foundry project")?;
     reporter.end()?;
 
     // Load build artifacts
