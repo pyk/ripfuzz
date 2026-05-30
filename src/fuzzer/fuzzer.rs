@@ -1,5 +1,6 @@
 //! Per-thread fuzzer that executes call sequences and reports results.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -38,34 +39,38 @@ pub struct FailedAssertion {
 
 impl FailedAssertion {
     /// Format this failed assertion's call sequence as a flat, Medusa-style log.
-    pub fn format(&self, contract: &evm::Contract, sender: Address) -> String {
+    pub fn format(&self, contract: &evm::Contract) -> String {
+        let mut selector_map = HashMap::new();
+        for func in contract
+            .target_functions
+            .iter()
+            .chain(contract.invariant_functions.iter())
+        {
+            let sel: [u8; 4] = func.selector().into();
+            // checkrs: allow(clone_in_loops)
+            selector_map.insert(sel, func.name.clone());
+        }
+
         let mut lines = Vec::new();
         for (i, tx) in self.transactions.iter().enumerate() {
             let n = i + 1;
-
-            let block = n as u64;
-            let time = n as u64;
-
-            lines.push(format!(
-                "{}) {}::{} (block_number={}, block_timestamp={}, gas={}, gasprice=1, value=0, sender={:?})",
-                n,
-                contract.artifact_id.name,
-                format_calldata(&tx.calldata),
-                block,
-                time,
-                u64::MAX,
-                sender,
-            ));
+            let name = format_calldata(&tx.calldata, &selector_map);
+            lines.push(format!("    {n}. {name}"));
         }
         lines.join("\n")
     }
 }
 
-fn format_calldata(calldata: &Bytes) -> String {
-    if calldata.is_empty() {
+fn format_calldata(calldata: &Bytes, selector_map: &HashMap<[u8; 4], String>) -> String {
+    if calldata.len() < 4 {
         return "()".into();
     }
-    format!("0x{}", hex::encode(calldata))
+    let selector: [u8; 4] = calldata[0..4].try_into().unwrap_or([0; 4]);
+    if let Some(name) = selector_map.get(&selector) {
+        format!("{}()", name)
+    } else {
+        format!("0x{}", hex::encode(&calldata[0..4]))
+    }
 }
 
 /// Per-thread fuzzer that executes call sequences and reports results.

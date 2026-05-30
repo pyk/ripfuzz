@@ -105,6 +105,19 @@ impl<W: Write> Reporter<W> {
         )
     }
 
+    /// Print a one-off failure line.
+    ///
+    /// The line is prefixed with a red `[!]` and always terminated with a
+    /// newline.
+    pub fn print_fail(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        let prefix = self.fail_prefix();
+        writeln!(
+            self.output,
+            "{prefix} {message}",
+            message = message.as_ref()
+        )
+    }
+
     /// Print a line without any status prefix.
     pub fn print_line(&mut self, message: impl AsRef<str>) -> io::Result<()> {
         writeln!(self.output, "{message}", message = message.as_ref())

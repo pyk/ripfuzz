@@ -29,7 +29,7 @@ mod tests {
     use crate::fuzzer::FailedAssertion;
 
     #[test]
-    fn format_failure_uses_block_number_and_timestamp_labels() {
+    fn format_failure_uses_numbered_call_sequence() {
         let project = foundry::Project::new("fixtures/challenges");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from("src/L1SimpleKnob.sol:SimpleKnob").unwrap();
@@ -46,25 +46,35 @@ mod tests {
             item: Item::from(vec![]),
         };
 
-        let output = failure.format(&contract, crate::evm::DEFAULT_DEPLOYER);
+        let output = failure.format(&contract);
         assert!(
-            output.contains("block_number="),
-            "output should use block_number label:\n{}",
+            output.contains("1."),
+            "output should use numbered call sequence:\n{}",
             output
         );
         assert!(
-            output.contains("block_timestamp="),
-            "output should use block_timestamp label:\n{}",
+            output.contains("2."),
+            "output should use numbered call sequence:\n{}",
             output
         );
         assert!(
-            !output.contains("block=0") && !output.contains("block=1"),
-            "output should not use old block= label:\n{}",
+            output.contains("3."),
+            "output should use numbered call sequence:\n{}",
             output
         );
         assert!(
-            !output.contains("time=1") && !output.contains("time=2"),
-            "output should not use old time= label:\n{}",
+            !output.contains("block_number="),
+            "output should not use old block_number label:\n{}",
+            output
+        );
+        assert!(
+            !output.contains("gas="),
+            "output should not use old gas label:\n{}",
+            output
+        );
+        assert!(
+            !output.contains("sender="),
+            "output should not use old sender label:\n{}",
             output
         );
     }

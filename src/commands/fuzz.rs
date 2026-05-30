@@ -751,8 +751,7 @@ pub fn run(args: Args) -> Result<()> {
         .min_by_key(|f| f.item.calls.len())
         .context("no failures found")?;
 
-    let _failed_count = all_failures.len();
-    let _selected_calls = smallest_failure.item.calls.len();
+    let initial_calls = smallest_failure.item.calls.len();
     reporter.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
     reporter.clear_and_end()?;
     let function_metrics = shared_metrics.function_metrics();
@@ -765,6 +764,11 @@ pub fn run(args: Args) -> Result<()> {
         &target_contract.invariant_functions,
     );
     reporter.print_line(stats)?;
+    reporter.new_line()?;
+    reporter.print_fail(format!(
+        "found failed assertions in {} corpus items",
+        all_failures.len()
+    ))?;
 
     // Initialize shared failed corpus item for the shrinker.
     let failed_corpus_config = CorpusConfig::new(PathBuf::new())
@@ -821,7 +825,11 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     let mut reporter = Reporter::new();
-    reporter.begin("shrinking")?;
+    reporter.begin(format!(
+        "shrinking {} calls with {} threads",
+        fmt_num(initial_calls as u64),
+        fmt_num(shrink_threads as u64)
+    ))?;
     while shrinker_handles.iter().any(|h| !h.is_finished()) {
         let snapshot = shrinker_metrics.aggregate();
         let elapsed_secs = snapshot.elapsed.as_secs_f64();
@@ -864,11 +872,13 @@ pub fn run(args: Args) -> Result<()> {
     let shrunk_item = shared_failed_item.item();
     let shrunk_calls = shrunk_item.calls.len();
     let shrunk_call_word = if shrunk_calls == 1 { "call" } else { "calls" };
-    reporter.update(format!(
-        "shrinking: found smallest ({} {})",
+    reporter.set_message(format!(
+        "shrank {} calls to {} {} with {} threads",
+        fmt_num(initial_calls as u64),
         fmt_num(shrunk_calls as u64),
         shrunk_call_word,
-    ))?;
+        fmt_num(shrink_threads as u64)
+    ));
     reporter.end()?;
 
     // Re-run the shrunk item with the chain tracer enabled.
@@ -901,24 +911,10 @@ pub fn run(args: Args) -> Result<()> {
         item: shrunk_item,
     };
 
-    println!();
-    println!(
-        "[FAILED] Invariant Test contract={}",
-        target_contract.artifact_id.name
-    );
-    println!(
-        "Test failed after the following call sequence contract={}",
-        target_contract.artifact_id.name
-    );
-    println!("[Call Sequence]");
-    println!(
-        "{}",
-        failure.format(&target_contract, args.deployer_address)
-    );
+    println!("    call sequence:");
+    println!("{}", failure.format(&target_contract));
 
     if let Some(trace) = exec.trace {
-        println!();
-        println!("[Trace]");
         println!("{trace:#?}");
     }
 
