@@ -75,6 +75,19 @@ impl<W: Write> Reporter<W> {
         }
     }
 
+    /// Print a one-off status line.
+    ///
+    /// The line is prefixed with a green `[*]` and always terminated with a
+    /// newline.
+    pub fn print(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        let prefix = self.start_prefix();
+        writeln!(
+            self.output,
+            "{prefix} {message}",
+            message = message.as_ref()
+        )
+    }
+
     /// Print a progress line to stderr.
     ///
     /// The line is prefixed with a green `[*]`. In a terminal the

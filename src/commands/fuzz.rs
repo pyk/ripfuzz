@@ -293,6 +293,9 @@ impl ForkModeArgs {
 
 #[instrument(skip(args), fields(target = ?args.target, threads = args.threads, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
+    let mut reporter = Reporter::new();
+    reporter.print(format!("starting raptor v{}", env!("CARGO_PKG_VERSION")))?;
+
     // Resolve project path
     let project_path = args.project_path.map(Ok).unwrap_or_else(env::current_dir)?;
     debug!(?project_path, "resolved project path");
