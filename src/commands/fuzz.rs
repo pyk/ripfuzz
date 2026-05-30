@@ -560,11 +560,8 @@ pub fn run(args: Args) -> Result<()> {
         reporter.end()?;
     }
 
-    // Initialize shared corpus
     // Extract literals from build artifacts so the fuzzer can seed random value
     // generation with concrete values found across the entire project.
-    let mut reporter = Reporter::new();
-    reporter.begin("loading corpus items ...")?;
     let literals = ExtractedLiterals::from_artifacts(&build_artifacts);
     let base_corpus_dir = args
         .corpus_dir
@@ -576,48 +573,56 @@ pub fn run(args: Args) -> Result<()> {
         .literals(literals.clone());
     let corpus = SharedCorpus::new(corpus_config);
     let corpus_stats = corpus.load_items()?;
-    reporter.update(format!(
-        "loaded {} corpus items",
-        fmt_num(corpus_stats.valid_count as u64)
-    ))?;
-    reporter.end()?;
-    reporter.print_line(format!(
-        "    {:8}: {} items\n    {:8}: {} items\n    {:8}: {} items",
-        "on disk",
-        fmt_num(corpus_stats.total_count as u64),
-        "valid",
-        fmt_num(corpus_stats.valid_count as u64),
-        "invalid",
-        fmt_num((corpus_stats.parse_failed_count + corpus_stats.invalid_call_count) as u64)
-    ))?;
+
+    if corpus_stats.total_count > 0 {
+        let mut reporter = Reporter::new();
+        reporter.begin("loading corpus items ...")?;
+        reporter.update(format!(
+            "loaded {} corpus items",
+            fmt_num(corpus_stats.valid_count as u64)
+        ))?;
+        reporter.end()?;
+        reporter.print_line(format!(
+            "    {:8}: {} items\n    {:8}: {} items\n    {:8}: {} items",
+            "on disk",
+            fmt_num(corpus_stats.total_count as u64),
+            "valid",
+            fmt_num(corpus_stats.valid_count as u64),
+            "invalid",
+            fmt_num((corpus_stats.parse_failed_count + corpus_stats.invalid_call_count) as u64)
+        ))?;
+    }
 
     // Initialize shared coverage and sync with corpus.
-    let mut reporter = Reporter::new();
-    let replay_count = corpus_stats.valid_count;
-    reporter.begin(format!("replaying {replay_count} corpus items ..."))?;
     let shared_coverage = SharedCoverage::new();
-    CorpusReplayer::new(shared_coverage.clone())
-        .shared_corpus(corpus.clone())
-        .chain(chain.clone())
-        .deployed_address(deployed_address)
-        .invariant_functions(target_contract.invariant_functions.clone())
-        .caller(args.deployer_address)
-        .replay()?;
-    reporter.update(format!("replayed {replay_count} corpus items"))?;
-    reporter.end()?;
-    reporter.print_line(format!(
-        "    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}",
-        "unique contracts",
-        fmt_num(shared_coverage.contract_count() as u64),
-        "total edges",
-        fmt_num(shared_coverage.edge_count() as u64),
-        "total depths",
-        fmt_num(shared_coverage.depth_count() as u64),
-        "total reverts",
-        fmt_num(shared_coverage.revert_count() as u64),
-        "total jumps",
-        fmt_num(shared_coverage.jump_count() as u64)
-    ))?;
+    let replay_count = corpus_stats.valid_count;
+
+    if replay_count > 0 {
+        let mut reporter = Reporter::new();
+        reporter.begin(format!("replaying {replay_count} corpus items ..."))?;
+        CorpusReplayer::new(shared_coverage.clone())
+            .shared_corpus(corpus.clone())
+            .chain(chain.clone())
+            .deployed_address(deployed_address)
+            .invariant_functions(target_contract.invariant_functions.clone())
+            .caller(args.deployer_address)
+            .replay()?;
+        reporter.update(format!("replayed {replay_count} corpus items"))?;
+        reporter.end()?;
+        reporter.print_line(format!(
+            "    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}",
+            "unique contracts",
+            fmt_num(shared_coverage.contract_count() as u64),
+            "total edges",
+            fmt_num(shared_coverage.edge_count() as u64),
+            "total depths",
+            fmt_num(shared_coverage.depth_count() as u64),
+            "total reverts",
+            fmt_num(shared_coverage.revert_count() as u64),
+            "total jumps",
+            fmt_num(shared_coverage.jump_count() as u64)
+        ))?;
+    }
 
     // Initialize shared metrics across all fuzzer threads.
     let all_function_signatures: Vec<String> = target_contract
