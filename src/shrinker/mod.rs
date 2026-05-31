@@ -11,8 +11,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use alloy_dyn_abi::DynSolValue;
-use alloy_json_abi::Function;
 use alloy_primitives::Address;
 use anyhow::Result;
 use tracing::instrument;
@@ -20,7 +18,7 @@ use tracing::instrument;
 pub use crate::shrinker::config::ShrinkerConfig;
 pub use crate::shrinker::output::ShrinkerOutput;
 
-use crate::corpus::{Call, SharedFailedCorpusItem};
+use crate::corpus::SharedFailedCorpusItem;
 use crate::evm;
 use crate::evm::Transaction;
 use crate::fuzzer::SharedMetrics;
@@ -38,8 +36,6 @@ pub struct Shrinker {
     target_address: Address,
     shared_failed_item: SharedFailedCorpusItem,
     shutdown_signal: Arc<AtomicBool>,
-    caller: Address,
-    invariant_functions: Vec<Function>,
     max_runs: u64,
     timeout: Option<Duration>,
     shared_metrics: SharedMetrics,
@@ -54,8 +50,6 @@ impl Shrinker {
             target_address: config.target_address,
             shared_failed_item: config.shared_failed_item,
             shutdown_signal: config.shutdown_signal,
-            caller: config.caller,
-            invariant_functions: config.invariant_functions,
             max_runs: config.max_runs,
             timeout: config.timeout,
             shared_metrics: config.shared_metrics,
@@ -75,18 +69,6 @@ impl Shrinker {
         let mut total_calls = 0u64;
         let mut total_gas = 0u64;
 
-        let invariant_calls: Vec<Call> = self
-            .invariant_functions
-            .iter()
-            // checkrs: allow(clone_in_iterator)
-            .map(|func| Call {
-                function: func.clone(),
-                args: DynSolValue::Tuple(vec![]),
-                value: None,
-                caller: self.caller,
-            })
-            .collect();
-
         for _ in 0..self.max_runs {
             if self.shutdown_signal.load(Ordering::Relaxed) {
                 break;
@@ -105,7 +87,6 @@ impl Shrinker {
             let transactions: Vec<Transaction> = item
                 .calls
                 .iter()
-                .chain(invariant_calls.iter())
                 .map(|call| call.into_transaction(self.target_address))
                 .collect();
             let calls_count = transactions.len();
@@ -177,10 +158,9 @@ mod tests {
         }
     }
 
-    fn build_transactions(item: &Item, invariants: &[Call], target: Address) -> Vec<Transaction> {
+    fn build_transactions(item: &Item, target: Address) -> Vec<Transaction> {
         item.calls
             .iter()
-            .chain(invariants.iter())
             .map(|call| call.into_transaction(target))
             .collect()
     }
@@ -188,28 +168,19 @@ mod tests {
     fn run_shrinker(
         chain: Chain,
         target: Address,
-        contract: &Contract,
+        all_functions: Vec<alloy_json_abi::Function>,
+        signatures: Vec<String>,
         item: Item,
         max_runs: u64,
     ) -> Item {
-        let corpus_config =
-            CorpusConfig::new("").target_functions(contract.target_functions.clone());
+        let corpus_config = CorpusConfig::new("").target_functions(all_functions);
         let shared_failed_item = SharedFailedCorpusItem::new(item, corpus_config);
-
-        let signatures: Vec<String> = contract
-            .target_functions
-            .iter()
-            .chain(contract.invariant_functions.iter())
-            .map(|f| f.signature())
-            .collect();
 
         let shrinker_config = ShrinkerConfig::new()
             .chain(chain)
             .target_address(target)
             .shared_failed_item(shared_failed_item.clone())
             .shutdown_signal(Arc::new(AtomicBool::new(false)))
-            .invariant_functions(contract.invariant_functions.clone())
-            .caller(crate::evm::DEFAULT_DEPLOYER)
             .max_runs(max_runs)
             .seed(42)
             .shared_metrics(SharedMetrics::new(signatures));
@@ -246,22 +217,24 @@ mod tests {
 
         let caller = crate::evm::DEFAULT_DEPLOYER;
 
-        // Extra two() call is unnecessary; shrinker should remove it.
-        let item = Item::from(vec![
-            make_call(one, caller),
-            make_call(two.clone(), caller),
-            make_call(two, caller),
-            make_call(three, caller),
-        ]);
-
         let invariants: Vec<Call> = contract
             .invariant_functions
             .iter()
             .map(|f| make_call(f.clone(), caller))
             .collect();
 
+        // Combine target calls with invariants into one item for the shrinker.
+        let mut calls = vec![
+            make_call(one, caller),
+            make_call(two.clone(), caller),
+            make_call(two, caller),
+            make_call(three, caller),
+        ];
+        calls.extend(invariants.clone());
+        let item = Item::from(calls);
+
         // Verify the longer sequence fails.
-        let txs = build_transactions(&item, &invariants, target);
+        let txs = build_transactions(&item, target);
         let mut exec_chain = chain.clone();
         let exec = exec_chain.exec(&txs).unwrap();
         assert!(
@@ -269,7 +242,15 @@ mod tests {
             "initial sequence must trigger assertion"
         );
 
-        let shrunk = run_shrinker(chain.clone(), target, &contract, item, 5000);
+        let all_functions: Vec<alloy_json_abi::Function> = contract
+            .target_functions
+            .iter()
+            .chain(contract.invariant_functions.iter())
+            .cloned()
+            .collect();
+        let signatures: Vec<String> = all_functions.iter().map(|f| f.signature()).collect();
+
+        let shrunk = run_shrinker(chain.clone(), target, all_functions, signatures, item, 5000);
 
         assert_eq!(
             shrunk.calls.len(),
@@ -278,28 +259,12 @@ mod tests {
         );
 
         // Verify the shrunk sequence still fails.
-        let shrunk_txs = build_transactions(&shrunk, &invariants, target);
+        let shrunk_txs = build_transactions(&shrunk, target);
         let mut verify_chain = chain.clone();
         let verify_exec = verify_chain.exec(&shrunk_txs).unwrap();
         assert!(
             !verify_exec.panic_transactions.is_empty(),
             "shrunk sequence must still trigger assertion"
-        );
-
-        // Verify the formatted output matches the CLI behavior.
-        let first_failure_index = verify_exec
-            .results
-            .iter()
-            .position(|r| r.is_assert_failure());
-        let failure = crate::fuzzer::FailedAssertion {
-            transactions: shrunk_txs,
-            item: shrunk,
-            first_failure_index,
-        };
-        let output = failure.format(&contract);
-        assert_eq!(
-            output, "    1. one()\n    2. two()\n    3. three()",
-            "format must show only the minimal target calls"
         );
     }
 
@@ -317,22 +282,24 @@ mod tests {
 
         let caller = crate::evm::DEFAULT_DEPLOYER;
 
-        // One extra advance() is unnecessary; shrinker should remove it.
-        let item = Item::from(vec![
-            make_call(advance.clone(), caller),
-            make_call(advance.clone(), caller),
-            make_call(advance.clone(), caller),
-            make_call(advance, caller),
-        ]);
-
         let invariants: Vec<Call> = contract
             .invariant_functions
             .iter()
             .map(|f| make_call(f.clone(), caller))
             .collect();
 
+        // Combine target calls with invariants into one item for the shrinker.
+        let mut calls = vec![
+            make_call(advance.clone(), caller),
+            make_call(advance.clone(), caller),
+            make_call(advance.clone(), caller),
+            make_call(advance, caller),
+        ];
+        calls.extend(invariants.clone());
+        let item = Item::from(calls);
+
         // Verify the longer sequence fails.
-        let txs = build_transactions(&item, &invariants, target);
+        let txs = build_transactions(&item, target);
         let mut exec_chain = chain.clone();
         let exec = exec_chain.exec(&txs).unwrap();
         assert!(
@@ -340,38 +307,29 @@ mod tests {
             "initial sequence must trigger assertion"
         );
 
-        let shrunk = run_shrinker(chain.clone(), target, &contract, item, 5000);
+        let all_functions: Vec<alloy_json_abi::Function> = contract
+            .target_functions
+            .iter()
+            .chain(contract.invariant_functions.iter())
+            .cloned()
+            .collect();
+        let signatures: Vec<String> = all_functions.iter().map(|f| f.signature()).collect();
+
+        let shrunk = run_shrinker(chain.clone(), target, all_functions, signatures, item, 5000);
 
         assert_eq!(
             shrunk.calls.len(),
-            3,
-            "shrunk sequence must be exactly 3 calls"
+            4,
+            "shrunk sequence must be exactly 4 calls"
         );
 
         // Verify the shrunk sequence still fails.
-        let shrunk_txs = build_transactions(&shrunk, &invariants, target);
+        let shrunk_txs = build_transactions(&shrunk, target);
         let mut verify_chain = chain.clone();
         let verify_exec = verify_chain.exec(&shrunk_txs).unwrap();
         assert!(
             !verify_exec.panic_transactions.is_empty(),
             "shrunk sequence must still trigger assertion"
-        );
-
-        // Verify the formatted output matches the CLI behavior.
-        let first_failure_index = verify_exec
-            .results
-            .iter()
-            .position(|r| r.is_assert_failure());
-        let failure = crate::fuzzer::FailedAssertion {
-            transactions: shrunk_txs,
-            item: shrunk,
-            first_failure_index,
-        };
-        let output = failure.format(&contract);
-        assert_eq!(
-            output,
-            "    1. advance()\n    2. advance()\n    3. advance()\n    4. invariant_step_not_three()",
-            "format must show the minimal target calls plus the failing invariant"
         );
     }
 }

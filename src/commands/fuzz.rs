@@ -23,7 +23,7 @@ use crate::evm::{
 };
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
-use crate::fuzzer::{FailedAssertion, Fuzzer, FuzzerConfig, SharedMetrics};
+use crate::fuzzer::{Fuzzer, FuzzerConfig, SharedMetrics};
 use crate::shrinker::{Shrinker, ShrinkerConfig};
 
 #[derive(Debug, Parser)]
@@ -622,13 +622,37 @@ pub fn run(args: Args) -> Result<()> {
         all_failures.len()
     ))?;
 
-    // Initialize shared failed corpus item for the shrinker.
+    // Combine the smallest failing item with invariants so the shrinker
+    // operates on a single corpus item and never appends invariants.
+    let mut combined_calls = smallest_failure.item.calls.clone();
+    let invariant_calls: Vec<crate::corpus::Call> = target_contract
+        .invariant_functions
+        .iter()
+        // checkrs: allow(clone_in_iterator)
+        .map(|func| crate::corpus::Call {
+            function: func.clone(),
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
+            value: None,
+            caller: args.deployer_address,
+        })
+        .collect();
+    combined_calls.extend(invariant_calls);
+    let combined_item = crate::corpus::Item::from(combined_calls);
+
+    // Include both target and invariant functions so the shrinker can
+    // generate replacement calls for any position in the sequence.
+    let all_functions: Vec<alloy_json_abi::Function> = target_contract
+        .target_functions
+        .iter()
+        .chain(target_contract.invariant_functions.iter())
+        .cloned()
+        .collect();
+
     let failed_corpus_config = CorpusConfig::new(PathBuf::new())
-        .target_functions(target_contract.target_functions.clone())
+        .target_functions(all_functions)
         .max_calls(args.max_calls)
         .literals(literals);
-    let shared_failed_item =
-        SharedFailedCorpusItem::new(smallest_failure.item.clone(), failed_corpus_config);
+    let shared_failed_item = SharedFailedCorpusItem::new(combined_item, failed_corpus_config);
 
     // Spawn shrinker threads.
     let shrink_threads = args.shrink_threads.unwrap_or(args.threads);
@@ -657,15 +681,11 @@ pub fn run(args: Args) -> Result<()> {
         let shrinker_shared_item = shared_failed_item.clone();
         // checkrs: allow(clone_in_loops)
         let shrinker_shutdown = shrinker_shutdown.clone();
-        // checkrs: allow(clone_in_loops)
-        let shrinker_invariants = target_contract.invariant_functions.clone();
         let shrinker_config = ShrinkerConfig::new()
             .chain(shrinker_chain)
             .target_address(deployed_address)
             .shared_failed_item(shrinker_shared_item)
             .shutdown_signal(shrinker_shutdown)
-            .invariant_functions(shrinker_invariants)
-            .caller(args.deployer_address)
             .max_runs(local_max_runs)
             .timeout(shrink_timeout)
             .seed(seed)
@@ -736,49 +756,50 @@ pub fn run(args: Args) -> Result<()> {
     let mut trace_chain = chain.clone();
     trace_chain.set_trace(true);
 
-    let invariant_calls: Vec<crate::corpus::Call> = target_contract
-        .invariant_functions
-        .iter()
-        // checkrs: allow(clone_in_iterator)
-        .map(|func| crate::corpus::Call {
-            function: func.clone(),
-            args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
-            value: None,
-            caller: args.deployer_address,
-        })
-        .collect();
-
     let transactions: Vec<crate::evm::Transaction> = shrunk_item
         .calls
         .iter()
-        .chain(invariant_calls.iter())
         .map(|call| call.into_transaction(deployed_address))
         .collect();
 
     let exec = trace_chain.exec(&transactions)?;
 
-    let first_failure_index = exec.results.iter().position(|r| r.is_assert_failure());
-
-    let failure = FailedAssertion {
-        transactions,
-        item: shrunk_item,
-        first_failure_index,
-    };
-
-    println!("    call sequence:");
-    println!("{}", failure.format(&target_contract));
-
     if let Some(trace) = exec.trace {
-        println!("{trace:#?}");
+        console.begin("writing trace file ...")?;
+        let trace_file = write_trace_to_file(
+            &trace,
+            &project,
+            &project_path,
+            deployed_address,
+            contract_name,
+            &chain,
+        )?;
+        console.update(format!("trace: {}", trace_file.display()))?;
+        console.end()?;
     }
 
-    let total = target_contract.invariant_functions.len();
-    let failed = all_failures.len();
-    let passed = total.saturating_sub(failed);
-    println!();
-    println!("Test summary passed={passed} failed={failed}");
-
     Ok(())
+}
+
+fn write_trace_to_file(
+    trace: &crate::evm::Trace,
+    project: &Project,
+    project_path: impl AsRef<Path>,
+    deployed_address: Address,
+    contract_name: &str,
+    chain: &Chain,
+) -> Result<PathBuf> {
+    let mut ctx = TraceContext::from_project(project)?.with_label(deployed_address, contract_name);
+    for (addr, label) in chain.labels() {
+        ctx = ctx.with_label(*addr, label);
+    }
+    let traces_dir = project_path.as_ref().join("raptor").join("traces");
+    fs::create_dir_all(&traces_dir)?;
+    let trace_id = uuid::Uuid::new_v4();
+    let trace_file = traces_dir.join(format!("{trace_id}.txt"));
+    let trace_str = trace.display_with(&ctx);
+    fs::write(&trace_file, format!("{trace_str}"))?;
+    Ok(trace_file)
 }
 
 #[cfg(test)]

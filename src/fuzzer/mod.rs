@@ -181,11 +181,9 @@ impl Fuzzer {
                 self.shutdown_signal.store(true, Ordering::Relaxed);
                 // checkrs: allow(clone_in_loops)
                 let failure_item = item.clone();
-                let first_failure_index = exec.results.iter().position(|r| r.is_assert_failure());
                 local_failures.push(FailedAssertion {
                     transactions,
                     item: failure_item,
-                    first_failure_index,
                 });
             }
         }
@@ -225,7 +223,6 @@ mod tests {
         let failure = FailedAssertion {
             transactions,
             item: Item::from(vec![]),
-            first_failure_index: None,
         };
 
         let output = failure.format(&contract);

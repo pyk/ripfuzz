@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use alloy_json_abi::Function;
 use alloy_primitives::Address;
 
 use crate::corpus::{CorpusConfig, Item, SharedFailedCorpusItem};
@@ -19,8 +18,6 @@ pub struct ShrinkerConfig {
     pub target_address: Address,
     pub shared_failed_item: SharedFailedCorpusItem,
     pub shutdown_signal: Arc<AtomicBool>,
-    pub caller: Address,
-    pub invariant_functions: Vec<Function>,
     pub max_runs: u64,
     pub timeout: Option<Duration>,
     pub shared_metrics: SharedMetrics,
@@ -38,8 +35,6 @@ impl ShrinkerConfig {
                 CorpusConfig::new(""),
             ),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
-            caller: evm::DEFAULT_DEPLOYER,
-            invariant_functions: Vec::new(),
             max_runs: 0,
             timeout: None,
             shared_metrics: SharedMetrics::new(Vec::new()),
@@ -73,18 +68,6 @@ impl ShrinkerConfig {
     /// Set the shared shutdown signal.
     pub fn shutdown_signal(mut self, value: Arc<AtomicBool>) -> Self {
         self.shutdown_signal = value;
-        self
-    }
-
-    /// Set the invariant functions to append after each sequence.
-    pub fn invariant_functions(mut self, value: Vec<Function>) -> Self {
-        self.invariant_functions = value;
-        self
-    }
-
-    /// Set the caller address.
-    pub fn caller(mut self, value: Address) -> Self {
-        self.caller = value;
         self
     }
 

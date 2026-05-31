@@ -14,17 +14,10 @@ pub struct FailedAssertion {
     pub transactions: Vec<Transaction>,
     /// The corpus item that produced this failure.
     pub item: Item,
-    /// Index of the first transaction that triggered the assert panic.
-    /// When present, [`format`](Self::format) only prints calls up to and
-    /// including this index, hiding trailing invariant calls that passed.
-    pub first_failure_index: Option<usize>,
 }
 
 impl FailedAssertion {
     /// Format this failed assertion's call sequence as a flat, Medusa-style log.
-    ///
-    /// Only prints transactions up to and including the first failing call.
-    /// Subsequent calls (typically passing invariants) are hidden.
     pub fn format(&self, contract: &evm::Contract) -> String {
         let mut selector_map = HashMap::new();
         for func in contract
@@ -38,11 +31,7 @@ impl FailedAssertion {
         }
 
         let mut lines = Vec::new();
-        let limit = self
-            .first_failure_index
-            .map(|i| i + 1)
-            .unwrap_or(self.transactions.len());
-        for (i, tx) in self.transactions.iter().enumerate().take(limit) {
+        for (i, tx) in self.transactions.iter().enumerate() {
             let n = i + 1;
             let name = Self::format_calldata(&tx.calldata, &selector_map);
             lines.push(format!("    {n}. {name}"));
