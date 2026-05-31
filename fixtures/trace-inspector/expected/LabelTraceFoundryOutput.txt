@@ -1,14 +1,17 @@
 No files changed, compilation skipped
 
 Ran 1 test for test/LabelTrace.t.sol:LabelTraceTest
-[FAIL: constructor always reverts] testDeploy() (gas: 36706)
+[FAIL: constructor always reverts] testDeploy() (gas: 39640)
 Traces:
-  [36706] LabelTraceTest::testDeploy()
-    ├─ [4274] → new SelfLabel@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+  [39640] LabelTraceTest::testDeploy()
+    ├─ [7102] → new SelfLabel@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
     │   ├─ [0] VM::label(SelfLabel: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], "SelfLabel")
     │   │   └─ ← [Return]
     │   ├─ [0] VM::label(BeefLabel: [0x000000000000000000000000000000000000bEEF], "BeefLabel")
     │   │   └─ ← [Return]
+    │   ├─ [0] VM::deal(BeefLabel: [0x000000000000000000000000000000000000bEEF], 100)
+    │   │   └─ ← [Return]
+    │   ├─ emit LabeledTransfer(from: BeefLabel: [0x000000000000000000000000000000000000bEEF], to: SelfLabel: [0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f], value: 1000)
     │   └─ ← [Revert] 0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001a636f6e7374727563746f7220616c776179732072657665727473000000000000
     └─ ← [Revert] constructor always reverts
 
@@ -16,13 +19,13 @@ Backtrace:
   at SelfLabel
   at LabelTraceTest.testDeploy
 
-Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 267.95µs (89.47µs CPU time)
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 284.27µs (119.04µs CPU time)
 
-Ran 1 test suite in 7.05ms (267.95µs CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
+Ran 1 test suite in 7.29ms (284.27µs CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
 
 Failing tests:
 Encountered 1 failing test in test/LabelTrace.t.sol:LabelTraceTest
-[FAIL: constructor always reverts] testDeploy() (gas: 36706)
+[FAIL: constructor always reverts] testDeploy() (gas: 39640)
 
 Encountered a total of 1 failing tests, 0 tests succeeded
 
