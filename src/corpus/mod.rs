@@ -18,7 +18,7 @@ pub use failed_item::SharedFailedCorpusItem;
 pub use item::Item;
 
 pub use replayer::CorpusReplayer;
-pub use shared::SharedCorpus;
+pub use shared::{CorpusStats, SharedCorpus, Stats};
 
 mod call;
 mod config;

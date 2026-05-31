@@ -13,11 +13,14 @@
 
 pub use chain::Config as ChainConfig;
 pub use chain::{
-    Chain, DEFAULT_DEPLOYER, DeployInput, DeployLibraryInput, SetupInput, Transaction,
+    Chain, DEFAULT_DEPLOYER, DeployInput, DeployLibraryInput, DeployOutput, ExecOutput, SetupInput,
+    SetupOutput, Transaction,
 };
 pub use contract::Contract;
 pub use coverage::{ExecutionCoverage, SharedCoverage};
 pub use forkdb::Config as ForkConfig;
+pub use result::TransactionResult;
+pub use trace::Trace;
 
 mod chain;
 mod cheatcode;
