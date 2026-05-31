@@ -199,19 +199,12 @@ pub fn write_coverage_report(
     let project_path = project_path.as_ref();
     let artifact_id = &target_contract.artifact_id;
     let contract_name = &artifact_id.name;
-    let filename = artifact_id
-        .path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned();
 
     let coverage_dir = project_path
         .join("raptor")
-        .join(&filename)
-        .join(contract_name)
-        .join("coverage")
-        .join(campaign_id);
+        .join("campaigns")
+        .join(campaign_id)
+        .join("coverage");
     fs::create_dir_all(&coverage_dir)?;
 
     // Find the target artifact.
@@ -404,8 +397,8 @@ pub fn write_coverage_report(
         };
         let file_name = sanitize_function_name(&func_cov.symbol);
         summary.push_str(&format!(
-            "file path: raptor/{}/{}/coverage/{}/{}.txt\n",
-            filename, contract_name, campaign_id, file_name,
+            "file path: raptor/campaigns/{}/coverage/{}.txt\n",
+            campaign_id, file_name,
         ));
         summary.push_str(&format!("total lines: {}\n", func_cov.total_lines));
         summary.push_str(&format!(
@@ -451,8 +444,11 @@ fn load_source_index(project_path: impl AsRef<Path>) -> Result<HashMap<usize, Pa
 }
 
 /// Sanitize a function signature for use as a filename.
+///
+/// Returns only the function name (e.g. `add` for `add(uint256)`).
 fn sanitize_function_name(name: &str) -> String {
-    name.replace(
+    let base = name.split('(').next().unwrap_or(name);
+    base.replace(
         |c: char| c.is_ascii_whitespace() || c == '\n' || c == '\r',
         "_",
     )
