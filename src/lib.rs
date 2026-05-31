@@ -1,12 +1,19 @@
 //! Raptor - Parallelized, coverage-guided, mutational Solidity smart contract fuzzer.
 
-pub use corpus::{Call, CorpusConfig, CorpusStats, ExtractedLiterals, Item, SharedCorpus, Stats};
+pub use corpus::{
+    Call, CorpusConfig, CorpusReplayer, CorpusStats, ExtractedLiterals, Item, SharedCorpus,
+    SharedFailedCorpusItem, Stats,
+};
 pub use evm::{
     Chain, ChainConfig, Contract, DeployInput, DeployLibraryInput, DeployOutput, ExecOutput,
-    ForkDBConfig, SetupInput, SetupOutput, SharedCoverage, Trace, Transaction, TransactionResult,
+    ExecutionCoverage, ForkDBConfig, SetupInput, SetupOutput, SharedCoverage, Trace, Transaction,
+    TransactionResult,
 };
 pub use foundry::{Artifact, ArtifactId, BuildOptions, Project};
-pub use fuzzer::{FailedAssertion, Fuzzer, FuzzerConfig, RunOutput};
+pub use fuzzer::{
+    FailedAssertion, FunctionMetricsSnapshot, Fuzzer, FuzzerConfig, RunOutput, SharedMetrics,
+    Snapshot,
+};
 pub use shrinker::{Shrinker, ShrinkerConfig, ShrinkerOutput};
 
 pub mod commands;
