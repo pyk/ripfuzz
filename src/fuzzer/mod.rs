@@ -23,7 +23,7 @@ use tracing::{debug, instrument};
 pub use crate::fuzzer::config::FuzzerConfig;
 pub use crate::fuzzer::failed_assertion::FailedAssertion;
 pub use crate::fuzzer::metrics::{FunctionMetricsSnapshot, SharedMetrics, Snapshot};
-pub use crate::fuzzer::run_output::RunOutput;
+pub use crate::fuzzer::output::FuzzerOutput;
 
 use crate::corpus::{Call, SharedCorpus};
 use crate::evm;
@@ -32,7 +32,7 @@ use crate::evm::SharedCoverage;
 mod config;
 mod failed_assertion;
 mod metrics;
-mod run_output;
+mod output;
 
 /// Per-thread fuzzer that executes call sequences and reports results.
 ///
@@ -77,7 +77,7 @@ impl Fuzzer {
     /// The fuzzer loop uses the shared corpus for mutation and the shared
     /// metrics for counters. It stops early if `timeout` is reached.
     #[instrument(skip(self), fields(max_runs = self.max_runs))]
-    pub fn run(mut self) -> Result<RunOutput> {
+    pub fn run(mut self) -> Result<FuzzerOutput> {
         let start = Instant::now();
         let mut local_failures = Vec::new();
         let mut runs = 0u64;
@@ -188,7 +188,7 @@ impl Fuzzer {
             }
         }
 
-        Ok(RunOutput {
+        Ok(FuzzerOutput {
             runs,
             failures: local_failures,
             total_calls,

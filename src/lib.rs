@@ -13,7 +13,7 @@ pub use evm::{
 };
 pub use foundry::{Artifact, ArtifactId, BuildOptions, Project};
 pub use fuzzer::{
-    FailedAssertion, FunctionMetricsSnapshot, Fuzzer, FuzzerConfig, RunOutput, SharedMetrics,
+    FailedAssertion, FunctionMetricsSnapshot, Fuzzer, FuzzerConfig, FuzzerOutput, SharedMetrics,
     Snapshot,
 };
 pub use shrinker::{Shrinker, ShrinkerConfig, ShrinkerOutput};
