@@ -27,6 +27,7 @@ pub struct FuzzerConfig {
     pub invariant_functions: Vec<Function>,
     pub max_runs: u64,
     pub timeout: Option<Duration>,
+    pub fail_on_revert: bool,
 }
 
 impl FuzzerConfig {
@@ -44,6 +45,7 @@ impl FuzzerConfig {
             invariant_functions: Vec::new(),
             max_runs: 0,
             timeout: None,
+            fail_on_revert: false,
         }
     }
 
@@ -110,6 +112,12 @@ impl FuzzerConfig {
     /// Set the timeout.
     pub fn timeout(mut self, value: Option<Duration>) -> Self {
         self.timeout = value;
+        self
+    }
+
+    /// Set whether any revert should be treated as a failure.
+    pub fn fail_on_revert(mut self, value: bool) -> Self {
+        self.fail_on_revert = value;
         self
     }
 }

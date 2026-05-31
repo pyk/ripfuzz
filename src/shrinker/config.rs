@@ -21,6 +21,7 @@ pub struct ShrinkerConfig {
     pub max_runs: u64,
     pub timeout: Option<Duration>,
     pub shared_metrics: SharedMetrics,
+    pub fail_on_revert: bool,
 }
 
 impl ShrinkerConfig {
@@ -38,6 +39,7 @@ impl ShrinkerConfig {
             max_runs: 0,
             timeout: None,
             shared_metrics: SharedMetrics::new(Vec::new()),
+            fail_on_revert: false,
         }
     }
 
@@ -86,6 +88,12 @@ impl ShrinkerConfig {
     /// Set the shared metrics.
     pub fn shared_metrics(mut self, value: SharedMetrics) -> Self {
         self.shared_metrics = value;
+        self
+    }
+
+    /// Set whether any revert should be treated as a failure.
+    pub fn fail_on_revert(mut self, value: bool) -> Self {
+        self.fail_on_revert = value;
         self
     }
 }

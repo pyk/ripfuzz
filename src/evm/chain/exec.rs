@@ -10,3 +10,17 @@ pub struct ExecOutput {
     pub coverage: Option<ExecutionCoverage>,
     pub panic_transactions: Vec<super::Transaction>,
 }
+
+impl ExecOutput {
+    /// Check whether any transaction triggered a failure.
+    ///
+    /// When `fail_on_revert` is enabled, any reverted transaction is treated as
+    /// a failure. Otherwise only `assert` panics are considered failures.
+    pub fn has_failure(&self, fail_on_revert: bool) -> bool {
+        if fail_on_revert {
+            self.results.iter().any(|r| !r.success)
+        } else {
+            !self.panic_transactions.is_empty()
+        }
+    }
+}

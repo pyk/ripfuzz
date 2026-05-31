@@ -148,6 +148,10 @@ pub struct Args {
     /// Skip cache and force recompilation.
     #[arg(long = "force", help_heading = "Foundry")]
     pub force: bool,
+
+    /// Treat any transaction revert as a failed assertion.
+    #[arg(long = "fail-on-revert", help_heading = "Fuzzing Parameters")]
+    pub fail_on_revert: bool,
 }
 
 impl Args {
@@ -527,7 +531,8 @@ pub fn run(args: Args) -> Result<()> {
         .shutdown_signal(shutdown_signal.clone())
         .invariant_functions(target_contract.invariant_functions.clone())
         .caller(args.deployer_address)
-        .timeout(timeout);
+        .timeout(timeout)
+        .fail_on_revert(args.fail_on_revert);
 
     let mut handles = Vec::with_capacity(fuzzers);
     for fuzzer_id in 0..fuzzers {
@@ -690,7 +695,8 @@ pub fn run(args: Args) -> Result<()> {
             .timeout(shrink_timeout)
             .seed(seed)
             // checkrs: allow(clone_in_loops)
-            .shared_metrics(shrinker_metrics.clone());
+            .shared_metrics(shrinker_metrics.clone())
+            .fail_on_revert(args.fail_on_revert);
         let shrinker = Shrinker::new(shrinker_config);
         let handle = std::thread::spawn(move || shrinker.run());
         shrinker_handles.push(handle);
@@ -764,6 +770,7 @@ pub fn run(args: Args) -> Result<()> {
 
     let exec = trace_chain.exec(&transactions)?;
 
+    // TODO(pyk): assert that trace should exists; do not use if else
     if let Some(trace) = exec.trace {
         console.begin("writing trace file ...")?;
         let trace_file = write_trace_to_file(
@@ -844,6 +851,7 @@ mod tests {
             fork_mode: ForkModeArgs::default(),
             ffi: false,
             force: false,
+            fail_on_revert: false,
             shrink_runs: 1,
             shrink_timeout_secs: None,
             shrink_threads: None,

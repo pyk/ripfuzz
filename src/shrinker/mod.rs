@@ -39,6 +39,7 @@ pub struct Shrinker {
     max_runs: u64,
     timeout: Option<Duration>,
     shared_metrics: SharedMetrics,
+    fail_on_revert: bool,
     rng: fastrand::Rng,
 }
 
@@ -53,6 +54,7 @@ impl Shrinker {
             max_runs: config.max_runs,
             timeout: config.timeout,
             shared_metrics: config.shared_metrics,
+            fail_on_revert: config.fail_on_revert,
             rng: fastrand::Rng::with_seed(config.seed),
         }
     }
@@ -99,7 +101,7 @@ impl Shrinker {
             self.shared_metrics.record(calls_count as u64, gas_sum);
             runs += 1;
 
-            if !exec.panic_transactions.is_empty() {
+            if exec.has_failure(self.fail_on_revert) {
                 self.shared_failed_corpus.replace_item(item);
             }
         }

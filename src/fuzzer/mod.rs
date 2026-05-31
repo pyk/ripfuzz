@@ -49,6 +49,7 @@ pub struct Fuzzer {
     invariant_functions: Vec<Function>,
     max_runs: u64,
     timeout: Option<Duration>,
+    fail_on_revert: bool,
     rng: fastrand::Rng,
 }
 
@@ -66,6 +67,7 @@ impl Fuzzer {
             invariant_functions: config.invariant_functions,
             max_runs: config.max_runs,
             timeout: config.timeout,
+            fail_on_revert: config.fail_on_revert,
             rng: fastrand::Rng::with_seed(config.seed),
         }
     }
@@ -131,7 +133,8 @@ impl Fuzzer {
             let exec = fresh_chain.exec(&transactions)?;
 
             // Update shared coverage and shared corpus
-            let coverage = exec.coverage.context("coverage expected")?;
+            // checkrs: allow(clone_in_loops)
+            let coverage = exec.coverage.clone().context("coverage expected")?;
             let coverage_update = self.shared_coverage.merge(&coverage);
             let interesting = coverage_update.is_interesting();
             debug!(
@@ -176,8 +179,8 @@ impl Fuzzer {
             self.shared_metrics.record(calls_count as u64, gas_sum);
             runs += 1;
 
-            // Check for failed assertions
-            if !exec.panic_transactions.is_empty() {
+            // Check for failed assertions or reverts
+            if exec.has_failure(self.fail_on_revert) {
                 self.shutdown_signal.store(true, Ordering::Relaxed);
                 // checkrs: allow(clone_in_loops)
                 let failure_item = item.clone();
