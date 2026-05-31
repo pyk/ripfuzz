@@ -540,16 +540,15 @@ pub fn run(args: Args) -> Result<()> {
 
     // Print initial stats immediately so the user sees the dashboard
     // right after the title line, then refresh every 100ms.
-    let mut snapshot = shared_metrics.aggregate();
-    let mut function_metrics = shared_metrics.function_metrics();
-    let mut stats = formatter::fuzzing_stats(
-        &snapshot,
-        &function_metrics,
+    let stats_ctx = formatter::CampaignStats::new(
         &shared_coverage,
         &corpus,
         &target_contract.target_functions,
         &target_contract.invariant_functions,
     );
+    let mut snapshot = shared_metrics.aggregate();
+    let mut function_metrics = shared_metrics.function_metrics();
+    let mut stats = stats_ctx.format(&snapshot, &function_metrics);
     reporter.print_clearable(stats)?;
     let mut last_print = std::time::Instant::now();
 
@@ -557,14 +556,7 @@ pub fn run(args: Args) -> Result<()> {
         snapshot = shared_metrics.aggregate();
         if last_print.elapsed().as_millis() >= 100 {
             function_metrics = shared_metrics.function_metrics();
-            stats = formatter::fuzzing_stats(
-                &snapshot,
-                &function_metrics,
-                &shared_coverage,
-                &corpus,
-                &target_contract.target_functions,
-                &target_contract.invariant_functions,
-            );
+            stats = stats_ctx.format(&snapshot, &function_metrics);
             reporter.print_clearable(stats)?;
             last_print = std::time::Instant::now();
         }
@@ -590,14 +582,7 @@ pub fn run(args: Args) -> Result<()> {
         reporter.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
         reporter.clear_and_end()?;
         let function_metrics = shared_metrics.function_metrics();
-        let stats = formatter::fuzzing_stats(
-            &shared_metrics.aggregate(),
-            &function_metrics,
-            &shared_coverage,
-            &corpus,
-            &target_contract.target_functions,
-            &target_contract.invariant_functions,
-        );
+        let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
         reporter.print_line(stats)?;
         reporter.new_line()?;
         reporter.print("no failed assertions found!")?;
@@ -614,14 +599,7 @@ pub fn run(args: Args) -> Result<()> {
     reporter.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
     reporter.clear_and_end()?;
     let function_metrics = shared_metrics.function_metrics();
-    let stats = formatter::fuzzing_stats(
-        &shared_metrics.aggregate(),
-        &function_metrics,
-        &shared_coverage,
-        &corpus,
-        &target_contract.target_functions,
-        &target_contract.invariant_functions,
-    );
+    let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
     reporter.print_line(stats)?;
     reporter.new_line()?;
     reporter.print_fail(format!(
