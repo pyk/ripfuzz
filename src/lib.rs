@@ -18,3 +18,4 @@ mod foundry;
 mod fuzzer;
 mod reporter;
 mod shrinker;
+mod stats_formatter;

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use alloy_primitives::{Address, utils::format_ether};
+use alloy_primitives::Address;
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use revm::primitives::{Bytes, U256};
@@ -22,150 +22,7 @@ use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
 use crate::fuzzer::{FailedAssertion, Fuzzer, FuzzerConfig, SharedMetrics};
 use crate::reporter::Reporter;
 use crate::shrinker::{Shrinker, ShrinkerConfig};
-
-/// Format a number with comma-separated thousands.
-fn fmt_num(n: u64) -> String {
-    let s = format!("{n}");
-    let mut result = String::with_capacity(s.len() + s.len() / 3);
-    for (count, c) in s.chars().rev().enumerate() {
-        if count > 0 && count % 3 == 0 {
-            result.push(',');
-        }
-        result.push(c);
-    }
-    result.chars().rev().collect()
-}
-
-/// Format a byte size as a human-readable KB string.
-fn fmt_kb(size: usize) -> String {
-    let kb = size as f64 / 1024.0;
-    format!("{kb:.1} KB")
-}
-
-/// Format a wei value as a human-readable ETH string, trimming trailing zeros.
-fn fmt_eth(value: U256) -> String {
-    if value == U256::ZERO {
-        return "0 ETH".into();
-    }
-    let s = format_ether(value);
-    let trimmed = s.trim_end_matches('0').trim_end_matches('.');
-    format!("{trimmed} ETH")
-}
-
-/// Format a call count using K/M/B suffixes.
-fn fmt_kmb(n: u64) -> String {
-    if n < 1_000 {
-        format!("{n}")
-    } else if n < 1_000_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else if n < 1_000_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else {
-        format!("{:.1}B", n as f64 / 1_000_000_000.0)
-    }
-}
-
-/// Format a gas value as giga-gas.
-fn fmt_giga_gas(n: u64) -> String {
-    format!("{:.2} G", n as f64 / 1_000_000_000.0)
-}
-
-/// Format the multi-line fuzzing statistics block.
-fn format_fuzzing_stats(
-    snapshot: &crate::fuzzer::Snapshot,
-    function_metrics: &[(String, crate::fuzzer::FunctionMetricsSnapshot)],
-    shared_coverage: &SharedCoverage,
-    corpus: &SharedCorpus,
-    target_functions: &[alloy_json_abi::Function],
-    invariant_functions: &[alloy_json_abi::Function],
-) -> String {
-    let elapsed_secs = snapshot.elapsed.as_secs_f64();
-    let calls_per_sec = if elapsed_secs > 0.0 {
-        (snapshot.calls as f64 / elapsed_secs) as u64
-    } else {
-        0
-    };
-    let gas_per_sec = if elapsed_secs > 0.0 {
-        (snapshot.gas as f64 / elapsed_secs) as u64
-    } else {
-        0
-    };
-
-    let mut output = format!(
-        "\n    ⊕ global stats\n    total runs   : {}\n    total calls  : {}\n    elapsed time : {:.2}s\n\n    ⊕ throughput\n    call/s : {}\n    gas/s  : {}",
-        fmt_num(snapshot.runs),
-        fmt_num(snapshot.calls),
-        elapsed_secs,
-        fmt_num(calls_per_sec),
-        fmt_giga_gas(gas_per_sec),
-    );
-
-    output.push_str(&format!(
-        "\n\n    ⊕ coverage stats\n    unique contracts : {}\n    total edges      : {}\n    total depths     : {}\n    total reverts    : {}\n    total jumps      : {}\n    total corpus     : {}",
-        fmt_num(shared_coverage.contract_count() as u64),
-        fmt_num(shared_coverage.edge_count() as u64),
-        fmt_num(shared_coverage.depth_count() as u64),
-        fmt_num(shared_coverage.revert_count() as u64),
-        fmt_num(shared_coverage.jump_count() as u64),
-        fmt_num(corpus.stats().item_count as u64),
-    ));
-
-    if !target_functions.is_empty() {
-        output.push_str(&format!(
-            "\n\n    ⊕ target functions ({})",
-            target_functions.len()
-        ));
-        let target_labels: Vec<String> = target_functions
-            .iter()
-            .map(|f| format!("{} ({})", f.name, f.selector()))
-            .collect();
-        let target_width = target_labels.iter().map(|l| l.len()).max().unwrap_or(0);
-        for (func, label) in target_functions.iter().zip(target_labels.iter()) {
-            let sig = func.signature();
-            let metrics = function_metrics
-                .iter()
-                .find(|(s, _)| s == &sig)
-                .map(|(_, m)| *m)
-                .unwrap_or_default();
-            output.push_str(&format!(
-                "\n    {:target_width$} : {:>8} calls {:>10} gas {:>8} reverts",
-                label,
-                fmt_kmb(metrics.calls),
-                fmt_giga_gas(metrics.gas),
-                fmt_kmb(metrics.reverts),
-            ));
-        }
-    }
-
-    if !invariant_functions.is_empty() {
-        output.push_str(&format!(
-            "\n\n    ⊕ invariants ({})",
-            invariant_functions.len()
-        ));
-        let invariant_labels: Vec<String> = invariant_functions
-            .iter()
-            .map(|f| format!("{} ({})", f.name, f.selector()))
-            .collect();
-        let invariant_width = invariant_labels.iter().map(|l| l.len()).max().unwrap_or(0);
-        for (func, label) in invariant_functions.iter().zip(invariant_labels.iter()) {
-            let sig = func.signature();
-            let metrics = function_metrics
-                .iter()
-                .find(|(s, _)| s == &sig)
-                .map(|(_, m)| *m)
-                .unwrap_or_default();
-            output.push_str(&format!(
-                "\n    {:invariant_width$} : {:>8} calls {:>10} gas {:>8} reverts",
-                label,
-                fmt_kmb(metrics.calls),
-                fmt_giga_gas(metrics.gas),
-                fmt_kmb(metrics.reverts),
-            ));
-        }
-    }
-
-    output
-}
+use crate::stats_formatter::StatsFormatter;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -446,7 +303,7 @@ pub fn run(args: Args) -> Result<()> {
     let build_artifacts = project.load_artifacts()?;
     reporter.update(format!(
         "loaded {} build artifacts",
-        fmt_num(build_artifacts.len() as u64)
+        StatsFormatter::num(build_artifacts.len() as u64)
     ))?;
     reporter.end()?;
     ensure!(
@@ -535,11 +392,11 @@ pub fn run(args: Args) -> Result<()> {
         "deployer",
         args.deployer_address,
         "msg value",
-        fmt_eth(args.deploy_value),
+        StatsFormatter::eth(args.deploy_value),
         "contract address",
         deployed_address,
         "contract size",
-        fmt_kb(contract_size),
+        StatsFormatter::kb(contract_size),
     ))?;
 
     // Run setup if present
@@ -579,17 +436,19 @@ pub fn run(args: Args) -> Result<()> {
         reporter.begin("loading corpus items ...")?;
         reporter.update(format!(
             "loaded {} corpus items",
-            fmt_num(corpus_stats.valid_count as u64)
+            StatsFormatter::num(corpus_stats.valid_count as u64)
         ))?;
         reporter.end()?;
         reporter.print_line(format!(
             "    {:8}: {} items\n    {:8}: {} items\n    {:8}: {} items",
             "on disk",
-            fmt_num(corpus_stats.total_count as u64),
+            StatsFormatter::num(corpus_stats.total_count as u64),
             "valid",
-            fmt_num(corpus_stats.valid_count as u64),
+            StatsFormatter::num(corpus_stats.valid_count as u64),
             "invalid",
-            fmt_num((corpus_stats.parse_failed_count + corpus_stats.invalid_call_count) as u64)
+            StatsFormatter::num(
+                (corpus_stats.parse_failed_count + corpus_stats.invalid_call_count) as u64
+            )
         ))?;
     }
 
@@ -612,15 +471,15 @@ pub fn run(args: Args) -> Result<()> {
         reporter.print_line(format!(
             "    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}",
             "unique contracts",
-            fmt_num(shared_coverage.contract_count() as u64),
+            StatsFormatter::num(shared_coverage.contract_count() as u64),
             "total edges",
-            fmt_num(shared_coverage.edge_count() as u64),
+            StatsFormatter::num(shared_coverage.edge_count() as u64),
             "total depths",
-            fmt_num(shared_coverage.depth_count() as u64),
+            StatsFormatter::num(shared_coverage.depth_count() as u64),
             "total reverts",
-            fmt_num(shared_coverage.revert_count() as u64),
+            StatsFormatter::num(shared_coverage.revert_count() as u64),
             "total jumps",
-            fmt_num(shared_coverage.jump_count() as u64)
+            StatsFormatter::num(shared_coverage.jump_count() as u64)
         ))?;
     }
 
@@ -683,7 +542,7 @@ pub fn run(args: Args) -> Result<()> {
     // right after the title line, then refresh every 100ms.
     let mut snapshot = shared_metrics.aggregate();
     let mut function_metrics = shared_metrics.function_metrics();
-    let mut stats = format_fuzzing_stats(
+    let mut stats = StatsFormatter::fuzzing_stats(
         &snapshot,
         &function_metrics,
         &shared_coverage,
@@ -698,7 +557,7 @@ pub fn run(args: Args) -> Result<()> {
         snapshot = shared_metrics.aggregate();
         if last_print.elapsed().as_millis() >= 100 {
             function_metrics = shared_metrics.function_metrics();
-            stats = format_fuzzing_stats(
+            stats = StatsFormatter::fuzzing_stats(
                 &snapshot,
                 &function_metrics,
                 &shared_coverage,
@@ -731,7 +590,7 @@ pub fn run(args: Args) -> Result<()> {
         reporter.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
         reporter.clear_and_end()?;
         let function_metrics = shared_metrics.function_metrics();
-        let stats = format_fuzzing_stats(
+        let stats = StatsFormatter::fuzzing_stats(
             &shared_metrics.aggregate(),
             &function_metrics,
             &shared_coverage,
@@ -755,7 +614,7 @@ pub fn run(args: Args) -> Result<()> {
     reporter.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
     reporter.clear_and_end()?;
     let function_metrics = shared_metrics.function_metrics();
-    let stats = format_fuzzing_stats(
+    let stats = StatsFormatter::fuzzing_stats(
         &shared_metrics.aggregate(),
         &function_metrics,
         &shared_coverage,
@@ -827,8 +686,8 @@ pub fn run(args: Args) -> Result<()> {
     let mut reporter = Reporter::new();
     reporter.begin(format!(
         "shrinking {} calls with {} threads",
-        fmt_num(initial_calls as u64),
-        fmt_num(shrink_threads as u64)
+        StatsFormatter::num(initial_calls as u64),
+        StatsFormatter::num(shrink_threads as u64)
     ))?;
     while shrinker_handles.iter().any(|h| !h.is_finished()) {
         let snapshot = shrinker_metrics.aggregate();
@@ -846,10 +705,10 @@ pub fn run(args: Args) -> Result<()> {
         reporter.update_with_elapsed(
             format!(
                 "shrinking: {} threads {} runs {} calls/s {} gas/s",
-                fmt_num(shrink_threads as u64),
-                fmt_num(snapshot.runs),
-                fmt_num(calls_per_sec),
-                fmt_num(gas_per_sec),
+                StatsFormatter::num(shrink_threads as u64),
+                StatsFormatter::num(snapshot.runs),
+                StatsFormatter::num(calls_per_sec),
+                StatsFormatter::num(gas_per_sec),
             ),
             elapsed_secs,
         )?;
@@ -874,10 +733,10 @@ pub fn run(args: Args) -> Result<()> {
     let shrunk_call_word = if shrunk_calls == 1 { "call" } else { "calls" };
     reporter.set_message(format!(
         "shrank {} calls to {} {} with {} threads",
-        fmt_num(initial_calls as u64),
-        fmt_num(shrunk_calls as u64),
+        StatsFormatter::num(initial_calls as u64),
+        StatsFormatter::num(shrunk_calls as u64),
         shrunk_call_word,
-        fmt_num(shrink_threads as u64)
+        StatsFormatter::num(shrink_threads as u64)
     ));
     reporter.end()?;
 
