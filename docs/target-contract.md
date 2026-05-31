@@ -61,8 +61,8 @@ contract CounterTarget {
     // to the end of every function call sequence. If any
     // reverts with an `assert` panic, raptor reports a bug.
 
-    function invariant_count_never_overflows() external view {
-        assert(count >= count + 1); // sanity check
+    function invariant_count_never_negative() external view {
+        assert(count >= 0);
     }
 
     function invariant_count_stays_small() external view {
@@ -163,7 +163,7 @@ function invariant_<name>() external view
 
 Requirements:
 
-- Name starts with `invariant_` (configurable)
+- Name starts with `invariant_`
 - Takes **no arguments**
 - Is `view` or `pure` (read-only)
 - Return type is optional and ignored
@@ -172,10 +172,10 @@ Requirements:
 
 - Raptor appends **all** invariant calls to the end of every function call
   sequence and executes them in the same EVM loop
-- If **any** invariant reverts with a Solidity `assert` panic (`Panic(0x01)`),
-  the fuzzer records a **crash** (objective)
-- Reverts caused by `require` or other reasons set `all_ok = false` but do
-  **not** produce a crash
+- If **any** call (target function or invariant) reverts with a Solidity
+  `assert` panic (`Panic(0x01)`), the fuzzer records a **crash** (objective)
+- Reverts caused by `require` or other reasons do **not** produce a crash.
+  The sequence continues executing and invariants are still checked
 - Invariants are **not** called as target functions (they are appended,
   not randomly generated)
 
@@ -191,6 +191,76 @@ function invariant_user_cant_borrow_more_than_deposited() external view {
 }
 ```
 
+### Types of Invariants
+
+Invariants can be divided into two categories based on their scope.
+
+#### Function-Level Invariants
+
+A **function-level invariant** is a property that arises from the execution of a
+specific function. It describes what must be true _before_ and _after_ that single
+function runs. For example, after calling `deposit(uint256 amount)`, the
+contract's ETH balance should increase by `amount` and the sender's balance
+should decrease by the same amount.
+
+In raptor, you can test function-level invariants by adding `assert` statements
+directly inside the target function itself. The fuzzer records a crash whenever
+any call reverts with a Solidity `assert` panic (`Panic(0x01)`), regardless of
+whether the assertion is in a target function or an `invariant_` function.
+
+```solidity
+contract CounterTarget {
+    uint256 public count;
+
+    function increment() external {
+        uint256 before = count;
+        count += 1;
+        assert(count == before + 1);
+    }
+
+    function add(uint256 x) external {
+        uint256 before = count;
+        count += x;
+        assert(count == before + x);
+    }
+}
+```
+
+#### System-Level Invariants
+
+A **system-level invariant** is a property that must hold true across the
+_entire_ execution of the system, no matter which functions are called. These
+are more general than function-level invariants. For example:
+
+- The `xy = k` constant product formula should always hold for a Uniswap pool.
+- The total deposited amount in a lending protocol should never exceed
+  `MAX_DEPOSIT_AMOUNT`.
+- No user's balance should exceed the total supply of an ERC20 token.
+
+System-level invariants are the most common use case for raptor's `invariant_`
+functions because they are checked automatically after every function call
+sequence.
+
+```solidity
+contract VaultTarget {
+    uint256 public totalDeposits;
+    uint256 public constant MAX_DEPOSIT = 1000;
+
+    function deposit(uint256 amount) external {
+        totalDeposits += amount;
+    }
+
+    function withdraw(uint256 amount) external {
+        require(totalDeposits >= amount);
+        totalDeposits -= amount;
+    }
+
+    function invariant_total_within_limit() external view {
+        assert(totalDeposits <= MAX_DEPOSIT);
+    }
+}
+```
+
 ## Fuzzing Lifecycle
 
 For each fuzz input, raptor performs this exact sequence:
@@ -200,16 +270,15 @@ For each fuzz input, raptor performs this exact sequence:
 2. BUILD the call sequence:
    - target function calls (randomly generated or mutated)
    - invariant calls (appended automatically)
-3. EXECUTE every call in a single loop
-4. After each call:
-   - Succeeded → continue
+3. EXECUTE every call in a single loop, committing state after each call
+   - Succeeded → continue to next call
    - Reverted with assert panic → CRASH (BUG!)
-   - Reverted for any other reason → all_ok = false, break
-5. RECORD result:
+   - Reverted for any other reason → continue to next call
+4. RECORD result:
    - New coverage → add to corpus
    - Assert panic detected → add to objectives (BUG!)
    - Normal revert → not a bug
-6. RESET state (discard clone, go back to base)
+5. RESET state (discard clone, go back to base)
 ```
 
 ## Comparison with Other Fuzzers
@@ -239,10 +308,5 @@ post-setup `CacheDB`, local writes are naturally isolated between runs.
 
 ## Configuration
 
-Invariant prefixes and other behavior can be configured in `raptor.toml`:
-
-```toml
-[fuzzing.testing.invariant]
-enabled = true
-prefixes = ["invariant_"]
-```
+Today the invariant prefix is hardcoded to `invariant_`. It is not yet
+configurable at runtime.

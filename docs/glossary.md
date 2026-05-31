@@ -31,6 +31,22 @@ executes it in the same EVM loop. If an invariant reverts with a Solidity
 `assert` failure (`Panic(0x01)`), the fuzzer records a crash. The return value,
 if any, is ignored. Synonyms: **invariant**, **property test**.
 
+### Function-Level Invariant
+
+A property that arises from the execution of a **specific function**. It
+describes what must be true _before_ and _after_ that single function runs. For
+example, after calling `deposit(uint256 amount)`, the contract's ETH balance
+should increase by `amount` and the sender's balance should decrease by the same
+amount.
+
+### System-Level Invariant
+
+A property that must hold true across the **entire execution** of a system,
+regardless of which functions are called. These are more general than
+function-level invariants. For example, the `xy = k` constant product formula
+must always hold for a Uniswap pool, or the total deposited amount in a lending
+protocol must never exceed `MAX_DEPOSIT_AMOUNT`.
+
 ### Target Function
 
 Any external or public function in the target contract that is _not_ a setup or
