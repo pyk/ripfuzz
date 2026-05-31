@@ -7,7 +7,7 @@ use alloy_primitives::{I256, U256};
 use revm::interpreter::CallScheme;
 use revm::primitives::{Address, Bytes};
 
-pub use context::TraceContext;
+pub use context::{StorageChangeInfo, TraceContext};
 pub use inspector::Inspector;
 
 mod context;

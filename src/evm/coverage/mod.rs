@@ -1,8 +1,8 @@
 //! Coverage collection for the EVM chain abstraction.
 
-pub use exec::ExecutionCoverage;
+pub use exec::{ExecutionContractCoverage, ExecutionCoverage};
 pub use inspector::Inspector;
-pub use shared::SharedCoverage;
+pub use shared::{CoverageUpdate, SharedCoverage};
 
 mod edge;
 mod exec;

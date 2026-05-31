@@ -5,9 +5,11 @@ pub use corpus::{
     SharedFailedCorpusItem, Stats,
 };
 pub use evm::{
-    Chain, ChainConfig, Contract, DeployInput, DeployLibraryInput, DeployOutput, ExecOutput,
-    ExecutionCoverage, ForkDBConfig, SetupInput, SetupOutput, SharedCoverage, Trace, Transaction,
-    TransactionResult,
+    CallFrame, CallFrameKind, Chain, ChainConfig, CheatcodeConfig, Contract, CoverageUpdate,
+    DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput, ExecOutput,
+    ExecutionContractCoverage, ExecutionCoverage, ForkDBConfig, SetupInput, SetupOutput,
+    SharedCoverage, StorageChange, StorageChangeInfo, StorageType, Trace, TraceContext,
+    TraceDisplay, Transaction, TransactionResult,
 };
 pub use foundry::{Artifact, ArtifactId, BuildOptions, Project};
 pub use fuzzer::{

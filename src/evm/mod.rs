@@ -13,14 +13,18 @@
 
 pub use chain::ChainConfig;
 pub use chain::{
-    Chain, DEFAULT_DEPLOYER, DeployInput, DeployLibraryInput, DeployOutput, ExecOutput, SetupInput,
-    SetupOutput, Transaction,
+    Chain, DEFAULT_DEPLOYER, DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput,
+    ExecOutput, SetupInput, SetupOutput, Transaction,
 };
+pub use cheatcode::CheatcodeConfig;
 pub use contract::Contract;
-pub use coverage::{ExecutionCoverage, SharedCoverage};
+pub use coverage::{CoverageUpdate, ExecutionContractCoverage, ExecutionCoverage, SharedCoverage};
 pub use forkdb::ForkDBConfig;
 pub use result::TransactionResult;
-pub use trace::Trace;
+pub use trace::{
+    CallFrame, CallFrameKind, StorageChange, StorageChangeInfo, StorageType, Trace, TraceContext,
+    TraceDisplay,
+};
 
 mod chain;
 mod cheatcode;
