@@ -21,10 +21,10 @@ pub use shrinker::{Shrinker, ShrinkerConfig, ShrinkerOutput};
 pub mod commands;
 pub mod logger;
 
+mod console;
 mod corpus;
 mod evm;
 mod formatter;
 mod foundry;
 mod fuzzer;
-mod reporter;
 mod shrinker;

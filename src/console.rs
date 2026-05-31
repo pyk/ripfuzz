@@ -1,6 +1,6 @@
-//! User-friendly console reporter for the Raptor CLI.
+//! User-friendly console output for the Raptor CLI.
 //!
-//! Provides a [`Reporter`] that prints status messages to stderr with coloured
+//! Provides a [`Console`] that prints status messages to stderr with coloured
 //! status prefixes. When running in a terminal, `begin` / `end` pairs replace
 //! the previous line so the user only sees the final result.
 
@@ -15,8 +15,8 @@ const RESET: &str = "\x1b[0m";
 /// ANSI sequence to return to the start of the current line and clear it.
 const REPLACE_LINE: &str = "\r\x1b[K";
 
-/// Console reporter for structured progress messages.
-pub struct Reporter<W> {
+/// Console for structured progress messages.
+pub struct Console<W> {
     output: W,
     is_terminal: bool,
     start: Option<Instant>,
@@ -26,9 +26,9 @@ pub struct Reporter<W> {
     elapsed: Option<Duration>,
 }
 
-impl<W> std::fmt::Debug for Reporter<W> {
+impl<W> std::fmt::Debug for Console<W> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Reporter")
+        f.debug_struct("Console")
             .field("is_terminal", &self.is_terminal)
             .field("start", &self.start)
             .field("message", &self.message)
@@ -38,14 +38,14 @@ impl<W> std::fmt::Debug for Reporter<W> {
     }
 }
 
-impl Default for Reporter<io::Stderr> {
+impl Default for Console<io::Stderr> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Reporter<io::Stderr> {
-    /// Create a reporter that writes to the standard error stream.
+impl Console<io::Stderr> {
+    /// Create a console that writes to the standard error stream.
     ///
     /// ANSI colours and line replacement are enabled only when stderr is a
     /// terminal.
@@ -56,8 +56,8 @@ impl Reporter<io::Stderr> {
     }
 }
 
-impl<W: Write> Reporter<W> {
-    /// Create a reporter with an arbitrary writer.
+impl<W: Write> Console<W> {
+    /// Create a console with an arbitrary writer.
     ///
     /// `is_terminal` controls whether ANSI escape sequences are emitted.
     /// This is useful for testing or for redirecting output to a file.
@@ -272,12 +272,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reporter_non_terminal() {
+    fn console_non_terminal() {
         let mut buf = Vec::new();
-        let mut reporter = Reporter::with_writer(&mut buf, false);
-        reporter.begin("building project").unwrap();
-        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
-        reporter.end().unwrap();
+        let mut console = Console::with_writer(&mut buf, false);
+        console.begin("building project").unwrap();
+        console.elapsed = Some(Duration::from_secs_f64(2.0));
+        console.end().unwrap();
 
         let output = String::from_utf8(buf).unwrap();
         assert_eq!(
@@ -287,12 +287,12 @@ mod tests {
     }
 
     #[test]
-    fn reporter_terminal() {
+    fn console_terminal() {
         let mut buf = Vec::new();
-        let mut reporter = Reporter::with_writer(&mut buf, true);
-        reporter.begin("building project").unwrap();
-        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
-        reporter.end().unwrap();
+        let mut console = Console::with_writer(&mut buf, true);
+        console.begin("building project").unwrap();
+        console.elapsed = Some(Duration::from_secs_f64(2.0));
+        console.end().unwrap();
 
         let output = String::from_utf8(buf).unwrap();
         let prefix_start = format!("{GREEN}[*]{RESET}");
@@ -306,23 +306,23 @@ mod tests {
     }
 
     #[test]
-    fn reporter_end_without_begin_is_noop() {
+    fn console_end_without_begin_is_noop() {
         let mut buf = Vec::new();
-        let mut reporter = Reporter::with_writer(&mut buf, false);
-        reporter.end().unwrap();
+        let mut console = Console::with_writer(&mut buf, false);
+        console.end().unwrap();
         assert!(buf.is_empty());
     }
 
     #[test]
-    fn reporter_begin_can_be_reused() {
+    fn console_begin_can_be_reused() {
         let mut buf = Vec::new();
-        let mut reporter = Reporter::with_writer(&mut buf, false);
-        reporter.begin("first").unwrap();
-        reporter.elapsed = Some(Duration::from_secs_f64(1.0));
-        reporter.end().unwrap();
-        reporter.begin("second").unwrap();
-        reporter.elapsed = Some(Duration::from_secs_f64(3.0));
-        reporter.end().unwrap();
+        let mut console = Console::with_writer(&mut buf, false);
+        console.begin("first").unwrap();
+        console.elapsed = Some(Duration::from_secs_f64(1.0));
+        console.end().unwrap();
+        console.begin("second").unwrap();
+        console.elapsed = Some(Duration::from_secs_f64(3.0));
+        console.end().unwrap();
 
         let output = String::from_utf8(buf).unwrap();
         assert_eq!(
@@ -332,13 +332,13 @@ mod tests {
     }
 
     #[test]
-    fn reporter_update_terminal() {
+    fn console_update_terminal() {
         let mut buf = Vec::new();
-        let mut reporter = Reporter::with_writer(&mut buf, true);
-        reporter.begin("loading build artifacts").unwrap();
-        reporter.update("loading build artifacts [1/12]").unwrap();
-        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
-        reporter.end().unwrap();
+        let mut console = Console::with_writer(&mut buf, true);
+        console.begin("loading build artifacts").unwrap();
+        console.update("loading build artifacts [1/12]").unwrap();
+        console.elapsed = Some(Duration::from_secs_f64(2.0));
+        console.end().unwrap();
 
         let output = String::from_utf8(buf).unwrap();
         let prefix_start = format!("{GREEN}[*]{RESET}");
@@ -354,13 +354,13 @@ mod tests {
     }
 
     #[test]
-    fn reporter_update_non_terminal() {
+    fn console_update_non_terminal() {
         let mut buf = Vec::new();
-        let mut reporter = Reporter::with_writer(&mut buf, false);
-        reporter.begin("loading build artifacts").unwrap();
-        reporter.update("loading build artifacts [1/12]").unwrap();
-        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
-        reporter.end().unwrap();
+        let mut console = Console::with_writer(&mut buf, false);
+        console.begin("loading build artifacts").unwrap();
+        console.update("loading build artifacts [1/12]").unwrap();
+        console.elapsed = Some(Duration::from_secs_f64(2.0));
+        console.end().unwrap();
 
         let output = String::from_utf8(buf).unwrap();
         // update does not write in non-terminal mode, but it still updates
@@ -372,15 +372,15 @@ mod tests {
     }
 
     #[test]
-    fn reporter_multiple_updates_terminal() {
+    fn console_multiple_updates_terminal() {
         let mut buf = Vec::new();
-        let mut reporter = Reporter::with_writer(&mut buf, true);
-        reporter.begin("loading build artifacts").unwrap();
-        reporter.update("loading build artifacts [1/3]").unwrap();
-        reporter.update("loading build artifacts [2/3]").unwrap();
-        reporter.update("loading build artifacts [3/3]").unwrap();
-        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
-        reporter.end().unwrap();
+        let mut console = Console::with_writer(&mut buf, true);
+        console.begin("loading build artifacts").unwrap();
+        console.update("loading build artifacts [1/3]").unwrap();
+        console.update("loading build artifacts [2/3]").unwrap();
+        console.update("loading build artifacts [3/3]").unwrap();
+        console.elapsed = Some(Duration::from_secs_f64(2.0));
+        console.end().unwrap();
 
         let output = String::from_utf8(buf).unwrap();
         let prefix_start = format!("{GREEN}[*]{RESET}");
@@ -398,10 +398,10 @@ mod tests {
     }
 
     #[test]
-    fn reporter_update_without_begin_is_noop() {
+    fn console_update_without_begin_is_noop() {
         let mut buf = Vec::new();
-        let mut reporter = Reporter::with_writer(&mut buf, true);
-        reporter.update("loading build artifacts [1/12]").unwrap();
+        let mut console = Console::with_writer(&mut buf, true);
+        console.update("loading build artifacts [1/12]").unwrap();
         assert!(buf.is_empty());
     }
 }

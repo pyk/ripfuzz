@@ -12,6 +12,7 @@ use clap::Parser;
 use revm::primitives::{Bytes, U256};
 use tracing::{debug, instrument};
 
+use crate::console::Console;
 use crate::corpus::{
     CorpusConfig, CorpusReplayer, ExtractedLiterals, SharedCorpus, SharedFailedCorpusItem,
 };
@@ -21,7 +22,6 @@ use crate::evm::{
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
 use crate::fuzzer::{FailedAssertion, Fuzzer, FuzzerConfig, SharedMetrics};
-use crate::reporter::Reporter;
 use crate::shrinker::{Shrinker, ShrinkerConfig};
 
 #[derive(Debug, Parser)]
@@ -281,31 +281,29 @@ impl ForkModeArgs {
 
 #[instrument(skip(args), fields(target = ?args.target, threads = args.threads, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
-    let mut reporter = Reporter::new();
-    reporter.print(format!("starting raptor v{}", env!("CARGO_PKG_VERSION")))?;
+    let mut console = Console::new();
+    console.print(format!("starting raptor v{}", env!("CARGO_PKG_VERSION")))?;
 
     // Resolve project path
     let project_path = args.project_path.map(Ok).unwrap_or_else(env::current_dir)?;
     debug!(?project_path, "resolved project path");
 
     // Build project
-    let mut reporter = Reporter::new();
-    reporter.begin("building foundry project ...")?;
+    console.begin("building foundry project ...")?;
     let project = Project::new(&project_path);
     let build_opts = BuildOptions::new().force(args.force);
     project.build(build_opts)?;
-    reporter.update("built foundry project")?;
-    reporter.end()?;
+    console.update("built foundry project")?;
+    console.end()?;
 
     // Load build artifacts
-    let mut reporter = Reporter::new();
-    reporter.begin("loading build artifacts ...")?;
+    console.begin("loading build artifacts ...")?;
     let build_artifacts = project.load_artifacts()?;
-    reporter.update(format!(
+    console.update(format!(
         "loaded {} build artifacts",
         formatter::num(build_artifacts.len() as u64)
     ))?;
-    reporter.end()?;
+    console.end()?;
     ensure!(
         build_artifacts.contains_key(&args.target),
         "target artifact `{}` not found in build artifacts",
@@ -313,11 +311,10 @@ pub fn run(args: Args) -> Result<()> {
     );
 
     // Load target contract and prepare library dependencies.
-    let mut reporter = Reporter::new();
-    reporter.begin(format!("loading target contract {} ...", args.target.name))?;
+    console.begin(format!("loading target contract {} ...", args.target.name))?;
     let target_contract = Contract::try_get(&build_artifacts, &args.target)?;
-    reporter.update(format!("loaded {} as target contract", args.target.name))?;
-    reporter.end()?;
+    console.update(format!("loaded {} as target contract", args.target.name))?;
+    console.end()?;
 
     // TODO(pyk): Create InitcodeRegistry
     // Build compiled-contract registry for vm.getCode
@@ -336,20 +333,19 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     // Create test chain
-    let mut reporter = Reporter::new();
-    reporter.begin("spawning test chain ...")?;
+    console.begin("spawning test chain ...")?;
     let mut chain_config = ChainConfig::new(&project_path)
         .with_compiled_contracts(compiled_contracts)
         .coverage(true);
     if args.fork_mode.rpc_url.is_some() {
-        reporter.update("forking chain")?;
+        console.update("forking chain")?;
         let fork_config = args.fork_mode.build_fork_config(&project_path)?;
         chain_config = chain_config.fork(fork_config);
     }
     let mut chain = Chain::new(chain_config)?;
-    reporter.update("spawned test chain")?;
-    reporter.end()?;
-    reporter.print_line(format!(
+    console.update("spawned test chain")?;
+    console.end()?;
+    console.print_line(format!(
         "    chain id        : {}\n    evm version     : {}\n    block number    : #{}\n    block timestamp : {}",
         chain.cfg_env().chain_id,
         chain.cfg_env().spec.to_string().to_lowercase(),
@@ -358,9 +354,8 @@ pub fn run(args: Args) -> Result<()> {
     ))?;
 
     // Deploy target contract
-    let mut reporter = Reporter::new();
     let contract_name = &target_contract.artifact_id.name;
-    reporter.begin(format!("deploying {contract_name}..."))?;
+    console.begin(format!("deploying {contract_name}..."))?;
     let mut deploy_opts = DeployInput::new(&target_contract.initcode)
         .caller(args.deployer_address)
         .value(args.deploy_value);
@@ -378,8 +373,8 @@ pub fn run(args: Args) -> Result<()> {
     let deployed_address = deployment
         .address
         .context("deployment succeeded but created_address is missing")?;
-    reporter.update(format!("deployed {contract_name}"))?;
-    reporter.end()?;
+    console.update(format!("deployed {contract_name}"))?;
+    console.end()?;
 
     let contract_size = deployment
         .result
@@ -387,7 +382,7 @@ pub fn run(args: Args) -> Result<()> {
         .as_ref()
         .map(|b| b.len())
         .unwrap_or(0);
-    reporter.print_line(format!(
+    console.print_line(format!(
         "    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}",
         "deployer",
         args.deployer_address,
@@ -401,8 +396,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Run setup if present
     if let Some(ref setup) = target_contract.setup_function {
-        let mut reporter = Reporter::new();
-        reporter.begin("calling setup")?;
+        console.begin("calling setup")?;
         let setup_output = chain.setup(
             SetupInput::new(deployed_address)
                 .calldata(Bytes::from(setup.selector().as_slice().to_vec()))
@@ -414,7 +408,7 @@ pub fn run(args: Args) -> Result<()> {
             setup_output.result.output,
             setup_output.trace
         );
-        reporter.end()?;
+        console.end()?;
     }
 
     // Extract literals from build artifacts so the fuzzer can seed random value
@@ -432,14 +426,13 @@ pub fn run(args: Args) -> Result<()> {
     let corpus_stats = corpus.load_items()?;
 
     if corpus_stats.total_count > 0 {
-        let mut reporter = Reporter::new();
-        reporter.begin("loading corpus items ...")?;
-        reporter.update(format!(
+        console.begin("loading corpus items ...")?;
+        console.update(format!(
             "loaded {} corpus items",
             formatter::num(corpus_stats.valid_count as u64)
         ))?;
-        reporter.end()?;
-        reporter.print_line(format!(
+        console.end()?;
+        console.print_line(format!(
             "    {:8}: {} items\n    {:8}: {} items\n    {:8}: {} items",
             "on disk",
             formatter::num(corpus_stats.total_count as u64),
@@ -457,8 +450,7 @@ pub fn run(args: Args) -> Result<()> {
     let replay_count = corpus_stats.valid_count;
 
     if replay_count > 0 {
-        let mut reporter = Reporter::new();
-        reporter.begin(format!("replaying {replay_count} corpus items ..."))?;
+        console.begin(format!("replaying {replay_count} corpus items ..."))?;
         CorpusReplayer::new(shared_coverage.clone())
             .shared_corpus(corpus.clone())
             .chain(chain.clone())
@@ -466,9 +458,9 @@ pub fn run(args: Args) -> Result<()> {
             .invariant_functions(target_contract.invariant_functions.clone())
             .caller(args.deployer_address)
             .replay()?;
-        reporter.update(format!("replayed {replay_count} corpus items"))?;
-        reporter.end()?;
-        reporter.print_line(format!(
+        console.update(format!("replayed {replay_count} corpus items"))?;
+        console.end()?;
+        console.print_line(format!(
             "    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}",
             "unique contracts",
             formatter::num(shared_coverage.contract_count() as u64),
@@ -531,12 +523,11 @@ pub fn run(args: Args) -> Result<()> {
         handles.push((fuzzer_id, handle));
     }
 
-    let mut reporter = Reporter::new();
     let contract_name = &target_contract.artifact_id.name;
-    reporter.begin(format!(
+    console.begin(format!(
         "fuzzing {contract_name} with {fuzzers} threads ..."
     ))?;
-    reporter.new_line()?;
+    console.new_line()?;
 
     // Print initial stats immediately so the user sees the dashboard
     // right after the title line, then refresh every 100ms.
@@ -549,7 +540,7 @@ pub fn run(args: Args) -> Result<()> {
     let mut snapshot = shared_metrics.aggregate();
     let mut function_metrics = shared_metrics.function_metrics();
     let mut stats = stats_ctx.format(&snapshot, &function_metrics);
-    reporter.print_clearable(stats)?;
+    console.print_clearable(stats)?;
     let mut last_print = std::time::Instant::now();
 
     while handles.iter().any(|(_, h)| !h.is_finished()) {
@@ -557,7 +548,7 @@ pub fn run(args: Args) -> Result<()> {
         if last_print.elapsed().as_millis() >= 100 {
             function_metrics = shared_metrics.function_metrics();
             stats = stats_ctx.format(&snapshot, &function_metrics);
-            reporter.print_clearable(stats)?;
+            console.print_clearable(stats)?;
             last_print = std::time::Instant::now();
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -579,14 +570,14 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     if all_failures.is_empty() {
-        reporter.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
-        reporter.clear_and_end()?;
+        console.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
+        console.clear_and_end()?;
         let function_metrics = shared_metrics.function_metrics();
         let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
-        reporter.print_line(stats)?;
-        reporter.new_line()?;
-        reporter.print("no failed assertions found!")?;
-        reporter.print("raptor out. see ya")?;
+        console.print_line(stats)?;
+        console.new_line()?;
+        console.print("no failed assertions found!")?;
+        console.print("raptor out. see ya")?;
         return Ok(());
     }
 
@@ -596,13 +587,13 @@ pub fn run(args: Args) -> Result<()> {
         .context("no failures found")?;
 
     let initial_calls = smallest_failure.item.calls.len();
-    reporter.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
-    reporter.clear_and_end()?;
+    console.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
+    console.clear_and_end()?;
     let function_metrics = shared_metrics.function_metrics();
     let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
-    reporter.print_line(stats)?;
-    reporter.new_line()?;
-    reporter.print_fail(format!(
+    console.print_line(stats)?;
+    console.new_line()?;
+    console.print_fail(format!(
         "found failed assertions in {} corpus items",
         all_failures.len()
     ))?;
@@ -661,8 +652,7 @@ pub fn run(args: Args) -> Result<()> {
         shrinker_handles.push(handle);
     }
 
-    let mut reporter = Reporter::new();
-    reporter.begin(format!(
+    console.begin(format!(
         "shrinking {} calls with {} threads",
         formatter::num(initial_calls as u64),
         formatter::num(shrink_threads as u64)
@@ -680,7 +670,7 @@ pub fn run(args: Args) -> Result<()> {
         } else {
             0
         };
-        reporter.update_with_elapsed(
+        console.update_with_elapsed(
             format!(
                 "shrinking: {} threads {} runs {} calls/s {} gas/s",
                 formatter::num(shrink_threads as u64),
@@ -709,14 +699,14 @@ pub fn run(args: Args) -> Result<()> {
     let shrunk_item = shared_failed_item.item();
     let shrunk_calls = shrunk_item.calls.len();
     let shrunk_call_word = if shrunk_calls == 1 { "call" } else { "calls" };
-    reporter.set_message(format!(
+    console.set_message(format!(
         "shrank {} calls to {} {} with {} threads",
         formatter::num(initial_calls as u64),
         formatter::num(shrunk_calls as u64),
         shrunk_call_word,
         formatter::num(shrink_threads as u64)
     ));
-    reporter.end()?;
+    console.end()?;
 
     // Re-run the shrunk item with the chain tracer enabled.
     let mut trace_chain = chain.clone();
