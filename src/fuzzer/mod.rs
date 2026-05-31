@@ -9,7 +9,6 @@
 //! [`Fuzzer`](Fuzzer) is configured via [`Config`](config::Config)
 //! and runs directly on a cloned chain.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -19,72 +18,21 @@ use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::Function;
 use alloy_primitives::Address;
 use anyhow::{Context, Result};
-use revm::primitives::Bytes;
 use tracing::{debug, instrument};
 
 pub use crate::fuzzer::config::FuzzerConfig;
+pub use crate::fuzzer::failed_assertion::FailedAssertion;
 pub use crate::fuzzer::metrics::{FunctionMetricsSnapshot, SharedMetrics, Snapshot};
+pub use crate::fuzzer::run_output::RunOutput;
 
 use crate::corpus::{Call, SharedCorpus};
 use crate::evm;
 use crate::evm::SharedCoverage;
-use crate::evm::Transaction;
 
 mod config;
+mod failed_assertion;
 mod metrics;
-
-/// Result produced by a single fuzzer thread.
-#[derive(Debug, Clone)]
-pub struct RunOutput {
-    pub runs: u64,
-    pub failures: Vec<FailedAssertion>,
-    pub total_calls: u64,
-    pub total_gas: u64,
-}
-
-/// A single failed assertion (assert panic) discovered during fuzzing.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct FailedAssertion {
-    pub transactions: Vec<Transaction>,
-    /// The corpus item that produced this failure.
-    pub item: crate::corpus::Item,
-}
-
-impl FailedAssertion {
-    /// Format this failed assertion's call sequence as a flat, Medusa-style log.
-    pub fn format(&self, contract: &evm::Contract) -> String {
-        let mut selector_map = HashMap::new();
-        for func in contract
-            .target_functions
-            .iter()
-            .chain(contract.invariant_functions.iter())
-        {
-            let sel: [u8; 4] = func.selector().into();
-            // checkrs: allow(clone_in_loops)
-            selector_map.insert(sel, func.name.clone());
-        }
-
-        let mut lines = Vec::new();
-        for (i, tx) in self.transactions.iter().enumerate() {
-            let n = i + 1;
-            let name = format_calldata(&tx.calldata, &selector_map);
-            lines.push(format!("    {n}. {name}"));
-        }
-        lines.join("\n")
-    }
-}
-
-fn format_calldata(calldata: &Bytes, selector_map: &HashMap<[u8; 4], String>) -> String {
-    if calldata.len() < 4 {
-        return "()".into();
-    }
-    let selector: [u8; 4] = calldata[0..4].try_into().unwrap_or([0; 4]);
-    if let Some(name) = selector_map.get(&selector) {
-        format!("{}()", name)
-    } else {
-        format!("0x{}", hex::encode(&calldata[0..4]))
-    }
-}
+mod run_output;
 
 /// Per-thread fuzzer that executes call sequences and reports results.
 ///
