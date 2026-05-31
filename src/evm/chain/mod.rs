@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use alloy_primitives::{Address, U256, address, keccak256};
+use alloy_primitives::{Address, U256, address};
 use anyhow::{Context as _, Result, ensure};
 use revm::{
     MainBuilder, MainContext,
@@ -28,6 +28,7 @@ mod deploy;
 mod empty;
 mod exec;
 mod fork;
+mod linker;
 mod setup;
 mod transaction;
 
@@ -152,7 +153,7 @@ impl Chain {
         let initcode = if library_addrs.is_empty() {
             opts.initcode
         } else {
-            self.link_libraries(&opts.initcode, &library_addrs)
+            linker::Linker::link_libraries(&opts.initcode, &library_addrs)
         };
 
         let mut output = self.deploy_raw(
@@ -212,7 +213,7 @@ impl Chain {
         }
 
         // Link the library initcode with already-deployed libraries.
-        let initcode = self.link_libraries(&lib.initcode, library_addrs);
+        let initcode = linker::Linker::link_libraries(&lib.initcode, library_addrs);
 
         // Deploy the library and return its output.
         let deployment = self.deploy_raw(
@@ -241,23 +242,6 @@ impl Chain {
     /// Compute the Solidity placeholder string for a library identifier.
     ///
     /// The placeholder format is `__$<keccak256(identifier)[:34]>$__`.
-    pub fn get_library_placeholder(&self, identifier: &str) -> String {
-        let hash = keccak256(identifier.as_bytes());
-        let hex = alloy_primitives::hex::encode(hash);
-        format!("__${}$__", &hex[..34])
-    }
-
-    /// Replace library placeholders in initcode with deployed addresses.
-    pub fn link_libraries(&self, initcode: &str, libraries: &HashMap<String, Address>) -> String {
-        let mut hex = initcode.to_owned();
-        for (identifier, address) in libraries {
-            let placeholder = self.get_library_placeholder(identifier);
-            let address_hex = hex::encode(address);
-            hex = hex.replace(&placeholder, &address_hex);
-        }
-        hex
-    }
-
     /// Execute a raw CREATE transaction without library handling.
     fn deploy_raw(
         &mut self,
