@@ -18,8 +18,8 @@ use crate::corpus::{
     CorpusConfig, CorpusReplayer, ExtractedLiterals, SharedCorpus, SharedFailedCorpusItem,
 };
 use crate::evm::{
-    Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, SetupInput, SharedCoverage,
-    TraceContext, write_coverage_report,
+    Chain, ChainConfig, Contract, CoverageReport, DeployInput, ForkDBConfig, SetupInput,
+    SharedCoverage, SourceFile, TraceContext,
 };
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
@@ -650,11 +650,8 @@ pub fn run(args: Args) -> Result<()> {
             &build_artifacts,
             &runtime_code,
         ) {
-            Ok(coverage_dir) => {
-                console.update(format!(
-                    "coverage: {}",
-                    coverage_dir.join("summary.txt").display()
-                ))?;
+            Ok(coverage_file) => {
+                console.update(format!("coverage: {}", coverage_file.display()))?;
                 console.end()?;
             }
             Err(e) => {
@@ -855,11 +852,8 @@ pub fn run(args: Args) -> Result<()> {
         &build_artifacts,
         &runtime_code,
     ) {
-        Ok(coverage_dir) => {
-            console.update(format!(
-                "coverage: {}",
-                coverage_dir.join("summary.txt").display()
-            ))?;
+        Ok(coverage_file) => {
+            console.update(format!("coverage: {}", coverage_file.display()))?;
             console.end()?;
         }
         Err(e) => {
@@ -869,6 +863,78 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn write_coverage_report(
+    project_path: impl AsRef<Path>,
+    campaign_id: &str,
+    shared_coverage: &SharedCoverage,
+    target_contract: &Contract,
+    build_artifacts: &HashMap<ArtifactId, Artifact>,
+    runtime_code: &Bytes,
+) -> Result<PathBuf> {
+    let project_path = project_path.as_ref();
+    let build_info_dir = project_path.join("out").join("build-info");
+    let mut source_index: HashMap<usize, PathBuf> = HashMap::new();
+    if build_info_dir.exists() {
+        for entry in fs::read_dir(&build_info_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension() != Some("json".as_ref()) {
+                continue;
+            }
+            let content = fs::read_to_string(&path)?;
+            let json: serde_json::Value = serde_json::from_str(&content)?;
+            let Some(map) = json.get("source_id_to_path").and_then(|v| v.as_object()) else {
+                continue;
+            };
+            for (k, v) in map {
+                if let Ok(idx) = k.parse::<usize>()
+                    && let Some(path_str) = v.as_str()
+                {
+                    source_index.insert(idx, PathBuf::from(path_str));
+                }
+            }
+        }
+    }
+
+    let mut source_files = HashMap::new();
+    for path in source_index.values().cloned() {
+        let full_path = project_path.join(&path);
+        if let Ok(content) = fs::read_to_string(&full_path) {
+            source_files.insert(path, SourceFile::new(content));
+        }
+    }
+    let artifact_path = target_contract.artifact_id.path.clone();
+    match source_files.entry(artifact_path) {
+        std::collections::hash_map::Entry::Vacant(e) => {
+            let full_path = project_path.join(e.key());
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                e.insert(SourceFile::new(content));
+            }
+        }
+        std::collections::hash_map::Entry::Occupied(_) => {}
+    }
+
+    let report = CoverageReport::build(
+        shared_coverage,
+        target_contract,
+        build_artifacts,
+        runtime_code,
+        &source_index,
+        &source_files,
+        project_path,
+    )?;
+
+    let coverage_dir = project_path
+        .join("raptor")
+        .join("campaigns")
+        .join(campaign_id)
+        .join("coverage");
+    fs::create_dir_all(&coverage_dir)?;
+    let coverage_file = coverage_dir.join("coverage.txt");
+    fs::write(&coverage_file, format!("{report}"))?;
+    Ok(coverage_file)
 }
 
 fn write_trace_to_file(

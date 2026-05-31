@@ -1,7 +1,7 @@
 //! Coverage report generation for the fuzzer.
 
-use std::collections::HashMap;
-use std::fs;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use alloy_json_abi::Function;
@@ -100,14 +100,13 @@ pub struct SourceFile {
 }
 
 impl SourceFile {
-    pub fn load(project_path: impl AsRef<Path>, relative_path: impl AsRef<Path>) -> Result<Self> {
-        let path = project_path.as_ref().join(relative_path.as_ref());
-        let content = fs::read_to_string(&path)?;
+    pub fn new(content: impl Into<String>) -> Self {
+        let content = content.into();
         let line_offsets = build_line_offsets(&content);
-        Ok(Self {
+        Self {
             content,
             line_offsets,
-        })
+        }
     }
 
     pub fn offset_to_line(&self, offset: usize) -> usize {
@@ -169,6 +168,234 @@ fn find_function_definition<'a>(
     None
 }
 
+/// Build a Solidity signature from an AST function definition.
+///
+/// The output matches the ABI signature format: `name(param1,param2,…)`
+/// without return types.
+fn build_signature_from_ast(func: &solc::ast::FunctionDefinition) -> String {
+    let mut params = String::new();
+    for (i, p) in func.parameters.parameters.iter().enumerate() {
+        if i > 0 {
+            params.push(',');
+        }
+        params.push_str(
+            p.type_descriptions
+                .type_string
+                .as_deref()
+                .unwrap_or("unknown"),
+        );
+    }
+    let name = &func.name;
+    format!("{}({})", name, params)
+}
+
+/// Collect referenced declaration IDs from a function call expression.
+fn collect_references_from_function_call_expression(
+    expr: &solc::ast::FunctionCallExpression,
+) -> Vec<i64> {
+    let mut refs = Vec::new();
+    match expr {
+        solc::ast::FunctionCallExpression::Identifier(id) => {
+            if let Some(rid) = id.referenced_declaration {
+                refs.push(rid);
+            }
+        }
+        solc::ast::FunctionCallExpression::MemberAccess(member) => {
+            if let Some(rid) = member.referenced_declaration {
+                refs.push(rid);
+            }
+        }
+        solc::ast::FunctionCallExpression::FunctionCall(call) => {
+            refs.extend(collect_references_from_function_call(call));
+        }
+        solc::ast::FunctionCallExpression::FunctionCallOptions(options) => {
+            refs.extend(collect_references_from_expression(&options.expression));
+        }
+        _ => {}
+    }
+    refs
+}
+
+/// Collect referenced declaration IDs from an expression.
+fn collect_references_from_expression(expr: &solc::ast::Expression) -> Vec<i64> {
+    let mut refs = Vec::new();
+    match expr {
+        solc::ast::Expression::Identifier(id) => {
+            if let Some(rid) = id.referenced_declaration {
+                refs.push(rid);
+            }
+        }
+        solc::ast::Expression::MemberAccess(member) => {
+            if let Some(rid) = member.referenced_declaration {
+                refs.push(rid);
+            }
+            refs.extend(collect_references_from_expression(&member.expression));
+        }
+        solc::ast::Expression::FunctionCall(call) => {
+            refs.extend(collect_references_from_function_call(call));
+        }
+        solc::ast::Expression::Assignment(assignment) => {
+            refs.extend(collect_references_from_expression(
+                &assignment.left_hand_side,
+            ));
+            refs.extend(collect_references_from_expression(
+                &assignment.right_hand_side,
+            ));
+        }
+        solc::ast::Expression::BinaryOperation(bin_op) => {
+            refs.extend(collect_references_from_expression(&bin_op.left_expression));
+            refs.extend(collect_references_from_expression(&bin_op.right_expression));
+        }
+        solc::ast::Expression::Conditional(cond) => {
+            refs.extend(collect_references_from_expression(&cond.condition));
+            refs.extend(collect_references_from_expression(&cond.true_expression));
+            refs.extend(collect_references_from_expression(&cond.false_expression));
+        }
+        solc::ast::Expression::IndexAccess(idx) => {
+            refs.extend(collect_references_from_expression(&idx.base_expression));
+            if let Some(index) = &idx.index_expression {
+                refs.extend(collect_references_from_expression(index));
+            }
+        }
+        solc::ast::Expression::IndexRangeAccess(range) => {
+            refs.extend(collect_references_from_expression(&range.base_expression));
+            if let Some(start) = &range.start_expression {
+                refs.extend(collect_references_from_expression(start));
+            }
+        }
+        solc::ast::Expression::TupleExpression(tuple) => {
+            for expr in tuple.components.iter().flatten() {
+                refs.extend(collect_references_from_expression(expr));
+            }
+        }
+        solc::ast::Expression::UnaryOperation(unary) => {
+            refs.extend(collect_references_from_expression(&unary.sub_expression));
+        }
+        solc::ast::Expression::ExpressionStatement(stmt) => {
+            refs.extend(collect_references_from_expression(&stmt.expression));
+        }
+        solc::ast::Expression::VariableDeclarationStatement(stmt) => {
+            if let Some(init) = &stmt.initial_value {
+                refs.extend(collect_references_from_expression(init));
+            }
+        }
+        _ => {}
+    }
+    refs
+}
+
+/// Collect referenced declaration IDs from a function call.
+fn collect_references_from_function_call(call: &solc::ast::FunctionCall) -> Vec<i64> {
+    let mut refs = collect_references_from_function_call_expression(&call.expression);
+    for arg in &call.arguments {
+        refs.extend(collect_references_from_expression(arg));
+    }
+    refs
+}
+
+/// Collect referenced declaration IDs from a statement.
+fn collect_references_from_statement(stmt: &solc::ast::Statement) -> Vec<i64> {
+    let mut refs = Vec::new();
+    match stmt {
+        solc::ast::Statement::ExpressionStatement(expr_stmt) => {
+            refs.extend(collect_references_from_expression(&expr_stmt.expression));
+        }
+        solc::ast::Statement::Return(ret) => {
+            if let Some(expr) = &ret.expression {
+                refs.extend(collect_references_from_expression(expr));
+            }
+        }
+        solc::ast::Statement::IfStatement(if_stmt) => {
+            refs.extend(collect_references_from_expression(&if_stmt.condition));
+            refs.extend(collect_references_from_statement(&if_stmt.true_body));
+            if let Some(false_body) = &if_stmt.false_body {
+                refs.extend(collect_references_from_statement(false_body));
+            }
+        }
+        solc::ast::Statement::ForStatement(for_stmt) => {
+            if let Some(init) = &for_stmt.initialization_expression {
+                refs.extend(collect_references_from_expression(init));
+            }
+            refs.extend(collect_references_from_expression(&for_stmt.condition));
+            if let Some(loop_expr) = &for_stmt.loop_expression {
+                refs.extend(collect_references_from_expression(loop_expr));
+            }
+            refs.extend(collect_references_from_statement(&for_stmt.body));
+        }
+        solc::ast::Statement::WhileStatement(while_stmt) => {
+            refs.extend(collect_references_from_expression(&while_stmt.condition));
+            refs.extend(collect_references_from_statement(&while_stmt.body));
+        }
+        solc::ast::Statement::DoWhileStatement(do_while) => {
+            refs.extend(collect_references_from_statement(&do_while.body));
+            refs.extend(collect_references_from_expression(&do_while.condition));
+        }
+        solc::ast::Statement::VariableDeclarationStatement(var_stmt) => {
+            if let Some(init) = &var_stmt.initial_value {
+                refs.extend(collect_references_from_expression(init));
+            }
+        }
+        solc::ast::Statement::Block(block) => {
+            for stmt in &block.statements {
+                refs.extend(collect_references_from_statement(stmt));
+            }
+        }
+        solc::ast::Statement::UncheckedBlock(unchecked) => {
+            for stmt in &unchecked.statements {
+                refs.extend(collect_references_from_statement(stmt));
+            }
+        }
+        solc::ast::Statement::EmitStatement(emit) => {
+            refs.extend(collect_references_from_function_call(&emit.event_call));
+        }
+        solc::ast::Statement::TryStatement(try_stmt) => {
+            refs.extend(collect_references_from_expression(&try_stmt.external_call));
+            for clause in &try_stmt.clauses {
+                for stmt in &clause.block.statements {
+                    refs.extend(collect_references_from_statement(stmt));
+                }
+            }
+        }
+        solc::ast::Statement::RevertStatement(revert) => {
+            refs.extend(collect_references_from_function_call(&revert.error_call));
+        }
+        _ => {}
+    }
+    refs
+}
+
+/// Collect all referenced declaration IDs from a function body.
+fn collect_references_from_body(body: &Option<solc::ast::Block>) -> Vec<i64> {
+    let mut refs = Vec::new();
+    if let Some(block) = body {
+        for stmt in &block.statements {
+            refs.extend(collect_references_from_statement(stmt));
+        }
+    }
+    refs
+}
+
+/// Collect all contract symbols into a map keyed by declaration ID.
+fn collect_contract_symbols<'a>(
+    ast: &'a solc::ast::SourceUnit,
+    contract_name: &str,
+) -> Option<HashMap<i64, &'a solc::ast::ContractDefinitionNode>> {
+    let contract = get_contract_definition(ast, contract_name).ok()?;
+    let mut map = HashMap::new();
+    for node in &contract.nodes {
+        match node {
+            solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
+                map.insert(func.id, node);
+            }
+            solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
+                map.insert(var.id, node);
+            }
+            _ => {}
+        }
+    }
+    Some(map)
+}
+
 /// A line hit record for a single source line.
 #[derive(Debug, Clone)]
 pub struct LineHit {
@@ -177,27 +404,199 @@ pub struct LineHit {
     pub content: String,
 }
 
-/// A per-function coverage summary.
+/// Kind of coverage symbol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SymbolKind {
+    Function,
+    Variable,
+}
+
+/// Coverage summary for a single symbol (function or variable).
+///
+/// Children are recursively resolved so that a target function can include
+/// sub-functions, state variables, and any other symbols it transitively
+/// depends on.
 #[derive(Debug, Clone)]
-pub struct FunctionCoverage {
+pub struct SymbolCoverage {
+    pub kind: SymbolKind,
+    pub name: String,
+    pub project_path: PathBuf,
     pub file_path: PathBuf,
-    pub symbol: String,
     pub start_line: usize,
     pub end_line: usize,
     pub total_lines: usize,
     pub covered_lines: usize,
     pub line_hits: Vec<LineHit>,
+    pub children: Vec<SymbolCoverage>,
 }
 
-/// Write the coverage report for a fuzzing campaign.
-///
-/// Returns the path to the coverage directory.
 /// A coverage report generated for a fuzzing campaign.
 #[derive(Debug, Clone)]
 pub struct CoverageReport {
-    pub function_coverages: Vec<FunctionCoverage>,
+    pub symbol_coverages: Vec<SymbolCoverage>,
     pub summary_total_lines: usize,
     pub summary_covered_lines: usize,
+}
+
+/// Build a [`SymbolCoverage`] for a single contract node (function or variable).
+fn build_symbol_coverage(
+    node: &solc::ast::ContractDefinitionNode,
+    project_path: impl AsRef<Path>,
+    source_index: &HashMap<usize, PathBuf>,
+    artifact_path: impl AsRef<Path>,
+    source_files: &HashMap<PathBuf, SourceFile>,
+    line_hits: &HashMap<(PathBuf, usize), u64>,
+) -> Option<SymbolCoverage> {
+    let project_path = project_path.as_ref();
+    let artifact_path = artifact_path.as_ref();
+    let empty_source = SourceFile {
+        content: String::new(),
+        line_offsets: Vec::new(),
+    };
+
+    match node {
+        solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
+            let source_path = source_index
+                .get(&func.src.source_index)
+                .cloned()
+                .unwrap_or_else(|| artifact_path.to_path_buf());
+            let file = source_files.get(&source_path).unwrap_or(&empty_source);
+            let start_line = file.offset_to_line(func.src.offset);
+            let end_line = file.offset_to_line(func.src.offset + func.src.length);
+            let total_lines = end_line.saturating_sub(start_line) + 1;
+
+            let mut covered_lines = 0;
+            let mut hits = Vec::new();
+            for line in start_line..=end_line {
+                let hit_count = line_hits
+                    .get(&(source_path.clone(), line))
+                    .copied()
+                    .unwrap_or(0);
+                if hit_count > 0 {
+                    covered_lines += 1;
+                }
+                let content: String = file
+                    .content
+                    .lines()
+                    .nth(line.saturating_sub(1))
+                    .unwrap_or("")
+                    .into();
+                hits.push(LineHit {
+                    line,
+                    hit_count,
+                    content,
+                });
+            }
+
+            Some(SymbolCoverage {
+                kind: SymbolKind::Function,
+                name: build_signature_from_ast(func),
+                project_path: project_path.to_path_buf(),
+                file_path: source_path,
+                start_line,
+                end_line,
+                total_lines,
+                covered_lines,
+                line_hits: hits,
+                children: Vec::new(),
+            })
+        }
+        solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
+            let source_path = source_index
+                .get(&var.src.source_index)
+                .cloned()
+                .unwrap_or_else(|| artifact_path.to_path_buf());
+            let file = source_files.get(&source_path).unwrap_or(&empty_source);
+            let start_line = file.offset_to_line(var.src.offset);
+            let end_line = file.offset_to_line(var.src.offset + var.src.length);
+            let total_lines = end_line.saturating_sub(start_line) + 1;
+
+            let mut hits = Vec::new();
+            for line in start_line..=end_line {
+                let content: String = file
+                    .content
+                    .lines()
+                    .nth(line.saturating_sub(1))
+                    .unwrap_or("")
+                    .into();
+                hits.push(LineHit {
+                    line,
+                    hit_count: 0,
+                    content,
+                });
+            }
+
+            Some(SymbolCoverage {
+                kind: SymbolKind::Variable,
+                name: var.name.clone(),
+                project_path: project_path.to_path_buf(),
+                file_path: source_path,
+                start_line,
+                end_line,
+                total_lines,
+                covered_lines: 0,
+                line_hits: hits,
+                children: Vec::new(),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Recursively resolve children for a function symbol.
+#[allow(clippy::too_many_arguments)]
+fn resolve_children(
+    coverage: &mut SymbolCoverage,
+    contract_symbols: &HashMap<i64, &solc::ast::ContractDefinitionNode>,
+    project_path: impl AsRef<Path>,
+    source_index: &HashMap<usize, PathBuf>,
+    artifact_path: impl AsRef<Path>,
+    source_files: &HashMap<PathBuf, SourceFile>,
+    line_hits: &HashMap<(PathBuf, usize), u64>,
+    visited: &mut HashSet<i64>,
+) {
+    let project_path = project_path.as_ref();
+    let artifact_path = artifact_path.as_ref();
+    let Some(solc::ast::ContractDefinitionNode::FunctionDefinition(func)) =
+        contract_symbols.values().find(|node| match node {
+            solc::ast::ContractDefinitionNode::FunctionDefinition(f) => {
+                build_signature_from_ast(f) == coverage.name
+            }
+            _ => false,
+        })
+    else {
+        return;
+    };
+
+    let refs = collect_references_from_body(&func.body);
+    for rid in refs {
+        let Some(node) = contract_symbols.get(&rid) else {
+            continue;
+        };
+        let Some(mut child) = build_symbol_coverage(
+            node,
+            project_path,
+            source_index,
+            artifact_path,
+            source_files,
+            line_hits,
+        ) else {
+            continue;
+        };
+        if child.kind == SymbolKind::Function && visited.insert(rid) {
+            resolve_children(
+                &mut child,
+                contract_symbols,
+                project_path,
+                source_index,
+                artifact_path,
+                source_files,
+                line_hits,
+                visited,
+            );
+        }
+        coverage.children.push(child);
+    }
 }
 
 impl CoverageReport {
@@ -212,7 +611,9 @@ impl CoverageReport {
         runtime_code: &Bytes,
         source_index: &HashMap<usize, PathBuf>,
         source_files: &HashMap<PathBuf, SourceFile>,
+        project_path: impl AsRef<Path>,
     ) -> Result<Self> {
+        let project_path = project_path.as_ref();
         let artifact_id = &target_contract.artifact_id;
         let contract_name = &artifact_id.name;
 
@@ -289,8 +690,14 @@ impl CoverageReport {
         }
         trace!(line_hits_count = line_hits.len(), "mapped hits to lines");
 
-        // Build function coverage reports.
-        let mut function_coverages: Vec<FunctionCoverage> = Vec::new();
+        let Some(contract_symbols) = collect_contract_symbols(target_artifact.ast(), contract_name)
+        else {
+            debug!(contract_name, "contract not found in AST");
+            return Err(anyhow::anyhow!("contract not found in AST"));
+        };
+
+        // Build symbol coverage reports for target functions.
+        let mut symbol_coverages: Vec<SymbolCoverage> = Vec::new();
         let all_functions: Vec<&Function> = target_contract
             .target_functions
             .iter()
@@ -343,86 +750,109 @@ impl CoverageReport {
                 });
             }
 
-            function_coverages.push(FunctionCoverage {
+            let mut symbol_coverage = SymbolCoverage {
+                kind: SymbolKind::Function,
+                name: func.signature(),
+                project_path: project_path.to_path_buf(),
                 file_path: source_path.clone(),
-                symbol: func.signature(),
                 start_line,
                 end_line,
                 total_lines,
                 covered_lines,
                 line_hits: hits,
-            });
+                children: Vec::new(),
+            };
+
+            let mut visited = HashSet::new();
+            resolve_children(
+                &mut symbol_coverage,
+                &contract_symbols,
+                project_path,
+                source_index,
+                &artifact.id().path,
+                source_files,
+                &line_hits,
+                &mut visited,
+            );
+
+            symbol_coverages.push(symbol_coverage);
         }
         debug!(
-            function_count = function_coverages.len(),
-            "built function coverages"
+            symbol_count = symbol_coverages.len(),
+            "built symbol coverages"
         );
 
-        let summary_total_lines = function_coverages.iter().map(|f| f.total_lines).sum();
-        let summary_covered_lines = function_coverages.iter().map(|f| f.covered_lines).sum();
+        let summary_total_lines = symbol_coverages.iter().map(|s| s.total_lines).sum();
+        let summary_covered_lines = symbol_coverages.iter().map(|s| s.covered_lines).sum();
 
         Ok(Self {
-            function_coverages,
+            symbol_coverages,
             summary_total_lines,
             summary_covered_lines,
         })
     }
+}
 
-    /// Write the report to the project directory.
-    ///
-    /// This is the I/O half of the operation: it creates directories and writes
-    /// files.
-    pub fn write(&self, project_path: impl AsRef<Path>, campaign_id: &str) -> Result<PathBuf> {
-        let project_path = project_path.as_ref();
-        let coverage_dir = project_path
-            .join("raptor")
-            .join("campaigns")
-            .join(campaign_id)
-            .join("coverage");
-        fs::create_dir_all(&coverage_dir)?;
-        trace!(?coverage_dir, "created coverage directory");
-
-        for func_cov in &self.function_coverages {
-            let file_name = sanitize_function_name(&func_cov.symbol);
-            let file_path = coverage_dir.join(format!("{file_name}.txt"));
-            let mut content = String::new();
-
-            let uncovered = func_cov.total_lines.saturating_sub(func_cov.covered_lines);
-            let pct = if func_cov.total_lines > 0 {
-                (func_cov.covered_lines as f64 / func_cov.total_lines as f64) * 100.0
-            } else {
-                0.0
-            };
-
-            content.push_str("Function stats:\n\n");
-            content.push_str(&format!("total lines: {}\n", func_cov.total_lines));
-            content.push_str(&format!(
-                "total covered lines: {}\n",
-                func_cov.covered_lines
-            ));
-            content.push_str(&format!("total uncovered lines: {}\n", uncovered));
-            content.push_str(&format!("coverage: {:.2}%\n", pct));
-            content.push_str("\nBreakdown stats:\n\n");
-            content.push_str(&format!(
-                "path: {}#L{}-L{}\n",
-                func_cov.file_path.display(),
-                func_cov.start_line,
-                func_cov.end_line,
-            ));
-            content.push_str(&format!("symbol: {}\n", func_cov.symbol));
-            content.push_str("line hits:\n\n");
-            for hit in &func_cov.line_hits {
-                content.push_str(&format!(
-                    "{:4} | {:4} |{}\n",
-                    hit.line, hit.hit_count, hit.content,
-                ));
-            }
-            trace!(?file_path, "writing function coverage report");
-            fs::write(&file_path, content)?;
+fn write_symbol_coverage(symbol: &SymbolCoverage, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    writeln!(f, "symbol: {}", symbol.name)?;
+    writeln!(
+        f,
+        "source: {}#L{}-L{}",
+        symbol.file_path.display(),
+        symbol.start_line,
+        symbol.end_line
+    )?;
+    writeln!(f, "project: {}", symbol.project_path.display())?;
+    writeln!(f)?;
+    writeln!(f, "line | hits |")?;
+    writeln!(f, "---- | ---- |")?;
+    for hit in &symbol.line_hits {
+        if hit.hit_count > 0 {
+            writeln!(f, "{:4} | {:4} |{}", hit.line, hit.hit_count, hit.content)?;
+        } else {
+            writeln!(f, "     |      |{}", hit.content)?;
         }
+    }
+    writeln!(f)
+}
 
-        let summary_path = coverage_dir.join("summary.txt");
-        let mut summary = String::new();
+fn write_symbol_coverage_flat(
+    symbol: &SymbolCoverage,
+    f: &mut fmt::Formatter<'_>,
+    visited: &mut HashSet<String>,
+) -> fmt::Result {
+    if visited.insert(symbol.name.clone()) {
+        write_symbol_coverage(symbol, f)?;
+    }
+    for child in &symbol.children {
+        write_symbol_coverage_flat(child, f, visited)?;
+    }
+    Ok(())
+}
+
+impl fmt::Display for SymbolCoverage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let summary_uncovered = self.total_lines.saturating_sub(self.covered_lines);
+        let summary_pct = if self.total_lines > 0 {
+            (self.covered_lines as f64 / self.total_lines as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        writeln!(f, "COVERAGE REPORT STATS\n")?;
+        writeln!(f, "total lines: {}", self.total_lines)?;
+        writeln!(f, "total covered lines: {}", self.covered_lines)?;
+        writeln!(f, "total uncovered lines: {}", summary_uncovered)?;
+        writeln!(f, "coverage: {:.2}%\n", summary_pct)?;
+        writeln!(f, "SOURCES\n")?;
+
+        let mut visited = HashSet::new();
+        write_symbol_coverage_flat(self, f, &mut visited)
+    }
+}
+
+impl fmt::Display for CoverageReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let summary_uncovered = self
             .summary_total_lines
             .saturating_sub(self.summary_covered_lines);
@@ -432,141 +862,29 @@ impl CoverageReport {
             0.0
         };
 
-        summary.push_str("Global stats:\n\n");
-        summary.push_str(&format!("total lines: {}\n", self.summary_total_lines));
-        summary.push_str(&format!(
-            "total covered lines: {}\n",
-            self.summary_covered_lines
-        ));
-        summary.push_str(&format!("total uncovered lines: {}\n", summary_uncovered));
-        summary.push_str(&format!("coverage: {:.2}%\n", summary_pct));
-        summary.push_str("\nBreakdown stats:\n\n");
+        writeln!(f, "COVERAGE REPORT STATS\n")?;
+        writeln!(f, "total lines: {}", self.summary_total_lines)?;
+        writeln!(f, "total covered lines: {}", self.summary_covered_lines)?;
+        writeln!(f, "total uncovered lines: {}", summary_uncovered)?;
+        writeln!(f, "coverage: {:.2}%\n", summary_pct)?;
+        writeln!(f, "SOURCES\n")?;
 
-        for func_cov in &self.function_coverages {
-            let func_pct = if func_cov.total_lines > 0 {
-                (func_cov.covered_lines as f64 / func_cov.total_lines as f64) * 100.0
-            } else {
-                0.0
-            };
-            let file_name = sanitize_function_name(&func_cov.symbol);
-            summary.push_str(&format!(
-                "file path: raptor/campaigns/{}/coverage/{}.txt\n",
-                campaign_id, file_name,
-            ));
-            summary.push_str(&format!("total lines: {}\n", func_cov.total_lines));
-            summary.push_str(&format!(
-                "coverage percentage for that file: {:.2}%\n",
-                func_pct
-            ));
-            summary.push('\n');
+        let mut visited = HashSet::new();
+        for symbol in &self.symbol_coverages {
+            write_symbol_coverage_flat(symbol, f, &mut visited)?;
         }
 
-        trace!(?summary_path, "writing summary report");
-        fs::write(&summary_path, summary)?;
-        debug!("coverage report written successfully");
-
-        Ok(coverage_dir)
+        Ok(())
     }
-}
-
-/// Convenience wrapper that loads source files, builds the report, and writes it.
-///
-/// For full control over I/O, use [`CoverageReport::build`] and
-/// [`CoverageReport::write`] directly.
-pub fn write_coverage_report(
-    project_path: impl AsRef<Path>,
-    campaign_id: &str,
-    shared_coverage: &SharedCoverage,
-    target_contract: &crate::evm::Contract,
-    build_artifacts: &HashMap<ArtifactId, Artifact>,
-    runtime_code: &Bytes,
-) -> Result<PathBuf> {
-    let project_path = project_path.as_ref();
-    let artifact_id = &target_contract.artifact_id;
-
-    debug!(
-        ?project_path,
-        ?campaign_id,
-        ?artifact_id,
-        "writing coverage report"
-    );
-
-    let source_index = load_source_index(project_path)?;
-
-    // Pre-load all source files that may be referenced.
-    let mut source_files = HashMap::new();
-    for path in source_index.values().cloned() {
-        if let Ok(file) = SourceFile::load(project_path, &path) {
-            source_files.insert(path, file);
-        }
-    }
-    let artifact_path = artifact_id.path.clone();
-    if !source_files.contains_key(&artifact_path)
-        && let Ok(file) = SourceFile::load(project_path, &artifact_path)
-    {
-        source_files.insert(artifact_path, file);
-    }
-
-    let report = CoverageReport::build(
-        shared_coverage,
-        target_contract,
-        build_artifacts,
-        runtime_code,
-        &source_index,
-        &source_files,
-    )?;
-    report.write(project_path, campaign_id)
-}
-
-/// Load the source index mapping from build-info files.
-fn load_source_index(project_path: impl AsRef<Path>) -> Result<HashMap<usize, PathBuf>> {
-    let project_path = project_path.as_ref();
-    let build_info_dir = project_path.join("out").join("build-info");
-    let mut source_index = HashMap::new();
-    if !build_info_dir.exists() {
-        return Ok(source_index);
-    }
-    for entry in fs::read_dir(&build_info_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension() != Some("json".as_ref()) {
-            continue;
-        }
-        let content = fs::read_to_string(&path)?;
-        let json: serde_json::Value = serde_json::from_str(&content)?;
-        let Some(map) = json.get("source_id_to_path").and_then(|v| v.as_object()) else {
-            continue;
-        };
-        for (k, v) in map {
-            if let Ok(idx) = k.parse::<usize>()
-                && let Some(path_str) = v.as_str()
-            {
-                source_index.insert(idx, PathBuf::from(path_str));
-            }
-        }
-    }
-    Ok(source_index)
-}
-
-/// Sanitize a function signature for use as a filename.
-///
-/// Returns only the function name (e.g. `add` for `add(uint256)`).
-fn sanitize_function_name(name: &str) -> String {
-    let base = name.split('(').next().unwrap_or(name);
-    base.replace(
-        |c: char| c.is_ascii_whitespace() || c == '\n' || c == '\r',
-        "_",
-    )
-    .replace("(", "")
-    .replace(")", "")
-    .replace(",", "")
-    .replace(" ", "_")
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::fs;
+    use std::path::PathBuf;
 
+    use alloy_primitives::U256;
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
@@ -578,6 +896,10 @@ mod tests {
     alloy_sol_types::sol! {
         interface CoverageBranch {
             function branch(bool take) external;
+        }
+
+        interface CoverageReportInternalFunctions {
+            function add_and_sub(uint256 a, uint256 b) external returns (uint256);
         }
     }
 
@@ -611,20 +933,45 @@ mod tests {
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let build_artifacts = project.load_artifacts().unwrap();
-        let source_index = super::load_source_index("fixtures/target-contract-coverage").unwrap();
+
+        let build_info_dir =
+            std::path::Path::new("fixtures/target-contract-coverage/out/build-info");
+        let mut source_index = HashMap::new();
+        if let Ok(entries) = fs::read_dir(build_info_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension() != Some("json".as_ref()) {
+                    continue;
+                }
+                let content = fs::read_to_string(&path).unwrap();
+                let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+                let Some(map) = json.get("source_id_to_path").and_then(|v| v.as_object()) else {
+                    continue;
+                };
+                for (k, v) in map {
+                    if let Ok(idx) = k.parse::<usize>()
+                        && let Some(path_str) = v.as_str()
+                    {
+                        source_index.insert(idx, PathBuf::from(path_str));
+                    }
+                }
+            }
+        }
 
         let mut source_files = HashMap::new();
         for path in source_index.values().cloned() {
-            if let Ok(file) = super::SourceFile::load("fixtures/target-contract-coverage", &path) {
-                source_files.insert(path, file);
+            let full_path = std::path::Path::new("fixtures/target-contract-coverage").join(&path);
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                source_files.insert(path, super::SourceFile::new(content));
             }
         }
         let artifact_path = contract.artifact_id.path.clone();
-        if !source_files.contains_key(&artifact_path)
-            && let Ok(file) =
-                super::SourceFile::load("fixtures/target-contract-coverage", &artifact_path)
-        {
-            source_files.insert(artifact_path, file);
+        if !source_files.contains_key(&artifact_path) {
+            let full_path =
+                std::path::Path::new("fixtures/target-contract-coverage").join(&artifact_path);
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                source_files.insert(artifact_path, super::SourceFile::new(content));
+            }
         }
 
         let report = super::CoverageReport::build(
@@ -634,12 +981,112 @@ mod tests {
             &runtime_code,
             &source_index,
             &source_files,
+            std::path::Path::new("fixtures/target-contract-coverage"),
         )
         .unwrap();
 
         assert!(
-            !report.function_coverages.is_empty(),
-            "coverage report should contain function coverages even when build artifacts include interfaces"
+            !report.symbol_coverages.is_empty(),
+            "coverage report should contain symbol coverages even when build artifacts include interfaces"
+        );
+    }
+
+    /// Coverage report for a contract with internal functions that read and
+    /// write storage must produce a valid display output.
+    #[test]
+    fn coverage_report_internal_functions() {
+        let contract = load_coverage_fixture(
+            "src/CoverageReportInternalFunctions.sol:CoverageReportInternalFunctions",
+        );
+
+        let config = ChainConfig::default().coverage(true);
+        let mut chain = Chain::new(config).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        let target = deployment.address.unwrap();
+        let runtime_code = deployment.result.output.unwrap_or_default();
+
+        let global = SharedCoverage::new();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                CoverageReportInternalFunctions::add_and_subCall::new((
+                    U256::from(123),
+                    U256::from(123),
+                ))
+                .abi_encode(),
+            )),
+        ];
+        let exec = chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let build_artifacts = project.load_artifacts().unwrap();
+
+        let build_info_dir =
+            std::path::Path::new("fixtures/target-contract-coverage/out/build-info");
+        let mut source_index = HashMap::new();
+        if let Ok(entries) = fs::read_dir(build_info_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension() != Some("json".as_ref()) {
+                    continue;
+                }
+                let content = fs::read_to_string(&path).unwrap();
+                let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+                let Some(map) = json.get("source_id_to_path").and_then(|v| v.as_object()) else {
+                    continue;
+                };
+                for (k, v) in map {
+                    if let Ok(idx) = k.parse::<usize>()
+                        && let Some(path_str) = v.as_str()
+                    {
+                        source_index.insert(idx, PathBuf::from(path_str));
+                    }
+                }
+            }
+        }
+
+        let mut source_files = HashMap::new();
+        for path in source_index.values().cloned() {
+            let full_path = std::path::Path::new("fixtures/target-contract-coverage").join(&path);
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                source_files.insert(path, super::SourceFile::new(content));
+            }
+        }
+        let artifact_path = contract.artifact_id.path.clone();
+        if !source_files.contains_key(&artifact_path) {
+            let full_path =
+                std::path::Path::new("fixtures/target-contract-coverage").join(&artifact_path);
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                source_files.insert(artifact_path, super::SourceFile::new(content));
+            }
+        }
+
+        let report = super::CoverageReport::build(
+            &global,
+            &contract,
+            &build_artifacts,
+            &runtime_code,
+            &source_index,
+            &source_files,
+            std::path::Path::new("fixtures/target-contract-coverage"),
+        )
+        .unwrap();
+
+        let expected_file = "fixtures/target-contract-coverage/expected/CoverageReportInternalFunctions_add_and_sub.txt";
+        let symbol_cov = report
+            .symbol_coverages
+            .iter()
+            .find(|s| s.name == "add_and_sub(uint256,uint256)")
+            .expect("add_and_sub coverage must be present");
+        let formatted = format!("{symbol_cov}");
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output must match expected"
         );
     }
 }
