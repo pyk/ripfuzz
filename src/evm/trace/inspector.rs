@@ -434,6 +434,7 @@ mod tests {
         let deploy_address = root.address.unwrap();
 
         ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+        ctx = ctx.with_label(crate::evm::chain::DEFAULT_DEPLOYER, "RaptorDeployer");
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected = fs::read_to_string("fixtures/trace-inspector/expected/EmitEvents.txt")

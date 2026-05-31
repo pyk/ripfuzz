@@ -1,11 +1,11 @@
 [142054] → new EmitEvents@0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2
-    ├─ emit Transfer(0x0000000000000000000000000000000000000000, 0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 1000)
-    ├─ emit Approval(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0x000000000000000000000000000000000000bEEF, 500)
+    ├─ emit Transfer(from: 0x0000000000000000000000000000000000000000, to: RaptorDeployer: [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1], value: 1000)
+    ├─ emit Approval(owner: RaptorDeployer: [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1], spender: 0x000000000000000000000000000000000000bEEF, value: 500)
     ├─ emit NoArgs()
-    ├─ emit IndexedBytes(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0x1234)
+    ├─ emit IndexedBytes(sender: RaptorDeployer: [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1], data: 0x1234)
     ├─ emit Log(0x000000000000000000000000000000000000000000000000000000000000002a)
-    ├─ emit MultipleIndexed(1, 0x000000000000000000000000000000000000cafE, 0x0000000000000000000000000000000000000000000000000000000000000002, 3)
-    ├─ emit StringEvent("hello")
-    ├─ emit StructEvent(Point({ x: 1, y: 2 }))
-    ├─ emit ArrayEvent([1, 2, 3])
+    ├─ emit MultipleIndexed(a: 1, b: 0x000000000000000000000000000000000000cafE, c: 0x0000000000000000000000000000000000000000000000000000000000000002, d: 3)
+    ├─ emit StringEvent(name: "hello")
+    ├─ emit StructEvent(p: Point({ x: 1, y: 2 }))
+    ├─ emit ArrayEvent(values: [1, 2, 3])
     └─ ← [return] 106 bytes of code

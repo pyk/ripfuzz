@@ -774,12 +774,20 @@ impl TraceContext {
                             for param in &event.inputs {
                                 if param.indexed {
                                     if let Some(val) = decoded.indexed.get(indexed_idx) {
-                                        args.push(format_abi_value(val, param, &self.labels));
+                                        args.push(format!(
+                                            "{}: {}",
+                                            param.name(),
+                                            format_abi_value(val, param, &self.labels)
+                                        ));
                                         indexed_idx += 1;
                                     }
                                 } else {
                                     if let Some(val) = decoded.body.get(body_idx) {
-                                        args.push(format_abi_value(val, param, &self.labels));
+                                        args.push(format!(
+                                            "{}: {}",
+                                            param.name(),
+                                            format_abi_value(val, param, &self.labels)
+                                        ));
                                         body_idx += 1;
                                     }
                                 }
@@ -894,12 +902,16 @@ pub(super) fn format_value(v: &DynSolValue, labels: &HashMap<Address, String>) -
 /// Trait abstracting over ABI parameter types so that [`format_abi_value`]
 /// can be reused for both function parameters and event parameters.
 pub(super) trait FormatParam {
+    fn name(&self) -> &str;
     fn is_struct(&self) -> bool;
     fn internal_type(&self) -> Option<&InternalType>;
     fn components(&self) -> &[Param];
 }
 
 impl FormatParam for Param {
+    fn name(&self) -> &str {
+        Param::name(self)
+    }
     fn is_struct(&self) -> bool {
         Param::is_struct(self)
     }
@@ -912,6 +924,9 @@ impl FormatParam for Param {
 }
 
 impl FormatParam for EventParam {
+    fn name(&self) -> &str {
+        &self.name
+    }
     fn is_struct(&self) -> bool {
         EventParam::is_struct(self)
     }
