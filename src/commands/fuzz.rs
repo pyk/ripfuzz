@@ -614,8 +614,6 @@ pub fn run(args: Args) -> Result<()> {
         let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
         console.print_line(stats)?;
         console.new_line()?;
-        console.print("no failed assertions found!")?;
-        console.print("raptor out. see ya")?;
 
         let runtime_code = deployment.result.output.clone().unwrap_or_default();
         console.begin("writing coverage report ...")?;
@@ -628,7 +626,10 @@ pub fn run(args: Args) -> Result<()> {
             &runtime_code,
         ) {
             Ok(coverage_dir) => {
-                console.update(format!("coverage: {}", coverage_dir.display()))?;
+                console.update(format!(
+                    "coverage: {}",
+                    coverage_dir.join("summary.txt").display()
+                ))?;
                 console.end()?;
             }
             Err(e) => {
@@ -636,6 +637,9 @@ pub fn run(args: Args) -> Result<()> {
                 tracing::error!(%e, "failed to write coverage report");
             }
         }
+
+        console.print("no failed assertions found!")?;
+        console.print("raptor out. see ya")?;
 
         return Ok(());
     }
@@ -826,7 +830,10 @@ pub fn run(args: Args) -> Result<()> {
         &runtime_code,
     ) {
         Ok(coverage_dir) => {
-            console.update(format!("coverage: {}", coverage_dir.display()))?;
+            console.update(format!(
+                "coverage: {}",
+                coverage_dir.join("summary.txt").display()
+            ))?;
             console.end()?;
         }
         Err(e) => {
