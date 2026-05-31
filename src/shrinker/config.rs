@@ -16,7 +16,7 @@ pub struct ShrinkerConfig {
     pub seed: u64,
     pub chain: evm::Chain,
     pub target_address: Address,
-    pub shared_failed_item: SharedFailedCorpusItem,
+    pub shared_failed_corpus: SharedFailedCorpusItem,
     pub shutdown_signal: Arc<AtomicBool>,
     pub max_runs: u64,
     pub timeout: Option<Duration>,
@@ -30,7 +30,7 @@ impl ShrinkerConfig {
             seed: 0,
             chain: evm::Chain::default(),
             target_address: Address::ZERO,
-            shared_failed_item: SharedFailedCorpusItem::new(
+            shared_failed_corpus: SharedFailedCorpusItem::new(
                 Item::from(vec![]),
                 CorpusConfig::new(""),
             ),
@@ -61,7 +61,7 @@ impl ShrinkerConfig {
 
     /// Set the shared failed corpus item.
     pub fn shared_failed_item(mut self, value: SharedFailedCorpusItem) -> Self {
-        self.shared_failed_item = value;
+        self.shared_failed_corpus = value;
         self
     }
 

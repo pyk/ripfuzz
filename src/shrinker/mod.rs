@@ -1,11 +1,11 @@
 //! Per-thread shrinker that minimizes a failing corpus item.
 //!
-//! [`Shrinker`](Shrinker) draws a mutated copy of the current smallest failing
+//! [`Shrinker`] draws a mutated copy of the current smallest failing
 //! item, executes it on a fresh chain clone, and replaces the shared item if
 //! the mutated sequence is still failing and strictly smaller.
 //!
-//! [`Shrinker`](Shrinker) is configured via [`Config`](Config)
-//! and runs directly on a cloned chain.
+//! [`Shrinker`] is configured via [`ShrinkerConfig`] and runs directly
+//! on a cloned chain.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,7 +34,7 @@ mod output;
 pub struct Shrinker {
     chain: evm::Chain,
     target_address: Address,
-    shared_failed_item: SharedFailedCorpusItem,
+    shared_failed_corpus: SharedFailedCorpusItem,
     shutdown_signal: Arc<AtomicBool>,
     max_runs: u64,
     timeout: Option<Duration>,
@@ -48,7 +48,7 @@ impl Shrinker {
         Self {
             chain: config.chain,
             target_address: config.target_address,
-            shared_failed_item: config.shared_failed_item,
+            shared_failed_corpus: config.shared_failed_corpus,
             shutdown_signal: config.shutdown_signal,
             max_runs: config.max_runs,
             timeout: config.timeout,
@@ -81,7 +81,7 @@ impl Shrinker {
                 break;
             }
 
-            let item = self.shared_failed_item.next_item(&mut self.rng);
+            let item = self.shared_failed_corpus.next_item(&mut self.rng);
             // checkrs: allow(clone_in_loops)
             let mut fresh_chain = self.chain.clone();
             let transactions: Vec<Transaction> = item
@@ -100,7 +100,7 @@ impl Shrinker {
             runs += 1;
 
             if !exec.panic_transactions.is_empty() {
-                self.shared_failed_item.replace_item(item);
+                self.shared_failed_corpus.replace_item(item);
             }
         }
 
