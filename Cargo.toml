@@ -30,6 +30,9 @@ toml = "1.1.2"
 # RNG
 fastrand = "2"
 
+# Date/time formatting
+jiff = "0.2.28"
+
 # EVM
 revm = { version = "38.0.0", features = ["optional_balance_check", "optional_eip3607", "optional_no_base_fee"] }
 

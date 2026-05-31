@@ -42,6 +42,8 @@ pub struct CoverageUpdate {
 pub struct ContractCoverage {
     /// Per-PC hitcount buckets. Length equals bytecode length.
     pub edges: Vec<AtomicU8>,
+    /// Per-PC raw hit counts. Length equals bytecode length.
+    pub raw_edges: Vec<AtomicU64>,
     /// Per-PC call-depth bitset (only first `DEPTH_TRACKED_PCS` PCs).
     pub depths: Vec<AtomicU64>,
     /// Per-PC revert bitset (packed, one bit per PC).
@@ -68,6 +70,7 @@ impl ContractCoverage {
         let revert_words = bytecode_len.div_ceil(64);
         Self {
             edges: (0..bytecode_len).map(|_| AtomicU8::new(0)).collect(),
+            raw_edges: (0..bytecode_len).map(|_| AtomicU64::new(0)).collect(),
             depths: (0..depth_len).map(|_| AtomicU64::new(0)).collect(),
             reverts: (0..revert_words).map(|_| AtomicU64::new(0)).collect(),
             jump_edges: HashMap::new(),
@@ -125,6 +128,7 @@ impl SharedCoverage {
                 let local_raw = local_contract.edges[pc];
                 let local_bucket = afl_bucket(local_raw);
                 let prev = global.edges[pc].fetch_max(local_bucket, Ordering::Relaxed);
+                global.raw_edges[pc].fetch_add(local_raw as u64, Ordering::Relaxed);
                 if prev == 0 {
                     update.new_edges += 1;
                 } else if local_bucket > afl_bucket(prev) {
@@ -245,6 +249,19 @@ impl SharedCoverage {
     pub fn jump_count(&self) -> usize {
         let guard = self.inner.contracts.pin();
         guard.iter().map(|(_, c)| c.jump_edges.len()).sum()
+    }
+
+    /// Return the raw edge counts for a contract, if it exists.
+    pub fn raw_edge_counts(&self, contract_id: &B256) -> Option<Vec<u64>> {
+        let guard = self.inner.contracts.pin();
+        let contract = guard.get(contract_id)?;
+        Some(
+            contract
+                .raw_edges
+                .iter()
+                .map(|e| e.load(Ordering::Relaxed))
+                .collect(),
+        )
     }
 }
 

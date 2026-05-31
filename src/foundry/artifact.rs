@@ -467,7 +467,7 @@ fn get_artifact_id(json: &ArtifactJson) -> Result<ArtifactId> {
 ///
 /// "Contract" here refers to the `ContractDefinition` AST node, which covers
 /// contracts, interfaces, and libraries.
-fn get_contract_definition<'a>(
+pub fn get_contract_definition<'a>(
     ast: &'a solc::ast::SourceUnit,
     contract_name: &str,
 ) -> Result<&'a solc::ast::ContractDefinition> {

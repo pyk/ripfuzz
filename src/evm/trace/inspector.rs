@@ -195,10 +195,11 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
 mod tests {
     use std::fs;
 
+    use alloy_primitives::U256;
+
     use crate::evm::Contract;
     use crate::evm::chain::{Chain, ChainConfig, DeployInput};
     use crate::foundry::{ArtifactId, Project};
-    use alloy_primitives::U256;
 
     struct TestCase {
         artifact_id: &'static str,

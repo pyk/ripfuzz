@@ -19,7 +19,7 @@ use crate::corpus::{
 };
 use crate::evm::{
     Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, SetupInput, SharedCoverage,
-    TraceContext,
+    TraceContext, write_coverage_report,
 };
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
@@ -518,6 +518,15 @@ pub fn run(args: Args) -> Result<()> {
     let fuzzers = args.threads;
     let timeout = args.timeout_secs.map(std::time::Duration::from_secs);
 
+    // Generate campaign ID for coverage report.
+    let now = jiff::Zoned::now();
+    let date = jiff::fmt::strtime::format("%Y-%m-%d", &now).unwrap_or_default();
+    let hour = jiff::fmt::strtime::format("%H%M", &now).unwrap_or_default();
+    let uuid = uuid::Uuid::new_v4();
+    let uuid_str: String = uuid.into();
+    let uuid_prefix = uuid_str.split('-').next().unwrap_or_default();
+    let campaign_id = format!("{date}-{hour}-{uuid_prefix}");
+
     let fuzzers_u64 = fuzzers as u64;
     let base_runs = args.max_runs / fuzzers_u64;
     let remainder = (args.max_runs % fuzzers_u64) as usize;
@@ -607,6 +616,27 @@ pub fn run(args: Args) -> Result<()> {
         console.new_line()?;
         console.print("no failed assertions found!")?;
         console.print("raptor out. see ya")?;
+
+        let runtime_code = deployment.result.output.clone().unwrap_or_default();
+        console.begin("writing coverage report ...")?;
+        match write_coverage_report(
+            &project_path,
+            &campaign_id,
+            &shared_coverage,
+            &target_contract,
+            &build_artifacts,
+            &runtime_code,
+        ) {
+            Ok(coverage_dir) => {
+                console.update(format!("coverage: {}", coverage_dir.display()))?;
+                console.end()?;
+            }
+            Err(e) => {
+                console.end_fail("failed to write coverage report")?;
+                tracing::error!(%e, "failed to write coverage report");
+            }
+        }
+
         return Ok(());
     }
 
@@ -783,6 +813,26 @@ pub fn run(args: Args) -> Result<()> {
         )?;
         console.update(format!("trace: {}", trace_file.display()))?;
         console.end()?;
+    }
+
+    let runtime_code = deployment.result.output.clone().unwrap_or_default();
+    console.begin("writing coverage report ...")?;
+    match write_coverage_report(
+        &project_path,
+        &campaign_id,
+        &shared_coverage,
+        &target_contract,
+        &build_artifacts,
+        &runtime_code,
+    ) {
+        Ok(coverage_dir) => {
+            console.update(format!("coverage: {}", coverage_dir.display()))?;
+            console.end()?;
+        }
+        Err(e) => {
+            console.end_fail("failed to write coverage report")?;
+            tracing::error!(%e, "failed to write coverage report");
+        }
     }
 
     Ok(())
