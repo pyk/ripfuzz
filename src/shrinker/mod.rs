@@ -18,6 +18,7 @@ use anyhow::Result;
 use tracing::instrument;
 
 pub use crate::shrinker::config::ShrinkerConfig;
+pub use crate::shrinker::output::ShrinkerOutput;
 
 use crate::corpus::{Call, SharedFailedCorpusItem};
 use crate::evm;
@@ -25,14 +26,7 @@ use crate::evm::Transaction;
 use crate::fuzzer::SharedMetrics;
 
 mod config;
-
-/// Result produced by a single shrinker thread.
-#[derive(Debug, Clone)]
-pub struct ShrinkerOutput {
-    pub runs: u64,
-    pub total_calls: u64,
-    pub total_gas: u64,
-}
+mod output;
 
 /// Per-thread shrinker that executes mutated call sequences and keeps the
 /// smallest item that still triggers a failed assertion.
