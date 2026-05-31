@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 
-use alloy_dyn_abi::{DynSolType, DynSolValue};
-use alloy_json_abi::{JsonAbi, Param};
+use alloy_dyn_abi::{DynSolEvent, DynSolType, DynSolValue};
+use alloy_json_abi::{EventParam, InternalType, JsonAbi, Param};
 use alloy_primitives::{B256, FixedBytes, U256, keccak256};
 use alloy_sol_types::SolError;
 use anyhow::Result;
@@ -733,6 +733,69 @@ impl TraceContext {
         (None, "...".into())
     }
 
+    /// Decode an event log using the registered ABIs.
+    ///
+    /// Returns the event name (if found) and a formatted argument string.
+    pub fn decode_event(&self, log: &revm::primitives::Log) -> (Option<String>, String) {
+        let topics = log.data.topics();
+        let data = &log.data.data;
+
+        if topics.is_empty() {
+            return (None, format!("0x{}", hex::encode(data)));
+        }
+
+        let topic_0 = topics[0];
+        for abi in &self.abis {
+            for event in abi.events() {
+                if event.selector() == topic_0 {
+                    // checkrs: allow(clone_in_loops)
+                    let name = event.name.clone();
+                    let indexed: Vec<DynSolType> = event
+                        .inputs
+                        .iter()
+                        .filter(|p| p.indexed)
+                        .filter_map(|p| DynSolType::parse(&p.selector_type()).ok())
+                        .collect();
+                    let body: Vec<DynSolType> = event
+                        .inputs
+                        .iter()
+                        .filter(|p| !p.indexed)
+                        .filter_map(|p| DynSolType::parse(&p.selector_type()).ok())
+                        .collect();
+                    let body = DynSolType::Tuple(body);
+                    let Some(dyn_event) = DynSolEvent::new(Some(topic_0), indexed, body) else {
+                        return (Some(name), "...".into());
+                    };
+                    match dyn_event.decode_log_data(&log.data) {
+                        Ok(decoded) => {
+                            let mut args = Vec::new();
+                            let mut indexed_idx = 0;
+                            let mut body_idx = 0;
+                            for param in &event.inputs {
+                                if param.indexed {
+                                    if let Some(val) = decoded.indexed.get(indexed_idx) {
+                                        args.push(format_abi_value(val, param, &self.labels));
+                                        indexed_idx += 1;
+                                    }
+                                } else {
+                                    if let Some(val) = decoded.body.get(body_idx) {
+                                        args.push(format_abi_value(val, param, &self.labels));
+                                        body_idx += 1;
+                                    }
+                                }
+                            }
+                            return (Some(name), args.join(", "));
+                        }
+                        Err(_) => {
+                            return (Some(name), "...".into());
+                        }
+                    }
+                }
+            }
+        }
+        (None, format!("0x{}", hex::encode(data)))
+    }
+
     /// Decode a revert reason from its output data.
     pub fn decode_revert(&self, data: &Bytes) -> String {
         if data.is_empty() {
@@ -828,11 +891,43 @@ pub(super) fn format_value(v: &DynSolValue, labels: &HashMap<Address, String>) -
     }
 }
 
+/// Trait abstracting over ABI parameter types so that [`format_abi_value`]
+/// can be reused for both function parameters and event parameters.
+pub(super) trait FormatParam {
+    fn is_struct(&self) -> bool;
+    fn internal_type(&self) -> Option<&InternalType>;
+    fn components(&self) -> &[Param];
+}
+
+impl FormatParam for Param {
+    fn is_struct(&self) -> bool {
+        Param::is_struct(self)
+    }
+    fn internal_type(&self) -> Option<&InternalType> {
+        Param::internal_type(self)
+    }
+    fn components(&self) -> &[Param] {
+        &self.components
+    }
+}
+
+impl FormatParam for EventParam {
+    fn is_struct(&self) -> bool {
+        EventParam::is_struct(self)
+    }
+    fn internal_type(&self) -> Option<&InternalType> {
+        EventParam::internal_type(self)
+    }
+    fn components(&self) -> &[Param] {
+        &self.components
+    }
+}
+
 /// Format a single decoded value using ABI parameter metadata so that structs
 /// are rendered with their type name and field names.
 pub(super) fn format_abi_value(
     value: &DynSolValue,
-    param: &Param,
+    param: &impl FormatParam,
     labels: &HashMap<Address, String>,
 ) -> String {
     match value {
@@ -845,14 +940,14 @@ pub(super) fn format_abi_value(
                     .unwrap_or("tuple");
                 let inner: Vec<String> = vals
                     .iter()
-                    .zip(param.components.iter())
+                    .zip(param.components().iter())
                     .map(|(v, p)| format!("{}: {}", p.name(), format_abi_value(v, p, labels)))
                     .collect();
                 format!("{}({{ {inner} }})", name, inner = inner.join(", "))
             } else {
                 let inner: Vec<String> = vals
                     .iter()
-                    .zip(param.components.iter())
+                    .zip(param.components().iter())
                     .map(|(v, p)| format_abi_value(v, p, labels))
                     .collect();
                 format!("({inner})", inner = inner.join(", "))
@@ -872,7 +967,7 @@ pub(super) fn format_abi_value(
 /// Format a list of decoded values using ABI parameter metadata.
 pub(super) fn format_abi_args(
     values: &[DynSolValue],
-    params: &[Param],
+    params: &[impl FormatParam],
     labels: &HashMap<Address, String>,
 ) -> String {
     if values.is_empty() {

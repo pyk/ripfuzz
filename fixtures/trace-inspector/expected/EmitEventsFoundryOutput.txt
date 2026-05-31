@@ -1,0 +1,22 @@
+No files changed, compilation skipped
+
+Ran 1 test for test/EmitEvents.t.sol:EmitEventsTest
+[PASS] testDeploy() (gas: 62687)
+Traces:
+  [62687] EmitEventsTest::testDeploy()
+    ├─ [29980] → new EmitEvents@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+    │   ├─ emit Transfer(from: 0x0000000000000000000000000000000000000000, to: EmitEventsTest: [0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496], value: 1000)
+    │   ├─ emit Approval(owner: EmitEventsTest: [0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496], spender: 0x000000000000000000000000000000000000bEEF, value: 500)
+    │   ├─ emit NoArgs()
+    │   ├─ emit IndexedBytes(sender: EmitEventsTest: [0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496], data: 0x1234)
+    │   ├─           data: 0x000000000000000000000000000000000000000000000000000000000000002a
+    │   ├─ emit MultipleIndexed(a: 1, b: 0x000000000000000000000000000000000000cafE, c: 0x0000000000000000000000000000000000000000000000000000000000000002, d: 3)
+    │   ├─ emit StringEvent(name: "hello")
+    │   ├─ emit StructEvent(p: Point({ x: 1, y: 2 }))
+    │   ├─ emit ArrayEvent(values: [1, 2, 3])
+    │   └─ ← [Return] 62 bytes of code
+    └─ ← [Stop]
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 268.26µs (88.50µs CPU time)
+
+Ran 1 test suite in 6.74ms (268.26µs CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)

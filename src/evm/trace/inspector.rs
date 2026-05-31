@@ -105,6 +105,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             success: false,
             children: Vec::new(),
             storage_changes: Vec::new(),
+            logs: Vec::new(),
         });
         None
     }
@@ -120,6 +121,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             success: false,
             children: Vec::new(),
             storage_changes: Vec::new(),
+            logs: Vec::new(),
         });
         let ir = &outcome.result;
         frame.gas_used = ir.gas.total_gas_spent();
@@ -147,6 +149,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             success: false,
             children: Vec::new(),
             storage_changes: Vec::new(),
+            logs: Vec::new(),
         });
         None
     }
@@ -167,6 +170,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             success: false,
             children: Vec::new(),
             storage_changes: Vec::new(),
+            logs: Vec::new(),
         });
         let ir = &outcome.result;
         frame.gas_used = ir.gas.total_gas_spent();
@@ -183,6 +187,12 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             parent.children.push(frame);
         } else {
             self.roots.push(frame);
+        }
+    }
+
+    fn log(&mut self, _context: &mut CTX, log: revm::primitives::Log) {
+        if let Some(frame) = self.stack.last_mut() {
+            frame.logs.push(log);
         }
     }
 }
@@ -400,6 +410,33 @@ mod tests {
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected = fs::read_to_string("fixtures/trace-inspector/expected/LabelTrace.txt")
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}",));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "trace output must match expected"
+        );
+    }
+
+    #[test]
+    fn emit_events_trace() {
+        let contract = load_fixture("src/EmitEvents.sol:EmitEvents");
+
+        let project = Project::new("fixtures/trace-inspector");
+        let mut ctx = crate::evm::trace::TraceContext::from_project(&project).unwrap();
+
+        let mut chain = Chain::empty(ChainConfig::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+
+        let root = &deployment.trace.roots[0];
+        let deploy_address = root.address.unwrap();
+
+        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+
+        let formatted = format!("{}", deployment.trace.display_with(&ctx));
+        let expected = fs::read_to_string("fixtures/trace-inspector/expected/EmitEvents.txt")
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}",));
         assert_eq!(
             formatted.trim(),

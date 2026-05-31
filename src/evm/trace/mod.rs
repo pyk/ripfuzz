@@ -6,7 +6,7 @@ use std::fmt;
 use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_primitives::{I256, U256};
 use revm::interpreter::CallScheme;
-use revm::primitives::{Address, Bytes};
+use revm::primitives::{Address, Bytes, Log};
 
 pub use context::{StorageChangeInfo, TraceContext};
 pub use inspector::Inspector;
@@ -449,6 +449,22 @@ impl<'a> TraceDisplay<'a> {
             self.write_frame(f, child, &child_has_next, false)?;
         }
 
+        // Write logs as pseudo-children
+        for log in &frame.logs {
+            let mut log_prefix = String::new();
+            for h in &child_has_next {
+                if *h {
+                    log_prefix.push_str("│   ");
+                } else {
+                    log_prefix.push_str("    ");
+                }
+            }
+            log_prefix.push_str("├─ ");
+            let (name, args) = self.ctx.decode_event(log);
+            let name = name.as_deref().unwrap_or("Log");
+            writeln!(f, "{log_prefix}emit {name}({args})")?;
+        }
+
         // Write storage changes as pseudo-children
         let actual_changes: Vec<&StorageChange> = frame
             .storage_changes
@@ -591,4 +607,5 @@ pub struct CallFrame {
     pub success: bool,
     pub children: Vec<CallFrame>,
     pub storage_changes: Vec<StorageChange>,
+    pub logs: Vec<Log>,
 }
