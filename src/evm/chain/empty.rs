@@ -339,6 +339,41 @@ mod tests {
         );
     }
 
+    /// A target contract whose `setup()` reverts must fail setup on an empty
+    /// sandbox chain.
+    #[test]
+    fn setup_revert_fails() {
+        let contract = load_fixture("test/EmptyChainSetupRevert.sol:EmptyChainSetupRevert");
+
+        let mut chain = Chain::empty(ChainConfig::default());
+        let opts = DeployInput::new(&contract.initcode);
+        let deployment = chain.deploy(opts).unwrap();
+
+        assert!(
+            deployment.result.success,
+            "deployment must succeed for contract with setup revert"
+        );
+        let address = deployment.address.unwrap();
+
+        let setup_func = contract
+            .setup_function
+            .as_ref()
+            .expect("setup function must exist in ABI");
+        let setup_data = Bytes::from(setup_func.selector().as_slice().to_vec());
+        let setup_opts = crate::evm::chain::SetupInput::new(address).calldata(setup_data);
+        let setup = chain.setup(setup_opts).unwrap();
+
+        assert!(
+            !setup.result.success,
+            "setup must fail when setup() reverts"
+        );
+        assert_eq!(
+            setup.trace.roots.len(),
+            1,
+            "trace must contain the root call frame"
+        );
+    }
+
     /// A target contract that calls a raptor cheatcode in its constructor must
     /// deploy successfully on an empty sandbox chain.
     #[test]

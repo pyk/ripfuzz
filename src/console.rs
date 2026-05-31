@@ -242,6 +242,28 @@ impl<W: Write> Console<W> {
         writeln!(self.output, "{prefix} {message} in {seconds:.2}s")
     }
 
+    /// Replace the line printed by the matching [`Self::begin`] call with a
+    /// failure message.
+    ///
+    /// If no matching `begin` call was made, this is a no-op.
+    pub fn end_fail(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        let (Some(_), Some(_)) = (self.message.take(), self.start.take()) else {
+            return Ok(());
+        };
+        self.elapsed = None;
+
+        if self.is_terminal {
+            write!(self.output, "{REPLACE_LINE}")?;
+        }
+
+        let prefix = self.fail_prefix();
+        writeln!(
+            self.output,
+            "{prefix} {message}",
+            message = message.as_ref()
+        )
+    }
+
     fn start_prefix(&self) -> String {
         if self.is_terminal {
             format!("{GREEN}[*]{RESET}")
@@ -402,6 +424,47 @@ mod tests {
         let mut buf = Vec::new();
         let mut console = Console::with_writer(&mut buf, true);
         console.update("loading build artifacts [1/12]").unwrap();
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn console_end_fail_non_terminal() {
+        let mut buf = Vec::new();
+        let mut console = Console::with_writer(&mut buf, false);
+        console.begin("deploying contract").unwrap();
+        console.end_fail("failed to deploy contract").unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(
+            output,
+            "[*] deploying contract\n[!] failed to deploy contract\n"
+        );
+    }
+
+    #[test]
+    fn console_end_fail_terminal() {
+        let mut buf = Vec::new();
+        let mut console = Console::with_writer(&mut buf, true);
+        console.begin("deploying contract").unwrap();
+        console.end_fail("failed to deploy contract").unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        let prefix_start = format!("{GREEN}[*]{RESET}");
+        let prefix_fail = format!("{RED}[!]{RESET}");
+        assert_eq!(
+            output,
+            format!(
+                "{prefix_start} deploying contract\
+                {REPLACE_LINE}{prefix_fail} failed to deploy contract\n"
+            )
+        );
+    }
+
+    #[test]
+    fn console_end_fail_without_begin_is_noop() {
+        let mut buf = Vec::new();
+        let mut console = Console::with_writer(&mut buf, false);
+        console.end_fail("failed to deploy contract").unwrap();
         assert!(buf.is_empty());
     }
 }

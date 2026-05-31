@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -18,6 +19,7 @@ use crate::corpus::{
 };
 use crate::evm::{
     Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, SetupInput, SharedCoverage,
+    TraceContext,
 };
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
@@ -364,12 +366,21 @@ pub fn run(args: Args) -> Result<()> {
         deploy_opts = deploy_opts.add_library(lib);
     }
     let deployment = chain.deploy(deploy_opts)?;
-    ensure!(
-        deployment.result.success,
-        "target contract deployment failed (output: {:?})\n\ntrace:\n{:#?}",
-        deployment.result.output,
-        deployment.trace
-    );
+    if !deployment.result.success {
+        let mut ctx = TraceContext::from_project(&project)?;
+        if let Some(addr) = deployment.trace.roots.first().and_then(|r| r.address) {
+            ctx = ctx.with_label(addr, contract_name);
+        }
+        let traces_dir = project_path.join("raptor").join("traces");
+        fs::create_dir_all(&traces_dir)?;
+        let trace_id = uuid::Uuid::new_v4();
+        let trace_file = traces_dir.join(format!("{trace_id}.txt"));
+        let trace = deployment.trace.display_with(&ctx);
+        fs::write(&trace_file, format!("{trace}"))?;
+        console.end_fail(format!("failed to deploy {contract_name}"))?;
+        console.print_line(format!("    trace: {}", trace_file.display()))?;
+        return Err(anyhow::anyhow!("target contract deployment failed"));
+    }
     let deployed_address = deployment
         .address
         .context("deployment succeeded but created_address is missing")?;
@@ -402,12 +413,19 @@ pub fn run(args: Args) -> Result<()> {
                 .calldata(Bytes::from(setup.selector().as_slice().to_vec()))
                 .caller(args.deployer_address),
         )?;
-        ensure!(
-            setup_output.result.success,
-            "setup failed (output: {:?})\n\ntrace:\n{:#?}",
-            setup_output.result.output,
-            setup_output.trace
-        );
+        if !setup_output.result.success {
+            let ctx =
+                TraceContext::from_project(&project)?.with_label(deployed_address, contract_name);
+            let traces_dir = project_path.join("raptor").join("traces");
+            fs::create_dir_all(&traces_dir)?;
+            let trace_id = uuid::Uuid::new_v4();
+            let trace_file = traces_dir.join(format!("{trace_id}.txt"));
+            let trace = setup_output.trace.display_with(&ctx);
+            fs::write(&trace_file, format!("{trace}"))?;
+            console.end_fail("failed to call setup")?;
+            console.print_line(format!("    trace: {}", trace_file.display()))?;
+            return Err(anyhow::anyhow!("setup failed"));
+        }
         console.end()?;
     }
 
