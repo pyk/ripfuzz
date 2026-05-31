@@ -127,9 +127,6 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
         frame.gas_used = ir.gas.total_gas_spent();
         frame.success = ir.result.is_ok();
         frame.output = ir.output.clone();
-        if !frame.success {
-            frame.storage_changes.clear();
-        }
 
         if let Some(parent) = self.stack.last_mut() {
             parent.children.push(frame);
@@ -179,9 +176,6 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
         if let Some(addr) = outcome.address {
             frame.address = Some(addr);
         }
-        if !frame.success {
-            frame.storage_changes.clear();
-        }
 
         if let Some(parent) = self.stack.last_mut() {
             parent.children.push(frame);
@@ -201,6 +195,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
 mod tests {
     use std::fs;
 
+    use alloy_primitives::U256;
     use crate::evm::Contract;
     use crate::evm::chain::{Chain, ChainConfig, DeployInput};
     use crate::foundry::{ArtifactId, Project};
@@ -444,5 +439,38 @@ mod tests {
             expected.trim(),
             "trace output must match expected"
         );
+    }
+
+    /// Regression test: storage changes recorded before a revert must not be
+    /// discarded when the call or create frame fails.
+    #[test]
+    fn storage_changes_not_cleared_on_revert() {
+        let contract = load_fixture("src/StorageChangeRevert.sol:StorageChangeRevert");
+
+        let mut chain = Chain::empty(ChainConfig::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(
+            !deployment.result.success,
+            "deployment must fail when constructor reverts"
+        );
+        assert_eq!(
+            deployment.trace.roots.len(),
+            1,
+            "trace must have one root"
+        );
+
+        let root = &deployment.trace.roots[0];
+        assert!(
+            !root.storage_changes.is_empty(),
+            "storage changes must be preserved on revert"
+        );
+        assert_eq!(
+            root.storage_changes.len(),
+            1,
+            "exactly one storage change must be recorded"
+        );
+        let change = &root.storage_changes[0];
+        assert_eq!(change.old_value, U256::ZERO, "old value must be 0");
+        assert_eq!(change.new_value, U256::from(42), "new value must be 42");
     }
 }

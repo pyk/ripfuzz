@@ -371,6 +371,9 @@ pub fn run(args: Args) -> Result<()> {
         if let Some(addr) = deployment.trace.roots.first().and_then(|r| r.address) {
             ctx = ctx.with_label(addr, contract_name);
         }
+        for (addr, label) in chain.labels() {
+            ctx = ctx.with_label(*addr, label);
+        }
         let traces_dir = project_path.join("raptor").join("traces");
         fs::create_dir_all(&traces_dir)?;
         let trace_id = uuid::Uuid::new_v4();
@@ -414,8 +417,11 @@ pub fn run(args: Args) -> Result<()> {
                 .caller(args.deployer_address),
         )?;
         if !setup_output.result.success {
-            let ctx =
+            let mut ctx =
                 TraceContext::from_project(&project)?.with_label(deployed_address, contract_name);
+            for (addr, label) in chain.labels() {
+                ctx = ctx.with_label(*addr, label);
+            }
             let traces_dir = project_path.join("raptor").join("traces");
             fs::create_dir_all(&traces_dir)?;
             let trace_id = uuid::Uuid::new_v4();
