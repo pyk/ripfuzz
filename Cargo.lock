@@ -922,17 +922,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clap-verbosity-flag"
-version = "3.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d92b1fab272fe943881b77cc6e920d6543e5b1bfadbd5ed81c7c5a755742394"
-dependencies = [
- "clap",
- "log",
- "tracing-core",
-]
-
-[[package]]
 name = "clap_builder"
 version = "4.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2510,7 +2499,6 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "clap",
- "clap-verbosity-flag",
  "crossbeam",
  "dashmap",
  "fastrand",

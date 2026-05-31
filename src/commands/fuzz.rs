@@ -132,8 +132,18 @@ pub struct Args {
     pub corpus_dir: Option<PathBuf>,
 
     // Logging
-    #[command(flatten)]
-    pub verbosity: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
+    /// Log verbosity level.
+    #[arg(
+        long = "log-level",
+        default_value = "info",
+        value_name = "LEVEL",
+        help_heading = "Logging"
+    )]
+    pub log_level: tracing::Level,
+
+    /// Disable writing log output to a file.
+    #[arg(long = "disable-log", help_heading = "Logging")]
+    pub disable_log: bool,
 
     /// Fork mode configuration.
     #[command(flatten)]
@@ -288,10 +298,30 @@ impl ForkModeArgs {
 #[instrument(skip(args), fields(target = ?args.target, threads = args.threads, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
     let mut console = Console::new();
+    console.set_disabled(args.disable_log);
     console.print(format!("starting raptor v{}", env!("CARGO_PKG_VERSION")))?;
 
     // Resolve project path
     let project_path = args.project_path.map(Ok).unwrap_or_else(env::current_dir)?;
+
+    // Generate campaign ID for coverage report, trace output, and log file.
+    let now = jiff::Zoned::now();
+    let date = jiff::fmt::strtime::format("%Y-%m-%d", &now).unwrap_or_default();
+    let hour = jiff::fmt::strtime::format("%H%M", &now).unwrap_or_default();
+    let uuid = uuid::Uuid::new_v4();
+    let uuid_str: String = uuid.into();
+    let uuid_prefix = uuid_str.split('-').next().unwrap_or_default();
+    let campaign_id = format!("{date}-{hour}-{uuid_prefix}");
+
+    if !args.disable_log {
+        let log_file = project_path
+            .join("raptor")
+            .join("campaigns")
+            .join(&campaign_id)
+            .join("fuzz.log");
+        crate::logger::init(&log_file, args.log_level)?;
+    }
+
     debug!(?project_path, "resolved project path");
 
     // Build project
@@ -358,15 +388,6 @@ pub fn run(args: Args) -> Result<()> {
         chain.block_env().number,
         chain.block_env().timestamp,
     ))?;
-
-    // Generate campaign ID for coverage report and trace output.
-    let now = jiff::Zoned::now();
-    let date = jiff::fmt::strtime::format("%Y-%m-%d", &now).unwrap_or_default();
-    let hour = jiff::fmt::strtime::format("%H%M", &now).unwrap_or_default();
-    let uuid = uuid::Uuid::new_v4();
-    let uuid_str: String = uuid.into();
-    let uuid_prefix = uuid_str.split('-').next().unwrap_or_default();
-    let campaign_id = format!("{date}-{hour}-{uuid_prefix}");
 
     // Deploy target contract
     let contract_name = &target_contract.artifact_id.name;
@@ -879,7 +900,6 @@ fn write_trace_to_file(
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use clap_verbosity_flag::Verbosity;
     use revm::primitives::U256;
 
     use crate::commands::fuzz::ForkModeArgs;
@@ -913,7 +933,8 @@ mod tests {
             max_calls: 32,
             seed: 0,
             corpus_dir: Some(corpus_dir),
-            verbosity: Verbosity::new(0, 0),
+            log_level: tracing::Level::INFO,
+            disable_log: true,
             fork_mode: ForkModeArgs::default(),
             ffi: false,
             force: false,

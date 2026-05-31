@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use tracing::error;
 
-use raptor::{commands, logger};
+use raptor::commands;
 
 #[derive(Debug, Parser)]
 #[command(name = "raptor", version, about)]
@@ -24,10 +24,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Fuzz(args) => {
-            logger::init(args.verbosity.tracing_level());
-            commands::fuzz::run(args)
-        }
+        Commands::Fuzz(args) => commands::fuzz::run(args),
     };
 
     if let Err(e) = result {

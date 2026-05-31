@@ -24,6 +24,8 @@ pub struct Console<W> {
     last_lines: usize,
     /// Overrides the real elapsed time in tests.
     elapsed: Option<Duration>,
+    /// When true, all output methods are no-ops.
+    disabled: bool,
 }
 
 impl<W> std::fmt::Debug for Console<W> {
@@ -34,6 +36,7 @@ impl<W> std::fmt::Debug for Console<W> {
             .field("message", &self.message)
             .field("last_lines", &self.last_lines)
             .field("elapsed", &self.elapsed)
+            .field("disabled", &self.disabled)
             .finish_non_exhaustive()
     }
 }
@@ -69,7 +72,13 @@ impl<W: Write> Console<W> {
             message: None,
             last_lines: 0,
             elapsed: None,
+            disabled: false,
         }
+    }
+
+    /// Enable or disable all console output.
+    pub fn set_disabled(&mut self, disabled: bool) {
+        self.disabled = disabled;
     }
 
     /// Print a one-off status line.
@@ -77,6 +86,9 @@ impl<W: Write> Console<W> {
     /// The line is prefixed with a green `[*]` and always terminated with a
     /// newline.
     pub fn print(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        if self.disabled {
+            return Ok(());
+        }
         let prefix = self.start_prefix();
         writeln!(
             self.output,
@@ -90,6 +102,9 @@ impl<W: Write> Console<W> {
     /// The line is prefixed with a red `[!]` and always terminated with a
     /// newline.
     pub fn print_fail(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        if self.disabled {
+            return Ok(());
+        }
         let prefix = self.fail_prefix();
         writeln!(
             self.output,
@@ -100,16 +115,25 @@ impl<W: Write> Console<W> {
 
     /// Print a line without any status prefix.
     pub fn print_line(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        if self.disabled {
+            return Ok(());
+        }
         writeln!(self.output, "{message}", message = message.as_ref())
     }
 
     /// Replace the stored message without writing to the output.
     pub fn set_message(&mut self, message: impl AsRef<str>) {
+        if self.disabled {
+            return;
+        }
         self.message = Some(message.as_ref().into());
     }
 
     /// Write a newline in terminal mode (no-op otherwise).
     pub fn new_line(&mut self) -> io::Result<()> {
+        if self.disabled {
+            return Ok(());
+        }
         if self.is_terminal {
             writeln!(self.output)?;
         }
@@ -118,6 +142,9 @@ impl<W: Write> Console<W> {
 
     /// Print a multi-line message, replacing the previous one in terminal mode.
     pub fn print_clearable(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        if self.disabled {
+            return Ok(());
+        }
         let message = message.as_ref();
         let prev_lines = self.last_lines;
         if self.is_terminal && prev_lines > 0 {
@@ -135,6 +162,13 @@ impl<W: Write> Console<W> {
     /// End the current status, clearing any multi-line output and replacing the
     /// title line with the success message.
     pub fn clear_and_end(&mut self) -> io::Result<()> {
+        if self.disabled {
+            self.message = None;
+            self.start = None;
+            self.elapsed = None;
+            self.last_lines = 0;
+            return Ok(());
+        }
         let (Some(message), Some(start)) = (self.message.take(), self.start.take()) else {
             return Ok(());
         };
@@ -163,6 +197,9 @@ impl<W: Write> Console<W> {
     /// The line is prefixed with a green `[*]`. In a terminal the
     /// line will be replaced by the next call to [`Self::end`].
     pub fn begin(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        if self.disabled {
+            return Ok(());
+        }
         if self.start.is_some() {
             return Ok(());
         }
@@ -184,6 +221,9 @@ impl<W: Write> Console<W> {
     /// [`Self::begin`] call was made. In non-terminal mode this is a no-op
     /// so logs do not get spammed.
     pub fn update(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        if self.disabled {
+            return Ok(());
+        }
         let message = message.as_ref();
         if self.start.is_none() {
             return Ok(());
@@ -208,6 +248,9 @@ impl<W: Write> Console<W> {
         message: impl AsRef<str>,
         elapsed_secs: f64,
     ) -> io::Result<()> {
+        if self.disabled {
+            return Ok(());
+        }
         let message = message.as_ref();
         if self.start.is_none() {
             return Ok(());
@@ -228,6 +271,12 @@ impl<W: Write> Console<W> {
     ///
     /// If no matching `begin` call was made, this is a no-op.
     pub fn end(&mut self) -> io::Result<()> {
+        if self.disabled {
+            self.message = None;
+            self.start = None;
+            self.elapsed = None;
+            return Ok(());
+        }
         let (Some(message), Some(start)) = (self.message.take(), self.start.take()) else {
             return Ok(());
         };
@@ -247,6 +296,12 @@ impl<W: Write> Console<W> {
     ///
     /// If no matching `begin` call was made, this is a no-op.
     pub fn end_fail(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        if self.disabled {
+            self.message = None;
+            self.start = None;
+            self.elapsed = None;
+            return Ok(());
+        }
         let (Some(_), Some(_)) = (self.message.take(), self.start.take()) else {
             return Ok(());
         };
