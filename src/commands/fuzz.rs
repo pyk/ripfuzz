@@ -18,11 +18,11 @@ use crate::corpus::{
 use crate::evm::{
     Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, SetupInput, SharedCoverage,
 };
+use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
 use crate::fuzzer::{FailedAssertion, Fuzzer, FuzzerConfig, SharedMetrics};
 use crate::reporter::Reporter;
 use crate::shrinker::{Shrinker, ShrinkerConfig};
-use crate::stats_formatter::StatsFormatter;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -303,7 +303,7 @@ pub fn run(args: Args) -> Result<()> {
     let build_artifacts = project.load_artifacts()?;
     reporter.update(format!(
         "loaded {} build artifacts",
-        StatsFormatter::num(build_artifacts.len() as u64)
+        formatter::num(build_artifacts.len() as u64)
     ))?;
     reporter.end()?;
     ensure!(
@@ -392,11 +392,11 @@ pub fn run(args: Args) -> Result<()> {
         "deployer",
         args.deployer_address,
         "msg value",
-        StatsFormatter::eth(args.deploy_value),
+        formatter::eth(args.deploy_value),
         "contract address",
         deployed_address,
         "contract size",
-        StatsFormatter::kb(contract_size),
+        formatter::kb(contract_size),
     ))?;
 
     // Run setup if present
@@ -436,17 +436,17 @@ pub fn run(args: Args) -> Result<()> {
         reporter.begin("loading corpus items ...")?;
         reporter.update(format!(
             "loaded {} corpus items",
-            StatsFormatter::num(corpus_stats.valid_count as u64)
+            formatter::num(corpus_stats.valid_count as u64)
         ))?;
         reporter.end()?;
         reporter.print_line(format!(
             "    {:8}: {} items\n    {:8}: {} items\n    {:8}: {} items",
             "on disk",
-            StatsFormatter::num(corpus_stats.total_count as u64),
+            formatter::num(corpus_stats.total_count as u64),
             "valid",
-            StatsFormatter::num(corpus_stats.valid_count as u64),
+            formatter::num(corpus_stats.valid_count as u64),
             "invalid",
-            StatsFormatter::num(
+            formatter::num(
                 (corpus_stats.parse_failed_count + corpus_stats.invalid_call_count) as u64
             )
         ))?;
@@ -471,15 +471,15 @@ pub fn run(args: Args) -> Result<()> {
         reporter.print_line(format!(
             "    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}",
             "unique contracts",
-            StatsFormatter::num(shared_coverage.contract_count() as u64),
+            formatter::num(shared_coverage.contract_count() as u64),
             "total edges",
-            StatsFormatter::num(shared_coverage.edge_count() as u64),
+            formatter::num(shared_coverage.edge_count() as u64),
             "total depths",
-            StatsFormatter::num(shared_coverage.depth_count() as u64),
+            formatter::num(shared_coverage.depth_count() as u64),
             "total reverts",
-            StatsFormatter::num(shared_coverage.revert_count() as u64),
+            formatter::num(shared_coverage.revert_count() as u64),
             "total jumps",
-            StatsFormatter::num(shared_coverage.jump_count() as u64)
+            formatter::num(shared_coverage.jump_count() as u64)
         ))?;
     }
 
@@ -542,7 +542,7 @@ pub fn run(args: Args) -> Result<()> {
     // right after the title line, then refresh every 100ms.
     let mut snapshot = shared_metrics.aggregate();
     let mut function_metrics = shared_metrics.function_metrics();
-    let mut stats = StatsFormatter::fuzzing_stats(
+    let mut stats = formatter::fuzzing_stats(
         &snapshot,
         &function_metrics,
         &shared_coverage,
@@ -557,7 +557,7 @@ pub fn run(args: Args) -> Result<()> {
         snapshot = shared_metrics.aggregate();
         if last_print.elapsed().as_millis() >= 100 {
             function_metrics = shared_metrics.function_metrics();
-            stats = StatsFormatter::fuzzing_stats(
+            stats = formatter::fuzzing_stats(
                 &snapshot,
                 &function_metrics,
                 &shared_coverage,
@@ -590,7 +590,7 @@ pub fn run(args: Args) -> Result<()> {
         reporter.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
         reporter.clear_and_end()?;
         let function_metrics = shared_metrics.function_metrics();
-        let stats = StatsFormatter::fuzzing_stats(
+        let stats = formatter::fuzzing_stats(
             &shared_metrics.aggregate(),
             &function_metrics,
             &shared_coverage,
@@ -614,7 +614,7 @@ pub fn run(args: Args) -> Result<()> {
     reporter.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
     reporter.clear_and_end()?;
     let function_metrics = shared_metrics.function_metrics();
-    let stats = StatsFormatter::fuzzing_stats(
+    let stats = formatter::fuzzing_stats(
         &shared_metrics.aggregate(),
         &function_metrics,
         &shared_coverage,
@@ -686,8 +686,8 @@ pub fn run(args: Args) -> Result<()> {
     let mut reporter = Reporter::new();
     reporter.begin(format!(
         "shrinking {} calls with {} threads",
-        StatsFormatter::num(initial_calls as u64),
-        StatsFormatter::num(shrink_threads as u64)
+        formatter::num(initial_calls as u64),
+        formatter::num(shrink_threads as u64)
     ))?;
     while shrinker_handles.iter().any(|h| !h.is_finished()) {
         let snapshot = shrinker_metrics.aggregate();
@@ -705,10 +705,10 @@ pub fn run(args: Args) -> Result<()> {
         reporter.update_with_elapsed(
             format!(
                 "shrinking: {} threads {} runs {} calls/s {} gas/s",
-                StatsFormatter::num(shrink_threads as u64),
-                StatsFormatter::num(snapshot.runs),
-                StatsFormatter::num(calls_per_sec),
-                StatsFormatter::num(gas_per_sec),
+                formatter::num(shrink_threads as u64),
+                formatter::num(snapshot.runs),
+                formatter::num(calls_per_sec),
+                formatter::num(gas_per_sec),
             ),
             elapsed_secs,
         )?;
@@ -733,10 +733,10 @@ pub fn run(args: Args) -> Result<()> {
     let shrunk_call_word = if shrunk_calls == 1 { "call" } else { "calls" };
     reporter.set_message(format!(
         "shrank {} calls to {} {} with {} threads",
-        StatsFormatter::num(initial_calls as u64),
-        StatsFormatter::num(shrunk_calls as u64),
+        formatter::num(initial_calls as u64),
+        formatter::num(shrunk_calls as u64),
         shrunk_call_word,
-        StatsFormatter::num(shrink_threads as u64)
+        formatter::num(shrink_threads as u64)
     ));
     reporter.end()?;
 

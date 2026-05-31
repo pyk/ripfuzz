@@ -21,8 +21,8 @@ pub mod logger;
 
 mod corpus;
 mod evm;
+mod formatter;
 mod foundry;
 mod fuzzer;
 mod reporter;
 mod shrinker;
-mod stats_formatter;
