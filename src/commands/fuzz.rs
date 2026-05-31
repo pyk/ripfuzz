@@ -359,6 +359,15 @@ pub fn run(args: Args) -> Result<()> {
         chain.block_env().timestamp,
     ))?;
 
+    // Generate campaign ID for coverage report and trace output.
+    let now = jiff::Zoned::now();
+    let date = jiff::fmt::strtime::format("%Y-%m-%d", &now).unwrap_or_default();
+    let hour = jiff::fmt::strtime::format("%H%M", &now).unwrap_or_default();
+    let uuid = uuid::Uuid::new_v4();
+    let uuid_str: String = uuid.into();
+    let uuid_prefix = uuid_str.split('-').next().unwrap_or_default();
+    let campaign_id = format!("{date}-{hour}-{uuid_prefix}");
+
     // Deploy target contract
     let contract_name = &target_contract.artifact_id.name;
     console.begin(format!("deploying {contract_name}..."))?;
@@ -378,10 +387,12 @@ pub fn run(args: Args) -> Result<()> {
         for (addr, label) in chain.labels() {
             ctx = ctx.with_label(*addr, label);
         }
-        let traces_dir = project_path.join("raptor").join("traces");
-        fs::create_dir_all(&traces_dir)?;
-        let trace_id = uuid::Uuid::new_v4();
-        let trace_file = traces_dir.join(format!("{trace_id}.txt"));
+        let trace_dir = project_path
+            .join("raptor")
+            .join("campaigns")
+            .join(&campaign_id);
+        fs::create_dir_all(&trace_dir)?;
+        let trace_file = trace_dir.join("trace.log");
         let trace = deployment.trace.display_with(&ctx);
         fs::write(&trace_file, format!("{trace}"))?;
         console.end_fail(format!("failed to deploy {contract_name}"))?;
@@ -426,10 +437,12 @@ pub fn run(args: Args) -> Result<()> {
             for (addr, label) in chain.labels() {
                 ctx = ctx.with_label(*addr, label);
             }
-            let traces_dir = project_path.join("raptor").join("traces");
-            fs::create_dir_all(&traces_dir)?;
-            let trace_id = uuid::Uuid::new_v4();
-            let trace_file = traces_dir.join(format!("{trace_id}.txt"));
+            let trace_dir = project_path
+                .join("raptor")
+                .join("campaigns")
+                .join(&campaign_id);
+            fs::create_dir_all(&trace_dir)?;
+            let trace_file = trace_dir.join("trace.log");
             let trace = setup_output.trace.display_with(&ctx);
             fs::write(&trace_file, format!("{trace}"))?;
             console.end_fail("failed to call setup")?;
@@ -517,15 +530,6 @@ pub fn run(args: Args) -> Result<()> {
 
     let fuzzers = args.threads;
     let timeout = args.timeout_secs.map(std::time::Duration::from_secs);
-
-    // Generate campaign ID for coverage report.
-    let now = jiff::Zoned::now();
-    let date = jiff::fmt::strtime::format("%Y-%m-%d", &now).unwrap_or_default();
-    let hour = jiff::fmt::strtime::format("%H%M", &now).unwrap_or_default();
-    let uuid = uuid::Uuid::new_v4();
-    let uuid_str: String = uuid.into();
-    let uuid_prefix = uuid_str.split('-').next().unwrap_or_default();
-    let campaign_id = format!("{date}-{hour}-{uuid_prefix}");
 
     let fuzzers_u64 = fuzzers as u64;
     let base_runs = args.max_runs / fuzzers_u64;
@@ -811,6 +815,7 @@ pub fn run(args: Args) -> Result<()> {
             &trace,
             &project,
             &project_path,
+            &campaign_id,
             deployed_address,
             contract_name,
             &chain,
@@ -849,6 +854,7 @@ fn write_trace_to_file(
     trace: &crate::evm::Trace,
     project: &Project,
     project_path: impl AsRef<Path>,
+    campaign_id: &str,
     deployed_address: Address,
     contract_name: &str,
     chain: &Chain,
@@ -857,10 +863,13 @@ fn write_trace_to_file(
     for (addr, label) in chain.labels() {
         ctx = ctx.with_label(*addr, label);
     }
-    let traces_dir = project_path.as_ref().join("raptor").join("traces");
-    fs::create_dir_all(&traces_dir)?;
-    let trace_id = uuid::Uuid::new_v4();
-    let trace_file = traces_dir.join(format!("{trace_id}.txt"));
+    let trace_dir = project_path
+        .as_ref()
+        .join("raptor")
+        .join("campaigns")
+        .join(campaign_id);
+    fs::create_dir_all(&trace_dir)?;
+    let trace_file = trace_dir.join("trace.log");
     let trace_str = trace.display_with(&ctx);
     fs::write(&trace_file, format!("{trace_str}"))?;
     Ok(trace_file)
