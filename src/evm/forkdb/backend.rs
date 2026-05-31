@@ -87,7 +87,7 @@ use serde_json::Value;
 use tracing::instrument;
 use walkdir::WalkDir;
 
-use crate::evm::forkdb::config::Config;
+use crate::evm::forkdb::config::ForkDBConfig;
 use crate::evm::forkdb::error::Error;
 use crate::evm::forkdb::limiter::RateLimiter;
 use crate::evm::forkdb::request::Request;
@@ -127,7 +127,7 @@ struct BatchState {
 
 impl SharedBackend {
     /// Create a backend with the default HTTP transport (`ureq`).
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: ForkDBConfig) -> Self {
         let agent_cfg = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_millis(config.timeout_ms)))
             .build();
@@ -137,7 +137,7 @@ impl SharedBackend {
 
     /// Create a backend with a custom transport (e.g. [`MockTransport`] for
     /// testing).
-    pub fn new_with_transport(config: Config, transport: impl Transport + 'static) -> Self {
+    pub fn new_with_transport(config: ForkDBConfig, transport: impl Transport + 'static) -> Self {
         let limiter = config.rate_limit.map(|r| Arc::new(RateLimiter::new(r)));
         let transport: Arc<dyn Transport> = Arc::new(transport);
 
@@ -479,7 +479,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::evm::forkdb::{Config, MockTransport, Request, Response, Transport, url_hash};
+    use crate::evm::forkdb::{ForkDBConfig, MockTransport, Request, Response, Transport, url_hash};
 
     /// Regression: disk cache must use compact JSON, not pretty-printed JSON.
     #[test]
@@ -498,7 +498,7 @@ mod tests {
             json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
         );
 
-        let config = Config::new(url)
+        let config = ForkDBConfig::new(url)
             .cache_dir(tmp.path())
             .batch_timeout_ms(0)
             .batch_size(1);
@@ -539,7 +539,7 @@ mod tests {
         );
 
         // First backend writes the cache.
-        let config1 = Config::new(url)
+        let config1 = ForkDBConfig::new(url)
             .cache_dir(tmp.path())
             .batch_timeout_ms(0)
             .batch_size(1);
@@ -549,7 +549,7 @@ mod tests {
             .unwrap();
 
         // Second backend loads from disk at startup.
-        let config2 = Config::new(url).cache_dir(tmp.path());
+        let config2 = ForkDBConfig::new(url).cache_dir(tmp.path());
         let backend2 = SharedBackend::new_with_transport(config2, transport.clone());
         let res = backend2
             .fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
@@ -566,7 +566,7 @@ mod tests {
     /// cannot stall a fuzzer thread for unbounded time.
     #[test]
     fn backoff_is_capped() {
-        let config = Config::new("mock://test");
+        let config = ForkDBConfig::new("mock://test");
         let backend = SharedBackend::new_with_transport(config, MockTransport::default());
 
         let cap = Duration::from_millis(5_000);
@@ -583,7 +583,7 @@ mod tests {
     /// Regression: `sleep_duration` must not panic when `attempt >= 32`.
     #[test]
     fn backoff_does_not_overflow() {
-        let config = Config::new("mock://test");
+        let config = ForkDBConfig::new("mock://test");
         let backend = SharedBackend::new_with_transport(config, MockTransport::default());
 
         let cap = Duration::from_millis(5_000);
@@ -609,7 +609,7 @@ mod tests {
         }
 
         let url = "http://rpc.example";
-        let config = Config::new(url)
+        let config = ForkDBConfig::new(url)
             .batch_timeout_ms(0)
             .batch_size(1)
             .retries(0);
@@ -645,7 +645,7 @@ mod tests {
         }
 
         let url = "http://rpc.example";
-        let config = Config::new(url)
+        let config = ForkDBConfig::new(url)
             .batch_timeout_ms(0)
             .batch_size(1)
             .retries(0);
@@ -730,7 +730,7 @@ mod tests {
         let call_count = transport.call_count.clone();
 
         let thread_count = 16;
-        let config = Config::new("mock://test")
+        let config = ForkDBConfig::new("mock://test")
             .batch_size(thread_count)
             .batch_timeout_ms(50);
         let backend = SharedBackend::new_with_transport(config, transport);
@@ -845,7 +845,7 @@ mod tests {
         let batch_item_count = transport.batch_item_count.clone();
 
         let thread_count = 16;
-        let config = Config::new("mock://test")
+        let config = ForkDBConfig::new("mock://test")
             .batch_size(16)
             .batch_timeout_ms(50);
         let backend = SharedBackend::new_with_transport(config, transport);
@@ -969,7 +969,7 @@ mod tests {
         let batch_item_count = transport.batch_item_count.clone();
 
         let thread_count = 16;
-        let config = Config::new("mock://test")
+        let config = ForkDBConfig::new("mock://test")
             .batch_size(thread_count)
             .batch_timeout_ms(50);
         let backend = SharedBackend::new_with_transport(config, transport);
@@ -1100,7 +1100,7 @@ mod tests {
         let batch_item_count = transport.batch_item_count.clone();
 
         let thread_count = 16;
-        let config = Config::new("mock://test")
+        let config = ForkDBConfig::new("mock://test")
             .batch_size(16)
             .batch_timeout_ms(50);
         let backend = SharedBackend::new_with_transport(config, transport);

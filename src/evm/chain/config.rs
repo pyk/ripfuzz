@@ -5,23 +5,23 @@ use std::path::Path;
 
 use revm::primitives::Bytes;
 
-use crate::evm::cheatcode;
-use crate::evm::forkdb;
+use crate::evm::cheatcode::CheatcodeConfig;
+use crate::evm::forkdb::ForkDBConfig;
 
 /// Campaign-level configuration that controls chain behaviour.
 #[derive(Debug, Clone)]
-pub struct Config {
-    cheatcode: cheatcode::Config,
+pub struct ChainConfig {
+    cheatcode: CheatcodeConfig,
     trace: bool,
     coverage: bool,
-    fork: Option<forkdb::Config>,
+    fork: Option<ForkDBConfig>,
 }
 
-impl Config {
+impl ChainConfig {
     /// Create a new config with the given project root.
     pub fn new(project_root: impl AsRef<Path>) -> Self {
         Self {
-            cheatcode: cheatcode::Config::new(project_root),
+            cheatcode: CheatcodeConfig::new(project_root),
             trace: false,
             coverage: false,
             fork: None,
@@ -41,7 +41,7 @@ impl Config {
     }
 
     /// Set the fork configuration.
-    pub fn fork(mut self, config: forkdb::Config) -> Self {
+    pub fn fork(mut self, config: ForkDBConfig) -> Self {
         self.fork = Some(config);
         self
     }
@@ -75,17 +75,17 @@ impl Config {
     }
 
     /// Fork configuration, if any.
-    pub fn fork_config(&self) -> Option<&forkdb::Config> {
+    pub fn fork_config(&self) -> Option<&ForkDBConfig> {
         self.fork.as_ref()
     }
 
     /// Cheatcode inspector configuration.
-    pub fn cheatcode(&self) -> &cheatcode::Config {
+    pub fn cheatcode(&self) -> &CheatcodeConfig {
         &self.cheatcode
     }
 }
 
-impl Default for Config {
+impl Default for ChainConfig {
     fn default() -> Self {
         Self::new(std::env::current_dir().unwrap_or_default())
     }

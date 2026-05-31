@@ -8,7 +8,7 @@ use anyhow::{Result, ensure};
 use parking_lot::RwLock;
 
 use crate::corpus::random::RandomDynSolValue;
-use crate::corpus::{Call, Config, Item};
+use crate::corpus::{Call, CorpusConfig, Item};
 
 #[derive(Debug)]
 struct SharedFailedCorpusItemInner {
@@ -29,7 +29,7 @@ pub struct SharedFailedCorpusItem {
 impl SharedFailedCorpusItem {
     /// Create a new shared failed corpus item from a seed item and a
     /// [`CorpusConfig`](crate::fuzzer::CorpusConfig).
-    pub fn new(item: Item, config: Config) -> Self {
+    pub fn new(item: Item, config: CorpusConfig) -> Self {
         Self {
             inner: Arc::new(SharedFailedCorpusItemInner {
                 current: RwLock::new(item),

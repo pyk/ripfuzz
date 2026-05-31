@@ -11,19 +11,19 @@ use revm::{
     state::AccountInfo,
 };
 
-use crate::evm::chain::{Chain, Config, DEFAULT_DEPLOYER};
+use crate::evm::chain::{Chain, ChainConfig, DEFAULT_DEPLOYER};
 use crate::evm::cheatcode::*;
 use crate::evm::database::{Database, EmptyDB};
 
 impl Default for Chain {
     fn default() -> Self {
-        Self::empty(Config::default())
+        Self::empty(ChainConfig::default())
     }
 }
 
 impl Chain {
     /// Create a new empty sandbox EVM with the given [`Config`](super::Config).
-    pub fn empty(config: Config) -> Self {
+    pub fn empty(config: ChainConfig) -> Self {
         let mut cfg_env = CfgEnv::default();
         cfg_env.chain_id = 1;
         cfg_env.tx_gas_limit_cap = Some(u64::MAX);
@@ -100,13 +100,13 @@ mod tests {
 
     use alloy_sol_types::SolCall;
 
-    use crate::evm::chain::Config;
+    use crate::evm::chain::ChainConfig;
     use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput};
     use crate::evm::cheatcode::VM_ADDRESS;
 
     #[test]
     fn chain_new_uses_latest_spec() {
-        let chain = Chain::empty(Config::default());
+        let chain = Chain::empty(ChainConfig::default());
         assert_eq!(
             chain.cfg_env().spec,
             SpecId::AMSTERDAM,
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn chain_new_seeds_deployer_with_max_balance() {
-        let chain = Chain::empty(Config::default());
+        let chain = Chain::empty(ChainConfig::default());
         assert_eq!(
             chain.deployer(),
             DEFAULT_DEPLOYER,
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn chain_new_allows_contract_as_caller() {
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::empty(ChainConfig::default());
 
         // Initcode that returns 1 byte of runtime code (0x00 STOP) so the
         // deployed address has non-empty code.
@@ -172,7 +172,7 @@ mod tests {
     /// calls cheatcodes during deployment or setup.
     #[test]
     fn chain_new_injects_vm_address() {
-        let chain = Chain::empty(Config::default());
+        let chain = Chain::empty(ChainConfig::default());
         let db = chain.database().unwrap();
         let info = db.basic_ref(VM_ADDRESS).unwrap();
         let info = info.unwrap();
@@ -190,7 +190,7 @@ mod tests {
     /// vs "empty"; every address must be treated as empty.
     #[test]
     fn chain_new_returns_default_account_info_for_unknown_address() {
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::empty(ChainConfig::default());
         let db = chain.database_mut().expect("database should be available");
         let unknown = address!("0x00000000000000000000000000000000000000ab");
         let info = db.basic(unknown).unwrap();
@@ -208,7 +208,7 @@ mod tests {
     /// `block.timestamp` against deployment time or constant offsets.
     #[test]
     fn chain_new_uses_mainnet_block_one_timestamp() {
-        let chain = Chain::empty(Config::default());
+        let chain = Chain::empty(ChainConfig::default());
         assert_eq!(
             chain.block_env().timestamp,
             U256::from(1_438_269_988_u64),
@@ -220,7 +220,7 @@ mod tests {
     /// that large factory contracts or inlined targets can deploy.
     #[test]
     fn chain_new_allows_unlimited_contract_size() {
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::empty(ChainConfig::default());
 
         // Build initcode that returns 0x8001 bytes (32769) of runtime code,
         // which is one byte larger than the EIP-7954 limit of 0x8000 (32768)
@@ -295,7 +295,7 @@ mod tests {
     fn deploy_no_setup_succeeds() {
         let contract = load_fixture("test/EmptyChainNoSetup.sol:EmptyChainNoSetup");
 
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::empty(ChainConfig::default());
         let opts = DeployInput::new(&contract.initcode);
         let deployment = chain.deploy(opts).unwrap();
 
@@ -320,7 +320,7 @@ mod tests {
         let contract =
             load_fixture("test/EmptyChainConstructorRevert.sol:EmptyChainConstructorRevert");
 
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::empty(ChainConfig::default());
         let opts = DeployInput::new(&contract.initcode);
         let deployment = chain.deploy(opts).unwrap();
 
@@ -347,7 +347,7 @@ mod tests {
             "test/EmptyChainCheatcodeInConstructor.sol:EmptyChainCheatcodeInConstructor",
         );
 
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::empty(ChainConfig::default());
         let opts = DeployInput::new(&contract.initcode);
         let deployment = chain.deploy(opts).unwrap();
 
@@ -376,7 +376,7 @@ mod tests {
         let contract =
             load_fixture("test/EmptyChainCheatcodeInSetup.sol:EmptyChainCheatcodeInSetup");
 
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::empty(ChainConfig::default());
         let deploy_opts = DeployInput::new(&contract.initcode);
         let deployment = chain.deploy(deploy_opts).unwrap();
 
@@ -409,7 +409,7 @@ mod tests {
             "test/EmptyChainDeployContractWithLibInSetup.sol:EmptyChainDeployContractWithLibInSetup",
         );
 
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::empty(ChainConfig::default());
         let deploy_opts = DeployInput::new(&contract.initcode);
         let deployment = chain.deploy(deploy_opts).unwrap();
 
@@ -486,7 +486,7 @@ mod tests {
         .unwrap();
         let contract = crate::evm::Contract::try_get(&artifacts, &artifact_id).unwrap();
 
-        let mut chain = Chain::empty(Config::default());
+        let mut chain = Chain::empty(ChainConfig::default());
 
         let mut deploy_opts = DeployInput::new(&contract.initcode);
         for lib in contract.libraries {

@@ -17,7 +17,7 @@ use revm::{
 
 use crate::evm::cheatcode::calls;
 use crate::evm::cheatcode::calls::Vm::VmCalls;
-use crate::evm::cheatcode::{ExecutionState, VM_ADDRESS};
+use crate::evm::cheatcode::{CheatcodeConfig, ExecutionState, VM_ADDRESS};
 
 /// Minimal trait to mutate `chain_id` on generic EVM contexts.
 pub trait CfgMut {
@@ -45,8 +45,8 @@ pub struct Inspector {
 }
 
 impl Inspector {
-    /// Create a new inspector with the given cheatcode [`Config`](crate::evm::cheatcode::Config).
-    pub fn new(config: crate::evm::cheatcode::Config) -> Self {
+    /// Create a new inspector with the given cheatcode [`CheatcodeConfig`].
+    pub fn new(config: CheatcodeConfig) -> Self {
         Self {
             state: ExecutionState::from_config(&config),
             shared_labels: None,
@@ -63,7 +63,7 @@ impl Inspector {
     }
 
     fn with_default_config() -> Self {
-        Self::new(crate::evm::cheatcode::Config::default())
+        Self::new(CheatcodeConfig::default())
     }
 
     /// Patch `tx.origin` and remember the original so it can be restored.

@@ -49,7 +49,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::to_string;
     use crate::foundry;
 
@@ -82,7 +82,7 @@ mod tests {
 
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/ToStringTarget.sol:ToStringTarget");
-        let mut chain = Chain::new(Config::default()).unwrap();
+        let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();

@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 use revm::primitives::{Address, Bytes, U256};
 
+use crate::evm::cheatcode::CheatcodeConfig;
+
 /// Transient scratchpad for one call sequence.
 #[derive(Clone, Debug, Default)]
 pub struct ExecutionState {
@@ -18,8 +20,8 @@ pub struct ExecutionState {
 
 impl ExecutionState {
     // TODO(pyk): remove this, Chain owns execution state now
-    /// Seed execution state from a [`Config`](crate::evm::cheatcode::Config).
-    pub fn from_config(config: &crate::evm::cheatcode::Config) -> Self {
+    /// Seed execution state from a [`CheatcodeConfig`].
+    pub fn from_config(config: &CheatcodeConfig) -> Self {
         Self {
             project_root: config.project_root.clone(),
             ffi_enabled: config.ffi,

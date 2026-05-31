@@ -221,7 +221,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::coverage::SharedCoverage;
     use crate::foundry;
 
@@ -259,7 +259,7 @@ mod tests {
     }
 
     fn deploy_and_setup(contract: &Contract) -> (Chain, Address) {
-        let config = Config::default().coverage(true);
+        let config = ChainConfig::default().coverage(true);
         let mut chain = Chain::new(config).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");

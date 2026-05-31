@@ -11,8 +11,7 @@
 //!   to the collection.
 
 pub use call::Call;
-pub use config::Config;
-pub use config::Config as CorpusConfig;
+pub use config::CorpusConfig;
 pub use extractor::ExtractedLiterals;
 pub use failed_item::SharedFailedCorpusItem;
 pub use item::Item;

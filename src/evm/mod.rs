@@ -11,14 +11,14 @@
 //!    [`Chain::transact`].
 //! 3. Return pure data structures for traces; never format or print them.
 
-pub use chain::Config as ChainConfig;
+pub use chain::ChainConfig;
 pub use chain::{
     Chain, DEFAULT_DEPLOYER, DeployInput, DeployLibraryInput, DeployOutput, ExecOutput, SetupInput,
     SetupOutput, Transaction,
 };
 pub use contract::Contract;
 pub use coverage::{ExecutionCoverage, SharedCoverage};
-pub use forkdb::Config as ForkConfig;
+pub use forkdb::ForkDBConfig;
 pub use result::TransactionResult;
 pub use trace::Trace;
 

@@ -14,7 +14,7 @@ use revm::{
     state::AccountInfo,
 };
 
-pub use crate::evm::chain::config::Config;
+pub use crate::evm::chain::config::ChainConfig;
 
 pub use deploy::{DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput};
 pub use exec::ExecOutput;
@@ -48,7 +48,7 @@ pub struct Chain {
     cfg_env: CfgEnv,
     block_env: BlockEnv,
     deployer: Address,
-    config: Config,
+    config: ChainConfig,
     /// Snapshotted cheatcode inspector state after deploy and setup.
     ///
     /// Required so that `vm.label`, `vm.prank`, `vm.warp`, and other
@@ -124,7 +124,7 @@ impl Chain {
     /// When [`Config::fork`](super::Config) is `Some`, the chain is forked
     /// from a remote RPC node pinned to [`Config::fork_block_number`].
     /// Otherwise an empty sandbox chain is created.
-    pub fn new(config: Config) -> Result<Self> {
+    pub fn new(config: ChainConfig) -> Result<Self> {
         match config.fork_config().cloned() {
             Some(fork_config) => {
                 let agent_cfg = ureq::Agent::config_builder()
@@ -433,7 +433,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::foundry;
 
     alloy_sol_types::sol! {
@@ -454,7 +454,7 @@ mod tests {
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
-    fn deploy_and_setup_warp(config: Config) -> (Chain, Address) {
+    fn deploy_and_setup_warp(config: ChainConfig) -> (Chain, Address) {
         let contract = load_warp_fixture();
         let mut chain = Chain::new(config).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -472,7 +472,7 @@ mod tests {
     /// cheatcode and the second observes the mutated state.
     #[test]
     fn execute_sequence_preserves_cheatcode_state() {
-        let (mut chain, target) = deploy_and_setup_warp(Config::default());
+        let (mut chain, target) = deploy_and_setup_warp(ChainConfig::default());
 
         // First transaction: warp timestamp back to EXPECTED_TIMESTAMP.
         // Second transaction: invariant checks that block.timestamp matches.
@@ -497,7 +497,7 @@ mod tests {
     /// Coverage is collected across all transactions in a sequence.
     #[test]
     fn execute_with_coverage_collects_across_sequence() {
-        let (mut chain, target) = deploy_and_setup_warp(Config::default().coverage(true));
+        let (mut chain, target) = deploy_and_setup_warp(ChainConfig::default().coverage(true));
 
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
@@ -522,7 +522,7 @@ mod tests {
     /// Trace is collected across all transactions in a sequence.
     #[test]
     fn execute_with_trace_collects_calls() {
-        let (mut chain, target) = deploy_and_setup_warp(Config::default().trace(true));
+        let (mut chain, target) = deploy_and_setup_warp(ChainConfig::default().trace(true));
 
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             WarpTarget::actionWarpCall::new(()).abi_encode(),
@@ -542,7 +542,7 @@ mod tests {
     /// A cloned chain should produce independent execution results.
     #[test]
     fn execute_on_cloned_chain_is_isolated() {
-        let (mut chain, target) = deploy_and_setup_warp(Config::default());
+        let (mut chain, target) = deploy_and_setup_warp(ChainConfig::default());
 
         // Mutate original chain.
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
@@ -574,7 +574,7 @@ mod tests {
         let artifact_id =
             foundry::ArtifactId::try_from("src/NamedMismatch.sol:DifferentName").unwrap();
         let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
-        let mut chain = Chain::new(Config::default().coverage(true)).unwrap();
+        let mut chain = Chain::new(ChainConfig::default().coverage(true)).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success);
         let target = deployment.address.unwrap();

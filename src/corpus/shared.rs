@@ -14,7 +14,7 @@ use anyhow::{Result, ensure};
 use tracing::debug;
 
 use crate::corpus::random::RandomDynSolValue;
-use crate::corpus::{Call, Config, ExtractedLiterals, Item};
+use crate::corpus::{Call, CorpusConfig, ExtractedLiterals, Item};
 use crate::foundry::ArtifactId;
 
 /// Statistics produced by loading a corpus from disk.
@@ -102,12 +102,12 @@ impl SharedCorpus {
         base.as_ref().join(file_name).join(&artifact_id.name)
     }
 
-    /// Create an empty corpus from a [`Config`].
+    /// Create an empty corpus from a [`CorpusConfig`].
     ///
     /// `config.corpus_dir` should already be namespaced by artifact (use
     /// [`SharedCorpus::dir_for`] to compute it). No disk I/O is performed until
     /// [`Self::load_items`] is called.
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: CorpusConfig) -> Self {
         let inner = Arc::new(SharedCorpusInner {
             corpus_dir: config.corpus_dir,
             items: RwLock::new(SharedCorpusItems {
@@ -497,7 +497,7 @@ mod tests {
         };
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
@@ -576,7 +576,7 @@ mod tests {
         };
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(8)
             .literals(ExtractedLiterals::default());
@@ -628,7 +628,7 @@ mod tests {
         };
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
@@ -692,7 +692,7 @@ mod tests {
         };
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
@@ -719,7 +719,7 @@ mod tests {
         };
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
@@ -769,7 +769,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let max_calls = 64;
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(max_calls)
             .literals(ExtractedLiterals::default());
@@ -855,7 +855,7 @@ mod tests {
         };
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
@@ -935,7 +935,7 @@ mod tests {
         };
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
@@ -1016,7 +1016,7 @@ mod tests {
         };
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
@@ -1096,7 +1096,7 @@ mod tests {
         };
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
@@ -1178,7 +1178,7 @@ mod tests {
         };
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
@@ -1268,7 +1268,7 @@ mod tests {
         };
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
-        let corpus_config = Config::new(corpus_dir)
+        let corpus_config = CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());

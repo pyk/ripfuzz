@@ -193,7 +193,7 @@ mod tests {
         // Create corpus with the item.
         let corpus_dir = std::env::temp_dir().join("raptor_test_corpus");
         let _ = fs::remove_dir_all(&corpus_dir);
-        let corpus_config = corpus::Config::new(corpus_dir)
+        let corpus_config = corpus::CorpusConfig::new(corpus_dir)
             .target_functions(contract.target_functions.clone())
             .max_calls(10);
         let corpus = SharedCorpus::new(corpus_config);

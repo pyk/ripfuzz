@@ -4,7 +4,7 @@
 //! via [`Config`].
 
 pub use address::VM_ADDRESS;
-pub use config::Config;
+pub use config::CheatcodeConfig;
 pub use inspector::Inspector;
 pub use state::ExecutionState;
 

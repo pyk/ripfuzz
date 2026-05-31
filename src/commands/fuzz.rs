@@ -16,12 +16,12 @@ use crate::corpus::{
     CorpusConfig, CorpusReplayer, ExtractedLiterals, SharedCorpus, SharedFailedCorpusItem,
 };
 use crate::evm::{
-    Chain, ChainConfig, Contract, DeployInput, ForkConfig, SetupInput, SharedCoverage,
+    Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, SetupInput, SharedCoverage,
 };
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
-use crate::fuzzer::{Config as FuzzerConfig, FailedAssertion, Fuzzer, SharedMetrics};
+use crate::fuzzer::{FailedAssertion, Fuzzer, FuzzerConfig, SharedMetrics};
 use crate::reporter::Reporter;
-use crate::shrinker::{Config as ShrinkerConfig, Shrinker};
+use crate::shrinker::{Shrinker, ShrinkerConfig};
 
 /// Format a number with comma-separated thousands.
 fn fmt_num(n: u64) -> String {
@@ -404,14 +404,14 @@ impl Default for ForkModeArgs {
 }
 
 impl ForkModeArgs {
-    /// Build a [`ForkConfig`](crate::evm::ForkConfig) from CLI arguments.
-    pub fn build_fork_config(&self, project_path: impl AsRef<Path>) -> Result<ForkConfig> {
+    /// Build a [`ForkDBConfig`](crate::evm::ForkDBConfig) from CLI arguments.
+    pub fn build_fork_config(&self, project_path: impl AsRef<Path>) -> Result<ForkDBConfig> {
         let cache_dir = project_path.as_ref().join("raptor").join("cache");
         let block = self
             .rpc_block
             .context("--rpc-block is required with --rpc-url")?;
         let url = self.rpc_url.as_ref().context("--rpc-url is required")?;
-        let config = ForkConfig::new(url.clone())
+        let config = ForkDBConfig::new(url.clone())
             .retries(self.rpc_retries)
             .backoff_ms(self.rpc_backoff)
             .rate_limit(self.rpc_rate_limit)

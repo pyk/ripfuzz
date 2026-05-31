@@ -24,15 +24,15 @@ use crate::corpus::extractor::ExtractedLiterals;
 /// let corpus = SharedCorpus::new(config);
 /// ```
 #[derive(Debug, Clone)]
-pub struct Config {
+pub struct CorpusConfig {
     pub corpus_dir: PathBuf,
     pub target_functions: Vec<alloy_json_abi::Function>,
     pub max_calls_length: usize,
     pub literals: ExtractedLiterals,
 }
 
-impl Config {
-    /// Start building a [`Config`] with the required corpus directory.
+impl CorpusConfig {
+    /// Start building a [`CorpusConfig`] with the required corpus directory.
     pub fn new(corpus_dir: impl AsRef<Path>) -> Self {
         Self {
             corpus_dir: corpus_dir.as_ref().to_path_buf(),

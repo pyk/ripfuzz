@@ -159,7 +159,7 @@ mod tests {
     use std::fs;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput};
+    use crate::evm::chain::{Chain, ChainConfig, DeployInput};
     use crate::foundry::{ArtifactId, Project};
 
     struct TestCase {
@@ -243,7 +243,7 @@ mod tests {
 
         for case in &cases {
             let contract = load_fixture(case.artifact_id);
-            let mut chain = Chain::empty(Config::default().trace(true));
+            let mut chain = Chain::empty(ChainConfig::default().trace(true));
             let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
             assert!(
                 !deployment.result.success,
@@ -288,7 +288,7 @@ mod tests {
         let project = Project::new("fixtures/trace-inspector");
         let mut ctx = crate::evm::trace::TraceContext::from_project(&project).unwrap();
 
-        let mut chain = Chain::empty(Config::default().trace(true));
+        let mut chain = Chain::empty(ChainConfig::default().trace(true));
         let mut deploy_opts =
             DeployInput::new(&outer.initcode).value(alloy_primitives::U256::from(10000));
         for lib in &outer.libraries {
@@ -322,7 +322,7 @@ mod tests {
         let project = Project::new("fixtures/trace-inspector");
         let mut ctx = crate::evm::trace::TraceContext::from_project(&project).unwrap();
 
-        let mut chain = Chain::empty(Config::default().trace(true));
+        let mut chain = Chain::empty(ChainConfig::default().trace(true));
         let deployment = chain.deploy(DeployInput::new(&outer.initcode)).unwrap();
         assert!(!deployment.result.success, "deployment must fail");
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");

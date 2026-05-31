@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 /// Configuration for the RPC client and batching behaviour.
 #[derive(Debug, Clone)]
-pub struct Config {
+pub struct ForkDBConfig {
     pub url: String,
     pub retries: u32,
     pub backoff_ms: u64,
@@ -17,7 +17,7 @@ pub struct Config {
     pub block_number: u64,
 }
 
-impl Config {
+impl ForkDBConfig {
     pub fn new(url: impl Into<String>) -> Self {
         let batch_size = std::thread::available_parallelism()
             .map(|n| n.get())

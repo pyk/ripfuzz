@@ -22,7 +22,7 @@ use anyhow::{Context, Result};
 use revm::primitives::Bytes;
 use tracing::{debug, instrument};
 
-pub use crate::fuzzer::config::Config;
+pub use crate::fuzzer::config::FuzzerConfig;
 pub use crate::fuzzer::metrics::{FunctionMetricsSnapshot, SharedMetrics, Snapshot};
 
 use crate::corpus::{Call, SharedCorpus};
@@ -106,7 +106,7 @@ pub struct Fuzzer {
 
 impl Fuzzer {
     /// Create a new fuzzer with the given config.
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: FuzzerConfig) -> Self {
         Self {
             chain: config.chain,
             target_address: config.target_address,

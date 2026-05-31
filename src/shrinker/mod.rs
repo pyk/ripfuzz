@@ -17,7 +17,7 @@ use alloy_primitives::Address;
 use anyhow::Result;
 use tracing::instrument;
 
-use crate::corpus::{Call, Item, SharedFailedCorpusItem};
+use crate::corpus::{Call, CorpusConfig, Item, SharedFailedCorpusItem};
 use crate::evm;
 use crate::evm::Transaction;
 use crate::fuzzer::SharedMetrics;
@@ -50,7 +50,7 @@ pub struct Shrinker {
 
 impl Shrinker {
     /// Create a new shrinker with the given config.
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: ShrinkerConfig) -> Self {
         Self {
             chain: config.chain,
             target_address: config.target_address,
@@ -135,7 +135,7 @@ impl Shrinker {
 
 /// Per-shrinker configuration configured via a fluent builder API.
 #[derive(Clone, Debug)]
-pub struct Config {
+pub struct ShrinkerConfig {
     pub seed: u64,
     pub chain: evm::Chain,
     pub target_address: Address,
@@ -148,7 +148,7 @@ pub struct Config {
     pub shared_metrics: SharedMetrics,
 }
 
-impl Config {
+impl ShrinkerConfig {
     /// Create a new empty config.
     pub fn new() -> Self {
         Self {
@@ -157,7 +157,7 @@ impl Config {
             target_address: Address::ZERO,
             shared_failed_item: SharedFailedCorpusItem::new(
                 Item::from(vec![]),
-                crate::corpus::Config::new(""),
+                CorpusConfig::new(""),
             ),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             caller: evm::DEFAULT_DEPLOYER,
@@ -229,7 +229,7 @@ impl Config {
     }
 }
 
-impl Default for Config {
+impl Default for ShrinkerConfig {
     fn default() -> Self {
         Self::new()
     }

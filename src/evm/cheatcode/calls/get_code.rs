@@ -22,7 +22,7 @@ mod tests {
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, Config, DeployInput, SetupInput, Transaction};
+    use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::get_code;
     use crate::evm::cheatcode::state::ExecutionState;
     use crate::foundry;
@@ -77,7 +77,7 @@ mod tests {
 
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/GetCodeTarget.sol:GetCodeTarget");
-        let config = Config::new("fixtures/target-contract-with-cheatcodes")
+        let config = ChainConfig::new("fixtures/target-contract-with-cheatcodes")
             .with_compiled_contracts(load_compiled_contracts());
         let mut chain = Chain::new(config).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();

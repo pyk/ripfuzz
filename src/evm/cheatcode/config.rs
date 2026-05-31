@@ -7,7 +7,7 @@ use revm::primitives::Bytes;
 
 /// User-facing configuration for the cheatcode inspector.
 #[derive(Debug, Clone)]
-pub struct Config {
+pub struct CheatcodeConfig {
     /// Enable `vm.ffi` (allows arbitrary host command execution).
     pub ffi: bool,
     /// Foundry project root used by `vm.ffi` to resolve relative paths.
@@ -17,7 +17,7 @@ pub struct Config {
     pub compiled_contracts: HashMap<String, Bytes>,
 }
 
-impl Config {
+impl CheatcodeConfig {
     /// Create a new config with the given project root.
     pub fn new(project_root: impl AsRef<Path>) -> Self {
         Self {
@@ -55,7 +55,7 @@ impl Config {
     }
 }
 
-impl Default for Config {
+impl Default for CheatcodeConfig {
     fn default() -> Self {
         Self {
             ffi: false,

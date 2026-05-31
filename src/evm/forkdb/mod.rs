@@ -11,7 +11,7 @@
 //! 5. No fuzzer concepts leak in. Pure `DatabaseRef` implementation.
 
 pub use backend::SharedBackend;
-pub use config::Config;
+pub use config::ForkDBConfig;
 pub use db::ForkDB;
 pub use error::Error;
 pub use request::{Request, url_hash};

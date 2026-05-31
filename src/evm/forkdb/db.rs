@@ -193,7 +193,7 @@ mod tests {
     use alloy_primitives::Bytes;
     use serde_json::json;
 
-    use crate::evm::forkdb::{Config as ForkdbConfig, MockTransport, Transport};
+    use crate::evm::forkdb::{ForkDBConfig, MockTransport, Transport};
 
     /// Regression: ForkDB must NOT sleep the fuzzer thread when the backend
     /// returns RpcTimeout. The backend is the sole retry layer; ForkDB should
@@ -209,7 +209,7 @@ mod tests {
             }
         }
 
-        let config = ForkdbConfig::new("mock://timeout")
+        let config = ForkDBConfig::new("mock://timeout")
             .batch_timeout_ms(0)
             .retries(0);
         let backend = SharedBackend::new_with_transport(config, TimeoutTransport);
@@ -243,7 +243,7 @@ mod tests {
             }
         }
 
-        let config = ForkdbConfig::new("mock://ratelimit")
+        let config = ForkDBConfig::new("mock://ratelimit")
             .batch_timeout_ms(0)
             .retries(0);
         let backend = SharedBackend::new_with_transport(config, RateLimitTransport);
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn basic_ref_is_order_independent() {
         let transport = MockTransport::default();
-        let config = ForkdbConfig::new("mock://test");
+        let config = ForkDBConfig::new("mock://test");
         let backend = SharedBackend::new_with_transport(config, transport);
         let fork_db = ForkDB::new(backend, 1, 1);
 
@@ -354,7 +354,7 @@ mod tests {
             }]),
         );
 
-        let config = ForkdbConfig::new(url).batch_timeout_ms(0).batch_size(1);
+        let config = ForkDBConfig::new(url).batch_timeout_ms(0).batch_size(1);
         let backend = SharedBackend::new_with_transport(config, transport);
         let fork_db = ForkDB::new(backend, 1, 1);
 
@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn forkdb_stores_backend_directly() {
         let transport = MockTransport::default();
-        let config = ForkdbConfig::new("mock://test");
+        let config = ForkDBConfig::new("mock://test");
         let backend = SharedBackend::new_with_transport(config, transport);
 
         // Must be possible to construct ForkDB from a plain SharedBackend

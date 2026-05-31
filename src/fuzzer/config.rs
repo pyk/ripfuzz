@@ -15,7 +15,7 @@ use crate::fuzzer::metrics::SharedMetrics;
 
 /// Per-fuzzer configuration configured via a fluent builder API.
 #[derive(Clone, Debug)]
-pub struct Config {
+pub struct FuzzerConfig {
     pub seed: u64,
     pub chain: evm::Chain,
     pub target_address: Address,
@@ -29,14 +29,14 @@ pub struct Config {
     pub timeout: Option<Duration>,
 }
 
-impl Config {
+impl FuzzerConfig {
     /// Create a new empty config.
     pub fn new() -> Self {
         Self {
             seed: 0,
             chain: evm::Chain::default(),
             target_address: Address::ZERO,
-            shared_corpus: SharedCorpus::new(crate::corpus::Config::new(PathBuf::new())),
+            shared_corpus: SharedCorpus::new(crate::corpus::CorpusConfig::new(PathBuf::new())),
             shared_coverage: SharedCoverage::new(),
             shared_metrics: SharedMetrics::new(Vec::new()),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
@@ -114,7 +114,7 @@ impl Config {
     }
 }
 
-impl Default for Config {
+impl Default for FuzzerConfig {
     fn default() -> Self {
         Self::new()
     }
