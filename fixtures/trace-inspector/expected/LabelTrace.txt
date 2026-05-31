@@ -1,6 +1,6 @@
 [4274] → new SelfLabel@0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2
-    ├─ [0] RaptorVm::label(SelfLabel: [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2], "SelfLabel")
+    ├─ [0] RaptorVM::label(SelfLabel: [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2], "SelfLabel")
     │   └─ ← [stop]
-    ├─ [0] RaptorVm::label(BeefLabel: [0x000000000000000000000000000000000000bEEF], "BeefLabel")
+    ├─ [0] RaptorVM::label(BeefLabel: [0x000000000000000000000000000000000000bEEF], "BeefLabel")
     │   └─ ← [stop]
     └─ ← [revert] constructor always reverts

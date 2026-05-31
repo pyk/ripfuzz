@@ -88,7 +88,7 @@
     │   ├─  storage changes:
     │   │   @ value: 50 -> 1000
     │   └─ ← [stop]
-    ├─ [0] RaptorVm::warp(1234567890)
+    ├─ [0] RaptorVM::warp(1234567890)
     │   └─ ← [stop]
     ├─ [1827579] → new DeepContract@0x2C0cd89b28E26798dB89DA48E29f8B8D0a7378A7
     │   ├─ [752835] → new CounterHelper@0x3De67E219caa3135E36B7A70860ABb4280fC6F9A

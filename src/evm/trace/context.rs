@@ -96,7 +96,7 @@ pub struct TraceContext {
 impl Default for TraceContext {
     fn default() -> Self {
         let mut labels = HashMap::new();
-        labels.insert(VM_ADDRESS, "RaptorVm".into());
+        labels.insert(VM_ADDRESS, "RaptorVM".into());
         Self {
             labels,
             abis: Vec::new(),
@@ -1236,9 +1236,9 @@ mod tests {
     #[test]
     fn vm_address_is_labeled_by_default() {
         let ctx = TraceContext::new();
-        assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RaptorVm"));
+        assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RaptorVM"));
 
         let ctx = TraceContext::from_project(&Project::new("fixtures/trace-context")).unwrap();
-        assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RaptorVm"));
+        assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RaptorVM"));
     }
 }
