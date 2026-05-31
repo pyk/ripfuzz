@@ -2,8 +2,8 @@
 
 pub use corpus::{Call, CorpusConfig, CorpusStats, ExtractedLiterals, Item, SharedCorpus, Stats};
 pub use evm::{
-    Chain, ChainConfig, Contract, DeployInput, DeployOutput, ExecOutput, ForkDBConfig, SetupOutput,
-    SharedCoverage, Trace, Transaction, TransactionResult,
+    Chain, ChainConfig, Contract, DeployInput, DeployLibraryInput, DeployOutput, ExecOutput,
+    ForkDBConfig, SetupInput, SetupOutput, SharedCoverage, Trace, Transaction, TransactionResult,
 };
 pub use foundry::{Artifact, ArtifactId, BuildOptions, Project};
 pub use fuzzer::{FailedAssertion, Fuzzer, FuzzerConfig, RunOutput};
