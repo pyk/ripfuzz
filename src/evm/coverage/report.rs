@@ -9,6 +9,7 @@ use alloy_primitives::{B256, keccak256};
 use anyhow::{Context, Result};
 use revm::bytecode::Bytecode;
 use revm::primitives::Bytes;
+use tracing::{debug, trace};
 
 use crate::evm::coverage::shared::SharedCoverage;
 use crate::evm::coverage::source_map::{SourceMapEntry, parse_source_map};
@@ -71,7 +72,9 @@ fn find_artifact_by_runtime_code<'a>(
     artifacts: &'a HashMap<ArtifactId, Artifact>,
 ) -> Option<&'a Artifact> {
     for artifact in artifacts.values() {
-        let deployed = artifact.deployed_bytecode()?;
+        let Some(deployed) = artifact.deployed_bytecode() else {
+            continue;
+        };
         let artifact_code =
             parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
         if artifact_code.is_empty() {
@@ -200,41 +203,69 @@ pub fn write_coverage_report(
     let artifact_id = &target_contract.artifact_id;
     let contract_name = &artifact_id.name;
 
+    debug!(
+        ?project_path,
+        ?campaign_id,
+        ?artifact_id,
+        "writing coverage report"
+    );
+
     let coverage_dir = project_path
         .join("raptor")
         .join("campaigns")
         .join(campaign_id)
         .join("coverage");
     fs::create_dir_all(&coverage_dir)?;
+    trace!(?coverage_dir, "created coverage directory");
 
     // Find the target artifact.
     let Some(target_artifact) = build_artifacts.get(artifact_id) else {
+        debug!(?artifact_id, "target artifact not found in build artifacts");
         return Err(anyhow::anyhow!(
             "target artifact not found in build artifacts"
         ));
     };
+    trace!("found target artifact");
 
     // Match runtime code with artifact.
     let Some(artifact) = find_artifact_by_runtime_code(runtime_code, build_artifacts) else {
+        debug!(
+            runtime_code_len = runtime_code.len(),
+            "could not match runtime code to any artifact"
+        );
         return Err(anyhow::anyhow!(
             "could not match runtime code to any artifact"
         ));
     };
+    trace!(artifact_id = ?artifact.id(), "matched artifact by runtime code");
 
     let deployed = artifact
         .deployed_bytecode()
         .context("artifact has no deployed bytecode")?;
+    trace!(
+        source_map_len = deployed.source_map.len(),
+        "loaded deployed bytecode"
+    );
+
     let source_map = parse_source_map(&deployed.source_map);
+    trace!(source_map_entries = source_map.len(), "parsed source map");
+
     let bytecode = Bytecode::new_legacy(runtime_code.clone());
     let pc_to_source = build_pc_to_source_map(&bytecode, &source_map);
+    trace!(pc_count = pc_to_source.len(), "built pc to source map");
 
     let contract_id = B256::from(keccak256(runtime_code));
     let raw_counts = shared_coverage
         .raw_edge_counts(&contract_id)
         .unwrap_or_else(|| vec![0; pc_to_source.len()]);
+    trace!(
+        total_hits = raw_counts.iter().sum::<u64>(),
+        "loaded raw edge counts"
+    );
 
     // Build source index mapping.
     let source_index = load_source_index(project_path)?;
+    trace!(source_index_len = source_index.len(), "loaded source index");
 
     // Load source files and map hits to lines.
     let mut source_files: HashMap<PathBuf, SourceFile> = HashMap::new();
@@ -262,6 +293,7 @@ pub fn write_coverage_report(
         let line = file.offset_to_line(entry.offset);
         *line_hits.entry((source_path, line)).or_insert(0) += raw_count;
     }
+    trace!(line_hits_count = line_hits.len(), "mapped hits to lines");
 
     // Build function coverage reports.
     let mut function_coverages: Vec<FunctionCoverage> = Vec::new();
@@ -274,8 +306,13 @@ pub fn write_coverage_report(
     for func in all_functions {
         let Some(func_def) = find_function_definition(target_artifact.ast(), contract_name, func)
         else {
+            trace!(
+                func = func.signature(),
+                "function definition not found in AST"
+            );
             continue;
         };
+        trace!(func = func.signature(), "found function definition in AST");
 
         let source_path = source_index
             .get(&func_def.src.source_index)
@@ -326,6 +363,10 @@ pub fn write_coverage_report(
             line_hits: hits,
         });
     }
+    debug!(
+        function_count = function_coverages.len(),
+        "built function coverages"
+    );
 
     // Write per-function reports.
     let mut summary_total_lines = 0;
@@ -366,6 +407,7 @@ pub fn write_coverage_report(
                 hit.line, hit.hit_count, hit.content,
             ));
         }
+        trace!(?file_path, "writing function coverage report");
         fs::write(&file_path, content)?;
 
         summary_total_lines += func_cov.total_lines;
@@ -408,7 +450,9 @@ pub fn write_coverage_report(
         summary.push('\n');
     }
 
+    trace!(?summary_path, "writing summary report");
     fs::write(&summary_path, summary)?;
+    debug!("coverage report written successfully");
 
     Ok(coverage_dir)
 }
@@ -456,4 +500,73 @@ fn sanitize_function_name(name: &str) -> String {
     .replace(")", "")
     .replace(",", "")
     .replace(" ", "_")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use alloy_sol_types::SolCall;
+    use revm::primitives::Bytes;
+
+    use crate::evm::Contract;
+    use crate::evm::chain::{Chain, ChainConfig, DeployInput, Transaction};
+    use crate::evm::coverage::SharedCoverage;
+    use crate::foundry;
+
+    alloy_sol_types::sol! {
+        interface CoverageBranch {
+            function branch(bool take) external;
+        }
+    }
+
+    fn load_coverage_fixture(id: &str) -> Contract {
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let artifacts = project.load_artifacts().unwrap();
+        let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
+        Contract::try_get(&artifacts, &artifact_id).unwrap()
+    }
+
+    /// Coverage report must succeed even when the build artifacts contain
+    /// interface/abstract contracts that have no deployed bytecode.
+    #[test]
+    fn coverage_report_with_interface_artifact() {
+        let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
+
+        let config = ChainConfig::default().coverage(true);
+        let mut chain = Chain::new(config).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        let target = deployment.address.unwrap();
+        let runtime_code = deployment.result.output.unwrap_or_default();
+
+        let global = SharedCoverage::new();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageBranch::branchCall::new((false,)).abi_encode(),
+        ))];
+        let exec = chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let build_artifacts = project.load_artifacts().unwrap();
+        let campaign_id = "test-coverage-report-interface";
+        let coverage_dir = super::write_coverage_report(
+            "fixtures/target-contract-coverage",
+            campaign_id,
+            &global,
+            &contract,
+            &build_artifacts,
+            &runtime_code,
+        )
+        .unwrap();
+
+        assert!(
+            coverage_dir.join("summary.txt").exists(),
+            "coverage report should be written even when build artifacts include interfaces"
+        );
+
+        // Clean up
+        let _ = fs::remove_dir_all(coverage_dir);
+    }
 }

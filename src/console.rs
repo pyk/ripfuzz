@@ -7,6 +7,8 @@
 use std::io::{self, IsTerminal, Write};
 use std::time::{Duration, Instant};
 
+use tracing::{error, info};
+
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
 const DIM: &str = "\x1b[2m";
@@ -86,15 +88,13 @@ impl<W: Write> Console<W> {
     /// The line is prefixed with a green `[*]` and always terminated with a
     /// newline.
     pub fn print(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        let message = message.as_ref();
+        info!("{message}");
         if self.disabled {
             return Ok(());
         }
         let prefix = self.start_prefix();
-        writeln!(
-            self.output,
-            "{prefix} {message}",
-            message = message.as_ref()
-        )
+        writeln!(self.output, "{prefix} {message}")
     }
 
     /// Print a one-off failure line.
@@ -102,15 +102,13 @@ impl<W: Write> Console<W> {
     /// The line is prefixed with a red `[!]` and always terminated with a
     /// newline.
     pub fn print_fail(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        let message = message.as_ref();
+        error!("{message}");
         if self.disabled {
             return Ok(());
         }
         let prefix = self.fail_prefix();
-        writeln!(
-            self.output,
-            "{prefix} {message}",
-            message = message.as_ref()
-        )
+        writeln!(self.output, "{prefix} {message}")
     }
 
     /// Print a line without any status prefix.
@@ -197,13 +195,14 @@ impl<W: Write> Console<W> {
     /// The line is prefixed with a green `[*]`. In a terminal the
     /// line will be replaced by the next call to [`Self::end`].
     pub fn begin(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        let message = message.as_ref();
+        info!("{message}");
         if self.disabled {
             return Ok(());
         }
         if self.start.is_some() {
             return Ok(());
         }
-        let message = message.as_ref();
         self.message = Some(message.into());
         self.start = Some(Instant::now());
         self.elapsed = None;
@@ -282,6 +281,7 @@ impl<W: Write> Console<W> {
         };
         let elapsed = self.elapsed.take().unwrap_or_else(|| start.elapsed());
         let seconds = elapsed.as_secs_f64();
+        info!("{message} in {seconds:.2}s");
 
         if self.is_terminal {
             write!(self.output, "{REPLACE_LINE}")?;
@@ -296,27 +296,27 @@ impl<W: Write> Console<W> {
     ///
     /// If no matching `begin` call was made, this is a no-op.
     pub fn end_fail(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        let message = message.as_ref();
         if self.disabled {
             self.message = None;
             self.start = None;
             self.elapsed = None;
+            error!("{message}");
             return Ok(());
         }
         let (Some(_), Some(_)) = (self.message.take(), self.start.take()) else {
+            error!("{message}");
             return Ok(());
         };
         self.elapsed = None;
+        error!("{message}");
 
         if self.is_terminal {
             write!(self.output, "{REPLACE_LINE}")?;
         }
 
         let prefix = self.fail_prefix();
-        writeln!(
-            self.output,
-            "{prefix} {message}",
-            message = message.as_ref()
-        )
+        writeln!(self.output, "{prefix} {message}")
     }
 
     fn start_prefix(&self) -> String {
