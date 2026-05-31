@@ -757,9 +757,12 @@ pub fn run(args: Args) -> Result<()> {
 
     let exec = trace_chain.exec(&transactions)?;
 
+    let first_failure_index = exec.results.iter().position(|r| r.is_assert_failure());
+
     let failure = FailedAssertion {
         transactions,
         item: shrunk_item,
+        first_failure_index,
     };
 
     println!("    call sequence:");

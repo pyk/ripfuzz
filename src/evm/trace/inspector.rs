@@ -195,10 +195,10 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
 mod tests {
     use std::fs;
 
-    use alloy_primitives::U256;
     use crate::evm::Contract;
     use crate::evm::chain::{Chain, ChainConfig, DeployInput};
     use crate::foundry::{ArtifactId, Project};
+    use alloy_primitives::U256;
 
     struct TestCase {
         artifact_id: &'static str,
@@ -453,11 +453,7 @@ mod tests {
             !deployment.result.success,
             "deployment must fail when constructor reverts"
         );
-        assert_eq!(
-            deployment.trace.roots.len(),
-            1,
-            "trace must have one root"
-        );
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
 
         let root = &deployment.trace.roots[0];
         assert!(
