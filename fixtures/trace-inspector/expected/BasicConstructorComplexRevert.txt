@@ -1,48 +1,48 @@
-[8580115] → new BasicConstructorComplexRevert@0x9e5ad3669316a49c9039ed97e39803f90ff1ed63
-    ├─ [5951271] → new Counter@0xbf7f846fb616b0f7d67ec410d79e1ef1c913c007
+[8580115] → new BasicConstructorComplexRevert@0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63
+    ├─ [5951271] → new Counter@0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007
     │   ├─  storage changes:
     │   │   @ value: 0 -> 42
-    │   └─ ← [Return] 5031 bytes of code
+    │   └─ ← [return] 5031 bytes of code
     ├─ [663] Counter::increment()
     │   ├─  storage changes:
     │   │   @ value: 42 -> 43
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [663] Counter::increment()
     │   ├─  storage changes:
     │   │   @ value: 43 -> 44
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [581] Counter::setValue(42)
     │   ├─  storage changes:
     │   │   @ value: 44 -> 42
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [543] Counter::getValue() [staticcall]
-    │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000000002a
+    │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000002a
     ├─ [581] Counter::setValue(100)
     │   ├─  storage changes:
     │   │   @ value: 42 -> 100
-    │   └─ ← [Stop]
-    ├─ [43739] Counter::setString(hello)
+    │   └─ ← [stop]
+    ├─ [43739] Counter::setString("hello")
     │   ├─  storage changes:
     │   │   @ strValue: "" -> "hello"
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [43131] Counter::setBool(true)
     │   ├─  storage changes:
     │   │   @ boolValue: false -> true
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [85703] Counter::pushArray(1)
     │   ├─  storage changes:
     │   │   @ arrValues.length: 0 -> 1
     │   │   @ arrValues[0]: 0 -> 1
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [43335] Counter::pushArray(2)
     │   ├─  storage changes:
     │   │   @ arrValues.length: 1 -> 2
     │   │   @ arrValues[1]: 0 -> 2
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [43252] Counter::setMap(10, 100)
     │   ├─  storage changes:
     │   │   @ 41801854427993646812867331196612054047220998399216167790632367036446383739027: 0 -> 100
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [129538] Counter::setArray([3, 4, 5])
     │   ├─  storage changes:
     │   │   @ arrValues.length: 2 -> 3
@@ -51,65 +51,65 @@
     │   │   @ arrValues[3]: 0 -> 4
     │   │   @ arrValues.length: 4 -> 5
     │   │   @ arrValues[4]: 0 -> 5
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [673] Counter::setStruct(Point({ x: 7, y: 8 }))
     │   ├─  storage changes:
     │   │   @ value: 100 -> 15
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [1104] Counter::setNestedStruct(Line({ start: Point({ x: 1, y: 2 }), end: Point({ x: 3, y: 4 }) }))
     │   ├─  storage changes:
     │   │   @ value: 15 -> 10
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [43782] Counter::setBytes(0xdeadbeef)
     │   ├─  storage changes:
     │   │   @ byteValue: 0x00 -> 0xdeadbeef00000000000000000000000000000000000000000000000000000008
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [43006] Counter::setFixedBytes(0xcafebabe00000000000000000000000000000000000000000000000000000000)
     │   ├─  storage changes:
     │   │   @ fixedByteValue: 0x00 -> 0xcafebabe00000000000000000000000000000000000000000000000000000000
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [670] Counter::doInternal()
     │   ├─  storage changes:
     │   │   @ value: 10 -> 15
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [5019] Counter::doLibraryCall(10, 20) [staticcall]
     │   ├─ [910] Counter::add(10, 20)
-    │   │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000000001e
-    │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000000001e
+    │   │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000001e
+    │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000001e
     ├─ [910] BasicConstructorComplexRevert::add(10, 20)
-    │   └─ ← [Return] 0x000000000000000000000000000000000000000000000000000000000000001e
+    │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000001e
     ├─ [1559] Counter::selfCall(50)
     │   ├─ [581] Counter::setValue(50)
     │   │   ├─  storage changes:
     │   │   │   @ value: 15 -> 50
-    │   │   └─ ← [Stop]
-    │   └─ ← [Stop]
+    │   │   └─ ← [stop]
+    │   └─ ← [stop]
     ├─ [342] Counter::payableCall()
     │   ├─  storage changes:
     │   │   @ value: 50 -> 1000
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [0] RaptorVm::warp(1234567890)
-    │   └─ ← [Stop]
-    ├─ [1827579] → new DeepContract@0x2c0cd89b28e26798db89da48e29f8b8d0a7378a7
-    │   ├─ [752835] → new CounterHelper@0x3de67e219caa3135e36b7a70860abb4280fc6f9a
-    │   │   └─ ← [Return] 641 bytes of code
+    │   └─ ← [stop]
+    ├─ [1827579] → new DeepContract@0x2C0cd89b28E26798dB89DA48E29f8B8D0a7378A7
+    │   ├─ [752835] → new CounterHelper@0x3De67E219caa3135E36B7A70860ABb4280fC6F9A
+    │   │   └─ ← [return] 641 bytes of code
     │   ├─  storage changes:
     │   │   @ helper: 0x0000000000000000000000000000000000000000 -> 0x3de67e219caa3135e36b7a70860abb4280fc6f9a
-    │   └─ ← [Return] 759 bytes of code
+    │   └─ ← [return] 759 bytes of code
     ├─ [5221] DeepContract::run(0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007)
     │   ├─ [663] Counter::increment()
     │   │   ├─  storage changes:
     │   │   │   @ value: 1000 -> 1001
-    │   │   └─ ← [Stop]
+    │   │   └─ ← [stop]
     │   ├─ [2913] CounterHelper::help(0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007)
     │   │   ├─ [581] Counter::setValue(999)
     │   │   │   ├─  storage changes:
     │   │   │   │   @ value: 1001 -> 999
-    │   │   │   └─ ← [Stop]
+    │   │   │   └─ ← [stop]
     │   │   ├─ [763] Counter::setBool(false)
     │   │   │   ├─  storage changes:
     │   │   │   │   @ boolValue: true -> false
-    │   │   │   └─ ← [Stop]
-    │   │   └─ ← [Stop]
-    │   └─ ← [Stop]
+    │   │   │   └─ ← [stop]
+    │   │   └─ ← [stop]
+    │   └─ ← [stop]
     └─ ← [revert] constructor always reverts

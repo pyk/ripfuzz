@@ -72,6 +72,7 @@ pub struct TraceContext {
     labels: HashMap<Address, String>,
     abis: Vec<JsonAbi>,
     bytecode_entries: Vec<BytecodeEntry>,
+    initcode_entries: Vec<BytecodeEntry>,
     /// Maps contract name -> (slot -> list of packed variables).
     storage_names: HashMap<String, HashMap<U256, Vec<StorageEntry>>>,
     /// Maps contract name -> list of arrays for element-slot resolution.
@@ -86,6 +87,7 @@ impl Default for TraceContext {
             labels,
             abis: Vec::new(),
             bytecode_entries: Vec::new(),
+            initcode_entries: Vec::new(),
             storage_names: HashMap::new(),
             array_info: HashMap::new(),
         }
@@ -108,6 +110,7 @@ impl TraceContext {
     pub fn from_artifacts(artifacts: HashMap<ArtifactId, Artifact>) -> Self {
         let mut ctx = Self::default();
         let mut bytecode_entries = Vec::new();
+        let mut initcode_entries = Vec::new();
         for artifact in artifacts.into_values() {
             let bytecode = artifact.deployed_bytecode();
             let code =
@@ -126,6 +129,23 @@ impl TraceContext {
                     positions,
                 });
             }
+            let initcode = artifact.bytecode();
+            let code =
+                initcode.map(|b| parse_bytecode_with_placeholders(&b.object, &b.link_references));
+            if let Some(code) = code
+                && !code.is_empty()
+            {
+                let positions = initcode
+                    .map(|b| collect_link_positions(&b.link_references))
+                    .unwrap_or_default();
+                let mut masked = code;
+                zero_out_positions(&mut masked, &positions);
+                initcode_entries.push(BytecodeEntry {
+                    name: artifact.name().into(),
+                    base_hash: keccak256(&masked),
+                    positions,
+                });
+            }
             if let Some((names, arrays)) = parse_storage_layout(&artifact) {
                 ctx.storage_names.insert(artifact.name().into(), names);
                 ctx.array_info.insert(artifact.name().into(), arrays);
@@ -133,6 +153,7 @@ impl TraceContext {
             ctx.abis.push(artifact.into_abi());
         }
         ctx.bytecode_entries = bytecode_entries;
+        ctx.initcode_entries = initcode_entries;
         ctx
     }
 
@@ -168,6 +189,29 @@ impl TraceContext {
     pub fn resolve_by_bytecode(&self, code: &Bytes) -> Option<&str> {
         let mut masked = code.to_vec();
         for entry in &self.bytecode_entries {
+            zero_out_positions(&mut masked, &entry.positions);
+            if keccak256(&masked) == entry.base_hash {
+                return Some(&entry.name);
+            }
+            // Restore masked bytes for the next entry.
+            for (start, len) in &entry.positions {
+                for i in *start..*start + *len {
+                    if i < masked.len() {
+                        masked[i] = code[i];
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Look up a contract name by its initcode.
+    ///
+    /// Matches against the artifact initcode index, masking out library
+    /// link-reference positions so that linked and unlinked bytecodes match.
+    pub fn resolve_by_initcode(&self, code: &Bytes) -> Option<&str> {
+        let mut masked = code.to_vec();
+        for entry in &self.initcode_entries {
             zero_out_positions(&mut masked, &entry.positions);
             if keccak256(&masked) == entry.base_hash {
                 return Some(&entry.name);
@@ -393,8 +437,10 @@ impl TraceContext {
                 } else {
                     let tuple = DynSolType::Tuple(types);
                     match tuple.abi_decode_params(&data[4..]) {
-                        Ok(DynSolValue::Tuple(values)) => format_abi_args(&values, &func.inputs),
-                        Ok(other) => format_abi_args(&[other], &func.inputs),
+                        Ok(DynSolValue::Tuple(values)) => {
+                            format_abi_args(&values, &func.inputs, &self.labels)
+                        }
+                        Ok(other) => format_abi_args(&[other], &func.inputs, &self.labels),
                         Err(_) => "...".into(),
                     }
                 };
@@ -472,21 +518,27 @@ impl TraceContext {
     }
 }
 
-pub(super) fn format_value(v: &DynSolValue) -> String {
+pub(super) fn format_value(v: &DynSolValue, labels: &HashMap<Address, String>) -> String {
     match v {
         DynSolValue::Bool(b) => format!("{b}"),
         DynSolValue::Uint(n, _) => format!("{n}"),
         DynSolValue::Int(n, _) => format!("{n}"),
-        DynSolValue::Address(a) => format!("{a}"),
-        DynSolValue::String(s) => s.into(),
+        DynSolValue::Address(a) => {
+            if let Some(label) = labels.get(a) {
+                format!("{label}: [{a}]")
+            } else {
+                format!("{a}")
+            }
+        }
+        DynSolValue::String(s) => format!("\"{s}\""),
         DynSolValue::Bytes(b) => format!("0x{}", hex::encode(b)),
         DynSolValue::FixedBytes(b, _) => format!("0x{}", hex::encode(b)),
         DynSolValue::Array(arr) | DynSolValue::FixedArray(arr) => {
-            let inner: Vec<String> = arr.iter().map(format_value).collect();
+            let inner: Vec<String> = arr.iter().map(|v| format_value(v, labels)).collect();
             format!("[{inner}]", inner = inner.join(", "))
         }
         DynSolValue::Tuple(vals) => {
-            let inner: Vec<String> = vals.iter().map(format_value).collect();
+            let inner: Vec<String> = vals.iter().map(|v| format_value(v, labels)).collect();
             format!("({inner})", inner = inner.join(", "))
         }
         _ => format!("{v:?}"),
@@ -495,7 +547,11 @@ pub(super) fn format_value(v: &DynSolValue) -> String {
 
 /// Format a single decoded value using ABI parameter metadata so that structs
 /// are rendered with their type name and field names.
-pub(super) fn format_abi_value(value: &DynSolValue, param: &Param) -> String {
+pub(super) fn format_abi_value(
+    value: &DynSolValue,
+    param: &Param,
+    labels: &HashMap<Address, String>,
+) -> String {
     match value {
         DynSolValue::Tuple(vals) => {
             if param.is_struct() {
@@ -507,35 +563,42 @@ pub(super) fn format_abi_value(value: &DynSolValue, param: &Param) -> String {
                 let inner: Vec<String> = vals
                     .iter()
                     .zip(param.components.iter())
-                    .map(|(v, p)| format!("{}: {}", p.name(), format_abi_value(v, p)))
+                    .map(|(v, p)| format!("{}: {}", p.name(), format_abi_value(v, p, labels)))
                     .collect();
                 format!("{}({{ {inner} }})", name, inner = inner.join(", "))
             } else {
                 let inner: Vec<String> = vals
                     .iter()
                     .zip(param.components.iter())
-                    .map(|(v, p)| format_abi_value(v, p))
+                    .map(|(v, p)| format_abi_value(v, p, labels))
                     .collect();
                 format!("({inner})", inner = inner.join(", "))
             }
         }
         DynSolValue::Array(vals) | DynSolValue::FixedArray(vals) => {
-            let inner: Vec<String> = vals.iter().map(|v| format_abi_value(v, param)).collect();
+            let inner: Vec<String> = vals
+                .iter()
+                .map(|v| format_abi_value(v, param, labels))
+                .collect();
             format!("[{inner}]", inner = inner.join(", "))
         }
-        _ => format_value(value),
+        _ => format_value(value, labels),
     }
 }
 
 /// Format a list of decoded values using ABI parameter metadata.
-pub(super) fn format_abi_args(values: &[DynSolValue], params: &[Param]) -> String {
+pub(super) fn format_abi_args(
+    values: &[DynSolValue],
+    params: &[Param],
+    labels: &HashMap<Address, String>,
+) -> String {
     if values.is_empty() {
         return String::new();
     }
     values
         .iter()
         .zip(params.iter())
-        .map(|(v, p)| format_abi_value(v, p))
+        .map(|(v, p)| format_abi_value(v, p, labels))
         .collect::<Vec<String>>()
         .join(", ")
 }

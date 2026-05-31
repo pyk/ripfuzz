@@ -3,12 +3,15 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use alloy_dyn_abi::{DynSolType, DynSolValue};
 use alloy_primitives::{I256, U256};
 use revm::interpreter::CallScheme;
 use revm::primitives::{Address, Bytes};
 
 pub use context::{StorageChangeInfo, TraceContext};
 pub use inspector::Inspector;
+
+use crate::evm::cheatcode::VM_ADDRESS;
 
 mod context;
 mod inspector;
@@ -215,11 +218,31 @@ impl Trace {
         let mut labels = HashMap::new();
         for root in &self.roots {
             Self::collect_create_labels(root, ctx, &mut labels);
+            Self::collect_vm_labels(root, &mut labels);
         }
         TraceDisplay {
             trace: self,
             ctx,
             labels,
+        }
+    }
+
+    fn collect_vm_labels(frame: &CallFrame, labels: &mut HashMap<Address, String>) {
+        const LABEL_SELECTOR: [u8; 4] = [0xc6, 0x57, 0xc7, 0x18];
+        if frame.address == Some(VM_ADDRESS)
+            && frame.input.len() >= 4
+            && frame.input[..4] == LABEL_SELECTOR
+        {
+            let types = DynSolType::Tuple(vec![DynSolType::Address, DynSolType::String]);
+            if let Ok(DynSolValue::Tuple(values)) = types.abi_decode_params(&frame.input[4..])
+                && let (DynSolValue::Address(addr), DynSolValue::String(label)) =
+                    (&values[0], &values[1])
+            {
+                labels.insert(*addr, label.clone());
+            }
+        }
+        for child in &frame.children {
+            Self::collect_vm_labels(child, labels);
         }
     }
 
@@ -229,10 +252,16 @@ impl Trace {
         labels: &mut HashMap<Address, String>,
     ) {
         if frame.kind == CallFrameKind::Create
-            && let Some(name) = ctx.resolve_by_bytecode(&frame.output)
             && let Some(addr) = frame.address
         {
-            labels.insert(addr, name.into());
+            if let Some(name) = ctx
+                .resolve_by_bytecode(&frame.output)
+                .or_else(|| ctx.resolve_by_initcode(&frame.input))
+            {
+                labels.insert(addr, name.into());
+            } else if let Some(name) = ctx.get_label(&addr) {
+                labels.insert(addr, name.into());
+            }
         }
         for child in &frame.children {
             Self::collect_create_labels(child, ctx, labels);
@@ -296,16 +325,16 @@ impl<'a> TraceDisplay<'a> {
             let label = self
                 .ctx
                 .resolve_by_bytecode(&frame.output)
-                .or_else(|| frame.address.and_then(|addr| self.ctx.get_label(&addr)))
                 .or_else(|| {
                     frame
                         .address
                         .and_then(|addr| self.labels.get(&addr).map(|s| s.as_str()))
                 })
+                .or_else(|| frame.address.and_then(|addr| self.ctx.get_label(&addr)))
                 .unwrap_or("<unknown>");
             let addr = frame
                 .address
-                .map(|a| format!("{a:#x}"))
+                .map(|a| format!("{a}"))
                 .unwrap_or_else(|| "unknown".into());
             writeln!(f, "{prefix}[{}] → new {label}@{addr}", frame.gas_used)?;
         } else {
@@ -427,9 +456,9 @@ impl<'a> TraceDisplay<'a> {
             if frame.kind == CallFrameKind::Create {
                 let code_len = frame.output.len();
                 if code_len > 0 {
-                    writeln!(f, "{result_prefix}← [Return] {code_len} bytes of code")?;
+                    writeln!(f, "{result_prefix}← [return] {code_len} bytes of code")?;
                 } else {
-                    writeln!(f, "{result_prefix}← [Stop]")?;
+                    writeln!(f, "{result_prefix}← [stop]")?;
                 }
             } else {
                 let out = if frame.output.is_empty() {
@@ -438,9 +467,9 @@ impl<'a> TraceDisplay<'a> {
                     format!("0x{}", hex::encode(&frame.output))
                 };
                 if out.is_empty() {
-                    writeln!(f, "{result_prefix}← [Stop]")?;
+                    writeln!(f, "{result_prefix}← [stop]")?;
                 } else {
-                    writeln!(f, "{result_prefix}← [Return] {out}")?;
+                    writeln!(f, "{result_prefix}← [return] {out}")?;
                 }
             }
         } else {

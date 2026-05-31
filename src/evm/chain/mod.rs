@@ -104,6 +104,11 @@ impl Chain {
         self.deployer
     }
 
+    /// Immutable access to the cheatcode labels map.
+    pub fn labels(&self) -> &HashMap<Address, String> {
+        &self.cheatcode_state.labels
+    }
+
     /// Mutable access to the underlying database.
     ///
     /// Returns `None` if called while a transaction is in flight (the database

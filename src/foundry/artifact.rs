@@ -400,6 +400,15 @@ impl Artifact {
         }
     }
 
+    /// The deployment bytecode (initcode), if the artifact has any.
+    pub fn bytecode(&self) -> Option<&ArtifactBytecode> {
+        match self {
+            Self::Contract(a) => Some(&a.bytecode),
+            Self::Library(a) => Some(&a.bytecode),
+            _ => None,
+        }
+    }
+
     /// The deployed bytecode, if the artifact has any.
     pub fn deployed_bytecode(&self) -> Option<&ArtifactBytecode> {
         match self {

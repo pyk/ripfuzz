@@ -1,5 +1,5 @@
-[8822884] → new StorageTypesRevert@0xb48bd837cb11a87bead45ea4b7ea3164e8af71f2
-    ├─ [8520453] → new StorageTypes@0xb70839f72ca9d90009fe83f9d6d7497be0bd57b0
+[8822884] → new StorageTypesRevert@0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2
+    ├─ [8520453] → new StorageTypes@0xB70839f72cA9d90009FE83f9D6D7497bE0bD57b0
     │   ├─  storage changes:
     │   │   @ boolValue: false -> true
     │   │   @ uint8Value: 0 -> 255
@@ -26,82 +26,82 @@
     │   │   @ fixedArray[0]: 0 -> 10
     │   │   @ fixedArray[1]: 0 -> 20
     │   │   @ fixedArray[2]: 0 -> 30
-    │   └─ ← [Return] 6527 bytes of code
+    │   └─ ← [return] 6527 bytes of code
     ├─ [785] StorageTypes::setBool(false)
     │   ├─  storage changes:
     │   │   @ boolValue: true -> false
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [814] StorageTypes::setUint8(0)
     │   ├─  storage changes:
     │   │   @ uint8Value: 255 -> 0
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [770] StorageTypes::setUint128(0)
     │   ├─  storage changes:
     │   │   @ uint128Value: 340282366920938463463374607431768211455 -> 0
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [582] StorageTypes::setUint256(0)
     │   ├─  storage changes:
     │   │   @ uint256Value: 115792089237316195423570985008687907853269984665640564039457584007913129639935 -> 0
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [792] StorageTypes::setInt8(0)
     │   ├─  storage changes:
     │   │   @ int8Value: -128 -> 0
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [779] StorageTypes::setInt128(0)
     │   ├─  storage changes:
     │   │   @ int128Value: -170141183460469231731687303715884105728 -> 0
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [605] StorageTypes::setInt256(0)
     │   ├─  storage changes:
     │   │   @ int256Value: -57896044618658097711785492504343953926634992332820282019728792003956564819968 -> 0
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [783] StorageTypes::setBytes1(0x0000000000000000000000000000000000000000000000000000000000000000)
     │   ├─  storage changes:
     │   │   @ bytes1Value: 0x1 -> 0x00
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [626] StorageTypes::setBytes32(0x0000000000000000000000000000000000000000000000000000000000000000)
     │   ├─  storage changes:
     │   │   @ bytes32Value: 0xdeadbeef00000000000000000000000000000000000000000000000000000000 -> 0x00
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [781] StorageTypes::setAddress(0x0000000000000000000000000000000000000000)
     │   ├─  storage changes:
     │   │   @ addressValue: 0xc34296175b9e78f66edbeaeb7acea4c615c092e1 -> 0x0000000000000000000000000000000000000000
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [1354] StorageTypes::setBytes(0x)
     │   ├─  storage changes:
     │   │   @ bytesValue: 0xcafebabe00000000000000000000000000000000000000000000000000000008 -> 0x00
-    │   └─ ← [Stop]
-    ├─ [1355] StorageTypes::setString()
+    │   └─ ← [stop]
+    ├─ [1355] StorageTypes::setString("")
     │   ├─  storage changes:
     │   │   @ stringValue: "hello" -> ""
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [43400] StorageTypes::pushUintArray(3)
     │   ├─  storage changes:
     │   │   @ uintArray.length: 2 -> 3
     │   │   @ uintArray[2]: 0 -> 3
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [87108] StorageTypes::pushStructArray(Point({ x: 5, y: 6 }))
     │   ├─  storage changes:
     │   │   @ structArray.length: 2 -> 3
     │   │   @ structArray[2].x: 0 -> 5
     │   │   @ structArray[2].y: 0 -> 6
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [803] StorageTypes::setFixedArray(0, 0)
     │   ├─  storage changes:
     │   │   @ fixedArray[0]: 10 -> 0
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [803] StorageTypes::setFixedArray(1, 0)
     │   ├─  storage changes:
     │   │   @ fixedArray[1]: 20 -> 0
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [803] StorageTypes::setFixedArray(2, 0)
     │   ├─  storage changes:
     │   │   @ fixedArray[2]: 30 -> 0
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [1107] StorageTypes::setTuple(0, 0)
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [764] StorageTypes::setStruct(Point({ x: 0, y: 0 }))
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     ├─ [1128] StorageTypes::setNestedStruct(Line({ start: Point({ x: 0, y: 0 }), end: Point({ x: 0, y: 0 }) }))
-    │   └─ ← [Stop]
+    │   └─ ← [stop]
     └─ ← [revert] storage types revert
