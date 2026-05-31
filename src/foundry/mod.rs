@@ -7,10 +7,7 @@
 //! 2. **Loading build artifacts**: read compiled artifacts from the project's
 //!    `out/` directory via [`Project::load_artifacts`].
 
-pub use artifact::{
-    AbstractArtifact, Artifact, ArtifactBytecode, ArtifactId, ContractArtifact, InterfaceArtifact,
-    LibraryArtifact, LinkReference, LinkReferences, StorageTypeInfo, StructMember,
-};
+pub use artifact::{Artifact, ArtifactId, ContractArtifact, LinkReferences, StorageTypeInfo};
 pub use build_options::BuildOptions;
 pub use project::Project;
 

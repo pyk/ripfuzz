@@ -52,14 +52,7 @@ impl Reporter<io::Stderr> {
     pub fn new() -> Self {
         let stderr = io::stderr();
         let is_terminal = stderr.is_terminal();
-        Self {
-            output: stderr,
-            is_terminal,
-            start: None,
-            message: None,
-            last_lines: 0,
-            elapsed: None,
-        }
+        Self::with_writer(stderr, is_terminal)
     }
 }
 
@@ -68,7 +61,7 @@ impl<W: Write> Reporter<W> {
     ///
     /// `is_terminal` controls whether ANSI escape sequences are emitted.
     /// This is useful for testing or for redirecting output to a file.
-    pub fn with_writer(output: W, is_terminal: bool) -> Self {
+    fn with_writer(output: W, is_terminal: bool) -> Self {
         Self {
             output,
             is_terminal,
@@ -85,19 +78,6 @@ impl<W: Write> Reporter<W> {
     /// newline.
     pub fn print(&mut self, message: impl AsRef<str>) -> io::Result<()> {
         let prefix = self.start_prefix();
-        writeln!(
-            self.output,
-            "{prefix} {message}",
-            message = message.as_ref()
-        )
-    }
-
-    /// Print a one-off success line.
-    ///
-    /// The line is prefixed with a dim `[+]` and always terminated with a
-    /// newline.
-    pub fn print_success(&mut self, message: impl AsRef<str>) -> io::Result<()> {
-        let prefix = self.success_prefix();
         writeln!(
             self.output,
             "{prefix} {message}",
@@ -262,25 +242,6 @@ impl<W: Write> Reporter<W> {
         writeln!(self.output, "{prefix} {message} in {seconds:.2}s")
     }
 
-    /// Replace the line printed by the matching [`Self::begin`] call with a
-    /// failure indicator.
-    ///
-    /// If no matching `begin` call was made, this is a no-op.
-    pub fn fail(&mut self) -> io::Result<()> {
-        let (Some(message), Some(start)) = (self.message.take(), self.start.take()) else {
-            return Ok(());
-        };
-        let elapsed = self.elapsed.take().unwrap_or_else(|| start.elapsed());
-        let seconds = elapsed.as_secs_f64();
-
-        if self.is_terminal {
-            write!(self.output, "{REPLACE_LINE}")?;
-        }
-
-        let prefix = self.fail_prefix();
-        writeln!(self.output, "{prefix} {message} in {seconds:.2}s")
-    }
-
     fn start_prefix(&self) -> String {
         if self.is_terminal {
             format!("{GREEN}[*]{RESET}")
@@ -349,14 +310,6 @@ mod tests {
         let mut buf = Vec::new();
         let mut reporter = Reporter::with_writer(&mut buf, false);
         reporter.end().unwrap();
-        assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn reporter_fail_without_begin_is_noop() {
-        let mut buf = Vec::new();
-        let mut reporter = Reporter::with_writer(&mut buf, false);
-        reporter.fail().unwrap();
         assert!(buf.is_empty());
     }
 
@@ -450,39 +403,5 @@ mod tests {
         let mut reporter = Reporter::with_writer(&mut buf, true);
         reporter.update("loading build artifacts [1/12]").unwrap();
         assert!(buf.is_empty());
-    }
-
-    #[test]
-    fn reporter_fail_non_terminal() {
-        let mut buf = Vec::new();
-        let mut reporter = Reporter::with_writer(&mut buf, false);
-        reporter.begin("building project").unwrap();
-        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
-        reporter.fail().unwrap();
-
-        let output = String::from_utf8(buf).unwrap();
-        assert_eq!(
-            output,
-            "[*] building project\n[!] building project in 2.00s\n"
-        );
-    }
-
-    #[test]
-    fn reporter_fail_terminal() {
-        let mut buf = Vec::new();
-        let mut reporter = Reporter::with_writer(&mut buf, true);
-        reporter.begin("building project").unwrap();
-        reporter.elapsed = Some(Duration::from_secs_f64(2.0));
-        reporter.fail().unwrap();
-
-        let output = String::from_utf8(buf).unwrap();
-        let prefix_start = format!("{GREEN}[*]{RESET}");
-        let prefix_fail = format!("{RED}[!]{RESET}");
-        assert_eq!(
-            output,
-            format!(
-                "{prefix_start} building project{REPLACE_LINE}{prefix_fail} building project in 2.00s\n"
-            )
-        );
     }
 }

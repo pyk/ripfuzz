@@ -270,10 +270,9 @@ impl Default for SharedCoverage {
 mod tests {
     use alloy_primitives::B256;
 
-    use crate::evm::coverage::CoverageUpdate;
     use crate::evm::coverage::exec::{ExecutionContractCoverage, ExecutionCoverage};
 
-    use super::SharedCoverage;
+    use super::{CoverageUpdate, SharedCoverage};
 
     /// 16 threads with identical local coverage. Only one thread should see its
     /// coverage as interesting; the other 15 must see it as not interesting.

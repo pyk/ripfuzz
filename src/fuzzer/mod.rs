@@ -10,7 +10,7 @@
 //! and runs directly on a cloned chain.
 
 pub use config::Config;
-pub use fuzzer::{FailedAssertion, Fuzzer, RunOutput};
+pub use fuzzer::{FailedAssertion, Fuzzer};
 pub use metrics::{FunctionMetricsSnapshot, SharedMetrics, Snapshot};
 
 mod config;

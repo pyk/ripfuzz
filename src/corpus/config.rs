@@ -10,8 +10,9 @@ use crate::corpus::extractor::ExtractedLiterals;
 ///
 /// ```no_run
 /// use std::path::PathBuf;
-/// use raptor::corpus::{CorpusConfig, SharedCorpus};
-/// use raptor::corpus::ExtractedLiterals;
+/// use raptor::CorpusConfig;
+/// use raptor::SharedCorpus;
+/// use raptor::ExtractedLiterals;
 ///
 /// let corpus_dir = PathBuf::from("/tmp/corpus");
 /// let functions = vec![];
