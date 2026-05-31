@@ -67,6 +67,18 @@ pub struct StorageChangeInfo<'a> {
     pub bytes: usize,
 }
 
+/// Metadata for a mapping variable so that hashed mapping slots can be
+/// resolved back to human-readable `mapping[key]` labels.
+#[derive(Debug, Clone)]
+struct MappingInfo {
+    name: String,
+    base_slot: U256,
+    key_types: Vec<String>,
+    value_storage_type: super::StorageType,
+    value_struct_fields: Option<Vec<StructField>>,
+    value_element_slots: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct TraceContext {
     labels: HashMap<Address, String>,
@@ -77,6 +89,8 @@ pub struct TraceContext {
     storage_names: HashMap<String, HashMap<U256, Vec<StorageEntry>>>,
     /// Maps contract name -> list of arrays for element-slot resolution.
     array_info: HashMap<String, Vec<ArrayInfo>>,
+    /// Maps contract name -> list of mappings for slot resolution.
+    mapping_info: HashMap<String, Vec<MappingInfo>>,
 }
 
 impl Default for TraceContext {
@@ -90,6 +104,7 @@ impl Default for TraceContext {
             initcode_entries: Vec::new(),
             storage_names: HashMap::new(),
             array_info: HashMap::new(),
+            mapping_info: HashMap::new(),
         }
     }
 }
@@ -146,9 +161,10 @@ impl TraceContext {
                     positions,
                 });
             }
-            if let Some((names, arrays)) = parse_storage_layout(&artifact) {
+            if let Some((names, arrays, mappings)) = parse_storage_layout(&artifact) {
                 ctx.storage_names.insert(artifact.name().into(), names);
                 ctx.array_info.insert(artifact.name().into(), arrays);
+                ctx.mapping_info.insert(artifact.name().into(), mappings);
             }
             ctx.abis.push(artifact.into_abi());
         }
@@ -232,7 +248,12 @@ impl TraceContext {
     ///
     /// The `contract_name` is the label or name that was registered for the
     /// contract address (e.g. via bytecode matching or explicit `with_label`).
-    pub fn resolve_storage_name(&self, contract_name: &str, slot: &U256) -> Option<String> {
+    pub fn resolve_storage_name(
+        &self,
+        contract_name: &str,
+        slot: &U256,
+        mapping_slots: Option<&super::MappingSlots>,
+    ) -> Option<String> {
         if let Some(entries) = self
             .storage_names
             .get(contract_name)
@@ -265,7 +286,13 @@ impl TraceContext {
                             Ok(idx) => idx < len,
                             Err(_) => false,
                         },
-                        None => true,
+                        None => {
+                            // Guard against mapping slots being misidentified as
+                            // dynamic array elements. In practice, dynamic arrays
+                            // rarely exceed 10 million elements.
+                            let idx = u64::try_from(index).unwrap_or(u64::MAX);
+                            idx < 10_000_000
+                        }
                     };
                     if !in_bounds {
                         continue;
@@ -292,6 +319,151 @@ impl TraceContext {
                 return Some(name);
             }
         }
+        // Check if the slot belongs to a mapping (or a struct/array inside a mapping).
+        if let Some(mapping_slots) = mapping_slots {
+            let slot_b256 = B256::from(*slot);
+
+            // Direct mapping slot.
+            if let Some(keys) = mapping_slots.key_chain(slot_b256) {
+                let base_slot = mapping_slots.base_slot(slot_b256)?;
+                let base_u256 = U256::from_be_bytes(base_slot.0);
+                for info in self.mapping_info.get(contract_name)? {
+                    if info.base_slot == base_u256 {
+                        // checkrs: allow(clone_in_loops)
+                        let mut label = info.name.clone();
+                        for (key, key_type) in keys.iter().zip(info.key_types.iter()) {
+                            let key_ty = super::StorageType::parse(key_type)?;
+                            let key_u256 = U256::from_be_bytes(key.0);
+                            let key_str = key_ty.format_value(key_u256, 0, 32);
+                            label = format!("{}[{}]", label, key_str);
+                        }
+                        // Dynamic array base slot inside mapping: show length.
+                        if let super::StorageType::Array { len: None, .. } =
+                            &info.value_storage_type
+                        {
+                            return Some(format!("{}.length", label));
+                        }
+                        // Struct base slot inside mapping: show first field.
+                        if let Some(fields) = &info.value_struct_fields
+                            && let Some(field) = fields.iter().find(|f| f.slot_offset == 0)
+                        {
+                            return Some(format!("{}.{}", label, field.name));
+                        }
+                        return Some(label);
+                    }
+                }
+            }
+
+            // Mapping slot + offset (struct field or fixed array element).
+            for m_slot in mapping_slots.keys.keys() {
+                let m_u256 = U256::from_be_bytes(m_slot.0);
+                if *slot >= m_u256 {
+                    let offset = slot - m_u256;
+                    let Ok(offset_usize) = usize::try_from(offset) else {
+                        continue;
+                    };
+                    let Some(keys) = mapping_slots.key_chain(*m_slot) else {
+                        continue;
+                    };
+                    let Some(base_slot) = mapping_slots.base_slot(*m_slot) else {
+                        continue;
+                    };
+                    let base_u256 = U256::from_be_bytes(base_slot.0);
+                    for info in self.mapping_info.get(contract_name)? {
+                        if info.base_slot != base_u256 {
+                            continue;
+                        }
+                        // checkrs: allow(clone_in_loops)
+                        let mut label = info.name.clone();
+                        for (key, key_type) in keys.iter().zip(info.key_types.iter()) {
+                            let key_ty = super::StorageType::parse(key_type)?;
+                            let key_u256 = U256::from_be_bytes(key.0);
+                            let key_str = key_ty.format_value(key_u256, 0, 32);
+                            label = format!("{}[{}]", label, key_str);
+                        }
+                        // Struct field inside mapping value.
+                        if let Some(fields) = &info.value_struct_fields
+                            && let Some(field) =
+                                fields.iter().find(|f| f.slot_offset == offset_usize)
+                        {
+                            return Some(format!("{}.{}", label, field.name));
+                        }
+                        // Fixed array element inside mapping value.
+                        if let super::StorageType::Array { len: Some(len), .. } =
+                            &info.value_storage_type
+                        {
+                            let index = offset_usize / info.value_element_slots;
+                            if index < *len {
+                                let field_offset = offset_usize % info.value_element_slots;
+                                if let Some(fields) = &info.value_struct_fields
+                                    && let Some(field) =
+                                        fields.iter().find(|f| f.slot_offset == field_offset)
+                                {
+                                    return Some(format!("{}[{}].{}", label, index, field.name));
+                                }
+                                return Some(format!("{}[{}]", label, index));
+                            }
+                        }
+                        // Dynamic array length inside mapping value.
+                        if let super::StorageType::Array { len: None, .. } =
+                            &info.value_storage_type
+                            && offset_usize == 0
+                        {
+                            return Some(format!("{}.length", label));
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Dynamic array element of a mapping slot.
+            for m_slot in mapping_slots.keys.keys() {
+                let _m_u256 = U256::from_be_bytes(m_slot.0);
+                let data_start = U256::from_be_bytes(keccak256(m_slot.0).0);
+                if *slot >= data_start {
+                    let offset = slot - data_start;
+                    let Ok(index) = u64::try_from(offset) else {
+                        continue;
+                    };
+                    if index >= 10_000_000 {
+                        continue;
+                    }
+                    let Some(keys) = mapping_slots.key_chain(*m_slot) else {
+                        continue;
+                    };
+                    let Some(base_slot) = mapping_slots.base_slot(*m_slot) else {
+                        continue;
+                    };
+                    let base_u256 = U256::from_be_bytes(base_slot.0);
+                    for info in self.mapping_info.get(contract_name)? {
+                        if info.base_slot != base_u256 {
+                            continue;
+                        }
+                        if let super::StorageType::Array { len: None, .. } =
+                            &info.value_storage_type
+                        {
+                            // checkrs: allow(clone_in_loops)
+                            let mut label = info.name.clone();
+                            for (key, key_type) in keys.iter().zip(info.key_types.iter()) {
+                                let key_ty = super::StorageType::parse(key_type)?;
+                                let key_u256 = U256::from_be_bytes(key.0);
+                                let key_str = key_ty.format_value(key_u256, 0, 32);
+                                label = format!("{}[{}]", label, key_str);
+                            }
+                            let field_offset = (index as usize) % info.value_element_slots;
+                            if let Some(fields) = &info.value_struct_fields
+                                && let Some(field) =
+                                    fields.iter().find(|f| f.slot_offset == field_offset)
+                            {
+                                return Some(format!("{}[{}].{}", label, index, field.name));
+                            }
+                            return Some(format!("{}[{}]", label, index));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
         None
     }
 
@@ -300,6 +472,7 @@ impl TraceContext {
         &self,
         contract_name: &str,
         slot: &U256,
+        mapping_slots: Option<&super::MappingSlots>,
     ) -> Option<&super::StorageType> {
         if let Some(entries) = self
             .storage_names
@@ -331,7 +504,13 @@ impl TraceContext {
                             Ok(idx) => idx < len,
                             Err(_) => false,
                         },
-                        None => true,
+                        None => {
+                            // Guard against mapping slots being misidentified as
+                            // dynamic array elements. In practice, dynamic arrays
+                            // rarely exceed 10 million elements.
+                            let idx = u64::try_from(index).unwrap_or(u64::MAX);
+                            idx < 10_000_000
+                        }
                     };
                     if !in_bounds {
                         continue;
@@ -356,6 +535,109 @@ impl TraceContext {
                 return Some(&array.element_type);
             }
         }
+        // Check if the slot belongs to a mapping (or a struct/array inside a mapping).
+        if let Some(mapping_slots) = mapping_slots {
+            let slot_b256 = B256::from(*slot);
+
+            // Direct mapping slot.
+            if let Some(_keys) = mapping_slots.key_chain(slot_b256) {
+                let base_slot = mapping_slots.base_slot(slot_b256)?;
+                let base_u256 = U256::from_be_bytes(base_slot.0);
+                for info in self.mapping_info.get(contract_name)? {
+                    if info.base_slot == base_u256 {
+                        return Some(&info.value_storage_type);
+                    }
+                }
+            }
+
+            // Mapping slot + offset (struct field or fixed array element).
+            for m_slot in mapping_slots.keys.keys() {
+                let m_u256 = U256::from_be_bytes(m_slot.0);
+                if *slot >= m_u256 {
+                    let offset = slot - m_u256;
+                    let Ok(offset_usize) = usize::try_from(offset) else {
+                        continue;
+                    };
+                    let Some(base_slot) = mapping_slots.base_slot(*m_slot) else {
+                        continue;
+                    };
+                    let base_u256 = U256::from_be_bytes(base_slot.0);
+                    for info in self.mapping_info.get(contract_name)? {
+                        if info.base_slot != base_u256 {
+                            continue;
+                        }
+                        // Struct field inside mapping value.
+                        if let Some(fields) = &info.value_struct_fields
+                            && let Some(field) =
+                                fields.iter().find(|f| f.slot_offset == offset_usize)
+                        {
+                            return Some(&field.ty);
+                        }
+                        // Fixed array element inside mapping value.
+                        if let super::StorageType::Array {
+                            element,
+                            len: Some(_),
+                        } = &info.value_storage_type
+                        {
+                            let field_offset = offset_usize % info.value_element_slots;
+                            if let Some(fields) = &info.value_struct_fields
+                                && let Some(field) =
+                                    fields.iter().find(|f| f.slot_offset == field_offset)
+                            {
+                                return Some(&field.ty);
+                            }
+                            return Some(element.as_ref());
+                        }
+                        // Dynamic array length inside mapping value.
+                        if let super::StorageType::Array { len: None, .. } =
+                            &info.value_storage_type
+                            && offset_usize == 0
+                        {
+                            return Some(&info.value_storage_type);
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Dynamic array element of a mapping slot.
+            for m_slot in mapping_slots.keys.keys() {
+                let _m_u256 = U256::from_be_bytes(m_slot.0);
+                let data_start = U256::from_be_bytes(keccak256(m_slot.0).0);
+                if *slot >= data_start {
+                    let offset = slot - data_start;
+                    let Ok(index) = u64::try_from(offset) else {
+                        continue;
+                    };
+                    if index >= 10_000_000 {
+                        continue;
+                    }
+                    let Some(base_slot) = mapping_slots.base_slot(*m_slot) else {
+                        continue;
+                    };
+                    let base_u256 = U256::from_be_bytes(base_slot.0);
+                    for info in self.mapping_info.get(contract_name)? {
+                        if info.base_slot != base_u256 {
+                            continue;
+                        }
+                        if let super::StorageType::Array {
+                            element, len: None, ..
+                        } = &info.value_storage_type
+                        {
+                            let field_offset = (index as usize) % info.value_element_slots;
+                            if let Some(fields) = &info.value_struct_fields
+                                && let Some(field) =
+                                    fields.iter().find(|f| f.slot_offset == field_offset)
+                            {
+                                return Some(&field.ty);
+                            }
+                            return Some(element.as_ref());
+                        }
+                        break;
+                    }
+                }
+            }
+        }
         None
     }
 
@@ -369,6 +651,7 @@ impl TraceContext {
         slot: &U256,
         old_value: U256,
         new_value: U256,
+        _mapping_slots: Option<&super::MappingSlots>,
     ) -> Vec<StorageChangeInfo<'_>> {
         let mut changes = Vec::new();
         // checkrs: allow(nested_if_let)
@@ -605,14 +888,19 @@ pub(super) fn format_abi_args(
 
 use crate::foundry::LinkReferences;
 
-type StorageLayoutResult = (HashMap<U256, Vec<StorageEntry>>, Vec<ArrayInfo>);
+type StorageLayoutResult = (
+    HashMap<U256, Vec<StorageEntry>>,
+    Vec<ArrayInfo>,
+    Vec<MappingInfo>,
+);
 
-/// Parse state-variable names, types, and array metadata from an artifact's
-/// `storageLayout` output.
+/// Parse state-variable names, types, array and mapping metadata from an
+/// artifact's `storageLayout` output.
 fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
     let layout = artifact.storage_layout()?;
     let mut names: HashMap<U256, Vec<StorageEntry>> = HashMap::new();
     let mut arrays = Vec::new();
+    let mut mappings = Vec::new();
     for entry in &layout.storage {
         let slot = entry.slot.parse::<U256>().ok()?;
         let ty = super::StorageType::parse(&entry.type_name)?;
@@ -661,9 +949,81 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
                 struct_fields,
             });
         }
+
+        // Build mapping metadata for hashed-slot resolution.
+        if let super::StorageType::Mapping = &ty
+            && let Some(type_info) = layout.types.get(&entry.type_name)
+            && type_info.encoding == "mapping"
+        {
+            let key_types = resolve_mapping_key_types(&layout.types, &entry.type_name);
+            let value_type = resolve_mapping_value_type(&layout.types, &entry.type_name);
+            let value_storage_type =
+                super::StorageType::parse(&value_type).unwrap_or(super::StorageType::Mapping);
+            let value_struct_fields = parse_struct_fields(&layout.types, &value_type);
+            let value_element_slots = element_byte_slots(&layout.types, &value_type);
+            mappings.push(MappingInfo {
+                // checkrs: allow(clone_in_loops)
+                name: entry.label.clone(),
+                base_slot: slot,
+                key_types,
+                value_storage_type,
+                value_struct_fields,
+                value_element_slots,
+            });
+        }
     }
     arrays.sort_by(|a, b| b.start_slot.cmp(&a.start_slot));
-    Some((names, arrays)).filter(|(n, _)| !n.is_empty())
+    Some((names, arrays, mappings)).filter(|(n, _, _)| !n.is_empty())
+}
+
+/// Resolve the key type references for a mapping type (including nested mappings).
+///
+/// Returns the raw `storageLayout` type strings (e.g. `t_address`) so they
+/// can be parsed by [`StorageType::parse`].
+fn resolve_mapping_key_types(
+    types: &HashMap<String, crate::foundry::StorageTypeInfo>,
+    type_ref: &str,
+) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut current = type_ref;
+    while let Some(info) = types.get(current) {
+        if info.encoding != "mapping" {
+            break;
+        }
+        if let Some(key) = &info.key {
+            // checkrs: allow(clone_in_loops)
+            keys.push(key.clone());
+        }
+        if let Some(value) = &info.value {
+            current = value;
+        } else {
+            break;
+        }
+    }
+    keys
+}
+
+/// Resolve the final value type reference for a mapping type (including
+/// nested mappings).
+///
+/// Returns the raw `storageLayout` type string (e.g. `t_uint256`) so it
+/// can be parsed by [`StorageType::parse`] and looked up in the `types` map.
+fn resolve_mapping_value_type(
+    types: &HashMap<String, crate::foundry::StorageTypeInfo>,
+    type_ref: &str,
+) -> String {
+    let mut current = type_ref;
+    while let Some(info) = types.get(current) {
+        if info.encoding != "mapping" {
+            return current.into();
+        }
+        if let Some(value) = &info.value {
+            current = value;
+        } else {
+            return current.into();
+        }
+    }
+    current.into()
 }
 
 /// Compute how many 32-byte slots a single array element occupies.
@@ -684,22 +1044,28 @@ fn element_byte_slots(
     bytes.div_ceil(32)
 }
 
-/// Parse struct field layout for an array whose element type is a struct.
+/// Parse struct field layout for a struct type, or for the base element type
+/// of an array.
 ///
-/// Returns `None` if the element type is not a struct or if member info is
+/// Returns `None` if the type is not a struct or if member info is
 /// unavailable.
 fn parse_struct_fields(
     types: &HashMap<String, crate::foundry::StorageTypeInfo>,
-    array_type_name: &str,
+    type_name: &str,
 ) -> Option<Vec<StructField>> {
-    let info = types.get(array_type_name)?;
-    let base_type_name = info.base.as_ref()?;
-    let base_type = types.get(base_type_name)?;
-    if base_type.members.is_empty() {
+    let info = types.get(type_name)?;
+    // For array types, look up the base element type; for struct types use
+    // the type itself.
+    let struct_type = info
+        .base
+        .as_ref()
+        .and_then(|base| types.get(base))
+        .unwrap_or(info);
+    if struct_type.members.is_empty() {
         return None;
     }
     let mut fields = Vec::new();
-    for member in &base_type.members {
+    for member in &struct_type.members {
         let slot_offset = member.slot.parse::<usize>().ok()?;
         let ty = super::StorageType::parse(&member.type_name)?;
         fields.push(StructField {

@@ -27,6 +27,14 @@ contract StorageTypes {
     uint256[] public uintArray;
     Point[] public structArray;
     uint256[3] public fixedArray;
+    mapping(address => uint256) public balances;
+    mapping(address => mapping(address => uint256)) public allowances;
+    mapping(uint256 => address) public idToOwner;
+    mapping(address => bool) public isWhitelisted;
+    mapping(bytes32 => uint256) public proofs;
+    mapping(uint256 => uint256[]) public idToArray;
+    mapping(uint256 => Point) public idToPoint;
+    mapping(address => Point) public userToPoint;
 
     constructor() {
         boolValue = true;
@@ -48,6 +56,15 @@ contract StorageTypes {
         fixedArray[0] = 10;
         fixedArray[1] = 20;
         fixedArray[2] = 30;
+        balances[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1] = 1000;
+        allowances[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1][0x1234567890123456789012345678901234567890] = 500;
+        idToOwner[1] = 0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1;
+        isWhitelisted[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1] = true;
+        proofs[keccak256(abi.encodePacked("test"))] = 42;
+        idToArray[1].push(10);
+        idToArray[1].push(20);
+        idToPoint[1] = Point({x: 7, y: 8});
+        userToPoint[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1] = Point({x: 9, y: 10});
     }
 
     function setBool(bool b) external {
@@ -121,6 +138,38 @@ contract StorageTypes {
     function setNestedStruct(Line calldata l) external {
         uint256Value = l.start.x + l.start.y + l.end.x + l.end.y;
     }
+
+    function setBalance(address a, uint256 v) external {
+        balances[a] = v;
+    }
+
+    function setAllowance(address a, address b, uint256 v) external {
+        allowances[a][b] = v;
+    }
+
+    function setIdToOwner(uint256 id, address a) external {
+        idToOwner[id] = a;
+    }
+
+    function setWhitelisted(address a, bool b) external {
+        isWhitelisted[a] = b;
+    }
+
+    function setProof(bytes32 b, uint256 v) external {
+        proofs[b] = v;
+    }
+
+    function pushIdToArray(uint256 id, uint256 v) external {
+        idToArray[id].push(v);
+    }
+
+    function setIdToPoint(uint256 id, Point calldata p) external {
+        idToPoint[id] = p;
+    }
+
+    function setUserToPoint(address a, Point calldata p) external {
+        userToPoint[a] = p;
+    }
 }
 
 contract StorageTypesRevert {
@@ -146,6 +195,14 @@ contract StorageTypesRevert {
         st.setTuple(0, 0);
         st.setStruct(Point({x: 0, y: 0}));
         st.setNestedStruct(Line({start: Point({x: 0, y: 0}), end: Point({x: 0, y: 0})}));
+        st.setBalance(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0);
+        st.setAllowance(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0x1234567890123456789012345678901234567890, 0);
+        st.setIdToOwner(1, address(0));
+        st.setWhitelisted(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, false);
+        st.setProof(keccak256(abi.encodePacked("test")), 0);
+        st.pushIdToArray(1, 30);
+        st.setIdToPoint(1, Point({x: 0, y: 0}));
+        st.setUserToPoint(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, Point({x: 0, y: 0}));
         revert("storage types revert");
     }
 

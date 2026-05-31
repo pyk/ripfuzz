@@ -167,6 +167,10 @@ pub struct StorageTypeInfo {
     #[serde(default)]
     pub base: Option<String>,
     #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub value: Option<String>,
+    #[serde(default)]
     pub members: Vec<StructMember>,
 }
 

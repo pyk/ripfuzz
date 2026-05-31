@@ -141,7 +141,8 @@ impl StorageType {
             }
             Self::Address => {
                 let bytes = extracted.to_be_bytes::<32>();
-                format!("0x{}", hex::encode(&bytes[12..]))
+                let addr = Address::from_slice(&bytes[12..]);
+                addr.to_checksum(None)
             }
             Self::FixedBytes(_) | Self::DynamicBytes => {
                 let bytes = extracted.to_be_bytes::<32>();
@@ -196,6 +197,84 @@ impl StorageType {
     }
 }
 
+/// Recorded mapping slots for a single contract address.
+///
+/// Tracks `keccak256(key || base_slot)` results observed during execution
+/// so that hashed mapping slots can be resolved back to human-readable
+/// `mapping[key]` labels.
+#[derive(Clone, Debug, Default)]
+pub struct MappingSlots {
+    /// slot -> parent slot
+    parent_slots: HashMap<alloy_primitives::B256, alloy_primitives::B256>,
+    /// slot -> key
+    keys: HashMap<alloy_primitives::B256, alloy_primitives::B256>,
+    /// keccak256 result -> (key, parent)
+    seen_sha3: HashMap<alloy_primitives::B256, (alloy_primitives::B256, alloy_primitives::B256)>,
+}
+
+impl MappingSlots {
+    /// Record a `keccak256(key || parent)` operation with 64-byte input.
+    pub fn record_sha3(
+        &mut self,
+        result: alloy_primitives::B256,
+        key: alloy_primitives::B256,
+        parent: alloy_primitives::B256,
+    ) {
+        self.seen_sha3.insert(result, (key, parent));
+    }
+
+    /// Try to register a mapping slot. Returns `true` if the slot was
+    /// recognised as a mapping entry.
+    pub fn insert(&mut self, slot: alloy_primitives::B256) -> bool {
+        let Some((key, parent)) = self.seen_sha3.get(&slot).copied() else {
+            return false;
+        };
+        if self.keys.contains_key(&slot) {
+            return false;
+        }
+        self.keys.insert(slot, key);
+        self.parent_slots.insert(slot, parent);
+        self.insert(parent);
+        true
+    }
+
+    /// Return the chain of keys from outermost to innermost for a mapping
+    /// slot, or `None` if the slot is unknown.
+    pub fn key_chain(&self, slot: alloy_primitives::B256) -> Option<Vec<alloy_primitives::B256>> {
+        if !self.keys.contains_key(&slot) {
+            return None;
+        }
+        let mut current = slot;
+        let mut keys = Vec::new();
+        while let Some(key) = self.keys.get(&current) {
+            keys.push(*key);
+            let parent = self.parent_slots.get(&current)?;
+            if !self.keys.contains_key(parent) {
+                break;
+            }
+            current = *parent;
+        }
+        keys.reverse();
+        Some(keys)
+    }
+
+    /// Return the base slot (the ultimate parent) of a mapping slot chain.
+    pub fn base_slot(&self, slot: alloy_primitives::B256) -> Option<alloy_primitives::B256> {
+        if !self.keys.contains_key(&slot) {
+            return None;
+        }
+        let mut current = slot;
+        while let Some(_key) = self.keys.get(&current) {
+            let parent = self.parent_slots.get(&current)?;
+            if !self.keys.contains_key(parent) {
+                return Some(*parent);
+            }
+            current = *parent;
+        }
+        None
+    }
+}
+
 /// Raw call trace tree.
 ///
 /// Holds only the execution frames. To format a trace with address labels
@@ -204,12 +283,16 @@ impl StorageType {
 #[derive(Debug, Clone, Default)]
 pub struct Trace {
     pub roots: Vec<CallFrame>,
+    pub mapping_slots: HashMap<Address, MappingSlots>,
 }
 
 impl Trace {
     /// Create a new [`Trace`] with the given roots.
     pub fn new(roots: Vec<CallFrame>) -> Self {
-        Self { roots }
+        Self {
+            roots,
+            mapping_slots: HashMap::new(),
+        }
     }
 
     /// Return a [`Display`](fmt::Display)-able view of this trace using the
@@ -318,7 +401,7 @@ impl<'a> TraceDisplay<'a> {
                 .map(|s| s.as_str())
                 .or_else(|| self.ctx.get_label(&addr))
                 .map(|s| s.into())
-                .unwrap_or_else(|| format!("{addr:#x}"))
+                .unwrap_or_else(|| addr.to_checksum(None))
         });
 
         if matches!(frame.kind, CallFrameKind::Create) {
@@ -401,6 +484,9 @@ impl<'a> TraceDisplay<'a> {
                         .map(|s| s.as_str())
                         .or_else(|| self.ctx.get_label(&addr))
                 });
+                let mapping_slots = frame
+                    .address
+                    .and_then(|addr| self.trace.mapping_slots.get(&addr));
                 let packed_changes = label
                     .map(|l| {
                         self.ctx.resolve_storage_changes(
@@ -408,6 +494,7 @@ impl<'a> TraceDisplay<'a> {
                             &change.slot,
                             change.old_value,
                             change.new_value,
+                            mapping_slots,
                         )
                     })
                     .unwrap_or_default();
@@ -415,8 +502,12 @@ impl<'a> TraceDisplay<'a> {
                 if packed_changes.is_empty() {
                     let (name, ty) = label
                         .and_then(|l| {
-                            let name = self.ctx.resolve_storage_name(l, &change.slot)?;
-                            let ty = self.ctx.resolve_storage_type(l, &change.slot);
+                            let name =
+                                self.ctx
+                                    .resolve_storage_name(l, &change.slot, mapping_slots)?;
+                            let ty = self
+                                .ctx
+                                .resolve_storage_type(l, &change.slot, mapping_slots);
                             Some((name, ty))
                         })
                         .unwrap_or_else(|| (format!("{}", change.slot), None));

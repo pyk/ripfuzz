@@ -1,7 +1,10 @@
 //! Raw trace inspector that collects [`CallFrame`] trees without formatting
 //! or address labeling.
 
-use revm::bytecode::opcode::SSTORE;
+use std::collections::HashMap;
+
+use alloy_primitives::{B256, U256, keccak256};
+use revm::bytecode::opcode::{KECCAK256, SSTORE};
 use revm::context::JournalTr;
 use revm::inspector::Inspector as RevmInspector;
 use revm::interpreter::interpreter_types::{InputsTr, Jumps};
@@ -10,6 +13,7 @@ use revm::primitives::Bytes;
 
 use crate::evm::trace::CallFrame;
 use crate::evm::trace::CallFrameKind;
+use crate::evm::trace::MappingSlots;
 use crate::evm::trace::StorageChange;
 use crate::evm::trace::Trace;
 
@@ -19,6 +23,7 @@ use crate::evm::trace::Trace;
 pub struct Inspector {
     stack: Vec<CallFrame>,
     roots: Vec<CallFrame>,
+    mapping_slots: HashMap<revm::primitives::Address, MappingSlots>,
 }
 
 impl Inspector {
@@ -27,36 +32,64 @@ impl Inspector {
     }
 
     pub fn into_trace(self) -> Trace {
-        Trace::new(self.roots)
+        Trace {
+            roots: self.roots,
+            mapping_slots: self.mapping_slots,
+        }
     }
 }
 
 impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
     fn step(&mut self, interp: &mut revm::interpreter::Interpreter, context: &mut CTX) {
-        if interp.bytecode.opcode() != SSTORE {
-            return;
-        }
-        let stack = interp.stack.data();
-        let len = stack.len();
-        if len < 2 {
-            return;
-        }
-        let slot = stack[len - 1];
-        let new_value = stack[len - 2];
         let address = interp.input.target_address();
-        let old_value = context
-            .journal_mut()
-            .sload_skip_cold_load(address, slot, true)
-            .ok()
-            .map(|s| s.data)
-            .unwrap_or_default();
+        match interp.bytecode.opcode() {
+            KECCAK256 => {
+                let Ok(size) = interp.stack.peek(1) else {
+                    return;
+                };
+                if size != U256::from(0x40) {
+                    return;
+                }
+                let Ok(offset) = interp.stack.peek(0) else {
+                    return;
+                };
+                let data = interp.memory.slice_len(offset.saturating_to(), 0x40);
+                let key = B256::from_slice(&data[..0x20]);
+                let parent = B256::from_slice(&data[0x20..]);
+                let result = keccak256(&*data);
+                self.mapping_slots
+                    .entry(address)
+                    .or_default()
+                    .record_sha3(result, key, parent);
+            }
+            SSTORE => {
+                let stack = interp.stack.data();
+                let len = stack.len();
+                if len < 2 {
+                    return;
+                }
+                let slot = stack[len - 1];
+                let new_value = stack[len - 2];
+                let old_value = context
+                    .journal_mut()
+                    .sload_skip_cold_load(address, slot, true)
+                    .ok()
+                    .map(|s| s.data)
+                    .unwrap_or_default();
 
-        if let Some(frame) = self.stack.last_mut() {
-            frame.storage_changes.push(StorageChange {
-                slot,
-                old_value,
-                new_value,
-            });
+                if let Some(slots) = self.mapping_slots.get_mut(&address) {
+                    slots.insert(slot.into());
+                }
+
+                if let Some(frame) = self.stack.last_mut() {
+                    frame.storage_changes.push(StorageChange {
+                        slot,
+                        old_value,
+                        new_value,
+                    });
+                }
+            }
+            _ => {}
         }
     }
 

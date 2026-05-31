@@ -1,51 +1,64 @@
-No files changed, compilation skipped
-
-Ran 1 test for test/StorageTypes.t.sol:StorageTypesTest
-[FAIL: storage types revert] testDeploy() (gas: 1985739)
+[FAIL: storage types revert] testDeploy() (gas: 2659688)
 Traces:
-  [1985739] StorageTypesTest::testDeploy()
-    ├─ [1950058] → new <unknown>@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
-    │   ├─ [1817720] → new StorageTypes@0x104fBc016F4bb334D775a19E8A6510109AC63E00
-    │   │   └─ ← [Return] 6525 bytes of code
-    │   ├─ [785] StorageTypes::setBool(false)
+  [2659688] StorageTypesTest::testDeploy()
+    ├─ [2622592] → new <unknown>@0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
+    │   ├─ [2449371] → new StorageTypes@0x104fBc016F4bb334D775a19E8A6510109AC63E00
+    │   │   └─ ← [Return] 8673 bytes of code
+    │   ├─ [718] StorageTypes::setBool(false)
     │   │   └─ ← [Stop]
-    │   ├─ [764] StorageTypes::setUint8(0)
+    │   ├─ [880] StorageTypes::setUint8(0)
     │   │   └─ ← [Stop]
-    │   ├─ [720] StorageTypes::setUint128(0)
+    │   ├─ [792] StorageTypes::setUint128(0)
     │   │   └─ ← [Stop]
     │   ├─ [582] StorageTypes::setUint256(0)
     │   │   └─ ← [Stop]
-    │   ├─ [792] StorageTypes::setInt8(0)
+    │   ├─ [771] StorageTypes::setInt8(0)
     │   │   └─ ← [Stop]
-    │   ├─ [728] StorageTypes::setInt128(0)
+    │   ├─ [779] StorageTypes::setInt128(0)
     │   │   └─ ← [Stop]
-    │   ├─ [605] StorageTypes::setInt256(0)
+    │   ├─ [671] StorageTypes::setInt256(0)
     │   │   └─ ← [Stop]
     │   ├─ [783] StorageTypes::setBytes1(0x00)
     │   │   └─ ← [Stop]
-    │   ├─ [626] StorageTypes::setBytes32(0x0000000000000000000000000000000000000000000000000000000000000000)
+    │   ├─ [670] StorageTypes::setBytes32(0x0000000000000000000000000000000000000000000000000000000000000000)
     │   │   └─ ← [Stop]
-    │   ├─ [781] StorageTypes::setAddress(0x0000000000000000000000000000000000000000)
+    │   ├─ [804] StorageTypes::setAddress(0x0000000000000000000000000000000000000000)
     │   │   └─ ← [Stop]
     │   ├─ [1354] StorageTypes::setBytes(0x)
     │   │   └─ ← [Stop]
-    │   ├─ [1355] StorageTypes::setString("")
+    │   ├─ [1332] StorageTypes::setString("")
     │   │   └─ ← [Stop]
-    │   ├─ [22932] StorageTypes::pushUintArray(3)
+    │   ├─ [22976] StorageTypes::pushUintArray(3)
     │   │   └─ ← [Stop]
-    │   ├─ [46172] StorageTypes::pushStructArray(Point({ x: 5, y: 6 }))
+    │   ├─ [46194] StorageTypes::pushStructArray(Point({ x: 5, y: 6 }))
     │   │   └─ ← [Stop]
-    │   ├─ [803] StorageTypes::setFixedArray(0, 0)
+    │   ├─ [782] StorageTypes::setFixedArray(0, 0)
     │   │   └─ ← [Stop]
-    │   ├─ [803] StorageTypes::setFixedArray(1, 0)
+    │   ├─ [782] StorageTypes::setFixedArray(1, 0)
     │   │   └─ ← [Stop]
-    │   ├─ [803] StorageTypes::setFixedArray(2, 0)
+    │   ├─ [782] StorageTypes::setFixedArray(2, 0)
     │   │   └─ ← [Stop]
-    │   ├─ [1057] StorageTypes::setTuple(0, 0)
+    │   ├─ [1107] StorageTypes::setTuple(0, 0)
     │   │   └─ ← [Stop]
-    │   ├─ [764] StorageTypes::setStruct(Point({ x: 0, y: 0 }))
+    │   ├─ [697] StorageTypes::setStruct(Point({ x: 0, y: 0 }))
     │   │   └─ ← [Stop]
-    │   ├─ [1128] StorageTypes::setNestedStruct(Line({ start: Point({ x: 0, y: 0 }), end: Point({ x: 0, y: 0 }) }))
+    │   ├─ [1150] StorageTypes::setNestedStruct(Line({ start: Point({ x: 0, y: 0 }), end: Point({ x: 0, y: 0 }) }))
+    │   │   └─ ← [Stop]
+    │   ├─ [932] StorageTypes::setBalance(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0)
+    │   │   └─ ← [Stop]
+    │   ├─ [1257] StorageTypes::setAllowance(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0x1234567890123456789012345678901234567890, 0)
+    │   │   └─ ← [Stop]
+    │   ├─ [1094] StorageTypes::setIdToOwner(1, 0x0000000000000000000000000000000000000000)
+    │   │   └─ ← [Stop]
+    │   ├─ [1134] StorageTypes::setWhitelisted(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, false)
+    │   │   └─ ← [Stop]
+    │   ├─ [896] StorageTypes::setProof(0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658, 0)
+    │   │   └─ ← [Stop]
+    │   ├─ [23157] StorageTypes::pushIdToArray(1, 30)
+    │   │   └─ ← [Stop]
+    │   ├─ [2254] StorageTypes::setIdToPoint(1, Point({ x: 0, y: 0 }))
+    │   │   └─ ← [Stop]
+    │   ├─ [2378] StorageTypes::setUserToPoint(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, Point({ x: 0, y: 0 }))
     │   │   └─ ← [Stop]
     │   └─ ← [Revert] 0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001473746f7261676520747970657320726576657274000000000000000000000000
     └─ ← [Revert] storage types revert
@@ -54,13 +67,13 @@ Backtrace:
   at 0x5615dEB798BB3E4dFa0139dFa1b3D433Cc23b72f
   at StorageTypesTest.testDeploy
 
-Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 569.38µs (337.35µs CPU time)
+Suite result: FAILED. 0 passed; 1 failed; 0 skipped; finished in 731.69µs (480.59µs CPU time)
 
-Ran 1 test suite in 7.16ms (569.38µs CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
+Ran 1 test suite in 7.77ms (731.69µs CPU time): 0 tests passed, 1 failed, 0 skipped (1 total tests)
 
 Failing tests:
 Encountered 1 failing test in test/StorageTypes.t.sol:StorageTypesTest
-[FAIL: storage types revert] testDeploy() (gas: 1985739)
+[FAIL: storage types revert] testDeploy() (gas: 2659688)
 
 Encountered a total of 1 failing tests, 0 tests succeeded
 
