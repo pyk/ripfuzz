@@ -33,21 +33,21 @@ impl FailedAssertion {
         let mut lines = Vec::new();
         for (i, tx) in self.transactions.iter().enumerate() {
             let n = i + 1;
-            let name = format_calldata(&tx.calldata, &selector_map);
+            let name = Self::format_calldata(&tx.calldata, &selector_map);
             lines.push(format!("    {n}. {name}"));
         }
         lines.join("\n")
     }
-}
 
-fn format_calldata(calldata: &Bytes, selector_map: &HashMap<[u8; 4], String>) -> String {
-    if calldata.len() < 4 {
-        return "()".into();
-    }
-    let selector: [u8; 4] = calldata[0..4].try_into().unwrap_or([0; 4]);
-    if let Some(name) = selector_map.get(&selector) {
-        format!("{}()", name)
-    } else {
-        format!("0x{}", hex::encode(&calldata[0..4]))
+    fn format_calldata(calldata: &Bytes, selector_map: &HashMap<[u8; 4], String>) -> String {
+        if calldata.len() < 4 {
+            return "()".into();
+        }
+        let selector: [u8; 4] = calldata[0..4].try_into().unwrap_or([0; 4]);
+        if let Some(name) = selector_map.get(&selector) {
+            format!("{}()", name)
+        } else {
+            format!("0x{}", hex::encode(&calldata[0..4]))
+        }
     }
 }
