@@ -9,14 +9,15 @@ Consistent vocabulary for raptor users and contributors.
 A single invocation of `raptor fuzz`. A campaign initializes the **target
 contract**, builds seed inputs, and orchestrates one or more **fuzzers** that
 generate sequences of **function calls**, execute them against a cloned contract
-state, and check that all **properties** still hold. Also called a "fuzz run" or
-"test run".
+state, and check that all **properties** still hold. If a **failed assertion**
+is found, the campaign spawns one or more **shrinkers** to minimize the failing
+sequence before reporting the result. Also called a "fuzz run" or "test run".
 
 ### Target Contract
 
-The Solidity file you pass to `raptor fuzz` (e.g. `./test/CounterTarget.sol`).
-It is the contract raptor compiles, deploys, and exercises. Also called a
-**handler contract** in some tooling communities.
+The Solidity file you pass to `raptor fuzz` (e.g.
+`./test/CounterTarget.sol:CounterTarget`). It is the contract raptor compiles,
+deploys, and exercises.
 
 ### Invariant Function
 
@@ -28,8 +29,8 @@ A Solidity function that encodes an invariant. By default it must:
 
 Raptor appends every invariant to the end of each function call sequence and
 executes it in the same EVM loop. If an invariant reverts with a Solidity
-`assert` failure (`Panic(0x01)`), the fuzzer records a crash. The return value,
-if any, is ignored. Synonyms: **invariant**, **property test**.
+`assert` failure (`Panic(0x01)`), the fuzzer records a failed assertion. The
+return value, if any, is ignored. Synonyms: **invariant**, **property test**.
 
 ### Function-Level Invariant
 
@@ -63,21 +64,31 @@ contract **constructor** always runs once at deployment. If a function named
 ### Fuzzer
 
 A single parallel fuzzing instance that executes function call sequences against
-a cloned contract state and reports new coverage or crashes to the campaign
-manager. By default raptor spawns one fuzzer per available CPU core.
+a cloned contract state and reports new coverage or failed assertions to the
+campaign manager. By default raptor spawns one fuzzer per available CPU core.
 
 ### Campaign Result
 
 The aggregated output of a fuzzing campaign, including the total number of
-iterations executed across all fuzzers and any crashes (assert panics)
-discovered.
+iterations executed across all fuzzers and any failed assertions (assert
+panics) discovered.
 
-### Crash
+### Failed Assertion
 
 A failure recorded when any call (target function or invariant) reverts with a
-Solidity `assert` panic (`Panic(0x01)`). The fuzzer treats a crash as a bug and
-adds it to the set of objectives. Reverts caused by `require` or other reasons
-do not produce a crash. Synonyms: **objective**, **bug**.
+Solidity `assert` panic (`Panic(0x01)`). The fuzzer treats a failed assertion
+as a bug and adds it to the set of objectives. Reverts caused by `require` or
+other reasons do not produce a failed assertion. Synonyms: **objective**,
+**bug**.
+
+### Shrinker
+
+A per-thread worker that minimizes a failing corpus item after a failed
+assertion is discovered. The shrinker draws mutated copies of the current
+smallest failing sequence, executes each on a fresh chain clone, and replaces
+the shared item if the mutated sequence is still failing and strictly smaller.
+The goal is to produce a minimal reproduction that triggers the same assertion
+panic with the fewest possible calls.
 
 ## Coverage Terms
 
