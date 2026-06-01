@@ -10,23 +10,23 @@ line count:
 SOURCES
 
 symbol: earlyReturn(uint256)
-source: src/TargetContract.sol#L23-L29
+source: src/TargetContract.sol#L25-L31
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-  23 |    1 |    function earlyReturn(uint256 a) external returns (uint256) {
-  24 |    1 |        if (a == 0) {
-  25 |    1 |            return 0;
-  26 |      |        }
-  27 |    0 |        latestValue = a;
-  28 |    0 |        return latestValue;
-  29 |      |    }
+  25 |    1 |    function earlyReturn(uint256 a) external returns (uint256) {
+  26 |    1 |        if (a == 0) {
+  27 |    1 |            return 0;
+  28 |      |        }
+  29 |    0 |        latestValue = a;
+  30 |    0 |        return latestValue;
+  31 |      |    }
 
 symbol: latestValue
-source: src/TargetContract.sol#L5-L5
+source: src/TargetContract.sol#L7-L7
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-   5 |      |    uint256 public latestValue;
+   7 |      |    uint256 public latestValue;

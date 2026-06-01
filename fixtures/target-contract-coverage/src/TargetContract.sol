@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-contract TargetContract {
+import {RaptorFuzz} from "./RaptorFuzz.sol";
+
+contract TargetContract is RaptorFuzz {
     uint256 public latestValue;
 
     function addAndSub(uint256 a, uint256 b) external returns (uint256) {
@@ -26,5 +28,11 @@ contract TargetContract {
         }
         latestValue = a;
         return latestValue;
+    }
+
+    function inheritanceCall(uint256 a) external returns (uint256) {
+        uint256 bounded = bound(a, 10, 100);
+        latestValue = bounded;
+        return bounded;
     }
 }

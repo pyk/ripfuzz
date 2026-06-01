@@ -307,6 +307,10 @@ impl CoverageContext {
     }
 
     /// Collect all contract symbols into a map keyed by declaration ID.
+    ///
+    /// Symbols are resolved from the contract and all of its base contracts
+    /// (via `linearized_base_contracts`) so that inherited functions and state
+    /// variables are included in coverage reports.
     pub fn resolve_contract_symbols<'a>(
         &'a self,
         artifact: &'a Artifact,
@@ -315,18 +319,36 @@ impl CoverageContext {
         let ast = artifact.ast();
         let contract = get_contract_definition(ast, contract_name).ok()?;
         let mut map = HashMap::new();
-        for node in &contract.nodes {
-            match node {
-                solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
-                    map.insert(func.id, node);
+        for base_id in &contract.linearized_base_contracts {
+            let base_contract = self.find_contract_by_id(*base_id)?;
+            for node in &base_contract.nodes {
+                match node {
+                    solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
+                        map.insert(func.id, node);
+                    }
+                    solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
+                        map.insert(var.id, node);
+                    }
+                    _ => {}
                 }
-                solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
-                    map.insert(var.id, node);
-                }
-                _ => {}
             }
         }
         Some(map)
+    }
+
+    /// Find a contract definition by its ID across all loaded artifacts.
+    fn find_contract_by_id(&self, id: i64) -> Option<&solc::ast::ContractDefinition> {
+        for artifact in self.artifacts.values() {
+            let ast = artifact.ast();
+            for node in &ast.nodes {
+                if let solc::ast::SourceUnitNode::ContractDefinition(def) = node
+                    && def.id == id
+                {
+                    return Some(def);
+                }
+            }
+        }
+        None
     }
 
     /// Build a line-hit map from the shared coverage and the configured runtime
