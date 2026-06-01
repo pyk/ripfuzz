@@ -341,7 +341,8 @@ impl CoverageContext {
             };
             let file = self.source_files.get(&source_path).unwrap_or(&empty_source);
             let line = file.offset_to_line(entry.offset);
-            *line_hits.entry((source_path, line)).or_insert(0) += raw_count;
+            let current = line_hits.entry((source_path, line)).or_insert(0);
+            *current = (*current).max(raw_count);
         }
 
         line_hits

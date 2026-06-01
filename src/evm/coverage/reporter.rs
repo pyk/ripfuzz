@@ -989,4 +989,62 @@ mod tests {
             "coverage report output must match expected"
         );
     }
+
+    /// Coverage report hit counts must scale correctly when a function is
+    /// executed multiple times.
+    #[test]
+    fn coverage_report_hit_counts_two_executions() {
+        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+        let txs =
+            vec![
+                Transaction::new(deployed.address).calldata(Bytes::from(
+                    TargetContract::add_and_subCall::new((U256::from(123), U256::from(123)))
+                        .abi_encode(),
+                )),
+            ];
+
+        // Execute the same transaction twice and merge both into global coverage.
+        let exec1 = deployed.chain.exec(&txs).unwrap();
+        let coverage1 = exec1.coverage.expect("coverage must be present");
+        global.merge(&coverage1);
+
+        let exec2 = deployed.chain.exec(&txs).unwrap();
+        let coverage2 = exec2.coverage.expect("coverage must be present");
+        global.merge(&coverage2);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let context = CoverageContext::from_project(&project)
+            .unwrap()
+            .with_runtime_code(&deployed.runtime_code)
+            .unwrap();
+
+        let project_path = context
+            .target_artifact()
+            .unwrap()
+            .project_path()
+            .to_string_lossy()
+            .to_string();
+
+        let reporter = CoverageReporter::new()
+            .coverage(global)
+            .target_functions(contract.target_functions)
+            .context(context);
+
+        let expected_file = "fixtures/target-contract-coverage/expected/add_and_sub_2.txt";
+        let report = reporter
+            .get_report("add_and_sub(uint256,uint256)")
+            .expect("add_and_sub report must be present");
+        let formatted = format!("{report}");
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected = expected.replace("fixtures/target-contract-coverage", &project_path);
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output for 2x execution must match expected"
+        );
+    }
 }
