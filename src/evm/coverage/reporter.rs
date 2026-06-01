@@ -53,6 +53,7 @@ use crate::evm::coverage::shared::SharedCoverage;
 pub struct LineHits {
     pub line: usize,
     pub hit_count: u64,
+    pub is_executable: bool,
     pub content: String,
 }
 
@@ -318,6 +319,8 @@ impl fmt::Display for FunctionReport {
             for hit in &source.line_hits {
                 if hit.hit_count > 0 {
                     writeln!(f, "{:4} | {:4} |{}", hit.line, hit.hit_count, hit.content)?;
+                } else if hit.is_executable {
+                    writeln!(f, "{:4} |    0 |{}", hit.line, hit.content)?;
                 } else {
                     writeln!(f, "{:4} |      |{}", hit.line, hit.content)?;
                 }
@@ -382,6 +385,7 @@ fn build_function_report(
         hits.push(LineHits {
             line,
             hit_count,
+            is_executable,
             content,
         });
     }
@@ -494,6 +498,7 @@ fn build_source_coverage(
                 hits.push(LineHits {
                     line,
                     hit_count,
+                    is_executable,
                     content,
                 });
             }
@@ -527,8 +532,11 @@ fn build_source_coverage(
             let mut non_executable = 0;
             let mut covered = 0;
             let mut hits = Vec::new();
+            // State variable definitions are non-executable.
+            let is_state_variable = var.state_variable;
             for line in start_line..=end_line {
-                let is_executable = executable_lines.contains(&(source_path.clone(), line));
+                let is_executable =
+                    !is_state_variable && executable_lines.contains(&(source_path.clone(), line));
                 let hit_count = line_hits
                     .get(&(source_path.clone(), line))
                     .copied()
@@ -548,6 +556,7 @@ fn build_source_coverage(
                 hits.push(LineHits {
                     line,
                     hit_count,
+                    is_executable,
                     content,
                 });
             }

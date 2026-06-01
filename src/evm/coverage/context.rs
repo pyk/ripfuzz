@@ -331,14 +331,10 @@ impl CoverageContext {
             if raw_count == 0 {
                 continue;
             }
-            let source_path = match self.source_index.get(&entry.source_index) {
-                Some(p) => p.to_path_buf(),
-                None => self
-                    .target_artifact
-                    .as_ref()
-                    .map(|a| a.path.to_path_buf())
-                    .unwrap_or_default(),
+            let Some(source_path) = self.source_index.get(&entry.source_index) else {
+                continue;
             };
+            let source_path = source_path.to_path_buf();
             let file = self.source_files.get(&source_path).unwrap_or(&empty_source);
             let line = file.offset_to_line(entry.offset);
             let current = line_hits.entry((source_path, line)).or_insert(0);
@@ -366,14 +362,10 @@ impl CoverageContext {
 
         for entry in &self.pc_to_source {
             let Some(entry) = entry else { continue };
-            let source_path = match self.source_index.get(&entry.source_index) {
-                Some(p) => p.to_path_buf(),
-                None => self
-                    .target_artifact
-                    .as_ref()
-                    .map(|a| a.path.to_path_buf())
-                    .unwrap_or_default(),
+            let Some(source_path) = self.source_index.get(&entry.source_index) else {
+                continue;
             };
+            let source_path = source_path.to_path_buf();
             let file = self.source_files.get(&source_path).unwrap_or(&empty_source);
             let line = file.offset_to_line(entry.offset);
             lines.insert((source_path, line));
