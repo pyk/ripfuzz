@@ -3,13 +3,16 @@ pragma solidity ^0.8.28;
 
 import {RaptorFuzz} from "./RaptorFuzz.sol";
 import {Counter} from "./Counter.sol";
+import {CounterLinked} from "./CounterLinked.sol";
 
 contract TargetContract is RaptorFuzz {
     uint256 public latestValue;
     Counter public counter;
+    CounterLinked public counterLinked;
 
     constructor() {
         counter = new Counter();
+        counterLinked = new CounterLinked();
     }
 
     function addAndSub(uint256 a, uint256 b) external returns (uint256) {
@@ -45,6 +48,12 @@ contract TargetContract is RaptorFuzz {
     function libCall(uint256 amount) external returns (uint256) {
         counter.increment(amount);
         latestValue = counter.value();
+        return latestValue;
+    }
+
+    function libLinkedCall(uint256 amount) external returns (uint256) {
+        counterLinked.increment(amount);
+        latestValue = counterLinked.value();
         return latestValue;
     }
 }

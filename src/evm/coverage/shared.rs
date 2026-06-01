@@ -98,6 +98,7 @@ pub struct SharedCoverage {
 #[derive(Debug)]
 pub struct SharedCoverageInner {
     contracts: HashMap<B256, ContractCoverage>,
+    bytecodes: HashMap<B256, Vec<u8>>,
 }
 
 impl SharedCoverage {
@@ -106,6 +107,7 @@ impl SharedCoverage {
         Self {
             inner: Arc::new(SharedCoverageInner {
                 contracts: HashMap::new(),
+                bytecodes: HashMap::new(),
             }),
         }
     }
@@ -116,12 +118,20 @@ impl SharedCoverage {
     pub fn merge(&self, local: &ExecutionCoverage) -> CoverageUpdate {
         let mut update = CoverageUpdate::default();
         let guard = self.inner.contracts.pin();
+        let bytecodes_guard = self.inner.bytecodes.pin();
 
         for (contract_id, local_contract) in &local.contracts {
             let global = guard.get_or_insert(
                 *contract_id,
                 ContractCoverage::new(local_contract.edges.len()),
             );
+
+            // Store the contract bytecode so that linked library artifacts can be
+            // resolved later via `resolve_artifact_by_runtime_code`.
+            if !local_contract.bytecode.is_empty() {
+                bytecodes_guard
+                    .get_or_insert_with(*contract_id, || local_contract.bytecode.to_vec());
+            }
 
             // Merge edges: only iterate over PCs that were actually hit.
             for &pc in &local_contract.hit_pcs {
@@ -279,6 +289,36 @@ impl SharedCoverage {
             })
             .collect()
     }
+
+    /// Return the raw edge counts and bytecodes for all contracts in the coverage map.
+    pub fn all_raw_edge_counts_with_bytecodes(&self) -> Vec<RawEdgeCounts> {
+        let guard = self.inner.contracts.pin();
+        let bytecodes_guard = self.inner.bytecodes.pin();
+        guard
+            .iter()
+            .map(|(id, contract)| {
+                let raw_edges = contract
+                    .raw_edges
+                    .iter()
+                    .map(|e| e.load(Ordering::Relaxed))
+                    .collect();
+                let bytecode = bytecodes_guard.get(id).cloned().unwrap_or_default();
+                RawEdgeCounts {
+                    contract_id: *id,
+                    bytecode,
+                    raw_edges,
+                }
+            })
+            .collect()
+    }
+}
+
+/// Raw edge counts and bytecode for a single contract.
+#[derive(Debug, Clone)]
+pub struct RawEdgeCounts {
+    pub contract_id: B256,
+    pub bytecode: Vec<u8>,
+    pub raw_edges: Vec<u64>,
 }
 
 impl CoverageUpdate {

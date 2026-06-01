@@ -159,12 +159,23 @@ fn build_pc_to_source_map(
     result
 }
 
-fn build_bytecode_entry(bytecode: &ArtifactBytecode, id: &ArtifactId) -> Option<BytecodeEntry> {
+fn build_bytecode_entry(
+    bytecode: &ArtifactBytecode,
+    id: &ArtifactId,
+    is_library: bool,
+) -> Option<BytecodeEntry> {
     let code = parse_bytecode_with_placeholders(&bytecode.object, &bytecode.link_references);
     if code.is_empty() {
         return None;
     }
-    let positions = collect_link_positions(&bytecode.link_references);
+    let mut positions = collect_link_positions(&bytecode.link_references);
+    // Library runtime code embeds the library's own address at the start of the
+    // PUSH20 operand (PUSH20 <address> ADDRESS EQ ...). The compiler writes 0x0
+    // in the artifact, so the deployed bytecode differs at these 20 bytes. We mask
+    // them out so that linked and unlinked library bytecodes match.
+    if is_library && code.first() == Some(&0x73) {
+        positions.push((1, 20));
+    }
     let mut masked = code;
     zero_out_positions(&mut masked, &positions);
     Some(BytecodeEntry {
@@ -397,10 +408,14 @@ impl CoverageContext {
             line_offsets: Vec::new(),
         };
 
-        for (contract_id, raw_counts) in shared_coverage.all_raw_edge_counts() {
-            let Some(artifact) = self.resolve_artifact_by_hash(&contract_id) else {
+        for counts in shared_coverage.all_raw_edge_counts_with_bytecodes() {
+            let Some(artifact) = self
+                .resolve_artifact_by_runtime_code(&Bytes::from(counts.bytecode))
+                .or_else(|| self.resolve_artifact_by_hash(&counts.contract_id))
+            else {
                 continue;
             };
+            let raw_counts = counts.raw_edges;
             let Some(deployed) = artifact.deployed_bytecode() else {
                 continue;
             };
@@ -481,12 +496,13 @@ impl CoverageContext {
     fn load_project(&mut self, project: &Project) -> Result<()> {
         let artifacts = project.load_artifacts()?;
         for (id, artifact) in artifacts {
+            let is_library = matches!(artifact, Artifact::Library(_));
             let runtime_entry = artifact
                 .deployed_bytecode()
-                .and_then(|b| build_bytecode_entry(b, &id));
+                .and_then(|b| build_bytecode_entry(b, &id, is_library));
             let initcode_entry = artifact
                 .bytecode()
-                .and_then(|b| build_bytecode_entry(b, &id));
+                .and_then(|b| build_bytecode_entry(b, &id, is_library));
             if let Some(entry) = runtime_entry {
                 self.runtime_entries.push(entry);
             }

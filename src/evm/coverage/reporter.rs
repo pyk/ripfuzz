@@ -897,6 +897,8 @@ mod tests {
             function earlyReturn(uint256 a) external returns (uint256);
             function inheritanceCall(uint256 a) external returns (uint256);
             function libCall(uint256 amount) external returns (uint256);
+            function libLinkedCall(uint256 amount) external returns (uint256);
+            function counterLinked() external returns (address);
         }
     }
 
@@ -916,7 +918,11 @@ mod tests {
     fn deploy_and_setup(contract: &Contract) -> Deployed {
         let config = ChainConfig::default().coverage(true);
         let mut chain = Chain::new(config).unwrap();
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let mut deploy_opts = DeployInput::new(&contract.initcode);
+        for lib in &contract.libraries {
+            deploy_opts = deploy_opts.add_library(lib.clone());
+        }
+        let deployment = chain.deploy(deploy_opts).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
         let runtime_code = deployment.result.output.unwrap_or_default();
@@ -1207,6 +1213,54 @@ mod tests {
             formatted.trim(),
             expected.trim(),
             "coverage report output for libCall must match expected"
+        );
+    }
+
+    /// Coverage report for a function that calls a contract deployed in the
+    /// constructor, where the called contract depends on a linked library.
+    #[test]
+    fn coverage_report_lib_linked_call() {
+        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
+            TargetContract::libLinkedCallCall::new((U256::from(42),)).abi_encode(),
+        ))];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let context = CoverageContext::from_project(&project)
+            .unwrap()
+            .with_runtime_code(&deployed.runtime_code)
+            .unwrap();
+
+        let project_path = context
+            .target_artifact()
+            .unwrap()
+            .project_path()
+            .to_string_lossy()
+            .to_string();
+
+        let reporter = CoverageReporter::new()
+            .coverage(global)
+            .target_functions(contract.target_functions)
+            .context(context);
+
+        let report = reporter
+            .get_report("libLinkedCall(uint256)")
+            .expect("libLinkedCall report must be present");
+        let formatted = format!("{report}");
+        let expected_file = "fixtures/target-contract-coverage/expected/libLinkedCall.txt";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected = expected.replace("fixtures/target-contract-coverage", &project_path);
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output for libLinkedCall must match expected"
         );
     }
 }

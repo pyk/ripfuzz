@@ -112,10 +112,11 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
         if !hash.is_zero() && !interp.bytecode.is_empty() {
             let id = B256::from(hash);
             self.current_contract = Some(id);
-            self.local
-                .contracts
-                .entry(id)
-                .or_insert_with(|| ExecutionContractCoverage::new(interp.bytecode.len()));
+            self.local.contracts.entry(id).or_insert_with(|| {
+                let mut coverage = ExecutionContractCoverage::new(interp.bytecode.len());
+                coverage.bytecode = interp.bytecode.original_bytes().to_vec();
+                coverage
+            });
         }
     }
 

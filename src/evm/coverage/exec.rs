@@ -46,6 +46,8 @@ pub struct ExecutionContractCoverage {
     /// Sparse list of word indices that recorded a revert during this execution.
     /// Used to avoid iterating over the entire `reverts` array during merge.
     pub hit_reverts: Vec<usize>,
+    /// Raw bytecode of the contract. Used to resolve linked library artifacts.
+    pub bytecode: Vec<u8>,
 }
 
 impl ExecutionContractCoverage {
@@ -60,6 +62,7 @@ impl ExecutionContractCoverage {
             hit_pcs: Vec::new(),
             hit_depths: Vec::new(),
             hit_reverts: Vec::new(),
+            bytecode: Vec::new(),
         }
     }
 

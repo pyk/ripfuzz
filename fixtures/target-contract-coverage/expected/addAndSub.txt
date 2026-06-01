@@ -10,43 +10,43 @@ line count:
 SOURCES
 
 symbol: addAndSub(uint256,uint256)
-source: src/TargetContract.sol#L15-L19
+source: src/TargetContract.sol#L18-L22
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-  15 |    1 |    function addAndSub(uint256 a, uint256 b) external returns (uint256) {
-  16 |    1 |        uint256 result = add(a, b);
-  17 |    1 |        result = sub(result, b);
-  18 |    1 |        return result;
-  19 |      |    }
+  18 |    1 |    function addAndSub(uint256 a, uint256 b) external returns (uint256) {
+  19 |    1 |        uint256 result = add(a, b);
+  20 |    1 |        result = sub(result, b);
+  21 |    1 |        return result;
+  22 |      |    }
 
 symbol: add(uint256,uint256)
-source: src/TargetContract.sol#L21-L24
+source: src/TargetContract.sol#L24-L27
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-  21 |    1 |    function add(uint256 a, uint256 b) internal returns (uint256) {
-  22 |    1 |        latestValue = a + b;
-  23 |    1 |        return latestValue;
-  24 |      |    }
+  24 |    1 |    function add(uint256 a, uint256 b) internal returns (uint256) {
+  25 |    1 |        latestValue = a + b;
+  26 |    1 |        return latestValue;
+  27 |      |    }
 
 symbol: latestValue
-source: src/TargetContract.sol#L8-L8
+source: src/TargetContract.sol#L9-L9
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-   8 |      |    uint256 public latestValue;
+   9 |      |    uint256 public latestValue;
 
 symbol: sub(uint256,uint256)
-source: src/TargetContract.sol#L26-L29
+source: src/TargetContract.sol#L29-L32
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-  26 |    1 |    function sub(uint256 a, uint256 b) internal returns (uint256) {
-  27 |    1 |        latestValue = a - b;
-  28 |    1 |        return latestValue;
-  29 |      |    }
+  29 |    1 |    function sub(uint256 a, uint256 b) internal returns (uint256) {
+  30 |    1 |        latestValue = a - b;
+  31 |    1 |        return latestValue;
+  32 |      |    }
