@@ -330,7 +330,11 @@ pub fn run(args: Args) -> Result<()> {
     console.begin("building foundry project ...")?;
     let project = Project::new(&project_path);
     let build_opts = BuildOptions::new().force(args.force);
-    project.build(build_opts)?;
+    if let Err(e) = project.build(build_opts) {
+        console.end_fail("building foundry project failed")?;
+        console.print_line(format!("{e:#}"))?;
+        return Err(e);
+    }
     console.update("built foundry project")?;
     console.end()?;
 
