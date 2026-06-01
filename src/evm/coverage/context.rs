@@ -395,6 +395,50 @@ impl CoverageContext {
         None
     }
 
+    /// Find all implemented contract nodes (functions or public state variables)
+    /// that match the given function selector across all loaded artifacts.
+    ///
+    /// This is used to resolve interface references to their actual
+    /// implementations when the coverage reporter encounters an external call
+    /// made through an interface.
+    pub fn find_implementations_by_selector<'a>(
+        &'a self,
+        selector: &str,
+    ) -> Vec<&'a solc::ast::ContractDefinitionNode> {
+        let mut results = Vec::new();
+        let target = selector.trim_start_matches("0x").to_lowercase();
+        for artifact in self.artifacts.values() {
+            let ast = artifact.ast();
+            for node in &ast.nodes {
+                let solc::ast::SourceUnitNode::ContractDefinition(contract) = node else {
+                    continue;
+                };
+                for inner_node in &contract.nodes {
+                    match inner_node {
+                        solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
+                            if func.implemented
+                                && let Some(ref sel) = func.function_selector
+                                && sel.trim_start_matches("0x").to_lowercase() == target
+                            {
+                                results.push(inner_node);
+                            }
+                        }
+                        solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
+                            if var.state_variable
+                                && let Some(ref sel) = var.function_selector
+                                && sel.trim_start_matches("0x").to_lowercase() == target
+                            {
+                                results.push(inner_node);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        results
+    }
+
     /// Build a line-hit map from the shared coverage across all contracts.
     ///
     /// Returns a map of `(source_path, line_number) -> hit_count`.

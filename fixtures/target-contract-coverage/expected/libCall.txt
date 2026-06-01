@@ -10,16 +10,16 @@ line count:
 SOURCES
 
 symbol: libCall(uint256)
-source: src/TargetContract.sol#L48-L52
+source: src/TargetContract.sol#L51-L55
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-  48 |    1 |    function libCall(uint256 amount) external returns (uint256) {
-  49 |    1 |        counter.increment(amount);
-  50 |    1 |        latestValue = counter.value();
-  51 |    1 |        return latestValue;
-  52 |      |    }
+  51 |    1 |    function libCall(uint256 amount) external returns (uint256) {
+  52 |    1 |        counter.increment(amount);
+  53 |    1 |        latestValue = counter.value();
+  54 |    1 |        return latestValue;
+  55 |      |    }
 
 symbol: increment(uint256)
 source: src/Counter.sol#L9-L11
@@ -50,9 +50,9 @@ line | hits |
    7 |      |    }
 
 symbol: latestValue
-source: src/TargetContract.sol#L9-L9
+source: src/TargetContract.sol#L10-L10
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-   9 |      |    uint256 public latestValue;
+  10 |      |    uint256 public latestValue;

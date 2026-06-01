@@ -10,16 +10,16 @@ line count:
 SOURCES
 
 symbol: inheritanceCall(uint256)
-source: src/TargetContract.sol#L42-L46
+source: src/TargetContract.sol#L45-L49
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-  42 |    1 |    function inheritanceCall(uint256 a) external returns (uint256) {
-  43 |    1 |        uint256 bounded = bound(a, 10, 100);
-  44 |    1 |        latestValue = bounded;
-  45 |    1 |        return bounded;
-  46 |      |    }
+  45 |    1 |    function inheritanceCall(uint256 a) external returns (uint256) {
+  46 |    1 |        uint256 bounded = bound(a, 10, 100);
+  47 |    1 |        latestValue = bounded;
+  48 |    1 |        return bounded;
+  49 |      |    }
 
 symbol: bound(uint256,uint256,uint256)
 source: src/RaptorFuzz.sol#L38-L44
@@ -81,9 +81,9 @@ line | hits |
    6 |      |        115792089237316195423570985008687907853269984665640564039457584007913129639935;
 
 symbol: latestValue
-source: src/TargetContract.sol#L9-L9
+source: src/TargetContract.sol#L10-L10
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-   9 |      |    uint256 public latestValue;
+  10 |      |    uint256 public latestValue;

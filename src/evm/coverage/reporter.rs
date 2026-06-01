@@ -637,32 +637,72 @@ fn resolve_children(
         let Some(node) = symbols.get(&rid) else {
             continue;
         };
-        let Some(child) =
-            build_source_coverage(node, context, line_hits, executable_lines, project)
-        else {
-            continue;
-        };
 
-        if !visited_ids.insert(rid) {
-            continue;
+        // If the reference is an unimplemented interface function, try to
+        // find the actual implementation by matching the function selector.
+        // We prefer implementations that have line hits in the coverage map.
+        let mut nodes_to_add: Vec<(&solc::ast::ContractDefinitionNode, i64)> = Vec::new();
+        let mut impl_resolved = false;
+        if let solc::ast::ContractDefinitionNode::FunctionDefinition(func) = node
+            && !func.implemented
+            && let Some(ref selector) = func.function_selector
+        {
+            let impls = context.find_implementations_by_selector(selector);
+            for impl_node in impls {
+                let impl_id = match impl_node {
+                    solc::ast::ContractDefinitionNode::FunctionDefinition(f) => f.id,
+                    solc::ast::ContractDefinitionNode::VariableDeclaration(v) => v.id,
+                    _ => continue,
+                };
+                if visited_ids.contains(&impl_id) {
+                    impl_resolved = true;
+                    continue;
+                }
+                let Some(child) =
+                    build_source_coverage(impl_node, context, line_hits, executable_lines, project)
+                else {
+                    continue;
+                };
+                if child.coverage.line_hits.iter().any(|h| h.hit_count > 0) {
+                    nodes_to_add.push((impl_node, impl_id));
+                    impl_resolved = true;
+                }
+            }
         }
 
-        result.executable_line_count += child.executable_line_count;
-        result.non_executable_line_count += child.non_executable_line_count;
-        result.executable_line_covered += child.executable_line_covered;
-        result.children.push(child.coverage);
+        // Fall back to the original node if no implementation was found.
+        if nodes_to_add.is_empty() && !impl_resolved {
+            nodes_to_add.push((*node, rid));
+        }
 
-        if let solc::ast::ContractDefinitionNode::FunctionDefinition(f) = node {
-            let sub = resolve_children(
-                f,
-                context,
-                line_hits,
-                executable_lines,
-                symbols,
-                visited_ids,
-                project,
-            );
-            result.merge_child(sub);
+        for (node_to_add, id_to_add) in nodes_to_add {
+            if !visited_ids.insert(id_to_add) {
+                continue;
+            }
+
+            let Some(child) =
+                build_source_coverage(node_to_add, context, line_hits, executable_lines, project)
+            else {
+                continue;
+            };
+
+            result.executable_line_count += child.executable_line_count;
+            result.non_executable_line_count += child.non_executable_line_count;
+            result.executable_line_covered += child.executable_line_covered;
+            result.children.push(child.coverage);
+
+            if let solc::ast::ContractDefinitionNode::FunctionDefinition(f) = node_to_add {
+                let sub = resolve_children(
+                    f,
+                    context,
+                    line_hits,
+                    executable_lines,
+                    symbols,
+                    visited_ids,
+                    project,
+                );
+                result.merge_child(sub);
+            }
         }
     }
 
@@ -898,6 +938,7 @@ mod tests {
             function inheritanceCall(uint256 a) external returns (uint256);
             function libCall(uint256 amount) external returns (uint256);
             function libLinkedCall(uint256 amount) external returns (uint256);
+            function interfaceCall(uint256 amount) external returns (uint256);
             function counterLinked() external returns (address);
         }
     }
@@ -1261,6 +1302,54 @@ mod tests {
             formatted.trim(),
             expected.trim(),
             "coverage report output for libLinkedCall must match expected"
+        );
+    }
+
+    /// Coverage report for a function that interacts with a contract deployed in
+    /// the constructor via an interface instead of a direct call.
+    #[test]
+    fn coverage_report_interface_call() {
+        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
+            TargetContract::interfaceCallCall::new((U256::from(42),)).abi_encode(),
+        ))];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let context = CoverageContext::from_project(&project)
+            .unwrap()
+            .with_runtime_code(&deployed.runtime_code)
+            .unwrap();
+
+        let project_path = context
+            .target_artifact()
+            .unwrap()
+            .project_path()
+            .to_string_lossy()
+            .to_string();
+
+        let reporter = CoverageReporter::new()
+            .coverage(global)
+            .target_functions(contract.target_functions)
+            .context(context);
+
+        let report = reporter
+            .get_report("interfaceCall(uint256)")
+            .expect("interfaceCall report must be present");
+        let formatted = format!("{report}");
+        let expected_file = "fixtures/target-contract-coverage/expected/interfaceCall.txt";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected = expected.replace("fixtures/target-contract-coverage", &project_path);
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output for interfaceCall must match expected"
         );
     }
 }

@@ -9,30 +9,30 @@ line count:
 
 SOURCES
 
-symbol: libLinkedCall(uint256)
-source: src/TargetContract.sol#L57-L61
+symbol: interfaceCall(uint256)
+source: src/TargetContract.sol#L63-L67
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-  57 |    1 |    function libLinkedCall(uint256 amount) external returns (uint256) {
-  58 |    1 |        counterLinked.increment(amount);
-  59 |    1 |        latestValue = counterLinked.value();
-  60 |    1 |        return latestValue;
-  61 |      |    }
+  63 |    1 |    function interfaceCall(uint256 amount) external returns (uint256) {
+  64 |    1 |        counterInterface.increment(amount);
+  65 |    1 |        latestValue = counterInterface.value();
+  66 |    1 |        return latestValue;
+  67 |      |    }
 
 symbol: increment(uint256)
-source: src/CounterLinked.sol#L9-L11
+source: src/Counter.sol#L9-L11
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
    9 |    1 |    function increment(uint256 amount) external {
-  10 |    1 |        value = MathLibLinked.add(value, amount);
+  10 |    1 |        value = MathLib.add(value, amount);
   11 |      |    }
 
 symbol: value
-source: src/CounterLinked.sol#L7-L7
+source: src/Counter.sol#L7-L7
 project: fixtures/target-contract-coverage
 
 line | hits |
@@ -40,12 +40,12 @@ line | hits |
    7 |      |    uint256 public value;
 
 symbol: add(uint256,uint256)
-source: src/MathLibLinked.sol#L5-L7
+source: src/MathLib.sol#L5-L7
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-   5 |    1 |    function add(uint256 a, uint256 b) external pure returns (uint256) {
+   5 |    1 |    function add(uint256 a, uint256 b) internal pure returns (uint256) {
    6 |    1 |        return a + b;
    7 |      |    }
 
