@@ -193,12 +193,16 @@ pub struct CoverageContext {
     target_artifact: Option<ArtifactId>,
     pc_to_source: Vec<Option<SourceMapEntry>>,
     runtime_code: Option<Bytes>,
+    project_path: PathBuf,
 }
 
 impl CoverageContext {
     /// Create a new [`CoverageContext`] from a Foundry [`Project`].
     pub fn from_project(project: &Project) -> Result<Self> {
-        let mut ctx = Self::default();
+        let mut ctx = Self {
+            project_path: project.path.clone(),
+            ..Self::default()
+        };
         ctx.load_project(project)?;
         Ok(ctx)
     }
@@ -220,6 +224,27 @@ impl CoverageContext {
         let source_map = parse_source_map(&deployed.source_map);
         let bytecode = Bytecode::new_legacy(runtime_code.clone());
         let pc_to_source = build_pc_to_source_map(&bytecode, &source_map);
+
+        // Load the source index for this specific artifact's compilation unit.
+        // Foundry incremental builds create multiple build-info files; we must
+        // use the one that matches the artifact's compilation unit so that
+        // source IDs in the bytecode source map resolve to the correct files.
+        let build_info_sources = BuildInfo::load_source_index_for_artifact(
+            &self.project_path,
+            &artifact_id,
+            artifact.source_id(),
+        )?;
+        self.source_index.clear();
+        for (idx, path) in build_info_sources {
+            self.source_index.insert(idx, path);
+        }
+
+        for path in self.source_index.values().cloned() {
+            let full_path = self.project_path.join(&path);
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                self.source_files.insert(path, SourceFile::new(content));
+            }
+        }
 
         self.target_artifact = Some(artifact_id);
         self.pc_to_source = pc_to_source;
@@ -401,18 +426,6 @@ impl CoverageContext {
             self.artifacts.insert(id, artifact);
         }
 
-        let build_info_sources = BuildInfo::load_source_index_map(&project.path)?;
-        for (idx, path) in build_info_sources {
-            self.source_index.insert(idx, path);
-        }
-
-        for path in self.source_index.values().cloned() {
-            let full_path = project.path.join(&path);
-            if let Ok(content) = fs::read_to_string(&full_path) {
-                self.source_files.insert(path, SourceFile::new(content));
-            }
-        }
-
         debug!(project = %project.path.display(), "loaded coverage context");
         Ok(())
     }
@@ -427,7 +440,15 @@ mod tests {
     #[test]
     fn context_from_project() {
         let project = foundry::Project::new("fixtures/target-contract-coverage");
-        let ctx = CoverageContext::from_project(&project).unwrap();
+        let artifacts = project.load_artifacts().unwrap();
+        let target = artifacts
+            .get(&ArtifactId::try_from("src/TargetContract.sol:TargetContract").unwrap())
+            .unwrap();
+        let runtime_code = target.deployed_bytecode().unwrap().object.parse().unwrap();
+        let ctx = CoverageContext::from_project(&project)
+            .unwrap()
+            .with_runtime_code(&runtime_code)
+            .unwrap();
         assert!(ctx.resolve_source_file("src/TargetContract.sol").is_some());
     }
 }

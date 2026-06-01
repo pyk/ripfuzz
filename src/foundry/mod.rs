@@ -7,7 +7,7 @@
 //! 2. **Loading build artifacts**: read compiled artifacts from the project's
 //!    `out/` directory via [`Project::load_artifacts`].
 //! 3. **Loading build info**: read compiler build-info files from the project's
-//!    `out/build-info/` directory via [`BuildInfo::load_source_index_map`].
+//!    `out/build-info/` directory via [`BuildInfo::load_source_index_for_artifact`].
 
 pub use artifact::{
     Artifact, ArtifactBytecode, ArtifactId, ContractArtifact, LinkReferences, StorageTypeInfo,

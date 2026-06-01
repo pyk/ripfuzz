@@ -108,6 +108,9 @@ pub struct ContractArtifact {
     pub bytecode: ArtifactBytecode,
     pub deployed_bytecode: ArtifactBytecode,
     pub storage_layout: Option<StorageLayout>,
+    /// The numeric source ID assigned by the Solidity compiler for this
+    /// artifact's source file within its compilation unit.
+    pub source_id: usize,
 }
 
 impl ContractArtifact {
@@ -125,6 +128,9 @@ pub struct InterfaceArtifact {
     pub project_path: PathBuf,
     pub ast: solc::ast::SourceUnit,
     pub abi: JsonAbi,
+    /// The numeric source ID assigned by the Solidity compiler for this
+    /// artifact's source file within its compilation unit.
+    pub source_id: usize,
 }
 
 /// A library artifact.
@@ -137,6 +143,9 @@ pub struct LibraryArtifact {
     pub bytecode: ArtifactBytecode,
     pub deployed_bytecode: ArtifactBytecode,
     pub storage_layout: Option<StorageLayout>,
+    /// The numeric source ID assigned by the Solidity compiler for this
+    /// artifact's source file within its compilation unit.
+    pub source_id: usize,
 }
 
 /// An abstract contract artifact.
@@ -146,6 +155,9 @@ pub struct AbstractArtifact {
     pub project_path: PathBuf,
     pub ast: solc::ast::SourceUnit,
     pub abi: JsonAbi,
+    /// The numeric source ID assigned by the Solidity compiler for this
+    /// artifact's source file within its compilation unit.
+    pub source_id: usize,
 }
 
 /// A single storage slot entry from the Solidity `storageLayout` output.
@@ -206,6 +218,8 @@ struct ArtifactJson {
     metadata: Option<ArtifactMetadata>,
     #[serde(rename = "storageLayout")]
     storage_layout: Option<StorageLayout>,
+    #[serde(default)]
+    id: usize,
 }
 
 /// A single link reference location within bytecode.
@@ -326,6 +340,7 @@ impl Artifact {
         let id = get_artifact_id(&json)?;
 
         let def = get_contract_definition(&json.ast, &id.name)?;
+        let source_id = json.id;
         Ok(match def.contract_kind {
             solc::ast::ContractKind::Contract if !def.r#abstract => {
                 Self::Contract(ContractArtifact {
@@ -336,6 +351,7 @@ impl Artifact {
                     bytecode: json.bytecode,
                     deployed_bytecode: json.deployed_bytecode,
                     storage_layout: json.storage_layout,
+                    source_id,
                 })
             }
             solc::ast::ContractKind::Contract => Self::Abstract(AbstractArtifact {
@@ -343,12 +359,14 @@ impl Artifact {
                 project_path: PathBuf::new(),
                 ast: json.ast,
                 abi: json.abi,
+                source_id,
             }),
             solc::ast::ContractKind::Interface => Self::Interface(InterfaceArtifact {
                 id,
                 project_path: PathBuf::new(),
                 ast: json.ast,
                 abi: json.abi,
+                source_id,
             }),
             solc::ast::ContractKind::Library => Self::Library(LibraryArtifact {
                 id,
@@ -358,6 +376,7 @@ impl Artifact {
                 bytecode: json.bytecode,
                 deployed_bytecode: json.deployed_bytecode,
                 storage_layout: json.storage_layout,
+                source_id,
             }),
         })
     }
@@ -369,6 +388,17 @@ impl Artifact {
             Self::Interface(a) => &a.id,
             Self::Library(a) => &a.id,
             Self::Abstract(a) => &a.id,
+        }
+    }
+
+    /// The numeric source ID assigned by the Solidity compiler for this
+    /// artifact's source file within its compilation unit.
+    pub fn source_id(&self) -> usize {
+        match self {
+            Self::Contract(a) => a.source_id,
+            Self::Interface(a) => a.source_id,
+            Self::Library(a) => a.source_id,
+            Self::Abstract(a) => a.source_id,
         }
     }
 

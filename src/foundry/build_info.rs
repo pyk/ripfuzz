@@ -13,8 +13,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
+
+use crate::foundry::artifact::ArtifactId;
 
 /// A single build-info file loaded from a Foundry project.
 ///
@@ -39,21 +41,32 @@ impl BuildInfo {
         Ok(info)
     }
 
-    /// Load all build-info files from a project's `out/build-info` directory.
+    /// Load the source index map for a specific artifact from a project's
+    /// `out/build-info` directory.
     ///
-    /// Returns a map of `source_index -> path` merged from all build-info files
-    /// found in the directory. If the directory does not exist, returns an
-    /// empty map.
-    pub fn load_source_index_map(
+    /// Foundry incremental builds create multiple build-info files, one per
+    /// compilation unit. Source IDs are only unique within a compilation unit,
+    /// so merging all build-info files globally can produce conflicts or stale
+    /// mappings for artifacts that were not rebuilt.
+    ///
+    /// This method finds the most recent build-info file whose
+    /// `source_id_to_path` maps the artifact's numeric source ID to the
+    /// artifact's source file path. This strong match ensures the build-info
+    /// is the one that produced the artifact (or a later recompilation of the
+    /// same unit), so its source IDs are consistent with the artifact's bytecode
+    /// source map.
+    pub fn load_source_index_for_artifact(
         project_path: impl AsRef<Path>,
+        artifact_id: &ArtifactId,
+        artifact_source_id: usize,
     ) -> Result<HashMap<usize, PathBuf>> {
         let build_info_dir = project_path.as_ref().join("out").join("build-info");
-        let mut map = HashMap::new();
 
         if !build_info_dir.exists() {
-            return Ok(map);
+            return Ok(HashMap::new());
         }
 
+        let mut files = Vec::new();
         for entry in fs::read_dir(&build_info_dir).with_context(|| {
             format!(
                 "failed to read build-info dir: {}",
@@ -65,15 +78,37 @@ impl BuildInfo {
             if path.extension() != Some("json".as_ref()) {
                 continue;
             }
+            let modified = fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            files.push((path, modified));
+        }
+
+        // Most recent first -- the first build-info that maps the artifact's
+        // numeric source ID to its source file path is the correct one.
+        files.sort_by(|a, b| b.1.cmp(&a.1));
+
+        for (path, _) in files {
             let info = BuildInfo::from_json(&path)?;
-            for (k, v) in info.source_id_to_path {
-                if let Ok(idx) = k.parse::<usize>() {
+            let key = artifact_source_id.to_string();
+            if matches!(info.source_id_to_path.get(&key), Some(p) if p == &artifact_id.path) {
+                let mut map = HashMap::new();
+                for (k, v) in info.source_id_to_path {
+                    let Ok(idx) = k.parse::<usize>() else {
+                        continue;
+                    };
                     map.insert(idx, v);
                 }
+                return Ok(map);
             }
         }
 
-        Ok(map)
+        bail!(
+            "no build-info file found for source path `{}` with source ID {}. \
+             Run `forge clean && forge build --ast --extra-output storageLayout` before loading coverage.",
+            artifact_id.path.display(),
+            artifact_source_id
+        )
     }
 }
 
