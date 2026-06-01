@@ -70,9 +70,10 @@ pub struct SourceCoverage {
 /// A summary report for a single target function.
 #[derive(Debug, Clone)]
 pub struct FunctionSummaryReport {
-    pub total_lines: usize,
-    pub total_covered_lines: usize,
-    pub total_coverage: f64,
+    pub executable_line_count: usize,
+    pub non_executable_line_count: usize,
+    pub executable_line_covered: usize,
+    pub coverage: f64,
     pub path: PathBuf,
     pub name: String,
     pub total_sub_functions: usize,
@@ -81,9 +82,10 @@ pub struct FunctionSummaryReport {
 /// A detailed coverage report for a single target function.
 #[derive(Debug, Clone)]
 pub struct FunctionReport {
-    pub total_lines: usize,
-    pub total_covered_lines: usize,
-    pub total_coverage: f64,
+    pub executable_line_count: usize,
+    pub non_executable_line_count: usize,
+    pub executable_line_covered: usize,
+    pub coverage: f64,
     pub path: PathBuf,
     pub name: String,
     pub total_sub_functions: usize,
@@ -93,8 +95,9 @@ pub struct FunctionReport {
 /// A summary report for the entire campaign.
 #[derive(Debug, Clone)]
 pub struct SummaryReport {
-    pub total_lines: usize,
-    pub total_covered_lines: usize,
+    pub total_executable_line_count: usize,
+    pub total_non_executable_line_count: usize,
+    pub total_executable_line_covered: usize,
     pub total_coverage: f64,
     pub function_summaries: Vec<FunctionSummaryReport>,
 }
@@ -144,10 +147,12 @@ impl CoverageReporter {
     /// Return a campaign-level summary.
     pub fn summary(&self) -> SummaryReport {
         let reports = self.reports();
-        let total_lines = reports.iter().map(|r| r.total_lines).sum();
-        let total_covered_lines = reports.iter().map(|r| r.total_covered_lines).sum();
-        let total_coverage = if total_lines > 0 {
-            (total_covered_lines as f64 / total_lines as f64) * 100.0
+        let total_executable_line_count = reports.iter().map(|r| r.executable_line_count).sum();
+        let total_non_executable_line_count =
+            reports.iter().map(|r| r.non_executable_line_count).sum();
+        let total_executable_line_covered = reports.iter().map(|r| r.executable_line_covered).sum();
+        let total_coverage = if total_executable_line_count > 0 {
+            (total_executable_line_covered as f64 / total_executable_line_count as f64) * 100.0
         } else {
             0.0
         };
@@ -155,9 +160,10 @@ impl CoverageReporter {
         let function_summaries = reports
             .into_iter()
             .map(|r| FunctionSummaryReport {
-                total_lines: r.total_lines,
-                total_covered_lines: r.total_covered_lines,
-                total_coverage: r.total_coverage,
+                executable_line_count: r.executable_line_count,
+                non_executable_line_count: r.non_executable_line_count,
+                executable_line_covered: r.executable_line_covered,
+                coverage: r.coverage,
                 path: r.path,
                 name: r.name,
                 total_sub_functions: r.total_sub_functions,
@@ -165,8 +171,9 @@ impl CoverageReporter {
             .collect();
 
         SummaryReport {
-            total_lines,
-            total_covered_lines,
+            total_executable_line_count,
+            total_non_executable_line_count,
+            total_executable_line_covered,
             total_coverage,
             function_summaries,
         }
@@ -175,6 +182,7 @@ impl CoverageReporter {
     /// Return the detailed report for a specific target function signature.
     pub fn get_report(&self, function_signature: &str) -> Option<FunctionReport> {
         let line_hits = self.context.build_line_hits(&self.coverage);
+        let executable_lines = self.context.build_executable_lines();
         let artifact = self.context.target_artifact()?;
         let contract_name = artifact.name();
         let symbols = self
@@ -193,6 +201,7 @@ impl CoverageReporter {
             func_def,
             &self.context,
             &line_hits,
+            &executable_lines,
             &symbols,
             function_signature,
         )
@@ -201,6 +210,7 @@ impl CoverageReporter {
     /// Return detailed reports for all target functions.
     pub fn reports(&self) -> Vec<FunctionReport> {
         let line_hits = self.context.build_line_hits(&self.coverage);
+        let executable_lines = self.context.build_executable_lines();
         let Some(artifact) = self.context.target_artifact() else {
             return Vec::new();
         };
@@ -221,9 +231,14 @@ impl CoverageReporter {
             else {
                 continue;
             };
-            if let Some(report) =
-                build_function_report(func_def, &self.context, &line_hits, &symbols, &sig)
-            {
+            if let Some(report) = build_function_report(
+                func_def,
+                &self.context,
+                &line_hits,
+                &executable_lines,
+                &symbols,
+                &sig,
+            ) {
                 reports.push(report);
             }
         }
@@ -237,24 +252,41 @@ impl CoverageReporter {
 
 impl fmt::Display for SummaryReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let uncovered = self.total_lines.saturating_sub(self.total_covered_lines);
         let pct = self.total_coverage;
 
         writeln!(f, "COVERAGE REPORT STATS\n")?;
-        writeln!(f, "total lines: {}", self.total_lines)?;
-        writeln!(f, "total covered lines: {}", self.total_covered_lines)?;
-        writeln!(f, "total uncovered lines: {}", uncovered)?;
+        writeln!(
+            f,
+            "executable line count: {}",
+            self.total_executable_line_count
+        )?;
+        writeln!(
+            f,
+            "non executable line count: {}",
+            self.total_non_executable_line_count
+        )?;
+        writeln!(
+            f,
+            "executable line covered: {}",
+            self.total_executable_line_covered
+        )?;
         writeln!(f, "coverage: {:.2}%\n", pct)?;
         writeln!(f, "FUNCTIONS\n")?;
 
         for func in &self.function_summaries {
             writeln!(f, "function: {}", func.name)?;
             writeln!(f, "source: {}", func.path.display())?;
-            writeln!(f, "coverage: {:.2}%", func.total_coverage)?;
+            writeln!(f, "coverage: {:.2}%", func.coverage)?;
+            writeln!(f, "executable line count: {}", func.executable_line_count)?;
             writeln!(
                 f,
-                "lines: {}/{}",
-                func.total_covered_lines, func.total_lines
+                "non executable line count: {}",
+                func.non_executable_line_count
+            )?;
+            writeln!(
+                f,
+                "executable line covered: {}",
+                func.executable_line_covered
             )?;
             writeln!(f, "sub functions: {}\n", func.total_sub_functions)?;
         }
@@ -265,13 +297,20 @@ impl fmt::Display for SummaryReport {
 
 impl fmt::Display for FunctionReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let uncovered = self.total_lines.saturating_sub(self.total_covered_lines);
-        let pct = self.total_coverage;
+        let pct = self.coverage;
 
         writeln!(f, "COVERAGE REPORT STATS\n")?;
-        writeln!(f, "total lines: {}", self.total_lines)?;
-        writeln!(f, "total covered lines: {}", self.total_covered_lines)?;
-        writeln!(f, "total uncovered lines: {}", uncovered)?;
+        writeln!(f, "executable line count: {}", self.executable_line_count)?;
+        writeln!(
+            f,
+            "non executable line count: {}",
+            self.non_executable_line_count
+        )?;
+        writeln!(
+            f,
+            "executable line covered: {}",
+            self.executable_line_covered
+        )?;
         writeln!(f, "coverage: {:.2}%\n", pct)?;
         writeln!(f, "SOURCES\n")?;
 
@@ -310,6 +349,7 @@ fn build_function_report(
     func_def: &solc::ast::FunctionDefinition,
     context: &CoverageContext,
     line_hits: &HashMap<(PathBuf, usize), u64>,
+    executable_lines: &HashSet<(PathBuf, usize)>,
     symbols: &HashMap<i64, &solc::ast::ContractDefinitionNode>,
     function_signature: &str,
 ) -> Option<FunctionReport> {
@@ -328,17 +368,24 @@ fn build_function_report(
     let end_line = file
         .map(|f| f.offset_to_line(func_def.src.offset + func_def.src.length))
         .unwrap_or(start_line);
-    let total_lines = end_line.saturating_sub(start_line) + 1;
 
-    let mut covered_lines = 0;
+    let mut executable_line_count = 0;
+    let mut non_executable_line_count = 0;
+    let mut executable_line_covered = 0;
     let mut hits = Vec::new();
     for line in start_line..=end_line {
+        let is_executable = executable_lines.contains(&(source_path.clone(), line));
         let hit_count = line_hits
             .get(&(source_path.clone(), line))
             .copied()
             .unwrap_or(0);
-        if hit_count > 0 {
-            covered_lines += 1;
+        if is_executable {
+            executable_line_count += 1;
+            if hit_count > 0 {
+                executable_line_covered += 1;
+            }
+        } else {
+            non_executable_line_count += 1;
         }
         let content = file
             .and_then(|f| f.content.lines().nth(line.saturating_sub(1)))
@@ -361,29 +408,39 @@ fn build_function_report(
     };
 
     let mut source_coverages = vec![source_coverage];
-    let mut total_covered_lines = covered_lines;
-    let mut total_lines = total_lines;
+    let mut total_executable_line_count = executable_line_count;
+    let mut total_non_executable_line_count = non_executable_line_count;
+    let mut total_executable_line_covered = executable_line_covered;
     let mut total_sub_functions = 0;
     let mut visited_ids = HashSet::new();
     visited_ids.insert(func_def.id);
 
-    let child_result = resolve_children(func_def, context, line_hits, symbols, &mut visited_ids);
+    let child_result = resolve_children(
+        func_def,
+        context,
+        line_hits,
+        executable_lines,
+        symbols,
+        &mut visited_ids,
+    );
 
-    total_lines += child_result.total_lines;
-    total_covered_lines += child_result.total_covered_lines;
+    total_executable_line_count += child_result.executable_line_count;
+    total_non_executable_line_count += child_result.non_executable_line_count;
+    total_executable_line_covered += child_result.executable_line_covered;
     total_sub_functions += child_result.total_sub_functions;
     source_coverages.extend(child_result.children);
 
-    let total_coverage = if total_lines > 0 {
-        (total_covered_lines as f64 / total_lines as f64) * 100.0
+    let total_coverage = if total_executable_line_count > 0 {
+        (total_executable_line_covered as f64 / total_executable_line_count as f64) * 100.0
     } else {
         0.0
     };
 
     Some(FunctionReport {
-        total_lines,
-        total_covered_lines,
-        total_coverage,
+        executable_line_count: total_executable_line_count,
+        non_executable_line_count: total_non_executable_line_count,
+        executable_line_covered: total_executable_line_covered,
+        coverage: total_coverage,
         path: source_path,
         name: function_signature.into(),
         total_sub_functions,
@@ -391,11 +448,20 @@ fn build_function_report(
     })
 }
 
+/// Coverage for a source symbol together with its line counts.
+struct SourceCoverageWithCounts {
+    coverage: SourceCoverage,
+    executable_line_count: usize,
+    non_executable_line_count: usize,
+    executable_line_covered: usize,
+}
+
 fn build_source_coverage(
     node: &solc::ast::ContractDefinitionNode,
     context: &CoverageContext,
     line_hits: &HashMap<(PathBuf, usize), u64>,
-) -> Option<SourceCoverage> {
+    executable_lines: &HashSet<(PathBuf, usize)>,
+) -> Option<SourceCoverageWithCounts> {
     match node {
         solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
             let source_path = context
@@ -408,12 +474,24 @@ fn build_source_coverage(
                 .map(|f| f.offset_to_line(func.src.offset + func.src.length))
                 .unwrap_or(start_line);
 
+            let mut executable = 0;
+            let mut non_executable = 0;
+            let mut covered = 0;
             let mut hits = Vec::new();
             for line in start_line..=end_line {
+                let is_executable = executable_lines.contains(&(source_path.clone(), line));
                 let hit_count = line_hits
                     .get(&(source_path.clone(), line))
                     .copied()
                     .unwrap_or(0);
+                if is_executable {
+                    executable += 1;
+                    if hit_count > 0 {
+                        covered += 1;
+                    }
+                } else {
+                    non_executable += 1;
+                }
                 let content = file
                     .and_then(|f| f.content.lines().nth(line.saturating_sub(1)))
                     .unwrap_or("")
@@ -425,13 +503,18 @@ fn build_source_coverage(
                 });
             }
 
-            Some(SourceCoverage {
-                symbol: build_signature_from_ast(func),
-                source: source_path,
-                start_line,
-                end_line,
-                line_hits: hits,
-                project: context.project_paths().first().cloned().unwrap_or_default(),
+            Some(SourceCoverageWithCounts {
+                coverage: SourceCoverage {
+                    symbol: build_signature_from_ast(func),
+                    source: source_path,
+                    start_line,
+                    end_line,
+                    line_hits: hits,
+                    project: context.project_paths().first().cloned().unwrap_or_default(),
+                },
+                executable_line_count: executable,
+                non_executable_line_count: non_executable,
+                executable_line_covered: covered,
             })
         }
         solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
@@ -445,26 +528,47 @@ fn build_source_coverage(
                 .map(|f| f.offset_to_line(var.src.offset + var.src.length))
                 .unwrap_or(start_line);
 
+            let mut executable = 0;
+            let mut non_executable = 0;
+            let mut covered = 0;
             let mut hits = Vec::new();
             for line in start_line..=end_line {
+                let is_executable = executable_lines.contains(&(source_path.clone(), line));
+                let hit_count = line_hits
+                    .get(&(source_path.clone(), line))
+                    .copied()
+                    .unwrap_or(0);
+                if is_executable {
+                    executable += 1;
+                    if hit_count > 0 {
+                        covered += 1;
+                    }
+                } else {
+                    non_executable += 1;
+                }
                 let content = file
                     .and_then(|f| f.content.lines().nth(line.saturating_sub(1)))
                     .unwrap_or("")
                     .into();
                 hits.push(LineHits {
                     line,
-                    hit_count: 0,
+                    hit_count,
                     content,
                 });
             }
 
-            Some(SourceCoverage {
-                symbol: var.name.clone(),
-                source: source_path,
-                start_line,
-                end_line,
-                line_hits: hits,
-                project: context.project_paths().first().cloned().unwrap_or_default(),
+            Some(SourceCoverageWithCounts {
+                coverage: SourceCoverage {
+                    symbol: var.name.clone(),
+                    source: source_path,
+                    start_line,
+                    end_line,
+                    line_hits: hits,
+                    project: context.project_paths().first().cloned().unwrap_or_default(),
+                },
+                executable_line_count: executable,
+                non_executable_line_count: non_executable,
+                executable_line_covered: covered,
             })
         }
         _ => None,
@@ -473,29 +577,44 @@ fn build_source_coverage(
 
 struct ResolveChildrenResult {
     children: Vec<SourceCoverage>,
-    total_lines: usize,
-    total_covered_lines: usize,
+    executable_line_count: usize,
+    non_executable_line_count: usize,
+    executable_line_covered: usize,
     total_sub_functions: usize,
+}
+
+impl ResolveChildrenResult {
+    fn merge_child(&mut self, other: ResolveChildrenResult) {
+        self.children.extend(other.children);
+        self.executable_line_count += other.executable_line_count;
+        self.non_executable_line_count += other.non_executable_line_count;
+        self.executable_line_covered += other.executable_line_covered;
+        self.total_sub_functions += 1 + other.total_sub_functions;
+    }
 }
 
 fn resolve_children(
     func_def: &solc::ast::FunctionDefinition,
     context: &CoverageContext,
     line_hits: &HashMap<(PathBuf, usize), u64>,
+    executable_lines: &HashSet<(PathBuf, usize)>,
     symbols: &HashMap<i64, &solc::ast::ContractDefinitionNode>,
     visited_ids: &mut HashSet<i64>,
 ) -> ResolveChildrenResult {
-    let mut children = Vec::new();
-    let mut total_lines = 0;
-    let mut total_covered_lines = 0;
-    let mut total_sub_functions = 0;
+    let mut result = ResolveChildrenResult {
+        children: Vec::new(),
+        executable_line_count: 0,
+        non_executable_line_count: 0,
+        executable_line_covered: 0,
+        total_sub_functions: 0,
+    };
 
     let refs = collect_references_from_body(&func_def.body);
     for rid in refs {
         let Some(node) = symbols.get(&rid) else {
             continue;
         };
-        let Some(child) = build_source_coverage(node, context, line_hits) else {
+        let Some(child) = build_source_coverage(node, context, line_hits, executable_lines) else {
             continue;
         };
 
@@ -503,25 +622,25 @@ fn resolve_children(
             continue;
         }
 
-        total_lines += child.line_hits.len();
-        total_covered_lines += child.line_hits.iter().filter(|h| h.hit_count > 0).count();
-        children.push(child);
+        result.executable_line_count += child.executable_line_count;
+        result.non_executable_line_count += child.non_executable_line_count;
+        result.executable_line_covered += child.executable_line_covered;
+        result.children.push(child.coverage);
 
         if let solc::ast::ContractDefinitionNode::FunctionDefinition(f) = node {
-            let sub = resolve_children(f, context, line_hits, symbols, visited_ids);
-            total_sub_functions += 1 + sub.total_sub_functions;
-            total_lines += sub.total_lines;
-            total_covered_lines += sub.total_covered_lines;
-            children.extend(sub.children);
+            let sub = resolve_children(
+                f,
+                context,
+                line_hits,
+                executable_lines,
+                symbols,
+                visited_ids,
+            );
+            result.merge_child(sub);
         }
     }
 
-    ResolveChildrenResult {
-        children,
-        total_lines,
-        total_covered_lines,
-        total_sub_functions,
-    }
+    result
 }
 
 // ----------------------------------------------------------------------------

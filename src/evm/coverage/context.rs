@@ -26,7 +26,7 @@
 //! In short: `CoverageContext` knows what code was hit and where it lives in
 //! source; `CoverageReporter` decides how to present that information.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -351,6 +351,40 @@ impl CoverageContext {
         }
 
         line_hits
+    }
+
+    /// Build a set of all executable lines from the PC-to-source map.
+    ///
+    /// Returns a set of `(source_path, line_number)` pairs for every line that
+    /// maps to at least one program counter in the runtime bytecode.
+    pub fn build_executable_lines(&self) -> HashSet<(PathBuf, usize)> {
+        let mut lines: HashSet<(PathBuf, usize)> = HashSet::new();
+        let Some(runtime_code) = &self.runtime_code else {
+            return lines;
+        };
+        let _contract_id = B256::from(keccak256(runtime_code));
+
+        let empty_source = SourceFile {
+            content: String::new(),
+            line_offsets: Vec::new(),
+        };
+
+        for entry in &self.pc_to_source {
+            let Some(entry) = entry else { continue };
+            let source_path = match self.source_index.get(&entry.source_index) {
+                Some(p) => p.to_path_buf(),
+                None => self
+                    .target_artifact
+                    .as_ref()
+                    .map(|a| a.path.to_path_buf())
+                    .unwrap_or_default(),
+            };
+            let file = self.source_files.get(&source_path).unwrap_or(&empty_source);
+            let line = file.offset_to_line(entry.offset);
+            lines.insert((source_path, line));
+        }
+
+        lines
     }
 
     /// Return the target artifact if one has been configured via

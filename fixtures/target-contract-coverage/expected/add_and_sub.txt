@@ -1,9 +1,9 @@
 COVERAGE REPORT STATS
 
-total lines: 14
-total covered lines: 10
-total uncovered lines: 4
-coverage: 71.43%
+executable line count: 11
+non executable line count: 3
+executable line covered: 11
+coverage: 100.00%
 
 SOURCES
 
@@ -36,7 +36,7 @@ project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-     |      |    uint256 public latestValue;
+   5 |    4 |    uint256 public latestValue;
 
 symbol: sub(uint256,uint256)
 source: src/TargetContract.sol#L18-L21
