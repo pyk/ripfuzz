@@ -1,4 +1,39 @@
-//! Coverage report generation.
+//! Coverage reporter for building human-readable coverage reports.
+//!
+//! [`CoverageReporter`] is the presentation layer of the coverage reporting
+//! pipeline. It takes three inputs:
+//!
+//! 1. [`SharedCoverage`] - the global, merged coverage map containing raw PC
+//!    hit counts from evert fuzzer execution during a campaign.
+//! 2. **Target functions** - the ABI functions the fuzzer exercised, which the
+//!    reporter will produce individual reports for.
+//! 3. [`CoverageContext`] - the data layer that maps bytecode hits back to
+//!    source lines and AST nodes.
+//!
+//! The reporter uses the context to:
+//!
+//! - Call [`CoverageContext::build_line_hits`] and turn raw PC hits into a
+//!   `(source_path, line) -> hit_count` map.
+//! - Look up the AST function definition that matches each target function
+//!   signature.
+//! - Walk the function body to discover referenced internal functions and state
+//!   variables, building [`SourceCoverage`] entries for each symbol.
+//! - Recursively resolve child references so that internal helpers and
+//!   modifiers are included in the report.
+//!
+//! The output structs are:
+//!
+//! - [`SummaryReport`] - campaign-level totals across all target functions.
+//! - [`FunctionReport`] - a detailed, per-function breakdown with line-by-line
+//!   hits and coverage percentage.
+//! - [`SourceCoverage`] - coverage for a single source symbol (function or
+//!   variable) within a function report.
+//!
+//! Both `SummaryReport` and `FunctionReport` implement `Display` for
+//! console-friendly formatting.
+//!
+//! In short: `CoverageContext` knows what code was hit and where it lives in
+//! source; `CoverageReporter` decides how to present that information.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -9,212 +44,9 @@ use alloy_json_abi::Function;
 use crate::evm::coverage::context::CoverageContext;
 use crate::evm::coverage::shared::SharedCoverage;
 
-// ---------------------------------------------------------------------------
-// AST helpers
-// ---------------------------------------------------------------------------
-
-/// Build a Solidity signature from an AST function definition.
-fn build_signature_from_ast(func: &solc::ast::FunctionDefinition) -> String {
-    let mut params = String::new();
-    for (i, p) in func.parameters.parameters.iter().enumerate() {
-        if i > 0 {
-            params.push(',');
-        }
-        params.push_str(
-            p.type_descriptions
-                .type_string
-                .as_deref()
-                .unwrap_or("unknown"),
-        );
-    }
-    let name = &func.name;
-    format!("{}({})", name, params)
-}
-
-fn collect_references_from_function_call_expression(
-    expr: &solc::ast::FunctionCallExpression,
-) -> Vec<i64> {
-    let mut refs = Vec::new();
-    match expr {
-        solc::ast::FunctionCallExpression::Identifier(id) => {
-            if let Some(rid) = id.referenced_declaration {
-                refs.push(rid);
-            }
-        }
-        solc::ast::FunctionCallExpression::MemberAccess(member) => {
-            if let Some(rid) = member.referenced_declaration {
-                refs.push(rid);
-            }
-        }
-        solc::ast::FunctionCallExpression::FunctionCall(call) => {
-            refs.extend(collect_references_from_function_call(call));
-        }
-        solc::ast::FunctionCallExpression::FunctionCallOptions(options) => {
-            refs.extend(collect_references_from_expression(&options.expression));
-        }
-        _ => {}
-    }
-    refs
-}
-
-fn collect_references_from_expression(expr: &solc::ast::Expression) -> Vec<i64> {
-    let mut refs = Vec::new();
-    match expr {
-        solc::ast::Expression::Identifier(id) => {
-            if let Some(rid) = id.referenced_declaration {
-                refs.push(rid);
-            }
-        }
-        solc::ast::Expression::MemberAccess(member) => {
-            if let Some(rid) = member.referenced_declaration {
-                refs.push(rid);
-            }
-            refs.extend(collect_references_from_expression(&member.expression));
-        }
-        solc::ast::Expression::FunctionCall(call) => {
-            refs.extend(collect_references_from_function_call(call));
-        }
-        solc::ast::Expression::Assignment(assignment) => {
-            refs.extend(collect_references_from_expression(
-                &assignment.left_hand_side,
-            ));
-            refs.extend(collect_references_from_expression(
-                &assignment.right_hand_side,
-            ));
-        }
-        solc::ast::Expression::BinaryOperation(bin_op) => {
-            refs.extend(collect_references_from_expression(&bin_op.left_expression));
-            refs.extend(collect_references_from_expression(&bin_op.right_expression));
-        }
-        solc::ast::Expression::Conditional(cond) => {
-            refs.extend(collect_references_from_expression(&cond.condition));
-            refs.extend(collect_references_from_expression(&cond.true_expression));
-            refs.extend(collect_references_from_expression(&cond.false_expression));
-        }
-        solc::ast::Expression::IndexAccess(idx) => {
-            refs.extend(collect_references_from_expression(&idx.base_expression));
-            if let Some(index) = &idx.index_expression {
-                refs.extend(collect_references_from_expression(index));
-            }
-        }
-        solc::ast::Expression::IndexRangeAccess(range) => {
-            refs.extend(collect_references_from_expression(&range.base_expression));
-            if let Some(start) = &range.start_expression {
-                refs.extend(collect_references_from_expression(start));
-            }
-        }
-        solc::ast::Expression::TupleExpression(tuple) => {
-            for expr in tuple.components.iter().flatten() {
-                refs.extend(collect_references_from_expression(expr));
-            }
-        }
-        solc::ast::Expression::UnaryOperation(unary) => {
-            refs.extend(collect_references_from_expression(&unary.sub_expression));
-        }
-        solc::ast::Expression::ExpressionStatement(stmt) => {
-            refs.extend(collect_references_from_expression(&stmt.expression));
-        }
-        solc::ast::Expression::VariableDeclarationStatement(stmt) => {
-            if let Some(init) = &stmt.initial_value {
-                refs.extend(collect_references_from_expression(init));
-            }
-        }
-        _ => {}
-    }
-    refs
-}
-
-fn collect_references_from_function_call(call: &solc::ast::FunctionCall) -> Vec<i64> {
-    let mut refs = collect_references_from_function_call_expression(&call.expression);
-    for arg in &call.arguments {
-        refs.extend(collect_references_from_expression(arg));
-    }
-    refs
-}
-
-fn collect_references_from_statement(stmt: &solc::ast::Statement) -> Vec<i64> {
-    let mut refs = Vec::new();
-    match stmt {
-        solc::ast::Statement::ExpressionStatement(expr_stmt) => {
-            refs.extend(collect_references_from_expression(&expr_stmt.expression));
-        }
-        solc::ast::Statement::Return(ret) => {
-            if let Some(expr) = &ret.expression {
-                refs.extend(collect_references_from_expression(expr));
-            }
-        }
-        solc::ast::Statement::IfStatement(if_stmt) => {
-            refs.extend(collect_references_from_expression(&if_stmt.condition));
-            refs.extend(collect_references_from_statement(&if_stmt.true_body));
-            if let Some(false_body) = &if_stmt.false_body {
-                refs.extend(collect_references_from_statement(false_body));
-            }
-        }
-        solc::ast::Statement::ForStatement(for_stmt) => {
-            if let Some(init) = &for_stmt.initialization_expression {
-                refs.extend(collect_references_from_expression(init));
-            }
-            refs.extend(collect_references_from_expression(&for_stmt.condition));
-            if let Some(loop_expr) = &for_stmt.loop_expression {
-                refs.extend(collect_references_from_expression(loop_expr));
-            }
-            refs.extend(collect_references_from_statement(&for_stmt.body));
-        }
-        solc::ast::Statement::WhileStatement(while_stmt) => {
-            refs.extend(collect_references_from_expression(&while_stmt.condition));
-            refs.extend(collect_references_from_statement(&while_stmt.body));
-        }
-        solc::ast::Statement::DoWhileStatement(do_while) => {
-            refs.extend(collect_references_from_statement(&do_while.body));
-            refs.extend(collect_references_from_expression(&do_while.condition));
-        }
-        solc::ast::Statement::VariableDeclarationStatement(var_stmt) => {
-            if let Some(init) = &var_stmt.initial_value {
-                refs.extend(collect_references_from_expression(init));
-            }
-        }
-        solc::ast::Statement::Block(block) => {
-            for stmt in &block.statements {
-                refs.extend(collect_references_from_statement(stmt));
-            }
-        }
-        solc::ast::Statement::UncheckedBlock(unchecked) => {
-            for stmt in &unchecked.statements {
-                refs.extend(collect_references_from_statement(stmt));
-            }
-        }
-        solc::ast::Statement::EmitStatement(emit) => {
-            refs.extend(collect_references_from_function_call(&emit.event_call));
-        }
-        solc::ast::Statement::TryStatement(try_stmt) => {
-            refs.extend(collect_references_from_expression(&try_stmt.external_call));
-            for clause in &try_stmt.clauses {
-                for stmt in &clause.block.statements {
-                    refs.extend(collect_references_from_statement(stmt));
-                }
-            }
-        }
-        solc::ast::Statement::RevertStatement(revert) => {
-            refs.extend(collect_references_from_function_call(&revert.error_call));
-        }
-        _ => {}
-    }
-    refs
-}
-
-fn collect_references_from_body(body: &Option<solc::ast::Block>) -> Vec<i64> {
-    let mut refs = Vec::new();
-    if let Some(block) = body {
-        for stmt in &block.statements {
-            refs.extend(collect_references_from_statement(stmt));
-        }
-    }
-    refs
-}
-
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Report data types
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 /// A single line hit record.
 #[derive(Debug, Clone)]
@@ -399,9 +231,9 @@ impl CoverageReporter {
     }
 }
 
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Display
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 impl fmt::Display for SummaryReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -470,9 +302,9 @@ impl fmt::Display for FunctionReport {
     }
 }
 
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Report builders
-// ---------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 fn build_function_report(
     func_def: &solc::ast::FunctionDefinition,
@@ -690,6 +522,209 @@ fn resolve_children(
         total_covered_lines,
         total_sub_functions,
     }
+}
+
+// ----------------------------------------------------------------------------
+// AST helpers
+// ----------------------------------------------------------------------------
+
+/// Build a Solidity signature from an AST function definition.
+fn build_signature_from_ast(func: &solc::ast::FunctionDefinition) -> String {
+    let mut params = String::new();
+    for (i, p) in func.parameters.parameters.iter().enumerate() {
+        if i > 0 {
+            params.push(',');
+        }
+        params.push_str(
+            p.type_descriptions
+                .type_string
+                .as_deref()
+                .unwrap_or("unknown"),
+        );
+    }
+    let name = &func.name;
+    format!("{}({})", name, params)
+}
+
+fn collect_references_from_function_call_expression(
+    expr: &solc::ast::FunctionCallExpression,
+) -> Vec<i64> {
+    let mut refs = Vec::new();
+    match expr {
+        solc::ast::FunctionCallExpression::Identifier(id) => {
+            if let Some(rid) = id.referenced_declaration {
+                refs.push(rid);
+            }
+        }
+        solc::ast::FunctionCallExpression::MemberAccess(member) => {
+            if let Some(rid) = member.referenced_declaration {
+                refs.push(rid);
+            }
+        }
+        solc::ast::FunctionCallExpression::FunctionCall(call) => {
+            refs.extend(collect_references_from_function_call(call));
+        }
+        solc::ast::FunctionCallExpression::FunctionCallOptions(options) => {
+            refs.extend(collect_references_from_expression(&options.expression));
+        }
+        _ => {}
+    }
+    refs
+}
+
+fn collect_references_from_expression(expr: &solc::ast::Expression) -> Vec<i64> {
+    let mut refs = Vec::new();
+    match expr {
+        solc::ast::Expression::Identifier(id) => {
+            if let Some(rid) = id.referenced_declaration {
+                refs.push(rid);
+            }
+        }
+        solc::ast::Expression::MemberAccess(member) => {
+            if let Some(rid) = member.referenced_declaration {
+                refs.push(rid);
+            }
+            refs.extend(collect_references_from_expression(&member.expression));
+        }
+        solc::ast::Expression::FunctionCall(call) => {
+            refs.extend(collect_references_from_function_call(call));
+        }
+        solc::ast::Expression::Assignment(assignment) => {
+            refs.extend(collect_references_from_expression(
+                &assignment.left_hand_side,
+            ));
+            refs.extend(collect_references_from_expression(
+                &assignment.right_hand_side,
+            ));
+        }
+        solc::ast::Expression::BinaryOperation(bin_op) => {
+            refs.extend(collect_references_from_expression(&bin_op.left_expression));
+            refs.extend(collect_references_from_expression(&bin_op.right_expression));
+        }
+        solc::ast::Expression::Conditional(cond) => {
+            refs.extend(collect_references_from_expression(&cond.condition));
+            refs.extend(collect_references_from_expression(&cond.true_expression));
+            refs.extend(collect_references_from_expression(&cond.false_expression));
+        }
+        solc::ast::Expression::IndexAccess(idx) => {
+            refs.extend(collect_references_from_expression(&idx.base_expression));
+            if let Some(index) = &idx.index_expression {
+                refs.extend(collect_references_from_expression(index));
+            }
+        }
+        solc::ast::Expression::IndexRangeAccess(range) => {
+            refs.extend(collect_references_from_expression(&range.base_expression));
+            if let Some(start) = &range.start_expression {
+                refs.extend(collect_references_from_expression(start));
+            }
+        }
+        solc::ast::Expression::TupleExpression(tuple) => {
+            for expr in tuple.components.iter().flatten() {
+                refs.extend(collect_references_from_expression(expr));
+            }
+        }
+        solc::ast::Expression::UnaryOperation(unary) => {
+            refs.extend(collect_references_from_expression(&unary.sub_expression));
+        }
+        solc::ast::Expression::ExpressionStatement(stmt) => {
+            refs.extend(collect_references_from_expression(&stmt.expression));
+        }
+        solc::ast::Expression::VariableDeclarationStatement(stmt) => {
+            if let Some(init) = &stmt.initial_value {
+                refs.extend(collect_references_from_expression(init));
+            }
+        }
+        _ => {}
+    }
+    refs
+}
+
+fn collect_references_from_function_call(call: &solc::ast::FunctionCall) -> Vec<i64> {
+    let mut refs = collect_references_from_function_call_expression(&call.expression);
+    for arg in &call.arguments {
+        refs.extend(collect_references_from_expression(arg));
+    }
+    refs
+}
+
+fn collect_references_from_statement(stmt: &solc::ast::Statement) -> Vec<i64> {
+    let mut refs = Vec::new();
+    match stmt {
+        solc::ast::Statement::ExpressionStatement(expr_stmt) => {
+            refs.extend(collect_references_from_expression(&expr_stmt.expression));
+        }
+        solc::ast::Statement::Return(ret) => {
+            if let Some(expr) = &ret.expression {
+                refs.extend(collect_references_from_expression(expr));
+            }
+        }
+        solc::ast::Statement::IfStatement(if_stmt) => {
+            refs.extend(collect_references_from_expression(&if_stmt.condition));
+            refs.extend(collect_references_from_statement(&if_stmt.true_body));
+            if let Some(false_body) = &if_stmt.false_body {
+                refs.extend(collect_references_from_statement(false_body));
+            }
+        }
+        solc::ast::Statement::ForStatement(for_stmt) => {
+            if let Some(init) = &for_stmt.initialization_expression {
+                refs.extend(collect_references_from_expression(init));
+            }
+            refs.extend(collect_references_from_expression(&for_stmt.condition));
+            if let Some(loop_expr) = &for_stmt.loop_expression {
+                refs.extend(collect_references_from_expression(loop_expr));
+            }
+            refs.extend(collect_references_from_statement(&for_stmt.body));
+        }
+        solc::ast::Statement::WhileStatement(while_stmt) => {
+            refs.extend(collect_references_from_expression(&while_stmt.condition));
+            refs.extend(collect_references_from_statement(&while_stmt.body));
+        }
+        solc::ast::Statement::DoWhileStatement(do_while) => {
+            refs.extend(collect_references_from_statement(&do_while.body));
+            refs.extend(collect_references_from_expression(&do_while.condition));
+        }
+        solc::ast::Statement::VariableDeclarationStatement(var_stmt) => {
+            if let Some(init) = &var_stmt.initial_value {
+                refs.extend(collect_references_from_expression(init));
+            }
+        }
+        solc::ast::Statement::Block(block) => {
+            for stmt in &block.statements {
+                refs.extend(collect_references_from_statement(stmt));
+            }
+        }
+        solc::ast::Statement::UncheckedBlock(unchecked) => {
+            for stmt in &unchecked.statements {
+                refs.extend(collect_references_from_statement(stmt));
+            }
+        }
+        solc::ast::Statement::EmitStatement(emit) => {
+            refs.extend(collect_references_from_function_call(&emit.event_call));
+        }
+        solc::ast::Statement::TryStatement(try_stmt) => {
+            refs.extend(collect_references_from_expression(&try_stmt.external_call));
+            for clause in &try_stmt.clauses {
+                for stmt in &clause.block.statements {
+                    refs.extend(collect_references_from_statement(stmt));
+                }
+            }
+        }
+        solc::ast::Statement::RevertStatement(revert) => {
+            refs.extend(collect_references_from_function_call(&revert.error_call));
+        }
+        _ => {}
+    }
+    refs
+}
+
+fn collect_references_from_body(body: &Option<solc::ast::Block>) -> Vec<i64> {
+    let mut refs = Vec::new();
+    if let Some(block) = body {
+        for stmt in &block.statements {
+            refs.extend(collect_references_from_statement(stmt));
+        }
+    }
+    refs
 }
 
 #[cfg(test)]

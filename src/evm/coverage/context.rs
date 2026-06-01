@@ -1,8 +1,30 @@
-//! Coverage context for building coverage reports.
+//! Coverage context for mapping raw bytecode hits back to Solidity source lines.
 //!
-//! [`CoverageContext`] collects build artifacts, source files, and source
-//! indices from one or more Foundry projects, then provides lookup methods
-//! used by [`CoverageReporter`](crate::evm::coverage::reporter::CoverageReporter).
+//! [`CoverageContext`] is the data layer of the coverage reporting pipeline.
+//! It collects three kinds of information from one or more Foundry projects:
+//!
+//! 1. **Build artifacts** [`Artifact`] - compiled contracts, their ASTs, and
+//!    bytecode (both initcode and runtime code).
+//! 2. **Source files** [`SourceFile`] - original `.sol` source text with line
+//!    offset tables for fast byte-offset-to-line conversion.
+//! 3. **Source indices** - a map from compiler source IDs to project-relative
+//!    paths, extracted from `build-info/*.json`.
+//!
+//! Once populated, the context is configured for a target contract via
+//! [`CoverageContext::with_runtime_code`]. This method hashes the runtime
+//! bytecode against the indexed artifacts, identifies the matching contract,
+//! and builds a PC-to-source map so that every program counter can be resolved
+//! to a `(source_path, line)` pair.
+//!
+//! The main consumer of this context is [`CoverageReporter`](super::CoverageReporter).
+//!
+//! The reporter calls [`CoverageContext::build_line_hits`] to translate the
+//! raw edge counts stored in [`SharedCoverage`] into a line-hit map, then uses
+//! the AST lookup methods (`resolve_function_definition` etc.) to build
+//! human-readable per-function reports.
+//!
+//! In short: `CoverageContext` knows what code was hit and where it lives in
+//! source; `CoverageReporter` decides how to present that information.
 
 use std::collections::HashMap;
 use std::fs;
