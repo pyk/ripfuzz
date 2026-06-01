@@ -37,7 +37,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use alloy_json_abi::Function;
 
@@ -386,13 +386,18 @@ fn build_function_report(
         });
     }
 
+    let project = context
+        .target_artifact()
+        .map(|a| a.project_path().to_path_buf())
+        .unwrap_or_default();
+
     let source_coverage = SourceCoverage {
         symbol: function_signature.into(),
         source: source_path.clone(),
         start_line,
         end_line,
         line_hits: hits,
-        project: context.project_paths().first().cloned().unwrap_or_default(),
+        project: project.to_path_buf(),
     };
 
     let mut source_coverages = vec![source_coverage];
@@ -410,6 +415,7 @@ fn build_function_report(
         executable_lines,
         symbols,
         &mut visited_ids,
+        &project,
     );
 
     total_executable_line_count += child_result.executable_line_count;
@@ -449,6 +455,7 @@ fn build_source_coverage(
     context: &CoverageContext,
     line_hits: &HashMap<(PathBuf, usize), u64>,
     executable_lines: &HashSet<(PathBuf, usize)>,
+    project: &Path,
 ) -> Option<SourceCoverageWithCounts> {
     match node {
         solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
@@ -498,7 +505,7 @@ fn build_source_coverage(
                     start_line,
                     end_line,
                     line_hits: hits,
-                    project: context.project_paths().first().cloned().unwrap_or_default(),
+                    project: project.to_path_buf(),
                 },
                 executable_line_count: executable,
                 non_executable_line_count: non_executable,
@@ -552,7 +559,7 @@ fn build_source_coverage(
                     start_line,
                     end_line,
                     line_hits: hits,
-                    project: context.project_paths().first().cloned().unwrap_or_default(),
+                    project: project.to_path_buf(),
                 },
                 executable_line_count: executable,
                 non_executable_line_count: non_executable,
@@ -588,6 +595,7 @@ fn resolve_children(
     executable_lines: &HashSet<(PathBuf, usize)>,
     symbols: &HashMap<i64, &solc::ast::ContractDefinitionNode>,
     visited_ids: &mut HashSet<i64>,
+    project: &Path,
 ) -> ResolveChildrenResult {
     let mut result = ResolveChildrenResult {
         children: Vec::new(),
@@ -602,7 +610,9 @@ fn resolve_children(
         let Some(node) = symbols.get(&rid) else {
             continue;
         };
-        let Some(child) = build_source_coverage(node, context, line_hits, executable_lines) else {
+        let Some(child) =
+            build_source_coverage(node, context, line_hits, executable_lines, project)
+        else {
             continue;
         };
 
@@ -623,6 +633,7 @@ fn resolve_children(
                 executable_lines,
                 symbols,
                 visited_ids,
+                project,
             );
             result.merge_child(sub);
         }
@@ -952,6 +963,13 @@ mod tests {
             .with_runtime_code(&deployed.runtime_code)
             .unwrap();
 
+        let project_path = context
+            .target_artifact()
+            .unwrap()
+            .project_path()
+            .to_string_lossy()
+            .to_string();
+
         let reporter = CoverageReporter::new()
             .coverage(global)
             .target_functions(contract.target_functions)
@@ -964,6 +982,7 @@ mod tests {
         let formatted = format!("{report}");
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected = expected.replace("fixtures/target-contract-coverage", &project_path);
         assert_eq!(
             formatted.trim(),
             expected.trim(),

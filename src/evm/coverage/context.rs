@@ -184,7 +184,6 @@ fn build_bytecode_entry(bytecode: &ArtifactBytecode, id: &ArtifactId) -> Option<
 /// that the reporter can resolve bytecode hits back to source lines.
 #[derive(Debug, Clone, Default)]
 pub struct CoverageContext {
-    project_paths: Vec<PathBuf>,
     artifacts: HashMap<ArtifactId, Artifact>,
     runtime_entries: Vec<BytecodeEntry>,
     initcode_entries: Vec<BytecodeEntry>,
@@ -225,11 +224,6 @@ impl CoverageContext {
         self.pc_to_source = pc_to_source;
         self.runtime_code = Some(runtime_code.clone());
         Ok(self)
-    }
-
-    /// Return the project paths loaded into this context.
-    pub fn project_paths(&self) -> &[PathBuf] {
-        &self.project_paths
     }
 
     /// Look up an artifact by its runtime bytecode.
@@ -396,7 +390,6 @@ impl CoverageContext {
     }
 
     fn load_project(&mut self, project: &Project) -> Result<()> {
-        self.project_paths.push(project.path.clone());
         let artifacts = project.load_artifacts()?;
         for (id, artifact) in artifacts {
             let runtime_entry = artifact
@@ -459,6 +452,6 @@ mod tests {
     fn context_from_project() {
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let ctx = CoverageContext::from_project(&project).unwrap();
-        assert!(!ctx.project_paths().is_empty());
+        assert!(ctx.resolve_source_file("src/TargetContract.sol").is_some());
     }
 }
