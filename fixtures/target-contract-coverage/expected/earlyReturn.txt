@@ -1,0 +1,32 @@
+COVERAGE REPORT STATS
+
+coverage: 50.00%
+line count:
+  total: 8
+  executable: 6
+  non executable: 2
+  covered: 3
+
+SOURCES
+
+symbol: earlyReturn(uint256)
+source: src/TargetContract.sol#L23-L29
+project: fixtures/target-contract-coverage
+
+line | hits |
+---- | ---- |
+  23 |    1 |    function earlyReturn(uint256 a) external returns (uint256) {
+  24 |    1 |        if (a == 0) {
+  25 |    1 |            return 0;
+  26 |      |        }
+  27 |    0 |        latestValue = a;
+  28 |    0 |        return latestValue;
+  29 |      |    }
+
+symbol: latestValue
+source: src/TargetContract.sol#L5-L5
+project: fixtures/target-contract-coverage
+
+line | hits |
+---- | ---- |
+   5 |    0 |    uint256 public latestValue;

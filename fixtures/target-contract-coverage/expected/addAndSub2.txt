@@ -9,13 +9,13 @@ line count:
 
 SOURCES
 
-symbol: add_and_sub(uint256,uint256)
+symbol: addAndSub(uint256,uint256)
 source: src/TargetContract.sol#L7-L11
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-   7 |    2 |    function add_and_sub(uint256 a, uint256 b) external returns (uint256) {
+   7 |    2 |    function addAndSub(uint256 a, uint256 b) external returns (uint256) {
    8 |    2 |        uint256 result = add(a, b);
    9 |    2 |        result = sub(result, b);
   10 |    2 |        return result;
