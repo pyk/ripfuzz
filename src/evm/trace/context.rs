@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use alloy_dyn_abi::{DynSolEvent, DynSolType, DynSolValue};
 use alloy_json_abi::{EventParam, InternalType, JsonAbi, Param};
-use alloy_primitives::{B256, FixedBytes, U256, keccak256};
+use alloy_primitives::{B256, FixedBytes, U256, b256, keccak256};
 use alloy_sol_types::SolError;
 use anyhow::Result;
 use revm::primitives::{Address, Bytes};
@@ -792,6 +792,71 @@ impl TraceContext {
             }
         }
         (None, format!("0x{}", hex::encode(data)))
+    }
+
+    /// Decode a `Log(string, ...)` event into a simple log message.
+    ///
+    /// Returns `None` if the log is not a recognized `Log` event.
+    pub fn decode_log_event(&self, log: &revm::primitives::Log) -> Option<String> {
+        let topics = log.data.topics();
+        if topics.is_empty() {
+            return None;
+        }
+        let topic0 = topics[0];
+
+        const LOG_STRING: B256 =
+            b256!("0xcf34ef537ac33ee1ac626ca1587a0a7e8e51561e5514f8cb36afa1c5102b3bab");
+        const LOG_STRING_STRING: B256 =
+            b256!("0x821f337ab34a905a52ea2a22aa6b9ef872196a034e37c2bc08d88e21d8cece09");
+        const LOG_STRING_UINT256: B256 =
+            b256!("0xdd970dd9b5bfe707922155b058a407655cb18288b807e2216442bca8ad83d6b5");
+        const LOG_STRING_ADDRESS: B256 =
+            b256!("0x1dfffa052d4a63bd70f14b863e128979d1c59e3589a0a3beb2633a120047042d");
+        const LOG_STRING_BYTES: B256 =
+            b256!("0x381e6feca73f11fec6ca464f9d2a06ae1bb0ee33a55355e128d2d3aca53cc5f4");
+        const LOG_STRING_BOOL: B256 =
+            b256!("0x52dd9d08c343f72c69027ade2a075f6242dba2eeca3a3c61bfd8d00d32f6bd20");
+
+        let data = log.data.data.as_ref();
+
+        if topic0 == LOG_STRING {
+            let Ok(DynSolValue::String(msg)) = DynSolType::String.abi_decode(data) else {
+                return None;
+            };
+            return Some(msg);
+        }
+
+        let ty = match topic0 {
+            t if t == LOG_STRING_STRING => {
+                DynSolType::Tuple(vec![DynSolType::String, DynSolType::String])
+            }
+            t if t == LOG_STRING_UINT256 => {
+                DynSolType::Tuple(vec![DynSolType::String, DynSolType::Uint(256)])
+            }
+            t if t == LOG_STRING_ADDRESS => {
+                DynSolType::Tuple(vec![DynSolType::String, DynSolType::Address])
+            }
+            t if t == LOG_STRING_BYTES => {
+                DynSolType::Tuple(vec![DynSolType::String, DynSolType::Bytes])
+            }
+            t if t == LOG_STRING_BOOL => {
+                DynSolType::Tuple(vec![DynSolType::String, DynSolType::Bool])
+            }
+            _ => return None,
+        };
+
+        let Ok(DynSolValue::Tuple(values)) = ty.abi_decode_sequence(data) else {
+            return None;
+        };
+        if values.len() != 2 {
+            return None;
+        }
+        let msg = match &values[0] {
+            DynSolValue::String(s) => s.clone(),
+            _ => return None,
+        };
+        let val = format_value(&values[1], &self.labels);
+        Some(format!("{msg}{val}"))
     }
 
     /// Decode a revert reason from its output data.

@@ -365,6 +365,19 @@ impl<'a> fmt::Display for TraceDisplay<'a> {
         for root in &self.trace.roots {
             self.write_frame(f, root, &[], true)?;
         }
+
+        let mut logs = Vec::new();
+        for root in &self.trace.roots {
+            self.collect_log_events(root, &mut logs);
+        }
+        if !logs.is_empty() {
+            writeln!(f)?;
+            writeln!(f, "Logs:")?;
+            for log in logs {
+                writeln!(f, "{log}")?;
+            }
+        }
+
         Ok(())
     }
 }
@@ -451,6 +464,9 @@ impl<'a> TraceDisplay<'a> {
 
         // Write logs as pseudo-children
         for log in &frame.logs {
+            if self.ctx.decode_log_event(log).is_some() {
+                continue;
+            }
             let mut log_prefix = String::new();
             for h in &child_has_next {
                 if *h {
@@ -585,6 +601,17 @@ impl<'a> TraceDisplay<'a> {
         }
 
         Ok(())
+    }
+
+    fn collect_log_events(&self, frame: &CallFrame, logs: &mut Vec<String>) {
+        for log in &frame.logs {
+            if let Some(msg) = self.ctx.decode_log_event(log) {
+                logs.push(msg);
+            }
+        }
+        for child in &frame.children {
+            self.collect_log_events(child, logs);
+        }
     }
 }
 

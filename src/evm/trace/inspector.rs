@@ -442,6 +442,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn log_events_trace() {
+        let contract = load_fixture("src/LogEvents.sol:LogEvents");
+
+        let project = Project::new("fixtures/trace-inspector");
+        let mut ctx = TraceContext::from_project(&project).unwrap();
+
+        let mut chain = Chain::empty(ChainConfig::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+
+        let root = &deployment.trace.roots[0];
+        let deploy_address = root.address.unwrap();
+
+        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+        ctx = ctx.with_label(DEFAULT_DEPLOYER, "RaptorDeployer");
+
+        let formatted = format!("{}", deployment.trace.display_with(&ctx));
+        let expected = fs::read_to_string("fixtures/trace-inspector/expected/LogEvents.txt")
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}",));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "trace output must match expected"
+        );
+    }
+
     /// Regression test: storage changes recorded before a revert must not be
     /// discarded when the call or create frame fails.
     #[test]
