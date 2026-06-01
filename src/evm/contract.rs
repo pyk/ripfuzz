@@ -40,6 +40,14 @@ impl Contract {
         let artifact_id = contract.id.clone();
         let initcode = contract.bytecode.object.clone();
 
+        for (name, funcs) in &contract.abi.functions {
+            ensure!(
+                funcs.len() <= 1,
+                "target contract must not have duplicate function names: `{}`",
+                name
+            );
+        }
+
         let all_functions: Vec<Function> = contract.abi.functions().cloned().collect();
 
         let mut target_functions = Vec::new();
@@ -377,6 +385,20 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("target contract must have at least one target function")
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // 11. Duplicate function names are not allowed
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn duplicate_function_name_fails() {
+        let err = load_fixture("src/InvalidDuplicateFunctionName.sol:InvalidDuplicateFunctionName")
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("target contract must not have duplicate function names")
         );
     }
 }
