@@ -2,7 +2,7 @@
 //!
 //! [`CoverageContext`] collects build artifacts, source files, and source
 //! indices from one or more Foundry projects, then provides lookup methods
-//! used by [`CoverageReporter`](crate::evm::coverage::report::CoverageReporter).
+//! used by [`CoverageReporter`](crate::evm::coverage::reporter::CoverageReporter).
 
 use std::collections::HashMap;
 use std::fs;
