@@ -125,7 +125,7 @@ mod tests {
 
     use crate::corpus::{Call, CorpusConfig, Item, SharedFailedCorpusItem};
     use crate::evm::Contract;
-    use crate::evm::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
+    use crate::evm::{Chain, ChainConfig, DEFAULT_DEPLOYER, DeployInput, SetupInput, Transaction};
     use crate::foundry::{ArtifactId, Project};
     use crate::fuzzer::SharedMetrics;
     use crate::shrinker::{Shrinker, ShrinkerConfig};
@@ -217,7 +217,7 @@ mod tests {
             .unwrap()
             .clone();
 
-        let caller = crate::evm::DEFAULT_DEPLOYER;
+        let caller = DEFAULT_DEPLOYER;
 
         let invariants: Vec<Call> = contract
             .invariant_functions
@@ -282,7 +282,7 @@ mod tests {
             .unwrap()
             .clone();
 
-        let caller = crate::evm::DEFAULT_DEPLOYER;
+        let caller = DEFAULT_DEPLOYER;
 
         let invariants: Vec<Call> = contract
             .invariant_functions

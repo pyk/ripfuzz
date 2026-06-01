@@ -35,7 +35,7 @@ impl CorpusReplayer {
             chain: None,
             deployed_address: None,
             invariant_functions: Vec::new(),
-            caller: crate::evm::DEFAULT_DEPLOYER,
+            caller: evm::DEFAULT_DEPLOYER,
         }
     }
 

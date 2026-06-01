@@ -16,6 +16,7 @@ use crate::evm::cheatcode::*;
 use crate::evm::database::Database;
 use crate::evm::forkdb;
 use crate::evm::forkdb::{ForkDB, ForkDBConfig};
+use crate::evm::specs;
 
 impl Chain {
     /// Create a forked EVM with a custom transport (used in tests).
@@ -25,9 +26,8 @@ impl Chain {
         transport: impl forkdb::Transport + 'static,
     ) -> Result<Self> {
         let block_number = forkdb_config.block_number;
-        let url_hash = crate::evm::forkdb::url_hash(&forkdb_config.url);
-        let backend =
-            crate::evm::forkdb::SharedBackend::new_with_transport(forkdb_config, transport);
+        let url_hash = forkdb::url_hash(&forkdb_config.url);
+        let backend = forkdb::SharedBackend::new_with_transport(forkdb_config, transport);
 
         // resolve chain_id so every subsequent cache key is scoped.
         let mut responses = backend
@@ -63,7 +63,7 @@ impl Chain {
             "RPC returned block {returned_number} but requested block {block_number}"
         );
 
-        let spec_id = crate::evm::specs::get_spec_id(chain_id, block.timestamp.to());
+        let spec_id = specs::get_spec_id(chain_id, block.timestamp.to());
 
         let mut cfg_env = CfgEnv::default();
         cfg_env.chain_id = chain_id;
@@ -152,9 +152,11 @@ mod tests {
     use revm::primitives::hardfork::SpecId;
     use serde_json::json;
 
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER};
+    use crate::evm::Contract;
+    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput};
     use crate::evm::cheatcode::VM_ADDRESS;
     use crate::evm::forkdb::{ForkDBConfig, MockTransport};
+    use crate::foundry::{ArtifactId, Project};
 
     use super::*;
 
@@ -647,16 +649,13 @@ mod tests {
             Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
 
         // Load a simple contract from the fixture project.
-        let project = crate::foundry::Project::new("fixtures/target-contract-deployment");
+        let project = Project::new("fixtures/target-contract-deployment");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id =
-            crate::foundry::ArtifactId::try_from("test/EmptyChainNoSetup.sol:EmptyChainNoSetup")
-                .unwrap();
-        let contract = crate::evm::Contract::try_get(&artifacts, &artifact_id).unwrap();
+            ArtifactId::try_from("test/EmptyChainNoSetup.sol:EmptyChainNoSetup").unwrap();
+        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
-        let deployment = chain
-            .deploy(crate::evm::chain::DeployInput::new(&contract.initcode))
-            .unwrap();
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(
             deployment.result.success,
             "deployment must succeed on forked chain even when the real block has a limited gas limit"

@@ -13,7 +13,8 @@ use anyhow::Result;
 use revm::primitives::{Address, Bytes};
 
 use crate::evm::cheatcode::VM_ADDRESS;
-use crate::foundry::{Artifact, ArtifactId, Project};
+use crate::evm::trace::{MappingSlots, StorageType};
+use crate::foundry::{Artifact, ArtifactId, Project, StorageTypeInfo};
 
 /// A single bytecode entry for matching runtime code against artifacts.
 #[derive(Debug, Clone)]
@@ -32,7 +33,7 @@ struct BytecodeEntry {
 struct StructField {
     name: String,
     slot_offset: usize,
-    ty: super::StorageType,
+    ty: StorageType,
 }
 
 /// Metadata for an array variable so that hashed element slots can be
@@ -40,7 +41,7 @@ struct StructField {
 #[derive(Debug, Clone)]
 struct ArrayInfo {
     name: String,
-    element_type: super::StorageType,
+    element_type: StorageType,
     element_slots: usize,
     start_slot: U256,
     /// Fixed length for fixed arrays; `None` for dynamic arrays.
@@ -54,7 +55,7 @@ struct ArrayInfo {
 struct StorageEntry {
     offset: usize,
     name: String,
-    ty: super::StorageType,
+    ty: StorageType,
     bytes: usize,
 }
 
@@ -62,7 +63,7 @@ struct StorageEntry {
 #[derive(Debug)]
 pub struct StorageChangeInfo<'a> {
     pub name: String,
-    pub ty: &'a super::StorageType,
+    pub ty: &'a StorageType,
     pub offset: usize,
     pub bytes: usize,
 }
@@ -74,7 +75,7 @@ struct MappingInfo {
     name: String,
     base_slot: U256,
     key_types: Vec<String>,
-    value_storage_type: super::StorageType,
+    value_storage_type: StorageType,
     value_struct_fields: Option<Vec<StructField>>,
     value_element_slots: usize,
 }
@@ -252,7 +253,7 @@ impl TraceContext {
         &self,
         contract_name: &str,
         slot: &U256,
-        mapping_slots: Option<&super::MappingSlots>,
+        mapping_slots: Option<&MappingSlots>,
     ) -> Option<String> {
         if let Some(entries) = self
             .storage_names
@@ -262,13 +263,9 @@ impl TraceContext {
         {
             return match entry.ty {
                 // Fixed array: base slot is the first element.
-                super::StorageType::Array { len: Some(_), .. } => {
-                    Some(format!("{}[0]", entry.name))
-                }
+                StorageType::Array { len: Some(_), .. } => Some(format!("{}[0]", entry.name)),
                 // Dynamic array: base slot holds the length.
-                super::StorageType::Array { len: None, .. } => {
-                    Some(format!("{}.length", entry.name))
-                }
+                StorageType::Array { len: None, .. } => Some(format!("{}.length", entry.name)),
                 _ => Some(entry.name.clone()),
             };
         }
@@ -332,15 +329,13 @@ impl TraceContext {
                         // checkrs: allow(clone_in_loops)
                         let mut label = info.name.clone();
                         for (key, key_type) in keys.iter().zip(info.key_types.iter()) {
-                            let key_ty = super::StorageType::parse(key_type)?;
+                            let key_ty = StorageType::parse(key_type)?;
                             let key_u256 = U256::from_be_bytes(key.0);
                             let key_str = key_ty.format_value(key_u256, 0, 32);
                             label = format!("{}[{}]", label, key_str);
                         }
                         // Dynamic array base slot inside mapping: show length.
-                        if let super::StorageType::Array { len: None, .. } =
-                            &info.value_storage_type
-                        {
+                        if let StorageType::Array { len: None, .. } = &info.value_storage_type {
                             return Some(format!("{}.length", label));
                         }
                         // Struct base slot inside mapping: show first field.
@@ -376,7 +371,7 @@ impl TraceContext {
                         // checkrs: allow(clone_in_loops)
                         let mut label = info.name.clone();
                         for (key, key_type) in keys.iter().zip(info.key_types.iter()) {
-                            let key_ty = super::StorageType::parse(key_type)?;
+                            let key_ty = StorageType::parse(key_type)?;
                             let key_u256 = U256::from_be_bytes(key.0);
                             let key_str = key_ty.format_value(key_u256, 0, 32);
                             label = format!("{}[{}]", label, key_str);
@@ -389,8 +384,7 @@ impl TraceContext {
                             return Some(format!("{}.{}", label, field.name));
                         }
                         // Fixed array element inside mapping value.
-                        if let super::StorageType::Array { len: Some(len), .. } =
-                            &info.value_storage_type
+                        if let StorageType::Array { len: Some(len), .. } = &info.value_storage_type
                         {
                             let index = offset_usize / info.value_element_slots;
                             if index < *len {
@@ -405,8 +399,7 @@ impl TraceContext {
                             }
                         }
                         // Dynamic array length inside mapping value.
-                        if let super::StorageType::Array { len: None, .. } =
-                            &info.value_storage_type
+                        if let StorageType::Array { len: None, .. } = &info.value_storage_type
                             && offset_usize == 0
                         {
                             return Some(format!("{}.length", label));
@@ -439,13 +432,11 @@ impl TraceContext {
                         if info.base_slot != base_u256 {
                             continue;
                         }
-                        if let super::StorageType::Array { len: None, .. } =
-                            &info.value_storage_type
-                        {
+                        if let StorageType::Array { len: None, .. } = &info.value_storage_type {
                             // checkrs: allow(clone_in_loops)
                             let mut label = info.name.clone();
                             for (key, key_type) in keys.iter().zip(info.key_types.iter()) {
-                                let key_ty = super::StorageType::parse(key_type)?;
+                                let key_ty = StorageType::parse(key_type)?;
                                 let key_u256 = U256::from_be_bytes(key.0);
                                 let key_str = key_ty.format_value(key_u256, 0, 32);
                                 label = format!("{}[{}]", label, key_str);
@@ -472,8 +463,8 @@ impl TraceContext {
         &self,
         contract_name: &str,
         slot: &U256,
-        mapping_slots: Option<&super::MappingSlots>,
-    ) -> Option<&super::StorageType> {
+        mapping_slots: Option<&MappingSlots>,
+    ) -> Option<&StorageType> {
         if let Some(entries) = self
             .storage_names
             .get(contract_name)
@@ -482,7 +473,7 @@ impl TraceContext {
         {
             return match &entry.ty {
                 // Fixed array: base slot is the first element.
-                super::StorageType::Array {
+                StorageType::Array {
                     element,
                     len: Some(_),
                     ..
@@ -574,7 +565,7 @@ impl TraceContext {
                             return Some(&field.ty);
                         }
                         // Fixed array element inside mapping value.
-                        if let super::StorageType::Array {
+                        if let StorageType::Array {
                             element,
                             len: Some(_),
                         } = &info.value_storage_type
@@ -589,8 +580,7 @@ impl TraceContext {
                             return Some(element.as_ref());
                         }
                         // Dynamic array length inside mapping value.
-                        if let super::StorageType::Array { len: None, .. } =
-                            &info.value_storage_type
+                        if let StorageType::Array { len: None, .. } = &info.value_storage_type
                             && offset_usize == 0
                         {
                             return Some(&info.value_storage_type);
@@ -620,7 +610,7 @@ impl TraceContext {
                         if info.base_slot != base_u256 {
                             continue;
                         }
-                        if let super::StorageType::Array {
+                        if let StorageType::Array {
                             element, len: None, ..
                         } = &info.value_storage_type
                         {
@@ -651,7 +641,7 @@ impl TraceContext {
         slot: &U256,
         old_value: U256,
         new_value: U256,
-        _mapping_slots: Option<&super::MappingSlots>,
+        _mapping_slots: Option<&MappingSlots>,
     ) -> Vec<StorageChangeInfo<'_>> {
         let mut changes = Vec::new();
         // checkrs: allow(nested_if_let)
@@ -677,10 +667,10 @@ impl TraceContext {
                 };
                 if old_extracted != new_extracted {
                     let name = match entry.ty {
-                        super::StorageType::Array { len: Some(_), .. } => {
+                        StorageType::Array { len: Some(_), .. } => {
                             format!("{}[0]", entry.name)
                         }
-                        super::StorageType::Array { len: None, .. } => {
+                        StorageType::Array { len: None, .. } => {
                             format!("{}.length", entry.name)
                         }
                         _ => {
@@ -1013,7 +1003,7 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
     let mut mappings = Vec::new();
     for entry in &layout.storage {
         let slot = entry.slot.parse::<U256>().ok()?;
-        let ty = super::StorageType::parse(&entry.type_name)?;
+        let ty = StorageType::parse(&entry.type_name)?;
         let offset = entry.offset as usize;
         let bytes = layout
             .types
@@ -1031,7 +1021,7 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
 
         // Build array metadata for element-slot resolution.
         // checkrs: allow(nested_if_let)
-        if let super::StorageType::Array {
+        if let StorageType::Array {
             element,
             len: array_len,
         } = &ty
@@ -1061,14 +1051,14 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
         }
 
         // Build mapping metadata for hashed-slot resolution.
-        if let super::StorageType::Mapping = &ty
+        if let StorageType::Mapping = &ty
             && let Some(type_info) = layout.types.get(&entry.type_name)
             && type_info.encoding == "mapping"
         {
             let key_types = resolve_mapping_key_types(&layout.types, &entry.type_name);
             let value_type = resolve_mapping_value_type(&layout.types, &entry.type_name);
             let value_storage_type =
-                super::StorageType::parse(&value_type).unwrap_or(super::StorageType::Mapping);
+                StorageType::parse(&value_type).unwrap_or(StorageType::Mapping);
             let value_struct_fields = parse_struct_fields(&layout.types, &value_type);
             let value_element_slots = element_byte_slots(&layout.types, &value_type);
             mappings.push(MappingInfo {
@@ -1091,7 +1081,7 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
 /// Returns the raw `storageLayout` type strings (e.g. `t_address`) so they
 /// can be parsed by [`StorageType::parse`].
 fn resolve_mapping_key_types(
-    types: &HashMap<String, crate::foundry::StorageTypeInfo>,
+    types: &HashMap<String, StorageTypeInfo>,
     type_ref: &str,
 ) -> Vec<String> {
     let mut keys = Vec::new();
@@ -1118,10 +1108,7 @@ fn resolve_mapping_key_types(
 ///
 /// Returns the raw `storageLayout` type string (e.g. `t_uint256`) so it
 /// can be parsed by [`StorageType::parse`] and looked up in the `types` map.
-fn resolve_mapping_value_type(
-    types: &HashMap<String, crate::foundry::StorageTypeInfo>,
-    type_ref: &str,
-) -> String {
+fn resolve_mapping_value_type(types: &HashMap<String, StorageTypeInfo>, type_ref: &str) -> String {
     let mut current = type_ref;
     while let Some(info) = types.get(current) {
         if info.encoding != "mapping" {
@@ -1140,10 +1127,7 @@ fn resolve_mapping_value_type(
 ///
 /// Looks up the array's `base` type in the `storageLayout` types map and
 /// uses the base type's `numberOfBytes`.
-fn element_byte_slots(
-    types: &HashMap<String, crate::foundry::StorageTypeInfo>,
-    array_type_name: &str,
-) -> usize {
+fn element_byte_slots(types: &HashMap<String, StorageTypeInfo>, array_type_name: &str) -> usize {
     let info = types.get(array_type_name);
     let base_type = info.and_then(|t| t.base.as_ref());
     let bytes = base_type
@@ -1160,7 +1144,7 @@ fn element_byte_slots(
 /// Returns `None` if the type is not a struct or if member info is
 /// unavailable.
 fn parse_struct_fields(
-    types: &HashMap<String, crate::foundry::StorageTypeInfo>,
+    types: &HashMap<String, StorageTypeInfo>,
     type_name: &str,
 ) -> Option<Vec<StructField>> {
     let info = types.get(type_name)?;
@@ -1177,7 +1161,7 @@ fn parse_struct_fields(
     let mut fields = Vec::new();
     for member in &struct_type.members {
         let slot_offset = member.slot.parse::<usize>().ok()?;
-        let ty = super::StorageType::parse(&member.type_name)?;
+        let ty = StorageType::parse(&member.type_name)?;
         fields.push(StructField {
             // checkrs: allow(clone_in_loops)
             name: member.label.clone(),

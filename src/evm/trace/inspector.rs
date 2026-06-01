@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use alloy_primitives::{B256, U256, keccak256};
+use alloy_primitives::{Address, B256, U256, keccak256};
 use revm::bytecode::opcode::{KECCAK256, SSTORE};
 use revm::context::JournalTr;
 use revm::inspector::Inspector as RevmInspector;
@@ -23,7 +23,7 @@ use crate::evm::trace::Trace;
 pub struct Inspector {
     stack: Vec<CallFrame>,
     roots: Vec<CallFrame>,
-    mapping_slots: HashMap<revm::primitives::Address, MappingSlots>,
+    mapping_slots: HashMap<Address, MappingSlots>,
 }
 
 impl Inspector {
@@ -198,7 +198,8 @@ mod tests {
     use alloy_primitives::U256;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, ChainConfig, DeployInput};
+    use crate::evm::chain::{Chain, ChainConfig, DEFAULT_DEPLOYER, DeployInput};
+    use crate::evm::trace::TraceContext;
     use crate::foundry::{ArtifactId, Project};
 
     struct TestCase {
@@ -297,8 +298,7 @@ mod tests {
             );
 
             let deploy_address = deployment.trace.roots[0].address.unwrap();
-            let mut ctx =
-                crate::evm::trace::TraceContext::new().with_label(deploy_address, case.label);
+            let mut ctx = TraceContext::new().with_label(deploy_address, case.label);
             if case.with_abi {
                 ctx = ctx.with_abi(contract.abi);
             }
@@ -325,7 +325,7 @@ mod tests {
             load_fixture("src/BasicConstructorComplexRevert.sol:BasicConstructorComplexRevert");
 
         let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = crate::evm::trace::TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from_project(&project).unwrap();
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
         let mut deploy_opts =
@@ -359,7 +359,7 @@ mod tests {
         let outer = load_fixture("src/StorageTypes.sol:StorageTypesRevert");
 
         let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = crate::evm::trace::TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from_project(&project).unwrap();
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
         let deployment = chain.deploy(DeployInput::new(&outer.initcode)).unwrap();
@@ -389,7 +389,7 @@ mod tests {
         let contract = load_fixture("src/LabelTrace.sol:LabelTrace");
 
         let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = crate::evm::trace::TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from_project(&project).unwrap();
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -419,7 +419,7 @@ mod tests {
         let contract = load_fixture("src/EmitEvents.sol:EmitEvents");
 
         let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = crate::evm::trace::TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from_project(&project).unwrap();
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -430,7 +430,7 @@ mod tests {
         let deploy_address = root.address.unwrap();
 
         ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
-        ctx = ctx.with_label(crate::evm::chain::DEFAULT_DEPLOYER, "RaptorDeployer");
+        ctx = ctx.with_label(DEFAULT_DEPLOYER, "RaptorDeployer");
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected = fs::read_to_string("fixtures/trace-inspector/expected/EmitEvents.txt")

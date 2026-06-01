@@ -121,7 +121,7 @@ impl Fuzzer {
             let mut fresh_chain = self.chain.clone();
 
             // Convert corpus item to transactions
-            let transactions: Vec<crate::evm::Transaction> = item
+            let transactions: Vec<evm::Transaction> = item
                 .calls
                 .iter()
                 .chain(invariant_calls.iter())

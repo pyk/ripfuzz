@@ -89,7 +89,6 @@ impl Chain {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloy_primitives::{Address, U256, address};
     use hex;
     use revm::Database;
@@ -100,9 +99,11 @@ mod tests {
 
     use alloy_sol_types::SolCall;
 
+    use crate::evm::Contract;
     use crate::evm::chain::ChainConfig;
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput};
+    use crate::evm::chain::{AccountInfo, Chain, DEFAULT_DEPLOYER, DeployInput, SetupInput};
     use crate::evm::cheatcode::VM_ADDRESS;
+    use crate::foundry::{ArtifactId, Project};
 
     #[test]
     fn chain_new_uses_latest_spec() {
@@ -117,7 +118,7 @@ mod tests {
     #[test]
     fn default_deployer_matches_raptor_deployer_string() {
         let hash = alloy_primitives::utils::keccak256(b"raptor deployer");
-        let expected = revm::primitives::Address::from_word(hash);
+        let expected = Address::from_word(hash);
         assert_eq!(expected, DEFAULT_DEPLOYER);
     }
 
@@ -266,13 +267,13 @@ mod tests {
         assert_eq!(code_len, 0x8001, "deployed code must be 32769 bytes");
     }
 
-    /// Load a [`evm::Contract`](crate::evm::Contract) from a pre-built
+    /// Load a [`evm::Contract`](Contract) from a pre-built
     /// fixture by its full artifact id (`path:name`).
-    fn load_fixture(id: &str) -> crate::evm::Contract {
-        let project = crate::foundry::Project::new("fixtures/target-contract-deployment");
+    fn load_fixture(id: &str) -> Contract {
+        let project = Project::new("fixtures/target-contract-deployment");
         let artifacts = project.load_artifacts().unwrap();
-        let artifact_id = crate::foundry::ArtifactId::try_from(id).unwrap();
-        crate::evm::Contract::try_get(&artifacts, &artifact_id).unwrap()
+        let artifact_id = ArtifactId::try_from(id).unwrap();
+        Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     alloy_sol_types::sol! {
@@ -360,7 +361,7 @@ mod tests {
             .as_ref()
             .expect("setup function must exist in ABI");
         let setup_data = Bytes::from(setup_func.selector().as_slice().to_vec());
-        let setup_opts = crate::evm::chain::SetupInput::new(address).calldata(setup_data);
+        let setup_opts = SetupInput::new(address).calldata(setup_data);
         let setup = chain.setup(setup_opts).unwrap();
 
         assert!(
@@ -426,7 +427,7 @@ mod tests {
             .as_ref()
             .expect("setup function must exist in ABI");
         let setup_data = Bytes::from(setup_func.selector().as_slice().to_vec());
-        let setup_opts = crate::evm::chain::SetupInput::new(address).calldata(setup_data);
+        let setup_opts = SetupInput::new(address).calldata(setup_data);
         let setup = chain.setup(setup_opts).unwrap();
 
         assert!(
@@ -455,7 +456,7 @@ mod tests {
         let address = deployment.address.unwrap();
 
         let setup_data = Bytes::from(TargetWithLib::setupCall::new(()).abi_encode());
-        let setup_opts = crate::evm::chain::SetupInput::new(address).calldata(setup_data);
+        let setup_opts = SetupInput::new(address).calldata(setup_data);
         let setup = chain.setup(setup_opts).unwrap();
 
         assert!(
@@ -513,13 +514,13 @@ mod tests {
     /// before the target contract is deployed.
     #[test]
     fn setup_deploys_contract_with_linked_library() {
-        let project = crate::foundry::Project::new("fixtures/target-contract-deployment");
+        let project = Project::new("fixtures/target-contract-deployment");
         let artifacts = project.load_artifacts().unwrap();
-        let artifact_id = crate::foundry::ArtifactId::try_from(
+        let artifact_id = ArtifactId::try_from(
             "test/EmptyChainDeployLinkedLibInSetup.sol:EmptyChainDeployLinkedLibInSetup",
         )
         .unwrap();
-        let contract = crate::evm::Contract::try_get(&artifacts, &artifact_id).unwrap();
+        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
         let mut chain = Chain::empty(ChainConfig::default());
 
@@ -552,7 +553,7 @@ mod tests {
 
         // Run setup, which deploys the counter using the linked library.
         let setup_data = Bytes::from(TargetWithLib::setupCall::new(()).abi_encode());
-        let setup_opts = crate::evm::chain::SetupInput::new(address).calldata(setup_data);
+        let setup_opts = SetupInput::new(address).calldata(setup_data);
         let setup = chain.setup(setup_opts).unwrap();
         assert!(
             setup.result.success,

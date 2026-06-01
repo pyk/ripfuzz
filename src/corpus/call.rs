@@ -34,7 +34,7 @@ impl Default for Call {
             },
             args: DynSolValue::Tuple(vec![]),
             value: None,
-            caller: crate::evm::DEFAULT_DEPLOYER,
+            caller: evm::DEFAULT_DEPLOYER,
         }
     }
 }
@@ -256,7 +256,7 @@ mod tests {
             function: Function::parse("foo()").unwrap(),
             args: DynSolValue::Tuple(vec![]),
             value: None,
-            caller: crate::evm::DEFAULT_DEPLOYER,
+            caller: evm::DEFAULT_DEPLOYER,
         }
     }
 

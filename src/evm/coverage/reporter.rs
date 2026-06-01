@@ -731,14 +731,16 @@ fn collect_references_from_body(body: &Option<solc::ast::Block>) -> Vec<i64> {
 mod tests {
     use std::fs;
 
-    use alloy_primitives::U256;
+    use alloy_primitives::{Address, U256};
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, ChainConfig, DeployInput, Transaction};
+    use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::coverage::SharedCoverage;
     use crate::foundry;
+
+    use super::*;
 
     alloy_sol_types::sol! {
         interface CoverageBranch {
@@ -759,7 +761,7 @@ mod tests {
 
     struct Deployed {
         chain: Chain,
-        address: revm::primitives::Address,
+        address: Address,
         runtime_code: Bytes,
     }
 
@@ -773,7 +775,7 @@ mod tests {
 
         if let Some(setup) = &contract.setup_function {
             let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
-            let setup_opts = crate::evm::chain::SetupInput::new(target).calldata(setup_data);
+            let setup_opts = SetupInput::new(target).calldata(setup_data);
             let setup = chain.setup(setup_opts).unwrap();
             assert!(setup.result.success, "setup must succeed");
         }
@@ -801,12 +803,12 @@ mod tests {
         global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
-        let context = super::CoverageContext::from_project(&project)
+        let context = CoverageContext::from_project(&project)
             .unwrap()
             .with_runtime_code(&deployed.runtime_code)
             .unwrap();
 
-        let reporter = super::CoverageReporter::new()
+        let reporter = CoverageReporter::new()
             .coverage(global)
             .target_functions(contract.target_functions)
             .context(context);
@@ -842,12 +844,12 @@ mod tests {
         global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
-        let context = super::CoverageContext::from_project(&project)
+        let context = CoverageContext::from_project(&project)
             .unwrap()
             .with_runtime_code(&deployed.runtime_code)
             .unwrap();
 
-        let reporter = super::CoverageReporter::new()
+        let reporter = CoverageReporter::new()
             .coverage(global)
             .target_functions(contract.target_functions)
             .context(context);

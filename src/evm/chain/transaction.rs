@@ -3,6 +3,8 @@
 use alloy_primitives::{Address, U256};
 use revm::primitives::Bytes;
 
+use crate::evm::chain::DEFAULT_DEPLOYER;
+
 /// A single CALL transaction to execute in a sequence.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Transaction {
@@ -16,11 +18,11 @@ pub struct Transaction {
 impl Transaction {
     /// Create a [`Transaction`] for the given target.
     ///
-    /// Caller defaults to [`DEFAULT_DEPLOYER`](super::DEFAULT_DEPLOYER); override with [`Self::caller`].
+    /// Caller defaults to [`DEFAULT_DEPLOYER`](DEFAULT_DEPLOYER); override with [`Self::caller`].
     /// Calldata defaults to empty bytes; override with [`Self::calldata`].
     pub fn new(target: Address) -> Self {
         Self {
-            caller: super::DEFAULT_DEPLOYER,
+            caller: DEFAULT_DEPLOYER,
             target,
             calldata: Bytes::new(),
             value: U256::ZERO,

@@ -4,6 +4,8 @@ use alloy_primitives::{Address, B256, Bytes, U64, U256};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+use crate::evm::forkdb::request::Request;
+
 /// Typed block header (subset of `eth_getBlockByNumber` result).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Block {
@@ -41,38 +43,38 @@ pub enum Response {
 
 impl Response {
     /// Parse the `result` field of a JSON-RPC response into a typed value.
-    pub fn parse(request: &super::request::Request, result: &serde_json::Value) -> Result<Self> {
+    pub fn parse(request: &Request, result: &serde_json::Value) -> Result<Self> {
         match request {
-            super::request::Request::GetChainId { .. } => {
+            Request::GetChainId { .. } => {
                 let s = result.as_str().context("expected hex string for chainId")?;
                 let v = U64::from_str_radix(s.strip_prefix("0x").unwrap_or(s), 16)
                     .context("invalid chainId hex")?;
                 Ok(Self::ChainId(v.to()))
             }
-            super::request::Request::GetBlockByNumber { .. } => {
+            Request::GetBlockByNumber { .. } => {
                 if result.is_null() {
                     bail!("block not found");
                 }
                 let block = Block::deserialize(result).context("invalid block response")?;
                 Ok(Self::BlockByNumber(block))
             }
-            super::request::Request::GetBalance { .. } => {
+            Request::GetBalance { .. } => {
                 let s = result.as_str().context("expected hex string for balance")?;
                 let v: U256 = s.parse().context("invalid balance hex")?;
                 Ok(Self::Balance(v))
             }
-            super::request::Request::GetTransactionCount { .. } => {
+            Request::GetTransactionCount { .. } => {
                 let s = result.as_str().context("expected hex string for nonce")?;
                 let v = U64::from_str_radix(s.strip_prefix("0x").unwrap_or(s), 16)
                     .context("invalid nonce hex")?;
                 Ok(Self::TransactionCount(v.to()))
             }
-            super::request::Request::GetCode { .. } => {
+            Request::GetCode { .. } => {
                 let s = result.as_str().context("expected hex string for code")?;
                 let v: Bytes = s.parse().context("invalid code hex")?;
                 Ok(Self::Code(v))
             }
-            super::request::Request::GetStorageAt { .. } => {
+            Request::GetStorageAt { .. } => {
                 let s = result.as_str().context("expected hex string for storage")?;
                 let v: U256 = s.parse().context("invalid storage hex")?;
                 Ok(Self::StorageAt(v))

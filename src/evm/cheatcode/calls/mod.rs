@@ -8,6 +8,7 @@ use revm::{
 
 use Vm::VmCalls;
 
+use crate::evm::cheatcode::inspector::CfgMut;
 use crate::evm::cheatcode::state::ExecutionState;
 
 pub mod addr;
@@ -88,7 +89,7 @@ pub fn dispatch<CTX>(
     state: &mut ExecutionState,
 ) -> Option<CallOutcome>
 where
-    CTX: ContextTr + ContextSetters<Block = BlockEnv> + crate::evm::cheatcode::inspector::CfgMut,
+    CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut,
 {
     match call {
         // Block

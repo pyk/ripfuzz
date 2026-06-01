@@ -2,6 +2,7 @@
 
 use alloy_primitives::{Address, U256};
 
+use crate::evm::chain::DEFAULT_DEPLOYER;
 use crate::evm::{result, trace};
 
 /// Configuration for a contract deployment.
@@ -42,10 +43,10 @@ impl DeployLibraryInput {
 impl DeployInput {
     /// Create [`DeployInput`] with the given initcode.
     ///
-    /// Caller defaults to [`DEFAULT_DEPLOYER`](super::DEFAULT_DEPLOYER); override with [`Self::caller`].
+    /// Caller defaults to [`DEFAULT_DEPLOYER`](DEFAULT_DEPLOYER); override with [`Self::caller`].
     pub fn new(initcode: &str) -> Self {
         Self {
-            caller: super::DEFAULT_DEPLOYER,
+            caller: DEFAULT_DEPLOYER,
             value: U256::ZERO,
             initcode: initcode.into(),
             libraries: Vec::new(),

@@ -4,6 +4,7 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::SolCall;
 use revm::primitives::Bytes;
 
+use crate::evm::chain::DEFAULT_DEPLOYER;
 use crate::evm::{result, trace};
 
 /// Result of a setup call, including the trace.
@@ -32,10 +33,10 @@ pub struct SetupInput {
 impl SetupInput {
     /// Create [`SetupInput`] for the given target with the default `setup()` selector.
     ///
-    /// Caller defaults to [`DEFAULT_DEPLOYER`](super::DEFAULT_DEPLOYER); override with [`Self::caller`].
+    /// Caller defaults to [`DEFAULT_DEPLOYER`](DEFAULT_DEPLOYER); override with [`Self::caller`].
     pub fn new(target: Address) -> Self {
         Self {
-            caller: super::DEFAULT_DEPLOYER,
+            caller: DEFAULT_DEPLOYER,
             target,
             calldata: Bytes::from(Setup::setupCall::new(()).abi_encode()),
             value: U256::ZERO,

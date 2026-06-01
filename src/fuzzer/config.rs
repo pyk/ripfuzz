@@ -8,7 +8,7 @@ use std::time::Duration;
 use alloy_json_abi::Function;
 use alloy_primitives::Address;
 
-use crate::corpus::SharedCorpus;
+use crate::corpus::{CorpusConfig, SharedCorpus};
 use crate::evm;
 use crate::evm::SharedCoverage;
 use crate::fuzzer::metrics::SharedMetrics;
@@ -37,7 +37,7 @@ impl FuzzerConfig {
             seed: 0,
             chain: evm::Chain::default(),
             target_address: Address::ZERO,
-            shared_corpus: SharedCorpus::new(crate::corpus::CorpusConfig::new(PathBuf::new())),
+            shared_corpus: SharedCorpus::new(CorpusConfig::new(PathBuf::new())),
             shared_coverage: SharedCoverage::new(),
             shared_metrics: SharedMetrics::new(Vec::new()),
             shutdown_signal: Arc::new(AtomicBool::new(false)),

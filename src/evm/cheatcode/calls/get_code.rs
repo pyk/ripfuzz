@@ -59,12 +59,8 @@ mod tests {
 
         for (id, artifact) in &artifacts {
             let initcode: Bytes = match artifact {
-                crate::foundry::Artifact::Contract(c) => {
-                    c.bytecode.object.parse().unwrap_or_default()
-                }
-                crate::foundry::Artifact::Library(c) => {
-                    c.bytecode.object.parse().unwrap_or_default()
-                }
+                foundry::Artifact::Contract(c) => c.bytecode.object.parse().unwrap_or_default(),
+                foundry::Artifact::Library(c) => c.bytecode.object.parse().unwrap_or_default(),
                 _ => continue,
             };
             if initcode.is_empty() {

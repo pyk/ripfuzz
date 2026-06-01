@@ -13,7 +13,7 @@ use alloy_json_abi::StateMutability;
 use anyhow::{Result, ensure};
 use tracing::debug;
 
-use crate::corpus::random::RandomDynSolValue;
+use crate::corpus::random::{RandomDynSolValue, random_uint};
 use crate::corpus::{Call, CorpusConfig, ExtractedLiterals, Item};
 use crate::foundry::ArtifactId;
 
@@ -268,11 +268,7 @@ impl SharedCorpus {
             .map(|ty| ty.random(rng, &self.inner.literals))
             .collect();
         let value = if func.state_mutability == StateMutability::Payable {
-            Some(crate::corpus::random::random_uint(
-                rng,
-                256,
-                &self.inner.literals,
-            ))
+            Some(random_uint(rng, 256, &self.inner.literals))
         } else {
             None
         };
@@ -398,11 +394,7 @@ impl SharedCorpus {
             .collect();
         ensure!(!payable.is_empty(), "item contains no payable calls");
         let pos = payable[rng.usize(0..payable.len())];
-        item.calls[pos].value = Some(crate::corpus::random::random_uint(
-            rng,
-            256,
-            &self.inner.literals,
-        ));
+        item.calls[pos].value = Some(random_uint(rng, 256, &self.inner.literals));
         Ok(())
     }
 
@@ -484,7 +476,7 @@ mod tests {
     fn parallel_add_writes_once() {
         let tmp = tempfile::tempdir().unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
@@ -563,7 +555,7 @@ mod tests {
         let func_a = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
         let func_b = alloy_json_abi::Function::parse("bar(address,bool)").unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
@@ -615,7 +607,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
@@ -679,7 +671,7 @@ mod tests {
     fn is_fresh_item_returns_true_when_corpus_is_empty() {
         let tmp = tempfile::tempdir().unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
@@ -706,7 +698,7 @@ mod tests {
     fn is_fresh_item_distribution_around_thirty_percent() {
         let tmp = tempfile::tempdir().unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
@@ -755,7 +747,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
@@ -842,7 +834,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
@@ -922,7 +914,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
@@ -1003,7 +995,7 @@ mod tests {
         let func_a = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
         let func_b = alloy_json_abi::Function::parse("bar(address,bool)").unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
@@ -1083,7 +1075,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
@@ -1165,7 +1157,7 @@ mod tests {
         func_pay.state_mutability = alloy_json_abi::StateMutability::Payable;
         let func_nonpay = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },
@@ -1255,7 +1247,7 @@ mod tests {
         let func_a = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
         let func_b = alloy_json_abi::Function::parse("bar(address,bool)").unwrap();
         let contract = Contract {
-            artifact_id: crate::foundry::ArtifactId {
+            artifact_id: ArtifactId {
                 path: PathBuf::from("src/Test.sol"),
                 name: "Test".into(),
             },

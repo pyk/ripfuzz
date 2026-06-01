@@ -166,8 +166,10 @@ impl Contract {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use revm::primitives::Bytes;
+
+    use super::*;
+    use crate::foundry::Project;
 
     #[test]
     fn bytes_from_str_empty() {
@@ -194,9 +196,9 @@ mod tests {
     // -----------------------------------------------------------------------
 
     fn load_fixture(contract_id: &str) -> Result<Contract> {
-        let project = crate::foundry::Project::new("fixtures/target-contract-validation");
+        let project = Project::new("fixtures/target-contract-validation");
         let artifacts = project.load_artifacts()?;
-        let id = crate::foundry::ArtifactId::try_from(contract_id)?;
+        let id = ArtifactId::try_from(contract_id)?;
         Contract::try_get(&artifacts, &id)
     }
 

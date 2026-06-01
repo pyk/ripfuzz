@@ -205,11 +205,8 @@ impl Default for Inspector {
     }
 }
 
-impl<
-    CTX: ContextTr<Block = BlockEnv, Tx = TxEnv>
-        + ContextSetters
-        + crate::evm::cheatcode::inspector::CfgMut,
-> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector
+impl<CTX: ContextTr<Block = BlockEnv, Tx = TxEnv> + ContextSetters + CfgMut>
+    revm::inspector::Inspector<CTX, EthInterpreter> for Inspector
 {
     fn initialize_interp(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
     }

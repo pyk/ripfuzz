@@ -15,15 +15,17 @@ use tracing::{debug, instrument};
 
 use crate::console::Console;
 use crate::corpus::{
-    CorpusConfig, CorpusReplayer, ExtractedLiterals, SharedCorpus, SharedFailedCorpusItem,
+    Call, CorpusConfig, CorpusReplayer, ExtractedLiterals, Item, SharedCorpus,
+    SharedFailedCorpusItem,
 };
 use crate::evm::{
     Chain, ChainConfig, Contract, CoverageContext, CoverageReporter, DeployInput, ForkDBConfig,
-    SetupInput, SharedCoverage, TraceContext,
+    SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
 };
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
 use crate::fuzzer::{Fuzzer, FuzzerConfig, SharedMetrics};
+use crate::logger;
 use crate::shrinker::{Shrinker, ShrinkerConfig};
 
 #[derive(Debug, Parser)]
@@ -319,7 +321,7 @@ pub fn run(args: Args) -> Result<()> {
             .join("campaigns")
             .join(&campaign_id)
             .join("fuzz.log");
-        crate::logger::init(&log_file, args.log_level)?;
+        logger::init(&log_file, args.log_level)?;
     }
 
     debug!(?project_path, "resolved project path");
@@ -685,11 +687,11 @@ pub fn run(args: Args) -> Result<()> {
     // Combine the smallest failing item with invariants so the shrinker
     // operates on a single corpus item and never appends invariants.
     let mut combined_calls = smallest_failure.item.calls.clone();
-    let invariant_calls: Vec<crate::corpus::Call> = target_contract
+    let invariant_calls: Vec<Call> = target_contract
         .invariant_functions
         .iter()
         // checkrs: allow(clone_in_iterator)
-        .map(|func| crate::corpus::Call {
+        .map(|func| Call {
             function: func.clone(),
             args: alloy_dyn_abi::DynSolValue::Tuple(vec![]),
             value: None,
@@ -697,7 +699,7 @@ pub fn run(args: Args) -> Result<()> {
         })
         .collect();
     combined_calls.extend(invariant_calls);
-    let combined_item = crate::corpus::Item::from(combined_calls);
+    let combined_item = Item::from(combined_calls);
 
     // Include both target and invariant functions so the shrinker can
     // generate replacement calls for any position in the sequence.
@@ -817,7 +819,7 @@ pub fn run(args: Args) -> Result<()> {
     let mut trace_chain = chain.clone();
     trace_chain.set_trace(true);
 
-    let transactions: Vec<crate::evm::Transaction> = shrunk_item
+    let transactions: Vec<Transaction> = shrunk_item
         .calls
         .iter()
         .map(|call| call.into_transaction(deployed_address))
@@ -915,7 +917,7 @@ fn write_coverage_report(
 }
 
 fn write_trace_to_file(
-    trace: &crate::evm::Trace,
+    trace: &Trace,
     project: &Project,
     project_path: impl AsRef<Path>,
     campaign_id: &str,
@@ -945,11 +947,10 @@ mod tests {
 
     use revm::primitives::U256;
 
-    use crate::commands::fuzz::ForkModeArgs;
     use crate::evm::DEFAULT_DEPLOYER;
     use crate::foundry;
 
-    use super::Args;
+    use super::*;
 
     fn count_corpus_files(dir: impl AsRef<Path>) -> usize {
         let dir = dir.as_ref();
@@ -996,7 +997,7 @@ mod tests {
         let corpus_dir = tmp.path().join("corpus");
 
         // First run: the fuzzer finds the bug and adds items.
-        super::run(make_args(corpus_dir.clone())).expect("first run should succeed");
+        run(make_args(corpus_dir.clone())).expect("first run should succeed");
         let count_after_first = count_corpus_files(&corpus_dir);
         assert!(
             count_after_first > 0,
@@ -1004,7 +1005,7 @@ mod tests {
         );
 
         // Second run: the fuzzer should not add redundant items.
-        super::run(make_args(corpus_dir.clone())).expect("second run should succeed");
+        run(make_args(corpus_dir.clone())).expect("second run should succeed");
         let count_after_second = count_corpus_files(&corpus_dir);
         assert_eq!(
             count_after_first, count_after_second,

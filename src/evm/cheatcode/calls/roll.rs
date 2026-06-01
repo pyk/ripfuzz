@@ -20,7 +20,7 @@ pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::U256;
+    use alloy_primitives::{Address, U256};
     use alloy_sol_types::SolCall;
     use revm::MainContext;
     use revm::primitives::Bytes;
@@ -53,7 +53,7 @@ mod tests {
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
-    fn deploy_and_setup() -> (Chain, revm::primitives::Address) {
+    fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/RollTarget.sol:RollTarget");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
