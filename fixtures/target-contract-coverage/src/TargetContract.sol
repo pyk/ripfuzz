@@ -2,9 +2,15 @@
 pragma solidity ^0.8.28;
 
 import {RaptorFuzz} from "./RaptorFuzz.sol";
+import {Counter} from "./Counter.sol";
 
 contract TargetContract is RaptorFuzz {
     uint256 public latestValue;
+    Counter public counter;
+
+    constructor() {
+        counter = new Counter();
+    }
 
     function addAndSub(uint256 a, uint256 b) external returns (uint256) {
         uint256 result = add(a, b);
@@ -34,5 +40,11 @@ contract TargetContract is RaptorFuzz {
         uint256 bounded = bound(a, 10, 100);
         latestValue = bounded;
         return bounded;
+    }
+
+    function libCall(uint256 amount) external returns (uint256) {
+        counter.increment(amount);
+        latestValue = counter.value();
+        return latestValue;
     }
 }

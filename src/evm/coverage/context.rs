@@ -272,6 +272,16 @@ impl CoverageContext {
         None
     }
 
+    /// Look up an artifact by the keccak256 hash of its runtime bytecode.
+    pub fn resolve_artifact_by_hash(&self, hash: &B256) -> Option<&Artifact> {
+        for entry in &self.runtime_entries {
+            if *hash == entry.base_hash {
+                return self.artifacts.get(&entry.id);
+            }
+        }
+        None
+    }
+
     /// Look up a source file by its project-relative path.
     pub fn resolve_source_file(&self, path: impl AsRef<Path>) -> Option<&SourceFile> {
         self.source_files.get(path.as_ref())
@@ -310,7 +320,9 @@ impl CoverageContext {
     ///
     /// Symbols are resolved from the contract and all of its base contracts
     /// (via `linearized_base_contracts`) so that inherited functions and state
-    /// variables are included in coverage reports.
+    /// variables are included in coverage reports. Additionally, symbols from
+    /// all other loaded artifacts are included so that external contract calls
+    /// and library functions can be resolved in coverage reports.
     pub fn resolve_contract_symbols<'a>(
         &'a self,
         artifact: &'a Artifact,
@@ -333,6 +345,27 @@ impl CoverageContext {
                 }
             }
         }
+        // Include symbols from all other artifacts so that external calls and
+        // library functions can be traced.
+        for other_artifact in self.artifacts.values() {
+            let other_ast = other_artifact.ast();
+            for node in &other_ast.nodes {
+                let solc::ast::SourceUnitNode::ContractDefinition(contract) = node else {
+                    continue;
+                };
+                for inner_node in &contract.nodes {
+                    match inner_node {
+                        solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
+                            map.insert(func.id, inner_node);
+                        }
+                        solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
+                            map.insert(var.id, inner_node);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         Some(map)
     }
 
@@ -351,8 +384,7 @@ impl CoverageContext {
         None
     }
 
-    /// Build a line-hit map from the shared coverage and the configured runtime
-    /// code.
+    /// Build a line-hit map from the shared coverage across all contracts.
     ///
     /// Returns a map of `(source_path, line_number) -> hit_count`.
     pub fn build_line_hits(
@@ -360,63 +392,79 @@ impl CoverageContext {
         shared_coverage: &SharedCoverage,
     ) -> HashMap<(PathBuf, usize), u64> {
         let mut line_hits: HashMap<(PathBuf, usize), u64> = HashMap::new();
-        let Some(runtime_code) = &self.runtime_code else {
-            return line_hits;
-        };
-        let contract_id = B256::from(keccak256(runtime_code));
-        let raw_counts = shared_coverage
-            .raw_edge_counts(&contract_id)
-            .unwrap_or_else(|| vec![0; self.pc_to_source.len()]);
-
         let empty_source = SourceFile {
             content: String::new(),
             line_offsets: Vec::new(),
         };
 
-        for (pc, entry) in self.pc_to_source.iter().enumerate() {
-            let Some(entry) = entry else { continue };
-            let raw_count = raw_counts.get(pc).copied().unwrap_or(0);
-            if raw_count == 0 {
-                continue;
-            }
-            let Some(source_path) = self.source_index.get(&entry.source_index) else {
+        for (contract_id, raw_counts) in shared_coverage.all_raw_edge_counts() {
+            let Some(artifact) = self.resolve_artifact_by_hash(&contract_id) else {
                 continue;
             };
-            let source_path = source_path.to_path_buf();
-            let file = self.source_files.get(&source_path).unwrap_or(&empty_source);
-            let line = file.offset_to_line(entry.offset);
-            let current = line_hits.entry((source_path, line)).or_insert(0);
-            *current = (*current).max(raw_count);
+            let Some(deployed) = artifact.deployed_bytecode() else {
+                continue;
+            };
+            let source_map = parse_source_map(&deployed.source_map);
+            let code =
+                parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
+            let bytecode = Bytecode::new_legacy(Bytes::from(code));
+            let pc_to_source = build_pc_to_source_map(&bytecode, &source_map);
+
+            for (pc, entry) in pc_to_source.iter().enumerate() {
+                let Some(entry) = entry else { continue };
+                let raw_count = raw_counts.get(pc).copied().unwrap_or(0);
+                if raw_count == 0 {
+                    continue;
+                }
+                let Some(source_path) = self.source_index.get(&entry.source_index) else {
+                    continue;
+                };
+                let source_path = source_path.to_path_buf();
+                let file = self.source_files.get(&source_path).unwrap_or(&empty_source);
+                let line = file.offset_to_line(entry.offset);
+                let current = line_hits.entry((source_path, line)).or_insert(0);
+                *current = (*current).max(raw_count);
+            }
         }
 
         line_hits
     }
 
-    /// Build a set of all executable lines from the PC-to-source map.
+    /// Build a set of all executable lines across all contracts.
     ///
     /// Returns a set of `(source_path, line_number)` pairs for every line that
-    /// maps to at least one program counter in the runtime bytecode.
+    /// maps to at least one program counter in any runtime bytecode.
     pub fn build_executable_lines(&self) -> HashSet<(PathBuf, usize)> {
         let mut lines: HashSet<(PathBuf, usize)> = HashSet::new();
-        let Some(runtime_code) = &self.runtime_code else {
-            return lines;
-        };
-        let _contract_id = B256::from(keccak256(runtime_code));
 
         let empty_source = SourceFile {
             content: String::new(),
             line_offsets: Vec::new(),
         };
 
-        for entry in &self.pc_to_source {
-            let Some(entry) = entry else { continue };
-            let Some(source_path) = self.source_index.get(&entry.source_index) else {
+        for entry in &self.runtime_entries {
+            let Some(artifact) = self.artifacts.get(&entry.id) else {
                 continue;
             };
-            let source_path = source_path.to_path_buf();
-            let file = self.source_files.get(&source_path).unwrap_or(&empty_source);
-            let line = file.offset_to_line(entry.offset);
-            lines.insert((source_path, line));
+            let Some(deployed) = artifact.deployed_bytecode() else {
+                continue;
+            };
+            let source_map = parse_source_map(&deployed.source_map);
+            let code =
+                parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
+            let bytecode = Bytecode::new_legacy(Bytes::from(code));
+            let pc_to_source = build_pc_to_source_map(&bytecode, &source_map);
+
+            for entry in &pc_to_source {
+                let Some(entry) = entry else { continue };
+                let Some(source_path) = self.source_index.get(&entry.source_index) else {
+                    continue;
+                };
+                let source_path = source_path.to_path_buf();
+                let file = self.source_files.get(&source_path).unwrap_or(&empty_source);
+                let line = file.offset_to_line(entry.offset);
+                lines.insert((source_path, line));
+            }
         }
 
         lines

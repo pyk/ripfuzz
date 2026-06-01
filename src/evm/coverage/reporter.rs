@@ -896,6 +896,7 @@ mod tests {
             function addAndSub(uint256 a, uint256 b) external returns (uint256);
             function earlyReturn(uint256 a) external returns (uint256);
             function inheritanceCall(uint256 a) external returns (uint256);
+            function libCall(uint256 amount) external returns (uint256);
         }
     }
 
@@ -1158,6 +1159,54 @@ mod tests {
             formatted.trim(),
             expected.trim(),
             "coverage report output for inheritance call must match expected"
+        );
+    }
+
+    /// Coverage report for a function that calls a contract deployed in the
+    /// constructor.
+    #[test]
+    fn coverage_report_lib_call() {
+        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
+            TargetContract::libCallCall::new((U256::from(42),)).abi_encode(),
+        ))];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let context = CoverageContext::from_project(&project)
+            .unwrap()
+            .with_runtime_code(&deployed.runtime_code)
+            .unwrap();
+
+        let project_path = context
+            .target_artifact()
+            .unwrap()
+            .project_path()
+            .to_string_lossy()
+            .to_string();
+
+        let reporter = CoverageReporter::new()
+            .coverage(global)
+            .target_functions(contract.target_functions)
+            .context(context);
+
+        let report = reporter
+            .get_report("libCall(uint256)")
+            .expect("libCall report must be present");
+        let formatted = format!("{report}");
+        let expected_file = "fixtures/target-contract-coverage/expected/libCall.txt";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected = expected.replace("fixtures/target-contract-coverage", &project_path);
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output for libCall must match expected"
         );
     }
 }

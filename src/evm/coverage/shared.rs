@@ -263,6 +263,22 @@ impl SharedCoverage {
                 .collect(),
         )
     }
+
+    /// Return the raw edge counts for all contracts in the coverage map.
+    pub fn all_raw_edge_counts(&self) -> Vec<(B256, Vec<u64>)> {
+        let guard = self.inner.contracts.pin();
+        guard
+            .iter()
+            .map(|(id, contract)| {
+                let raw_edges = contract
+                    .raw_edges
+                    .iter()
+                    .map(|e| e.load(Ordering::Relaxed))
+                    .collect();
+                (*id, raw_edges)
+            })
+            .collect()
+    }
 }
 
 impl CoverageUpdate {
