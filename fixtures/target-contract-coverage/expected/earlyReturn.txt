@@ -29,4 +29,4 @@ project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-   5 |    0 |    uint256 public latestValue;
+   5 |      |    uint256 public latestValue;

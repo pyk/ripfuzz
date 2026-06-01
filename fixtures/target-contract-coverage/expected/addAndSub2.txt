@@ -38,7 +38,7 @@ project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-   5 |    2 |    uint256 public latestValue;
+   5 |      |    uint256 public latestValue;
 
 symbol: sub(uint256,uint256)
 source: src/TargetContract.sol#L18-L21
