@@ -18,8 +18,8 @@ use crate::corpus::{
     CorpusConfig, CorpusReplayer, ExtractedLiterals, SharedCorpus, SharedFailedCorpusItem,
 };
 use crate::evm::{
-    Chain, ChainConfig, Contract, CoverageReport, DeployInput, ForkDBConfig, SetupInput,
-    SharedCoverage, SourceFile, TraceContext,
+    Chain, ChainConfig, Contract, CoverageContext, CoverageReporter, DeployInput, ForkDBConfig,
+    SetupInput, SharedCoverage, TraceContext,
 };
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
@@ -643,11 +643,10 @@ pub fn run(args: Args) -> Result<()> {
         let runtime_code = deployment.result.output.clone().unwrap_or_default();
         console.begin("writing coverage report ...")?;
         match write_coverage_report(
-            &project_path,
+            &project,
             &campaign_id,
             &shared_coverage,
             &target_contract,
-            &build_artifacts,
             &runtime_code,
         ) {
             Ok(coverage_file) => {
@@ -845,11 +844,10 @@ pub fn run(args: Args) -> Result<()> {
     let runtime_code = deployment.result.output.clone().unwrap_or_default();
     console.begin("writing coverage report ...")?;
     match write_coverage_report(
-        &project_path,
+        &project,
         &campaign_id,
         &shared_coverage,
         &target_contract,
-        &build_artifacts,
         &runtime_code,
     ) {
         Ok(coverage_file) => {
@@ -866,67 +864,30 @@ pub fn run(args: Args) -> Result<()> {
 }
 
 fn write_coverage_report(
-    project_path: impl AsRef<Path>,
+    project: &Project,
     campaign_id: &str,
     shared_coverage: &SharedCoverage,
     target_contract: &Contract,
-    build_artifacts: &HashMap<ArtifactId, Artifact>,
     runtime_code: &Bytes,
 ) -> Result<PathBuf> {
-    let project_path = project_path.as_ref();
-    let build_info_dir = project_path.join("out").join("build-info");
-    let mut source_index: HashMap<usize, PathBuf> = HashMap::new();
-    if build_info_dir.exists() {
-        for entry in fs::read_dir(&build_info_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension() != Some("json".as_ref()) {
-                continue;
-            }
-            let content = fs::read_to_string(&path)?;
-            let json: serde_json::Value = serde_json::from_str(&content)?;
-            let Some(map) = json.get("source_id_to_path").and_then(|v| v.as_object()) else {
-                continue;
-            };
-            for (k, v) in map {
-                if let Ok(idx) = k.parse::<usize>()
-                    && let Some(path_str) = v.as_str()
-                {
-                    source_index.insert(idx, PathBuf::from(path_str));
-                }
-            }
-        }
-    }
+    let context = CoverageContext::from_project(project)?.with_runtime_code(runtime_code)?;
 
-    let mut source_files = HashMap::new();
-    for path in source_index.values().cloned() {
-        let full_path = project_path.join(&path);
-        if let Ok(content) = fs::read_to_string(&full_path) {
-            source_files.insert(path, SourceFile::new(content));
-        }
-    }
-    let artifact_path = target_contract.artifact_id.path.clone();
-    match source_files.entry(artifact_path) {
-        std::collections::hash_map::Entry::Vacant(e) => {
-            let full_path = project_path.join(e.key());
-            if let Ok(content) = fs::read_to_string(&full_path) {
-                e.insert(SourceFile::new(content));
-            }
-        }
-        std::collections::hash_map::Entry::Occupied(_) => {}
-    }
+    let reporter = CoverageReporter::new()
+        .coverage(shared_coverage.clone())
+        .target_functions(
+            target_contract
+                .target_functions
+                .iter()
+                .chain(target_contract.invariant_functions.iter())
+                .cloned()
+                .collect(),
+        )
+        .context(context);
 
-    let report = CoverageReport::build(
-        shared_coverage,
-        target_contract,
-        build_artifacts,
-        runtime_code,
-        &source_index,
-        &source_files,
-        project_path,
-    )?;
+    let report = reporter.summary();
 
-    let coverage_dir = project_path
+    let coverage_dir = project
+        .path
         .join("raptor")
         .join("campaigns")
         .join(campaign_id)
@@ -934,6 +895,22 @@ fn write_coverage_report(
     fs::create_dir_all(&coverage_dir)?;
     let coverage_file = coverage_dir.join("coverage.txt");
     fs::write(&coverage_file, format!("{report}"))?;
+
+    for func in target_contract
+        .target_functions
+        .iter()
+        .chain(target_contract.invariant_functions.iter())
+    {
+        let sig = func.signature();
+        if let Some(func_report) = reporter.get_report(&sig) {
+            let func_file = coverage_dir.join(format!(
+                "{}.txt",
+                sig.replace(|c: char| !c.is_alphanumeric(), "_")
+            ));
+            fs::write(&func_file, format!("{func_report}"))?;
+        }
+    }
+
     Ok(coverage_file)
 }
 

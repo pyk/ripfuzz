@@ -1,9 +1,9 @@
 COVERAGE REPORT STATS
 
-total lines: 5
-total covered lines: 5
-total uncovered lines: 0
-coverage: 100.00%
+total lines: 14
+total covered lines: 11
+total uncovered lines: 3
+coverage: 78.57%
 
 SOURCES
 

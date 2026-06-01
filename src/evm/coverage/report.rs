@@ -1,177 +1,19 @@
-//! Coverage report generation for the fuzzer.
+//! Coverage report generation.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use alloy_json_abi::Function;
-use alloy_primitives::{B256, keccak256};
-use anyhow::{Context, Result};
-use revm::bytecode::Bytecode;
-use revm::primitives::Bytes;
-use tracing::{debug, trace};
 
+use crate::evm::coverage::context::CoverageContext;
 use crate::evm::coverage::shared::SharedCoverage;
-use crate::evm::coverage::source_map::{SourceMapEntry, parse_source_map};
-use crate::foundry::{Artifact, ArtifactId, LinkReferences, get_contract_definition};
 
-/// Collect link-reference positions from a `linkReferences` map.
-fn collect_link_positions(link_refs: &LinkReferences) -> Vec<(usize, usize)> {
-    let mut out = Vec::new();
-    for libs in link_refs.values() {
-        for refs in libs.values() {
-            for r in refs {
-                out.push((r.start, r.length));
-            }
-        }
-    }
-    out
-}
-
-/// Zero out the bytes at the given positions in a mutable buffer.
-fn zero_out_positions(buf: &mut [u8], positions: &[(usize, usize)]) {
-    for (start, len) in positions {
-        for i in *start..*start + *len {
-            if i < buf.len() {
-                buf[i] = 0;
-            }
-        }
-    }
-}
-
-/// Parse a bytecode object string, replacing library placeholders at the
-/// given link-reference positions with zero bytes.
-fn parse_bytecode_with_placeholders(object: &str, link_refs: &LinkReferences) -> Vec<u8> {
-    let hex = object.strip_prefix("0x").unwrap_or(object);
-
-    let mut hex_positions = Vec::new();
-    for libs in link_refs.values() {
-        for refs in libs.values() {
-            for r in refs {
-                hex_positions.push((r.start * 2, r.length * 2));
-            }
-        }
-    }
-    hex_positions.sort_by_key(|(start, _)| *start);
-
-    let mut cleaned = String::new();
-    let mut last_end = 0;
-    for (start, len) in hex_positions {
-        cleaned.push_str(&hex[last_end..start]);
-        cleaned.push_str(&"00".repeat(len / 2));
-        last_end = start + len;
-    }
-    cleaned.push_str(&hex[last_end..]);
-
-    hex::decode(cleaned).unwrap_or_default()
-}
-
-/// Find the artifact that matches the given runtime bytecode.
-fn find_artifact_by_runtime_code<'a>(
-    runtime_code: &Bytes,
-    artifacts: &'a HashMap<ArtifactId, Artifact>,
-) -> Option<&'a Artifact> {
-    for artifact in artifacts.values() {
-        let Some(deployed) = artifact.deployed_bytecode() else {
-            continue;
-        };
-        let artifact_code =
-            parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
-        if artifact_code.is_empty() {
-            continue;
-        }
-        let positions = collect_link_positions(&deployed.link_references);
-        let mut masked_runtime = runtime_code.to_vec();
-        zero_out_positions(&mut masked_runtime, &positions);
-        let mut masked_artifact = artifact_code;
-        zero_out_positions(&mut masked_artifact, &positions);
-        if keccak256(&masked_runtime) == keccak256(&masked_artifact) {
-            return Some(artifact);
-        }
-    }
-    None
-}
-
-/// A single source file with line offsets.
-#[derive(Debug, Clone)]
-pub struct SourceFile {
-    pub content: String,
-    pub line_offsets: Vec<usize>,
-}
-
-impl SourceFile {
-    pub fn new(content: impl Into<String>) -> Self {
-        let content = content.into();
-        let line_offsets = build_line_offsets(&content);
-        Self {
-            content,
-            line_offsets,
-        }
-    }
-
-    pub fn offset_to_line(&self, offset: usize) -> usize {
-        match self.line_offsets.binary_search(&offset) {
-            Ok(line) => line + 1,
-            Err(line) => line,
-        }
-    }
-}
-
-fn build_line_offsets(content: &str) -> Vec<usize> {
-    let mut offsets = vec![0];
-    for (i, c) in content.char_indices() {
-        if c == '\n' {
-            offsets.push(i + 1);
-        }
-    }
-    offsets
-}
-
-/// Build a mapping from program counter to source map entry for a bytecode.
-fn build_pc_to_source_map(
-    bytecode: &Bytecode,
-    source_map: &[SourceMapEntry],
-) -> Vec<Option<SourceMapEntry>> {
-    let mut result = vec![None; bytecode.len()];
-    let mut iter = bytecode.iter_opcodes();
-    let mut opcode_idx = 0;
-    while let Some(_opcode) = iter.peek() {
-        let pc = iter.position();
-        if pc >= bytecode.len() {
-            break;
-        }
-        if let Some(entry) = source_map.get(opcode_idx) {
-            result[pc] = Some(*entry);
-        }
-        iter.next();
-        opcode_idx += 1;
-    }
-    result
-}
-
-/// Find the AST [`FunctionDefinition`] that matches a target ABI function.
-fn find_function_definition<'a>(
-    ast: &'a solc::ast::SourceUnit,
-    contract_name: &str,
-    target_func: &Function,
-) -> Option<&'a solc::ast::FunctionDefinition> {
-    let contract = get_contract_definition(ast, contract_name).ok()?;
-    let target_selector = hex::encode(target_func.selector());
-    for node in &contract.nodes {
-        if let solc::ast::ContractDefinitionNode::FunctionDefinition(func) = node
-            && let Some(ref sel) = func.function_selector
-            && sel.trim_start_matches("0x").to_lowercase() == target_selector.to_lowercase()
-        {
-            return Some(func);
-        }
-    }
-    None
-}
+// ---------------------------------------------------------------------------
+// AST helpers
+// ---------------------------------------------------------------------------
 
 /// Build a Solidity signature from an AST function definition.
-///
-/// The output matches the ABI signature format: `name(param1,param2,…)`
-/// without return types.
 fn build_signature_from_ast(func: &solc::ast::FunctionDefinition) -> String {
     let mut params = String::new();
     for (i, p) in func.parameters.parameters.iter().enumerate() {
@@ -189,7 +31,6 @@ fn build_signature_from_ast(func: &solc::ast::FunctionDefinition) -> String {
     format!("{}({})", name, params)
 }
 
-/// Collect referenced declaration IDs from a function call expression.
 fn collect_references_from_function_call_expression(
     expr: &solc::ast::FunctionCallExpression,
 ) -> Vec<i64> {
@@ -216,7 +57,6 @@ fn collect_references_from_function_call_expression(
     refs
 }
 
-/// Collect referenced declaration IDs from an expression.
 fn collect_references_from_expression(expr: &solc::ast::Expression) -> Vec<i64> {
     let mut refs = Vec::new();
     match expr {
@@ -284,7 +124,6 @@ fn collect_references_from_expression(expr: &solc::ast::Expression) -> Vec<i64> 
     refs
 }
 
-/// Collect referenced declaration IDs from a function call.
 fn collect_references_from_function_call(call: &solc::ast::FunctionCall) -> Vec<i64> {
     let mut refs = collect_references_from_function_call_expression(&call.expression);
     for arg in &call.arguments {
@@ -293,7 +132,6 @@ fn collect_references_from_function_call(call: &solc::ast::FunctionCall) -> Vec<
     refs
 }
 
-/// Collect referenced declaration IDs from a statement.
 fn collect_references_from_statement(stmt: &solc::ast::Statement) -> Vec<i64> {
     let mut refs = Vec::new();
     match stmt {
@@ -364,7 +202,6 @@ fn collect_references_from_statement(stmt: &solc::ast::Statement) -> Vec<i64> {
     refs
 }
 
-/// Collect all referenced declaration IDs from a function body.
 fn collect_references_from_body(body: &Option<solc::ast::Block>) -> Vec<i64> {
     let mut refs = Vec::new();
     if let Some(block) = body {
@@ -375,514 +212,489 @@ fn collect_references_from_body(body: &Option<solc::ast::Block>) -> Vec<i64> {
     refs
 }
 
-/// Collect all contract symbols into a map keyed by declaration ID.
-fn collect_contract_symbols<'a>(
-    ast: &'a solc::ast::SourceUnit,
-    contract_name: &str,
-) -> Option<HashMap<i64, &'a solc::ast::ContractDefinitionNode>> {
-    let contract = get_contract_definition(ast, contract_name).ok()?;
-    let mut map = HashMap::new();
-    for node in &contract.nodes {
-        match node {
-            solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
-                map.insert(func.id, node);
-            }
-            solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
-                map.insert(var.id, node);
-            }
-            _ => {}
-        }
-    }
-    Some(map)
-}
+// ---------------------------------------------------------------------------
+// Report data types
+// ---------------------------------------------------------------------------
 
-/// A line hit record for a single source line.
+/// A single line hit record.
 #[derive(Debug, Clone)]
-pub struct LineHit {
+pub struct LineHits {
     pub line: usize,
     pub hit_count: u64,
     pub content: String,
 }
 
-/// Kind of coverage symbol.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SymbolKind {
-    Function,
-    Variable,
-}
-
-/// Coverage summary for a single symbol (function or variable).
-///
-/// Children are recursively resolved so that a target function can include
-/// sub-functions, state variables, and any other symbols it transitively
-/// depends on.
+/// Coverage for a single source symbol (function or variable).
 #[derive(Debug, Clone)]
-pub struct SymbolCoverage {
-    pub kind: SymbolKind,
-    pub name: String,
-    pub project_path: PathBuf,
-    pub file_path: PathBuf,
+pub struct SourceCoverage {
+    pub symbol: String,
+    pub source: PathBuf,
     pub start_line: usize,
     pub end_line: usize,
-    pub total_lines: usize,
-    pub covered_lines: usize,
-    pub line_hits: Vec<LineHit>,
-    pub children: Vec<SymbolCoverage>,
+    pub line_hits: Vec<LineHits>,
+    pub project: PathBuf,
 }
 
-/// A coverage report generated for a fuzzing campaign.
+/// A summary report for a single target function.
 #[derive(Debug, Clone)]
-pub struct CoverageReport {
-    pub symbol_coverages: Vec<SymbolCoverage>,
-    pub summary_total_lines: usize,
-    pub summary_covered_lines: usize,
+pub struct FunctionSummaryReport {
+    pub total_lines: usize,
+    pub total_covered_lines: usize,
+    pub total_coverage: f64,
+    pub path: PathBuf,
+    pub name: String,
+    pub total_sub_functions: usize,
 }
 
-/// Build a [`SymbolCoverage`] for a single contract node (function or variable).
-fn build_symbol_coverage(
-    node: &solc::ast::ContractDefinitionNode,
-    project_path: impl AsRef<Path>,
-    source_index: &HashMap<usize, PathBuf>,
-    artifact_path: impl AsRef<Path>,
-    source_files: &HashMap<PathBuf, SourceFile>,
-    line_hits: &HashMap<(PathBuf, usize), u64>,
-) -> Option<SymbolCoverage> {
-    let project_path = project_path.as_ref();
-    let artifact_path = artifact_path.as_ref();
-    let empty_source = SourceFile {
-        content: String::new(),
-        line_offsets: Vec::new(),
-    };
+/// A detailed coverage report for a single target function.
+#[derive(Debug, Clone)]
+pub struct FunctionReport {
+    pub total_lines: usize,
+    pub total_covered_lines: usize,
+    pub total_coverage: f64,
+    pub path: PathBuf,
+    pub name: String,
+    pub total_sub_functions: usize,
+    pub source_coverages: Vec<SourceCoverage>,
+}
 
-    match node {
-        solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
-            let source_path = source_index
-                .get(&func.src.source_index)
-                .cloned()
-                .unwrap_or_else(|| artifact_path.to_path_buf());
-            let file = source_files.get(&source_path).unwrap_or(&empty_source);
-            let start_line = file.offset_to_line(func.src.offset);
-            let end_line = file.offset_to_line(func.src.offset + func.src.length);
-            let total_lines = end_line.saturating_sub(start_line) + 1;
+/// A summary report for the entire campaign.
+#[derive(Debug, Clone)]
+pub struct SummaryReport {
+    pub total_lines: usize,
+    pub total_covered_lines: usize,
+    pub total_coverage: f64,
+    pub function_summaries: Vec<FunctionSummaryReport>,
+}
 
-            let mut covered_lines = 0;
-            let mut hits = Vec::new();
-            for line in start_line..=end_line {
-                let hit_count = line_hits
-                    .get(&(source_path.clone(), line))
-                    .copied()
-                    .unwrap_or(0);
-                if hit_count > 0 {
-                    covered_lines += 1;
-                }
-                let content: String = file
-                    .content
-                    .lines()
-                    .nth(line.saturating_sub(1))
-                    .unwrap_or("")
-                    .into();
-                hits.push(LineHit {
-                    line,
-                    hit_count,
-                    content,
-                });
-            }
+/// Orchestrates the building of coverage reports.
+#[derive(Debug, Clone)]
+pub struct CoverageReporter {
+    coverage: SharedCoverage,
+    target_functions: Vec<Function>,
+    context: CoverageContext,
+}
 
-            Some(SymbolCoverage {
-                kind: SymbolKind::Function,
-                name: build_signature_from_ast(func),
-                project_path: project_path.to_path_buf(),
-                file_path: source_path,
-                start_line,
-                end_line,
-                total_lines,
-                covered_lines,
-                line_hits: hits,
-                children: Vec::new(),
-            })
-        }
-        solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
-            let source_path = source_index
-                .get(&var.src.source_index)
-                .cloned()
-                .unwrap_or_else(|| artifact_path.to_path_buf());
-            let file = source_files.get(&source_path).unwrap_or(&empty_source);
-            let start_line = file.offset_to_line(var.src.offset);
-            let end_line = file.offset_to_line(var.src.offset + var.src.length);
-            let total_lines = end_line.saturating_sub(start_line) + 1;
-
-            let mut hits = Vec::new();
-            for line in start_line..=end_line {
-                let content: String = file
-                    .content
-                    .lines()
-                    .nth(line.saturating_sub(1))
-                    .unwrap_or("")
-                    .into();
-                hits.push(LineHit {
-                    line,
-                    hit_count: 0,
-                    content,
-                });
-            }
-
-            Some(SymbolCoverage {
-                kind: SymbolKind::Variable,
-                name: var.name.clone(),
-                project_path: project_path.to_path_buf(),
-                file_path: source_path,
-                start_line,
-                end_line,
-                total_lines,
-                covered_lines: 0,
-                line_hits: hits,
-                children: Vec::new(),
-            })
-        }
-        _ => None,
+impl Default for CoverageReporter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-/// Recursively resolve children for a function symbol.
-#[allow(clippy::too_many_arguments)]
-fn resolve_children(
-    coverage: &mut SymbolCoverage,
-    contract_symbols: &HashMap<i64, &solc::ast::ContractDefinitionNode>,
-    project_path: impl AsRef<Path>,
-    source_index: &HashMap<usize, PathBuf>,
-    artifact_path: impl AsRef<Path>,
-    source_files: &HashMap<PathBuf, SourceFile>,
-    line_hits: &HashMap<(PathBuf, usize), u64>,
-    visited: &mut HashSet<i64>,
-) {
-    let project_path = project_path.as_ref();
-    let artifact_path = artifact_path.as_ref();
-    let Some(solc::ast::ContractDefinitionNode::FunctionDefinition(func)) =
-        contract_symbols.values().find(|node| match node {
-            solc::ast::ContractDefinitionNode::FunctionDefinition(f) => {
-                build_signature_from_ast(f) == coverage.name
-            }
-            _ => false,
-        })
-    else {
-        return;
-    };
-
-    let refs = collect_references_from_body(&func.body);
-    for rid in refs {
-        let Some(node) = contract_symbols.get(&rid) else {
-            continue;
-        };
-        let Some(mut child) = build_symbol_coverage(
-            node,
-            project_path,
-            source_index,
-            artifact_path,
-            source_files,
-            line_hits,
-        ) else {
-            continue;
-        };
-        if child.kind == SymbolKind::Function && visited.insert(rid) {
-            resolve_children(
-                &mut child,
-                contract_symbols,
-                project_path,
-                source_index,
-                artifact_path,
-                source_files,
-                line_hits,
-                visited,
-            );
-        }
-        coverage.children.push(child);
-    }
-}
-
-impl CoverageReport {
-    /// Build a coverage report from collected coverage data and build artifacts.
-    ///
-    /// This is a pure-logic operation: it does not read from or write to the
-    /// filesystem.
-    pub fn build(
-        shared_coverage: &SharedCoverage,
-        target_contract: &crate::evm::Contract,
-        build_artifacts: &HashMap<ArtifactId, Artifact>,
-        runtime_code: &Bytes,
-        source_index: &HashMap<usize, PathBuf>,
-        source_files: &HashMap<PathBuf, SourceFile>,
-        project_path: impl AsRef<Path>,
-    ) -> Result<Self> {
-        let project_path = project_path.as_ref();
-        let artifact_id = &target_contract.artifact_id;
-        let contract_name = &artifact_id.name;
-
-        // Find the target artifact.
-        let Some(target_artifact) = build_artifacts.get(artifact_id) else {
-            debug!(?artifact_id, "target artifact not found in build artifacts");
-            return Err(anyhow::anyhow!(
-                "target artifact not found in build artifacts"
-            ));
-        };
-        trace!("found target artifact");
-
-        // Match runtime code with artifact.
-        let Some(artifact) = find_artifact_by_runtime_code(runtime_code, build_artifacts) else {
-            debug!(
-                runtime_code_len = runtime_code.len(),
-                "could not match runtime code to any artifact"
-            );
-            return Err(anyhow::anyhow!(
-                "could not match runtime code to any artifact"
-            ));
-        };
-        trace!(artifact_id = ?artifact.id(), "matched artifact by runtime code");
-
-        let deployed = artifact
-            .deployed_bytecode()
-            .context("artifact has no deployed bytecode")?;
-        trace!(
-            source_map_len = deployed.source_map.len(),
-            "loaded deployed bytecode"
-        );
-
-        let source_map = parse_source_map(&deployed.source_map);
-        trace!(source_map_entries = source_map.len(), "parsed source map");
-
-        let bytecode = Bytecode::new_legacy(runtime_code.clone());
-        let pc_to_source = build_pc_to_source_map(&bytecode, &source_map);
-        trace!(pc_count = pc_to_source.len(), "built pc to source map");
-
-        let contract_id = B256::from(keccak256(runtime_code));
-        let raw_counts = shared_coverage
-            .raw_edge_counts(&contract_id)
-            .unwrap_or_else(|| vec![0; pc_to_source.len()]);
-        trace!(
-            total_hits = raw_counts.iter().sum::<u64>(),
-            "loaded raw edge counts"
-        );
-
-        trace!(source_index_len = source_index.len(), "loaded source index");
-
-        let empty_source = SourceFile {
-            content: String::new(),
-            line_offsets: Vec::new(),
-        };
-
-        let mut line_hits: HashMap<(PathBuf, usize), u64> = HashMap::new();
-
-        for (pc, entry) in pc_to_source.iter().enumerate() {
-            let Some(entry) = entry else { continue };
-            let raw_count = raw_counts.get(pc).copied().unwrap_or(0);
-            if raw_count == 0 {
-                continue;
-            }
-
-            let source_path = source_index
-                .get(&entry.source_index)
-                .cloned()
-                .unwrap_or_else(|| artifact.id().path.to_path_buf());
-
-            let file = source_files.get(&source_path).unwrap_or(&empty_source);
-
-            let line = file.offset_to_line(entry.offset);
-            *line_hits.entry((source_path, line)).or_insert(0) += raw_count;
-        }
-        trace!(line_hits_count = line_hits.len(), "mapped hits to lines");
-
-        let Some(contract_symbols) = collect_contract_symbols(target_artifact.ast(), contract_name)
-        else {
-            debug!(contract_name, "contract not found in AST");
-            return Err(anyhow::anyhow!("contract not found in AST"));
-        };
-
-        // Build symbol coverage reports for target functions.
-        let mut symbol_coverages: Vec<SymbolCoverage> = Vec::new();
-        let all_functions: Vec<&Function> = target_contract
-            .target_functions
-            .iter()
-            .chain(target_contract.invariant_functions.iter())
-            .collect();
-
-        for func in all_functions {
-            let Some(func_def) =
-                find_function_definition(target_artifact.ast(), contract_name, func)
-            else {
-                trace!(
-                    func = func.signature(),
-                    "function definition not found in AST"
-                );
-                continue;
-            };
-            trace!(func = func.signature(), "found function definition in AST");
-
-            let source_path = source_index
-                .get(&func_def.src.source_index)
-                .cloned()
-                .unwrap_or_else(|| artifact.id().path.to_path_buf());
-
-            let file = source_files.get(&source_path).unwrap_or(&empty_source);
-
-            let start_line = file.offset_to_line(func_def.src.offset);
-            let end_line = file.offset_to_line(func_def.src.offset + func_def.src.length);
-            let total_lines = end_line.saturating_sub(start_line) + 1;
-
-            let mut covered_lines = 0;
-            let mut hits = Vec::new();
-            for line in start_line..=end_line {
-                let hit_count = line_hits
-                    .get(&(source_path.clone(), line))
-                    .copied()
-                    .unwrap_or(0);
-                if hit_count > 0 {
-                    covered_lines += 1;
-                }
-                let content: String = file
-                    .content
-                    .lines()
-                    .nth(line.saturating_sub(1))
-                    .unwrap_or("")
-                    .into();
-                hits.push(LineHit {
-                    line,
-                    hit_count,
-                    content,
-                });
-            }
-
-            let mut symbol_coverage = SymbolCoverage {
-                kind: SymbolKind::Function,
-                name: func.signature(),
-                project_path: project_path.to_path_buf(),
-                file_path: source_path.clone(),
-                start_line,
-                end_line,
-                total_lines,
-                covered_lines,
-                line_hits: hits,
-                children: Vec::new(),
-            };
-
-            let mut visited = HashSet::new();
-            resolve_children(
-                &mut symbol_coverage,
-                &contract_symbols,
-                project_path,
-                source_index,
-                &artifact.id().path,
-                source_files,
-                &line_hits,
-                &mut visited,
-            );
-
-            symbol_coverages.push(symbol_coverage);
-        }
-        debug!(
-            symbol_count = symbol_coverages.len(),
-            "built symbol coverages"
-        );
-
-        let summary_total_lines = symbol_coverages.iter().map(|s| s.total_lines).sum();
-        let summary_covered_lines = symbol_coverages.iter().map(|s| s.covered_lines).sum();
-
-        Ok(Self {
-            symbol_coverages,
-            summary_total_lines,
-            summary_covered_lines,
-        })
-    }
-}
-
-fn write_symbol_coverage(symbol: &SymbolCoverage, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    writeln!(f, "symbol: {}", symbol.name)?;
-    writeln!(
-        f,
-        "source: {}#L{}-L{}",
-        symbol.file_path.display(),
-        symbol.start_line,
-        symbol.end_line
-    )?;
-    writeln!(f, "project: {}", symbol.project_path.display())?;
-    writeln!(f)?;
-    writeln!(f, "line | hits |")?;
-    writeln!(f, "---- | ---- |")?;
-    for hit in &symbol.line_hits {
-        if hit.hit_count > 0 {
-            writeln!(f, "{:4} | {:4} |{}", hit.line, hit.hit_count, hit.content)?;
-        } else {
-            writeln!(f, "     |      |{}", hit.content)?;
+impl CoverageReporter {
+    /// Create a new empty [`CoverageReporter`].
+    pub fn new() -> Self {
+        Self {
+            coverage: SharedCoverage::new(),
+            target_functions: Vec::new(),
+            context: CoverageContext::default(),
         }
     }
-    writeln!(f)
-}
 
-fn write_symbol_coverage_flat(
-    symbol: &SymbolCoverage,
-    f: &mut fmt::Formatter<'_>,
-    visited: &mut HashSet<String>,
-) -> fmt::Result {
-    if visited.insert(symbol.name.clone()) {
-        write_symbol_coverage(symbol, f)?;
+    /// Set the [`SharedCoverage`] data.
+    pub fn coverage(mut self, coverage: SharedCoverage) -> Self {
+        self.coverage = coverage;
+        self
     }
-    for child in &symbol.children {
-        write_symbol_coverage_flat(child, f, visited)?;
-    }
-    Ok(())
-}
 
-impl fmt::Display for SymbolCoverage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let summary_uncovered = self.total_lines.saturating_sub(self.covered_lines);
-        let summary_pct = if self.total_lines > 0 {
-            (self.covered_lines as f64 / self.total_lines as f64) * 100.0
+    /// Set the target functions to report on.
+    pub fn target_functions(mut self, target_functions: Vec<Function>) -> Self {
+        self.target_functions = target_functions;
+        self
+    }
+
+    /// Set the [`CoverageContext`] for lookups.
+    pub fn context(mut self, context: CoverageContext) -> Self {
+        self.context = context;
+        self
+    }
+
+    /// Return a campaign-level summary.
+    pub fn summary(&self) -> SummaryReport {
+        let reports = self.reports();
+        let total_lines = reports.iter().map(|r| r.total_lines).sum();
+        let total_covered_lines = reports.iter().map(|r| r.total_covered_lines).sum();
+        let total_coverage = if total_lines > 0 {
+            (total_covered_lines as f64 / total_lines as f64) * 100.0
         } else {
             0.0
         };
+
+        let function_summaries = reports
+            .into_iter()
+            .map(|r| FunctionSummaryReport {
+                total_lines: r.total_lines,
+                total_covered_lines: r.total_covered_lines,
+                total_coverage: r.total_coverage,
+                path: r.path,
+                name: r.name,
+                total_sub_functions: r.total_sub_functions,
+            })
+            .collect();
+
+        SummaryReport {
+            total_lines,
+            total_covered_lines,
+            total_coverage,
+            function_summaries,
+        }
+    }
+
+    /// Return the detailed report for a specific target function signature.
+    pub fn get_report(&self, function_signature: &str) -> Option<FunctionReport> {
+        let line_hits = self.context.build_line_hits(&self.coverage);
+        let artifact = self.context.target_artifact()?;
+        let contract_name = artifact.name();
+        let symbols = self
+            .context
+            .resolve_contract_symbols(artifact, contract_name)?;
+
+        let func = self
+            .target_functions
+            .iter()
+            .find(|f| f.signature() == function_signature)?;
+        let func_def = self
+            .context
+            .resolve_function_definition(artifact, contract_name, func)?;
+
+        build_function_report(
+            func_def,
+            &self.context,
+            &line_hits,
+            &symbols,
+            function_signature,
+        )
+    }
+
+    /// Return detailed reports for all target functions.
+    pub fn reports(&self) -> Vec<FunctionReport> {
+        let line_hits = self.context.build_line_hits(&self.coverage);
+        let Some(artifact) = self.context.target_artifact() else {
+            return Vec::new();
+        };
+        let contract_name = artifact.name();
+        let Some(symbols) = self
+            .context
+            .resolve_contract_symbols(artifact, contract_name)
+        else {
+            return Vec::new();
+        };
+
+        let mut reports = Vec::new();
+        for func in &self.target_functions {
+            let sig = func.signature();
+            let Some(func_def) =
+                self.context
+                    .resolve_function_definition(artifact, contract_name, func)
+            else {
+                continue;
+            };
+            if let Some(report) =
+                build_function_report(func_def, &self.context, &line_hits, &symbols, &sig)
+            {
+                reports.push(report);
+            }
+        }
+        reports
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Display
+// ---------------------------------------------------------------------------
+
+impl fmt::Display for SummaryReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let uncovered = self.total_lines.saturating_sub(self.total_covered_lines);
+        let pct = self.total_coverage;
 
         writeln!(f, "COVERAGE REPORT STATS\n")?;
         writeln!(f, "total lines: {}", self.total_lines)?;
-        writeln!(f, "total covered lines: {}", self.covered_lines)?;
-        writeln!(f, "total uncovered lines: {}", summary_uncovered)?;
-        writeln!(f, "coverage: {:.2}%\n", summary_pct)?;
-        writeln!(f, "SOURCES\n")?;
+        writeln!(f, "total covered lines: {}", self.total_covered_lines)?;
+        writeln!(f, "total uncovered lines: {}", uncovered)?;
+        writeln!(f, "coverage: {:.2}%\n", pct)?;
+        writeln!(f, "FUNCTIONS\n")?;
 
-        let mut visited = HashSet::new();
-        write_symbol_coverage_flat(self, f, &mut visited)
-    }
-}
-
-impl fmt::Display for CoverageReport {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let summary_uncovered = self
-            .summary_total_lines
-            .saturating_sub(self.summary_covered_lines);
-        let summary_pct = if self.summary_total_lines > 0 {
-            (self.summary_covered_lines as f64 / self.summary_total_lines as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        writeln!(f, "COVERAGE REPORT STATS\n")?;
-        writeln!(f, "total lines: {}", self.summary_total_lines)?;
-        writeln!(f, "total covered lines: {}", self.summary_covered_lines)?;
-        writeln!(f, "total uncovered lines: {}", summary_uncovered)?;
-        writeln!(f, "coverage: {:.2}%\n", summary_pct)?;
-        writeln!(f, "SOURCES\n")?;
-
-        let mut visited = HashSet::new();
-        for symbol in &self.symbol_coverages {
-            write_symbol_coverage_flat(symbol, f, &mut visited)?;
+        for func in &self.function_summaries {
+            writeln!(f, "function: {}", func.name)?;
+            writeln!(f, "source: {}", func.path.display())?;
+            writeln!(f, "coverage: {:.2}%", func.total_coverage)?;
+            writeln!(
+                f,
+                "lines: {}/{}",
+                func.total_covered_lines, func.total_lines
+            )?;
+            writeln!(f, "sub functions: {}\n", func.total_sub_functions)?;
         }
 
         Ok(())
     }
 }
 
+impl fmt::Display for FunctionReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let uncovered = self.total_lines.saturating_sub(self.total_covered_lines);
+        let pct = self.total_coverage;
+
+        writeln!(f, "COVERAGE REPORT STATS\n")?;
+        writeln!(f, "total lines: {}", self.total_lines)?;
+        writeln!(f, "total covered lines: {}", self.total_covered_lines)?;
+        writeln!(f, "total uncovered lines: {}", uncovered)?;
+        writeln!(f, "coverage: {:.2}%\n", pct)?;
+        writeln!(f, "SOURCES\n")?;
+
+        for source in &self.source_coverages {
+            writeln!(f, "symbol: {}", source.symbol)?;
+            writeln!(
+                f,
+                "source: {}#L{}-L{}",
+                source.source.display(),
+                source.start_line,
+                source.end_line
+            )?;
+            writeln!(f, "project: {}", source.project.display())?;
+            writeln!(f)?;
+            writeln!(f, "line | hits |")?;
+            writeln!(f, "---- | ---- |")?;
+            for hit in &source.line_hits {
+                if hit.hit_count > 0 {
+                    writeln!(f, "{:4} | {:4} |{}", hit.line, hit.hit_count, hit.content)?;
+                } else {
+                    writeln!(f, "     |      |{}", hit.content)?;
+                }
+            }
+            writeln!(f)?;
+        }
+
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Report builders
+// ---------------------------------------------------------------------------
+
+fn build_function_report(
+    func_def: &solc::ast::FunctionDefinition,
+    context: &CoverageContext,
+    line_hits: &HashMap<(PathBuf, usize), u64>,
+    symbols: &HashMap<i64, &solc::ast::ContractDefinitionNode>,
+    function_signature: &str,
+) -> Option<FunctionReport> {
+    let source_path = match context.resolve_source_index(func_def.src.source_index) {
+        Some(p) => p.to_path_buf(),
+        None => context
+            .target_artifact()
+            .map(|a| a.id().path.to_path_buf())
+            .unwrap_or_default(),
+    };
+
+    let file = context.resolve_source_file(&source_path);
+    let start_line = file
+        .map(|f| f.offset_to_line(func_def.src.offset))
+        .unwrap_or(1);
+    let end_line = file
+        .map(|f| f.offset_to_line(func_def.src.offset + func_def.src.length))
+        .unwrap_or(start_line);
+    let total_lines = end_line.saturating_sub(start_line) + 1;
+
+    let mut covered_lines = 0;
+    let mut hits = Vec::new();
+    for line in start_line..=end_line {
+        let hit_count = line_hits
+            .get(&(source_path.clone(), line))
+            .copied()
+            .unwrap_or(0);
+        if hit_count > 0 {
+            covered_lines += 1;
+        }
+        let content = file
+            .and_then(|f| f.content.lines().nth(line.saturating_sub(1)))
+            .unwrap_or("")
+            .into();
+        hits.push(LineHits {
+            line,
+            hit_count,
+            content,
+        });
+    }
+
+    let source_coverage = SourceCoverage {
+        symbol: function_signature.into(),
+        source: source_path.clone(),
+        start_line,
+        end_line,
+        line_hits: hits,
+        project: context.project_paths().first().cloned().unwrap_or_default(),
+    };
+
+    let mut source_coverages = vec![source_coverage];
+    let mut total_covered_lines = covered_lines;
+    let mut total_lines = total_lines;
+    let mut total_sub_functions = 0;
+    let mut visited_ids = HashSet::new();
+    visited_ids.insert(func_def.id);
+
+    let child_result = resolve_children(func_def, context, line_hits, symbols, &mut visited_ids);
+
+    total_lines += child_result.total_lines;
+    total_covered_lines += child_result.total_covered_lines;
+    total_sub_functions += child_result.total_sub_functions;
+    source_coverages.extend(child_result.children);
+
+    let total_coverage = if total_lines > 0 {
+        (total_covered_lines as f64 / total_lines as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    Some(FunctionReport {
+        total_lines,
+        total_covered_lines,
+        total_coverage,
+        path: source_path,
+        name: function_signature.into(),
+        total_sub_functions,
+        source_coverages,
+    })
+}
+
+fn build_source_coverage(
+    node: &solc::ast::ContractDefinitionNode,
+    context: &CoverageContext,
+    line_hits: &HashMap<(PathBuf, usize), u64>,
+) -> Option<SourceCoverage> {
+    match node {
+        solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
+            let source_path = context
+                .resolve_source_index(func.src.source_index)
+                .cloned()
+                .unwrap_or_default();
+            let file = context.resolve_source_file(&source_path);
+            let start_line = file.map(|f| f.offset_to_line(func.src.offset)).unwrap_or(1);
+            let end_line = file
+                .map(|f| f.offset_to_line(func.src.offset + func.src.length))
+                .unwrap_or(start_line);
+
+            let mut hits = Vec::new();
+            for line in start_line..=end_line {
+                let hit_count = line_hits
+                    .get(&(source_path.clone(), line))
+                    .copied()
+                    .unwrap_or(0);
+                let content = file
+                    .and_then(|f| f.content.lines().nth(line.saturating_sub(1)))
+                    .unwrap_or("")
+                    .into();
+                hits.push(LineHits {
+                    line,
+                    hit_count,
+                    content,
+                });
+            }
+
+            Some(SourceCoverage {
+                symbol: build_signature_from_ast(func),
+                source: source_path,
+                start_line,
+                end_line,
+                line_hits: hits,
+                project: context.project_paths().first().cloned().unwrap_or_default(),
+            })
+        }
+        solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
+            let source_path = context
+                .resolve_source_index(var.src.source_index)
+                .cloned()
+                .unwrap_or_default();
+            let file = context.resolve_source_file(&source_path);
+            let start_line = file.map(|f| f.offset_to_line(var.src.offset)).unwrap_or(1);
+            let end_line = file
+                .map(|f| f.offset_to_line(var.src.offset + var.src.length))
+                .unwrap_or(start_line);
+
+            let mut hits = Vec::new();
+            for line in start_line..=end_line {
+                let content = file
+                    .and_then(|f| f.content.lines().nth(line.saturating_sub(1)))
+                    .unwrap_or("")
+                    .into();
+                hits.push(LineHits {
+                    line,
+                    hit_count: 0,
+                    content,
+                });
+            }
+
+            Some(SourceCoverage {
+                symbol: var.name.clone(),
+                source: source_path,
+                start_line,
+                end_line,
+                line_hits: hits,
+                project: context.project_paths().first().cloned().unwrap_or_default(),
+            })
+        }
+        _ => None,
+    }
+}
+
+struct ResolveChildrenResult {
+    children: Vec<SourceCoverage>,
+    total_lines: usize,
+    total_covered_lines: usize,
+    total_sub_functions: usize,
+}
+
+fn resolve_children(
+    func_def: &solc::ast::FunctionDefinition,
+    context: &CoverageContext,
+    line_hits: &HashMap<(PathBuf, usize), u64>,
+    symbols: &HashMap<i64, &solc::ast::ContractDefinitionNode>,
+    visited_ids: &mut HashSet<i64>,
+) -> ResolveChildrenResult {
+    let mut children = Vec::new();
+    let mut total_lines = 0;
+    let mut total_covered_lines = 0;
+    let mut total_sub_functions = 0;
+
+    let refs = collect_references_from_body(&func_def.body);
+    for rid in refs {
+        let Some(node) = symbols.get(&rid) else {
+            continue;
+        };
+        let Some(child) = build_source_coverage(node, context, line_hits) else {
+            continue;
+        };
+
+        if !visited_ids.insert(rid) {
+            continue;
+        }
+
+        total_lines += child.line_hits.len();
+        total_covered_lines += child.line_hits.iter().filter(|h| h.hit_count > 0).count();
+        children.push(child);
+
+        if let solc::ast::ContractDefinitionNode::FunctionDefinition(f) = node {
+            let sub = resolve_children(f, context, line_hits, symbols, visited_ids);
+            total_sub_functions += 1 + sub.total_sub_functions;
+            total_lines += sub.total_lines;
+            total_covered_lines += sub.total_covered_lines;
+            children.extend(sub.children);
+        }
+    }
+
+    ResolveChildrenResult {
+        children,
+        total_lines,
+        total_covered_lines,
+        total_sub_functions,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::fs;
-    use std::path::PathBuf;
 
     use alloy_primitives::U256;
     use alloy_sol_types::SolCall;
@@ -910,12 +722,13 @@ mod tests {
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
-    /// Coverage report logic must succeed even when the build artifacts contain
-    /// interface/abstract contracts that have no deployed bytecode.
-    #[test]
-    fn coverage_report_build_with_interface_artifact() {
-        let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
+    struct Deployed {
+        chain: Chain,
+        address: revm::primitives::Address,
+        runtime_code: Bytes,
+    }
 
+    fn deploy_and_setup(contract: &Contract) -> Deployed {
         let config = ChainConfig::default().coverage(true);
         let mut chain = Chain::new(config).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -923,71 +736,50 @@ mod tests {
         let target = deployment.address.unwrap();
         let runtime_code = deployment.result.output.unwrap_or_default();
 
+        if let Some(setup) = &contract.setup_function {
+            let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
+            let setup_opts = crate::evm::chain::SetupInput::new(target).calldata(setup_data);
+            let setup = chain.setup(setup_opts).unwrap();
+            assert!(setup.result.success, "setup must succeed");
+        }
+
+        Deployed {
+            chain,
+            address: target,
+            runtime_code,
+        }
+    }
+
+    /// Coverage report logic must succeed even when the build artifacts contain
+    /// interface/abstract contracts that have no deployed bytecode.
+    #[test]
+    fn coverage_report_build_with_interface_artifact() {
+        let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
+        let mut deployed = deploy_and_setup(&contract);
+
         let global = SharedCoverage::new();
-        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             CoverageBranch::branchCall::new((false,)).abi_encode(),
         ))];
-        let exec = chain.exec(&txs).unwrap();
+        let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
         global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
-        let build_artifacts = project.load_artifacts().unwrap();
+        let context = super::CoverageContext::from_project(&project)
+            .unwrap()
+            .with_runtime_code(&deployed.runtime_code)
+            .unwrap();
 
-        let build_info_dir =
-            std::path::Path::new("fixtures/target-contract-coverage/out/build-info");
-        let mut source_index = HashMap::new();
-        if let Ok(entries) = fs::read_dir(build_info_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension() != Some("json".as_ref()) {
-                    continue;
-                }
-                let content = fs::read_to_string(&path).unwrap();
-                let json: serde_json::Value = serde_json::from_str(&content).unwrap();
-                let Some(map) = json.get("source_id_to_path").and_then(|v| v.as_object()) else {
-                    continue;
-                };
-                for (k, v) in map {
-                    if let Ok(idx) = k.parse::<usize>()
-                        && let Some(path_str) = v.as_str()
-                    {
-                        source_index.insert(idx, PathBuf::from(path_str));
-                    }
-                }
-            }
-        }
+        let reporter = super::CoverageReporter::new()
+            .coverage(global)
+            .target_functions(contract.target_functions)
+            .context(context);
 
-        let mut source_files = HashMap::new();
-        for path in source_index.values().cloned() {
-            let full_path = std::path::Path::new("fixtures/target-contract-coverage").join(&path);
-            if let Ok(content) = fs::read_to_string(&full_path) {
-                source_files.insert(path, super::SourceFile::new(content));
-            }
-        }
-        let artifact_path = contract.artifact_id.path.clone();
-        if !source_files.contains_key(&artifact_path) {
-            let full_path =
-                std::path::Path::new("fixtures/target-contract-coverage").join(&artifact_path);
-            if let Ok(content) = fs::read_to_string(&full_path) {
-                source_files.insert(artifact_path, super::SourceFile::new(content));
-            }
-        }
-
-        let report = super::CoverageReport::build(
-            &global,
-            &contract,
-            &build_artifacts,
-            &runtime_code,
-            &source_index,
-            &source_files,
-            std::path::Path::new("fixtures/target-contract-coverage"),
-        )
-        .unwrap();
-
+        let reports = reporter.reports();
         assert!(
-            !report.symbol_coverages.is_empty(),
-            "coverage report should contain symbol coverages even when build artifacts include interfaces"
+            !reports.is_empty(),
+            "coverage report should contain reports even when build artifacts include interfaces"
         );
     }
 
@@ -998,17 +790,11 @@ mod tests {
         let contract = load_coverage_fixture(
             "src/CoverageReportInternalFunctions.sol:CoverageReportInternalFunctions",
         );
-
-        let config = ChainConfig::default().coverage(true);
-        let mut chain = Chain::new(config).unwrap();
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
-        assert!(deployment.result.success, "deployment must succeed");
-        let target = deployment.address.unwrap();
-        let runtime_code = deployment.result.output.unwrap_or_default();
+        let mut deployed = deploy_and_setup(&contract);
 
         let global = SharedCoverage::new();
         let txs = vec![
-            Transaction::new(target).calldata(Bytes::from(
+            Transaction::new(deployed.address).calldata(Bytes::from(
                 CoverageReportInternalFunctions::add_and_subCall::new((
                     U256::from(123),
                     U256::from(123),
@@ -1016,71 +802,26 @@ mod tests {
                 .abi_encode(),
             )),
         ];
-        let exec = chain.exec(&txs).unwrap();
+        let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
         global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
-        let build_artifacts = project.load_artifacts().unwrap();
+        let context = super::CoverageContext::from_project(&project)
+            .unwrap()
+            .with_runtime_code(&deployed.runtime_code)
+            .unwrap();
 
-        let build_info_dir =
-            std::path::Path::new("fixtures/target-contract-coverage/out/build-info");
-        let mut source_index = HashMap::new();
-        if let Ok(entries) = fs::read_dir(build_info_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension() != Some("json".as_ref()) {
-                    continue;
-                }
-                let content = fs::read_to_string(&path).unwrap();
-                let json: serde_json::Value = serde_json::from_str(&content).unwrap();
-                let Some(map) = json.get("source_id_to_path").and_then(|v| v.as_object()) else {
-                    continue;
-                };
-                for (k, v) in map {
-                    if let Ok(idx) = k.parse::<usize>()
-                        && let Some(path_str) = v.as_str()
-                    {
-                        source_index.insert(idx, PathBuf::from(path_str));
-                    }
-                }
-            }
-        }
-
-        let mut source_files = HashMap::new();
-        for path in source_index.values().cloned() {
-            let full_path = std::path::Path::new("fixtures/target-contract-coverage").join(&path);
-            if let Ok(content) = fs::read_to_string(&full_path) {
-                source_files.insert(path, super::SourceFile::new(content));
-            }
-        }
-        let artifact_path = contract.artifact_id.path.clone();
-        if !source_files.contains_key(&artifact_path) {
-            let full_path =
-                std::path::Path::new("fixtures/target-contract-coverage").join(&artifact_path);
-            if let Ok(content) = fs::read_to_string(&full_path) {
-                source_files.insert(artifact_path, super::SourceFile::new(content));
-            }
-        }
-
-        let report = super::CoverageReport::build(
-            &global,
-            &contract,
-            &build_artifacts,
-            &runtime_code,
-            &source_index,
-            &source_files,
-            std::path::Path::new("fixtures/target-contract-coverage"),
-        )
-        .unwrap();
+        let reporter = super::CoverageReporter::new()
+            .coverage(global)
+            .target_functions(contract.target_functions)
+            .context(context);
 
         let expected_file = "fixtures/target-contract-coverage/expected/CoverageReportInternalFunctions_add_and_sub.txt";
-        let symbol_cov = report
-            .symbol_coverages
-            .iter()
-            .find(|s| s.name == "add_and_sub(uint256,uint256)")
-            .expect("add_and_sub coverage must be present");
-        let formatted = format!("{symbol_cov}");
+        let report = reporter
+            .get_report("add_and_sub(uint256,uint256)")
+            .expect("add_and_sub report must be present");
+        let formatted = format!("{report}");
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         assert_eq!(

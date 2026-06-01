@@ -8,7 +8,7 @@
 //!    `out/` directory via [`Project::load_artifacts`].
 
 pub use artifact::{
-    Artifact, ArtifactId, ContractArtifact, LinkReferences, StorageTypeInfo,
+    Artifact, ArtifactBytecode, ArtifactId, ContractArtifact, LinkReferences, StorageTypeInfo,
     get_contract_definition,
 };
 pub use build_options::BuildOptions;
