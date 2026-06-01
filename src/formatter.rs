@@ -123,7 +123,7 @@ impl<'a> CampaignStats<'a> {
             let target_labels: Vec<String> = self
                 .target_functions
                 .iter()
-                .map(|f| format!("{} ({})", f.name, f.selector()))
+                .map(|f| f.name.to_string())
                 .collect();
             let target_width = target_labels.iter().map(|l| l.len()).max().unwrap_or(0);
             for (func, label) in self.target_functions.iter().zip(target_labels.iter()) {
@@ -151,7 +151,7 @@ impl<'a> CampaignStats<'a> {
             let invariant_labels: Vec<String> = self
                 .invariant_functions
                 .iter()
-                .map(|f| format!("{} ({})", f.name, f.selector()))
+                .map(|f| f.name.to_string())
                 .collect();
             let invariant_width = invariant_labels.iter().map(|l| l.len()).max().unwrap_or(0);
             for (func, label) in self.invariant_functions.iter().zip(invariant_labels.iter()) {
