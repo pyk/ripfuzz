@@ -643,7 +643,7 @@ pub fn run(args: Args) -> Result<()> {
         console.new_line()?;
 
         let runtime_code = deployment.result.output.clone().unwrap_or_default();
-        console.begin("writing coverage report ...")?;
+        console.begin("generating coverage reports ...")?;
         match write_coverage_report(
             &project,
             &campaign_id,
@@ -651,13 +651,17 @@ pub fn run(args: Args) -> Result<()> {
             &target_contract,
             &runtime_code,
         ) {
-            Ok(coverage_file) => {
-                console.update(format!("coverage: {}", coverage_file.display()))?;
+            Ok(files) => {
+                let count = files.len();
+                console.update(format!("generated {count} coverage reports"))?;
                 console.end()?;
+                for (file, pct) in files {
+                    console.print_line(format!("    [{pct:.2}%] {}", file.display()))?;
+                }
             }
             Err(e) => {
-                console.end_fail("failed to write coverage report")?;
-                tracing::error!(%e, "failed to write coverage report");
+                console.end_fail("failed to generate coverage reports")?;
+                tracing::error!(%e, "failed to generate coverage reports");
             }
         }
 
@@ -844,7 +848,7 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     let runtime_code = deployment.result.output.clone().unwrap_or_default();
-    console.begin("writing coverage report ...")?;
+    console.begin("generating coverage reports ...")?;
     match write_coverage_report(
         &project,
         &campaign_id,
@@ -852,13 +856,17 @@ pub fn run(args: Args) -> Result<()> {
         &target_contract,
         &runtime_code,
     ) {
-        Ok(coverage_file) => {
-            console.update(format!("coverage: {}", coverage_file.display()))?;
+        Ok(files) => {
+            let count = files.len();
+            console.update(format!("generated {count} coverage reports"))?;
             console.end()?;
+            for (file, pct) in files {
+                console.print_line(format!("    [{pct:.2}%] {}", file.display()))?;
+            }
         }
         Err(e) => {
-            console.end_fail("failed to write coverage report")?;
-            tracing::error!(%e, "failed to write coverage report");
+            console.end_fail("failed to generate coverage reports")?;
+            tracing::error!(%e, "failed to generate coverage reports");
         }
     }
 
@@ -871,7 +879,7 @@ fn write_coverage_report(
     shared_coverage: &SharedCoverage,
     target_contract: &Contract,
     runtime_code: &Bytes,
-) -> Result<PathBuf> {
+) -> Result<Vec<(PathBuf, f64)>> {
     let context = CoverageContext::from_project(project)?.with_runtime_code(runtime_code)?;
 
     let reporter = CoverageReporter::new()
@@ -886,8 +894,6 @@ fn write_coverage_report(
         )
         .context(context);
 
-    let report = reporter.summary();
-
     let coverage_dir = project
         .path
         .join("raptor")
@@ -895,9 +901,8 @@ fn write_coverage_report(
         .join(campaign_id)
         .join("coverage");
     fs::create_dir_all(&coverage_dir)?;
-    let coverage_file = coverage_dir.join("summary.txt");
-    fs::write(&coverage_file, format!("{report}"))?;
 
+    let mut generated = Vec::new();
     for func in target_contract
         .target_functions
         .iter()
@@ -910,10 +915,15 @@ fn write_coverage_report(
                 name.replace(|c: char| !c.is_alphanumeric(), "_")
             ));
             fs::write(&func_file, format!("{func_report}"))?;
+            let relative_path = func_file
+                .strip_prefix(&project.path)
+                .unwrap_or(&func_file)
+                .to_path_buf();
+            generated.push((relative_path, func_report.coverage));
         }
     }
 
-    Ok(coverage_file)
+    Ok(generated)
 }
 
 fn write_trace_to_file(

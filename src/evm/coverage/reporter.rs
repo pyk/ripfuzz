@@ -23,14 +23,12 @@
 //!
 //! The output structs are:
 //!
-//! - [`SummaryReport`] - campaign-level totals across all target functions.
 //! - [`FunctionReport`] - a detailed, per-function breakdown with line-by-line
 //!   hits and coverage percentage.
 //! - [`SourceCoverage`] - coverage for a single source symbol (function or
 //!   variable) within a function report.
 //!
-//! Both `SummaryReport` and `FunctionReport` implement `Display` for
-//! console-friendly formatting.
+//! [`FunctionReport`] implements `Display` for console-friendly formatting.
 //!
 //! # Executable vs non-executable lines
 //!
@@ -87,18 +85,6 @@ pub struct SourceCoverage {
     pub project: PathBuf,
 }
 
-/// A summary report for a single target function.
-#[derive(Debug, Clone)]
-pub struct FunctionSummaryReport {
-    pub executable_line_count: usize,
-    pub non_executable_line_count: usize,
-    pub executable_line_covered: usize,
-    pub coverage: f64,
-    pub path: PathBuf,
-    pub name: String,
-    pub total_sub_functions: usize,
-}
-
 /// A detailed coverage report for a single target function.
 #[derive(Debug, Clone)]
 pub struct FunctionReport {
@@ -106,20 +92,7 @@ pub struct FunctionReport {
     pub non_executable_line_count: usize,
     pub executable_line_covered: usize,
     pub coverage: f64,
-    pub path: PathBuf,
-    pub name: String,
-    pub total_sub_functions: usize,
     pub source_coverages: Vec<SourceCoverage>,
-}
-
-/// A summary report for the entire campaign.
-#[derive(Debug, Clone)]
-pub struct SummaryReport {
-    pub total_executable_line_count: usize,
-    pub total_non_executable_line_count: usize,
-    pub total_executable_line_covered: usize,
-    pub total_coverage: f64,
-    pub function_summaries: Vec<FunctionSummaryReport>,
 }
 
 /// Orchestrates the building of coverage reports.
@@ -164,41 +137,6 @@ impl CoverageReporter {
         self
     }
 
-    /// Return a campaign-level summary.
-    pub fn summary(&self) -> SummaryReport {
-        let reports = self.reports();
-        let total_executable_line_count = reports.iter().map(|r| r.executable_line_count).sum();
-        let total_non_executable_line_count =
-            reports.iter().map(|r| r.non_executable_line_count).sum();
-        let total_executable_line_covered = reports.iter().map(|r| r.executable_line_covered).sum();
-        let total_coverage = if total_executable_line_count > 0 {
-            (total_executable_line_covered as f64 / total_executable_line_count as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        let function_summaries = reports
-            .into_iter()
-            .map(|r| FunctionSummaryReport {
-                executable_line_count: r.executable_line_count,
-                non_executable_line_count: r.non_executable_line_count,
-                executable_line_covered: r.executable_line_covered,
-                coverage: r.coverage,
-                path: r.path,
-                name: r.name,
-                total_sub_functions: r.total_sub_functions,
-            })
-            .collect();
-
-        SummaryReport {
-            total_executable_line_count,
-            total_non_executable_line_count,
-            total_executable_line_covered,
-            total_coverage,
-            function_summaries,
-        }
-    }
-
     /// Return the detailed report for a specific target function signature.
     pub fn get_report(&self, function_signature: &str) -> Option<FunctionReport> {
         let line_hits = self.context.build_line_hits(&self.coverage);
@@ -226,86 +164,11 @@ impl CoverageReporter {
             function_signature,
         )
     }
-
-    /// Return detailed reports for all target functions.
-    pub fn reports(&self) -> Vec<FunctionReport> {
-        let line_hits = self.context.build_line_hits(&self.coverage);
-        let executable_lines = self.context.build_executable_lines();
-        let Some(artifact) = self.context.target_artifact() else {
-            return Vec::new();
-        };
-        let contract_name = artifact.name();
-        let Some(symbols) = self
-            .context
-            .resolve_contract_symbols(artifact, contract_name)
-        else {
-            return Vec::new();
-        };
-
-        let mut reports = Vec::new();
-        for func in &self.target_functions {
-            let sig = func.signature();
-            let Some(func_def) =
-                self.context
-                    .resolve_function_definition(artifact, contract_name, func)
-            else {
-                continue;
-            };
-            if let Some(report) = build_function_report(
-                func_def,
-                &self.context,
-                &line_hits,
-                &executable_lines,
-                &symbols,
-                &sig,
-            ) {
-                reports.push(report);
-            }
-        }
-        reports
-    }
 }
 
 // ----------------------------------------------------------------------------
 // Display
 // ----------------------------------------------------------------------------
-
-impl fmt::Display for SummaryReport {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let pct = self.total_coverage;
-        let total_line_count =
-            self.total_executable_line_count + self.total_non_executable_line_count;
-
-        writeln!(f, "COVERAGE REPORT STATS\n")?;
-        writeln!(f, "coverage: {:.2}%", pct)?;
-        writeln!(f, "line count:")?;
-        writeln!(f, "  total: {}", total_line_count)?;
-        writeln!(f, "  executable: {}", self.total_executable_line_count)?;
-        writeln!(
-            f,
-            "  non executable: {}",
-            self.total_non_executable_line_count
-        )?;
-        writeln!(f, "  covered: {}", self.total_executable_line_covered)?;
-        writeln!(f)?;
-        writeln!(f, "FUNCTIONS\n")?;
-
-        for func in &self.function_summaries {
-            let func_total_line_count = func.executable_line_count + func.non_executable_line_count;
-            writeln!(f, "function: {}", func.name)?;
-            writeln!(f, "source: {}", func.path.display())?;
-            writeln!(f, "coverage: {:.2}%", func.coverage)?;
-            writeln!(f, "line count:")?;
-            writeln!(f, "  total: {}", func_total_line_count)?;
-            writeln!(f, "  executable: {}", func.executable_line_count)?;
-            writeln!(f, "  non executable: {}", func.non_executable_line_count)?;
-            writeln!(f, "  covered: {}", func.executable_line_covered)?;
-            writeln!(f, "sub functions: {}\n", func.total_sub_functions)?;
-        }
-
-        Ok(())
-    }
-}
 
 impl fmt::Display for FunctionReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -433,7 +296,6 @@ fn build_function_report(
     let mut total_executable_line_count = executable_line_count;
     let mut total_non_executable_line_count = non_executable_line_count;
     let mut total_executable_line_covered = executable_line_covered;
-    let mut total_sub_functions = 0;
     let mut visited_ids = HashSet::new();
     visited_ids.insert(func_def.id);
 
@@ -450,7 +312,6 @@ fn build_function_report(
     total_executable_line_count += child_result.executable_line_count;
     total_non_executable_line_count += child_result.non_executable_line_count;
     total_executable_line_covered += child_result.executable_line_covered;
-    total_sub_functions += child_result.total_sub_functions;
     source_coverages.extend(child_result.children);
 
     let total_coverage = if total_executable_line_count > 0 {
@@ -464,9 +325,6 @@ fn build_function_report(
         non_executable_line_count: total_non_executable_line_count,
         executable_line_covered: total_executable_line_covered,
         coverage: total_coverage,
-        path: source_path,
-        name: function_signature.into(),
-        total_sub_functions,
         source_coverages,
     })
 }
@@ -609,7 +467,6 @@ struct ResolveChildrenResult {
     executable_line_count: usize,
     non_executable_line_count: usize,
     executable_line_covered: usize,
-    total_sub_functions: usize,
 }
 
 impl ResolveChildrenResult {
@@ -618,7 +475,6 @@ impl ResolveChildrenResult {
         self.executable_line_count += other.executable_line_count;
         self.non_executable_line_count += other.non_executable_line_count;
         self.executable_line_covered += other.executable_line_covered;
-        self.total_sub_functions += 1 + other.total_sub_functions;
     }
 }
 
@@ -636,7 +492,6 @@ fn resolve_children(
         executable_line_count: 0,
         non_executable_line_count: 0,
         executable_line_covered: 0,
-        total_sub_functions: 0,
     };
 
     let refs = collect_references_from_body(&func_def.body);
@@ -1015,9 +870,8 @@ mod tests {
             .target_functions(contract.target_functions)
             .context(context);
 
-        let reports = reporter.reports();
         assert!(
-            !reports.is_empty(),
+            reporter.get_report("branch(bool)").is_some(),
             "coverage report should contain reports even when build artifacts include interfaces"
         );
     }
