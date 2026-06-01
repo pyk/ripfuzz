@@ -102,6 +102,7 @@ pub enum Artifact {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContractArtifact {
     pub id: ArtifactId,
+    pub project_path: PathBuf,
     pub ast: solc::ast::SourceUnit,
     pub abi: JsonAbi,
     pub bytecode: ArtifactBytecode,
@@ -121,6 +122,7 @@ impl ContractArtifact {
 #[derive(Clone, Debug, PartialEq)]
 pub struct InterfaceArtifact {
     pub id: ArtifactId,
+    pub project_path: PathBuf,
     pub ast: solc::ast::SourceUnit,
     pub abi: JsonAbi,
 }
@@ -129,6 +131,7 @@ pub struct InterfaceArtifact {
 #[derive(Clone, Debug, PartialEq)]
 pub struct LibraryArtifact {
     pub id: ArtifactId,
+    pub project_path: PathBuf,
     pub ast: solc::ast::SourceUnit,
     pub abi: JsonAbi,
     pub bytecode: ArtifactBytecode,
@@ -140,6 +143,7 @@ pub struct LibraryArtifact {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AbstractArtifact {
     pub id: ArtifactId,
+    pub project_path: PathBuf,
     pub ast: solc::ast::SourceUnit,
     pub abi: JsonAbi,
 }
@@ -326,6 +330,7 @@ impl Artifact {
             solc::ast::ContractKind::Contract if !def.r#abstract => {
                 Self::Contract(ContractArtifact {
                     id,
+                    project_path: PathBuf::new(),
                     ast: json.ast,
                     abi: json.abi,
                     bytecode: json.bytecode,
@@ -335,16 +340,19 @@ impl Artifact {
             }
             solc::ast::ContractKind::Contract => Self::Abstract(AbstractArtifact {
                 id,
+                project_path: PathBuf::new(),
                 ast: json.ast,
                 abi: json.abi,
             }),
             solc::ast::ContractKind::Interface => Self::Interface(InterfaceArtifact {
                 id,
+                project_path: PathBuf::new(),
                 ast: json.ast,
                 abi: json.abi,
             }),
             solc::ast::ContractKind::Library => Self::Library(LibraryArtifact {
                 id,
+                project_path: PathBuf::new(),
                 ast: json.ast,
                 abi: json.abi,
                 bytecode: json.bytecode,
@@ -361,6 +369,27 @@ impl Artifact {
             Self::Interface(a) => &a.id,
             Self::Library(a) => &a.id,
             Self::Abstract(a) => &a.id,
+        }
+    }
+
+    /// The absolute path to the project this artifact was built from.
+    pub fn project_path(&self) -> &Path {
+        match self {
+            Self::Contract(a) => &a.project_path,
+            Self::Interface(a) => &a.project_path,
+            Self::Library(a) => &a.project_path,
+            Self::Abstract(a) => &a.project_path,
+        }
+    }
+
+    /// Set the project path for this artifact.
+    pub fn set_project_path(&mut self, path: impl AsRef<Path>) {
+        let path = path.as_ref().to_path_buf();
+        match self {
+            Self::Contract(a) => a.project_path = path,
+            Self::Interface(a) => a.project_path = path,
+            Self::Library(a) => a.project_path = path,
+            Self::Abstract(a) => a.project_path = path,
         }
     }
 

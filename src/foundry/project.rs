@@ -96,12 +96,19 @@ impl Project {
 
         debug!(count = paths.len(), "found artifact files");
 
+        let project_path = self.path.canonicalize().unwrap_or_else(|_| {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(&self.path))
+                .unwrap_or_else(|_| self.path.clone())
+        });
+
         let parsed: Vec<Result<(ArtifactId, Artifact)>> = paths
             .into_par_iter()
             // checkrs: allow(clone_in_iterator)
             .map(|path| {
                 debug!(path = %path.display(), "parsing artifact");
-                let artifact = Artifact::from_json(&path)?;
+                let mut artifact = Artifact::from_json(&path)?;
+                artifact.set_project_path(&project_path);
                 let id = artifact.id().clone();
                 Ok((id, artifact))
             })
@@ -155,22 +162,26 @@ mod tests {
             .get(&counter_id)
             .expect("Counter artifact missing");
         assert!(matches!(counter, Artifact::Contract(_)));
+        assert!(!counter.project_path().as_os_str().is_empty());
 
         let icounter_id = ArtifactId::try_from("src/ICounter.sol:ICounter").unwrap();
         let icounter = artifacts
             .get(&icounter_id)
             .expect("ICounter artifact missing");
         assert!(matches!(icounter, Artifact::Interface(_)));
+        assert!(!icounter.project_path().as_os_str().is_empty());
 
         let lib_id = ArtifactId::try_from("src/CounterLib.sol:CounterLib").unwrap();
         let lib = artifacts.get(&lib_id).expect("CounterLib artifact missing");
         assert!(matches!(lib, Artifact::Library(_)));
+        assert!(!lib.project_path().as_os_str().is_empty());
 
         let abs_id = ArtifactId::try_from("src/AbstractCounter.sol:AbstractCounter").unwrap();
         let abs = artifacts
             .get(&abs_id)
             .expect("AbstractCounter artifact missing");
         assert!(matches!(abs, Artifact::Abstract(_)));
+        assert!(!abs.project_path().as_os_str().is_empty());
     }
 
     #[test]
@@ -271,6 +282,7 @@ mod tests {
             assert!(!id.path.as_os_str().is_empty());
             assert!(!id.name.is_empty());
             assert_eq!(id.name, artifact.name());
+            assert!(!artifact.project_path().as_os_str().is_empty());
         }
     }
 }
