@@ -3,9 +3,9 @@ COVERAGE REPORT STATS
 coverage: 100.00%
 line count:
   total: 14
-  executable: 11
-  non executable: 3
-  covered: 11
+  executable: 10
+  non executable: 4
+  covered: 10
 
 SOURCES
 
