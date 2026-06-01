@@ -1,37 +1,37 @@
 COVERAGE REPORT STATS
 
 total lines: 14
-total covered lines: 11
-total uncovered lines: 3
-coverage: 78.57%
+total covered lines: 10
+total uncovered lines: 4
+coverage: 71.43%
 
 SOURCES
 
 symbol: add_and_sub(uint256,uint256)
-source: src/CoverageReportInternalFunctions.sol#L7-L11
+source: src/TargetContract.sol#L7-L11
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-   7 |   47 |    function add_and_sub(uint256 a, uint256 b) external returns (uint256) {
-   8 |   15 |        uint256 result = add(a, b);
+   7 |   46 |    function add_and_sub(uint256 a, uint256 b) external returns (uint256) {
+   8 |   16 |        uint256 result = add(a, b);
    9 |    8 |        result = sub(result, b);
   10 |    4 |        return result;
-  11 |    1 |    }
+     |      |    }
 
 symbol: add(uint256,uint256)
-source: src/CoverageReportInternalFunctions.sol#L13-L16
+source: src/TargetContract.sol#L13-L16
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-  13 |   16 |    function add(uint256 a, uint256 b) internal returns (uint256) {
-  14 |   14 |        latestValue = a + b;
+  13 |   17 |    function add(uint256 a, uint256 b) internal returns (uint256) {
+  14 |   13 |        latestValue = a + b;
   15 |    7 |        return latestValue;
      |      |    }
 
 symbol: latestValue
-source: src/CoverageReportInternalFunctions.sol#L5-L5
+source: src/TargetContract.sol#L5-L5
 project: fixtures/target-contract-coverage
 
 line | hits |
@@ -39,12 +39,12 @@ line | hits |
      |      |    uint256 public latestValue;
 
 symbol: sub(uint256,uint256)
-source: src/CoverageReportInternalFunctions.sol#L18-L21
+source: src/TargetContract.sol#L18-L21
 project: fixtures/target-contract-coverage
 
 line | hits |
 ---- | ---- |
-  18 |    7 |    function sub(uint256 a, uint256 b) internal returns (uint256) {
+  18 |    8 |    function sub(uint256 a, uint256 b) internal returns (uint256) {
   19 |   13 |        latestValue = a - b;
   20 |    4 |        return latestValue;
      |      |    }

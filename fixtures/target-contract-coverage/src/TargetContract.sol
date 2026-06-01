@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-contract CoverageReportInternalFunctions {
+contract TargetContract {
     uint256 public latestValue;
 
     function add_and_sub(uint256 a, uint256 b) external returns (uint256) {

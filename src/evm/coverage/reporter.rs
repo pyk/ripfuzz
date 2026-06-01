@@ -747,7 +747,7 @@ mod tests {
             function branch(bool take) external;
         }
 
-        interface CoverageReportInternalFunctions {
+        interface TargetContract {
             function add_and_sub(uint256 a, uint256 b) external returns (uint256);
         }
     }
@@ -824,21 +824,17 @@ mod tests {
     /// write storage must produce a valid display output.
     #[test]
     fn coverage_report_internal_functions() {
-        let contract = load_coverage_fixture(
-            "src/CoverageReportInternalFunctions.sol:CoverageReportInternalFunctions",
-        );
+        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
         let mut deployed = deploy_and_setup(&contract);
 
         let global = SharedCoverage::new();
-        let txs = vec![
-            Transaction::new(deployed.address).calldata(Bytes::from(
-                CoverageReportInternalFunctions::add_and_subCall::new((
-                    U256::from(123),
-                    U256::from(123),
-                ))
-                .abi_encode(),
-            )),
-        ];
+        let txs =
+            vec![
+                Transaction::new(deployed.address).calldata(Bytes::from(
+                    TargetContract::add_and_subCall::new((U256::from(123), U256::from(123)))
+                        .abi_encode(),
+                )),
+            ];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
         global.merge(&coverage);
@@ -854,7 +850,7 @@ mod tests {
             .target_functions(contract.target_functions)
             .context(context);
 
-        let expected_file = "fixtures/target-contract-coverage/expected/CoverageReportInternalFunctions_add_and_sub.txt";
+        let expected_file = "fixtures/target-contract-coverage/expected/add_and_sub.txt";
         let report = reporter
             .get_report("add_and_sub(uint256,uint256)")
             .expect("add_and_sub report must be present");
