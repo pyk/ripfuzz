@@ -895,7 +895,7 @@ fn write_coverage_report(
         .join(campaign_id)
         .join("coverage");
     fs::create_dir_all(&coverage_dir)?;
-    let coverage_file = coverage_dir.join("coverage.txt");
+    let coverage_file = coverage_dir.join("summary.txt");
     fs::write(&coverage_file, format!("{report}"))?;
 
     for func in target_contract
@@ -903,11 +903,11 @@ fn write_coverage_report(
         .iter()
         .chain(target_contract.invariant_functions.iter())
     {
-        let sig = func.signature();
-        if let Some(func_report) = reporter.get_report(&sig) {
+        let name = &func.name;
+        if let Some(func_report) = reporter.get_report(&func.signature()) {
             let func_file = coverage_dir.join(format!(
                 "{}.txt",
-                sig.replace(|c: char| !c.is_alphanumeric(), "_")
+                name.replace(|c: char| !c.is_alphanumeric(), "_")
             ));
             fs::write(&func_file, format!("{func_report}"))?;
         }
