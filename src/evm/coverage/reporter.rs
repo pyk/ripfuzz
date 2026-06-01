@@ -61,6 +61,7 @@ use alloy_json_abi::Function;
 
 use crate::evm::coverage::context::CoverageContext;
 use crate::evm::coverage::shared::SharedCoverage;
+use crate::formatter;
 
 // ----------------------------------------------------------------------------
 // Report data types
@@ -332,15 +333,21 @@ impl fmt::Display for FunctionReport {
             )?;
             writeln!(f, "project: {}", source.project.display())?;
             writeln!(f)?;
-            writeln!(f, "line | hits |")?;
-            writeln!(f, "---- | ---- |")?;
+            writeln!(f, "line |   hits |")?;
+            writeln!(f, "---- | ------ |")?;
             for hit in &source.line_hits {
                 if hit.is_executable && hit.hit_count > 0 {
-                    writeln!(f, "{:4} | {:4} |{}", hit.line, hit.hit_count, hit.content)?;
+                    writeln!(
+                        f,
+                        "{:4} | {:>6} |{}",
+                        hit.line,
+                        formatter::kmb(hit.hit_count),
+                        hit.content
+                    )?;
                 } else if hit.is_executable {
-                    writeln!(f, "{:4} |    0 |{}", hit.line, hit.content)?;
+                    writeln!(f, "{:4} | {:>6} |{}", hit.line, 0, hit.content)?;
                 } else {
-                    writeln!(f, "{:4} |      |{}", hit.line, hit.content)?;
+                    writeln!(f, "{:4} | {:>6} |{}", hit.line, "", hit.content)?;
                 }
             }
             writeln!(f)?;

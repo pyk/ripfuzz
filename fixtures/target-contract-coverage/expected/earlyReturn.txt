@@ -13,20 +13,20 @@ symbol: earlyReturn(uint256)
 source: src/TargetContract.sol#L37-L43
 project: fixtures/target-contract-coverage
 
-line | hits |
----- | ---- |
-  37 |    1 |    function earlyReturn(uint256 a) external returns (uint256) {
-  38 |    1 |        if (a == 0) {
-  39 |    1 |            return 0;
-  40 |      |        }
-  41 |    0 |        latestValue = a;
-  42 |    0 |        return latestValue;
-  43 |      |    }
+line |   hits |
+---- | ------ |
+  37 |      1 |    function earlyReturn(uint256 a) external returns (uint256) {
+  38 |      1 |        if (a == 0) {
+  39 |      1 |            return 0;
+  40 |        |        }
+  41 |      0 |        latestValue = a;
+  42 |      0 |        return latestValue;
+  43 |        |    }
 
 symbol: latestValue
 source: src/TargetContract.sol#L10-L10
 project: fixtures/target-contract-coverage
 
-line | hits |
----- | ---- |
-  10 |      |    uint256 public latestValue;
+line |   hits |
+---- | ------ |
+  10 |        |    uint256 public latestValue;

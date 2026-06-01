@@ -13,46 +13,46 @@ symbol: interfaceCall(uint256)
 source: src/TargetContract.sol#L63-L67
 project: fixtures/target-contract-coverage
 
-line | hits |
----- | ---- |
-  63 |    1 |    function interfaceCall(uint256 amount) external returns (uint256) {
-  64 |    1 |        counterInterface.increment(amount);
-  65 |    1 |        latestValue = counterInterface.value();
-  66 |    1 |        return latestValue;
-  67 |      |    }
+line |   hits |
+---- | ------ |
+  63 |      1 |    function interfaceCall(uint256 amount) external returns (uint256) {
+  64 |      1 |        counterInterface.increment(amount);
+  65 |      1 |        latestValue = counterInterface.value();
+  66 |      1 |        return latestValue;
+  67 |        |    }
 
 symbol: increment(uint256)
 source: src/Counter.sol#L9-L11
 project: fixtures/target-contract-coverage
 
-line | hits |
----- | ---- |
-   9 |    1 |    function increment(uint256 amount) external {
-  10 |    1 |        value = MathLib.add(value, amount);
-  11 |      |    }
+line |   hits |
+---- | ------ |
+   9 |      1 |    function increment(uint256 amount) external {
+  10 |      1 |        value = MathLib.add(value, amount);
+  11 |        |    }
 
 symbol: value
 source: src/Counter.sol#L7-L7
 project: fixtures/target-contract-coverage
 
-line | hits |
----- | ---- |
-   7 |      |    uint256 public value;
+line |   hits |
+---- | ------ |
+   7 |        |    uint256 public value;
 
 symbol: add(uint256,uint256)
 source: src/MathLib.sol#L5-L7
 project: fixtures/target-contract-coverage
 
-line | hits |
----- | ---- |
-   5 |    1 |    function add(uint256 a, uint256 b) internal pure returns (uint256) {
-   6 |    1 |        return a + b;
-   7 |      |    }
+line |   hits |
+---- | ------ |
+   5 |      1 |    function add(uint256 a, uint256 b) internal pure returns (uint256) {
+   6 |      1 |        return a + b;
+   7 |        |    }
 
 symbol: latestValue
 source: src/TargetContract.sol#L10-L10
 project: fixtures/target-contract-coverage
 
-line | hits |
----- | ---- |
-  10 |      |    uint256 public latestValue;
+line |   hits |
+---- | ------ |
+  10 |        |    uint256 public latestValue;
