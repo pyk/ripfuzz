@@ -39,6 +39,7 @@ use tracing::debug;
 
 use crate::evm::coverage::shared::SharedCoverage;
 use crate::evm::coverage::source_map::{SourceMapEntry, parse_source_map};
+use crate::foundry::BuildInfo;
 use crate::foundry::{
     Artifact, ArtifactBytecode, ArtifactId, LinkReferences, Project, get_contract_definition,
 };
@@ -400,27 +401,9 @@ impl CoverageContext {
             self.artifacts.insert(id, artifact);
         }
 
-        let build_info_dir = project.path.join("out").join("build-info");
-        if build_info_dir.exists() {
-            for entry in fs::read_dir(&build_info_dir)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.extension() != Some("json".as_ref()) {
-                    continue;
-                }
-                let content = fs::read_to_string(&path)?;
-                let json: serde_json::Value = serde_json::from_str(&content)?;
-                let Some(map) = json.get("source_id_to_path").and_then(|v| v.as_object()) else {
-                    continue;
-                };
-                for (k, v) in map {
-                    if let Ok(idx) = k.parse::<usize>()
-                        && let Some(path_str) = v.as_str()
-                    {
-                        self.source_index.insert(idx, PathBuf::from(path_str));
-                    }
-                }
-            }
+        let build_info_sources = BuildInfo::load_source_index_map(&project.path)?;
+        for (idx, path) in build_info_sources {
+            self.source_index.insert(idx, path);
         }
 
         for path in self.source_index.values().cloned() {

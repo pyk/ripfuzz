@@ -4,7 +4,7 @@
 //! pipeline. It takes three inputs:
 //!
 //! 1. [`SharedCoverage`] - the global, merged coverage map containing raw PC
-//!    hit counts from evert fuzzer execution during a campaign.
+//!    hit counts from every fuzzer execution during a campaign.
 //! 2. **Target functions** - the ABI functions the fuzzer exercised, which the
 //!    reporter will produce individual reports for.
 //! 3. [`CoverageContext`] - the data layer that maps bytecode hits back to
@@ -31,6 +31,24 @@
 //!
 //! Both `SummaryReport` and `FunctionReport` implement `Display` for
 //! console-friendly formatting.
+//!
+//! # Executable vs non-executable lines
+//!
+//! A line is **executable** when the compiler's source map maps at least one
+//! program counter to it. A line is **non-executable** when no PC maps to it.
+//!
+//! Examples of non-executable lines:
+//!
+//! - Storage variable definitions (`uint256 public x;`)
+//! - Closing braces (`}`)
+//! - Empty lines and comments
+//!
+//! The reporter marks each line with `is_executable` via [`LineHits`]. In the
+//! `Display` output:
+//!
+//! - An executable line that was hit shows the exact hit count (e.g. `1`, `2`).
+//! - An executable line that was not hit shows `0`.
+//! - A non-executable line shows an empty hits column.
 //!
 //! In short: `CoverageContext` knows what code was hit and where it lives in
 //! source; `CoverageReporter` decides how to present that information.
