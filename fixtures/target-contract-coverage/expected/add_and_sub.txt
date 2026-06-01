@@ -19,7 +19,7 @@ line | hits |
    8 |   16 |        uint256 result = add(a, b);
    9 |    8 |        result = sub(result, b);
   10 |    4 |        return result;
-     |      |    }
+  11 |      |    }
 
 symbol: add(uint256,uint256)
 source: src/TargetContract.sol#L13-L16
@@ -30,7 +30,7 @@ line | hits |
   13 |   17 |    function add(uint256 a, uint256 b) internal returns (uint256) {
   14 |   13 |        latestValue = a + b;
   15 |    7 |        return latestValue;
-     |      |    }
+  16 |      |    }
 
 symbol: latestValue
 source: src/TargetContract.sol#L5-L5
@@ -49,4 +49,4 @@ line | hits |
   18 |    8 |    function sub(uint256 a, uint256 b) internal returns (uint256) {
   19 |   13 |        latestValue = a - b;
   20 |    4 |        return latestValue;
-     |      |    }
+  21 |      |    }

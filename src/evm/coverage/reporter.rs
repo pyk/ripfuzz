@@ -319,7 +319,7 @@ impl fmt::Display for FunctionReport {
                 if hit.hit_count > 0 {
                     writeln!(f, "{:4} | {:4} |{}", hit.line, hit.hit_count, hit.content)?;
                 } else {
-                    writeln!(f, "     |      |{}", hit.content)?;
+                    writeln!(f, "{:4} |      |{}", hit.line, hit.content)?;
                 }
             }
             writeln!(f)?;
