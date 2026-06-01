@@ -253,41 +253,33 @@ impl CoverageReporter {
 impl fmt::Display for SummaryReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let pct = self.total_coverage;
+        let total_line_count =
+            self.total_executable_line_count + self.total_non_executable_line_count;
 
         writeln!(f, "COVERAGE REPORT STATS\n")?;
+        writeln!(f, "coverage: {:.2}%", pct)?;
+        writeln!(f, "line count:")?;
+        writeln!(f, "  total: {}", total_line_count)?;
+        writeln!(f, "  executable: {}", self.total_executable_line_count)?;
         writeln!(
             f,
-            "executable line count: {}",
-            self.total_executable_line_count
-        )?;
-        writeln!(
-            f,
-            "non executable line count: {}",
+            "  non executable: {}",
             self.total_non_executable_line_count
         )?;
-        writeln!(
-            f,
-            "executable line covered: {}",
-            self.total_executable_line_covered
-        )?;
-        writeln!(f, "coverage: {:.2}%\n", pct)?;
+        writeln!(f, "  covered: {}", self.total_executable_line_covered)?;
+        writeln!(f)?;
         writeln!(f, "FUNCTIONS\n")?;
 
         for func in &self.function_summaries {
+            let func_total_line_count = func.executable_line_count + func.non_executable_line_count;
             writeln!(f, "function: {}", func.name)?;
             writeln!(f, "source: {}", func.path.display())?;
             writeln!(f, "coverage: {:.2}%", func.coverage)?;
-            writeln!(f, "executable line count: {}", func.executable_line_count)?;
-            writeln!(
-                f,
-                "non executable line count: {}",
-                func.non_executable_line_count
-            )?;
-            writeln!(
-                f,
-                "executable line covered: {}",
-                func.executable_line_covered
-            )?;
+            writeln!(f, "line count:")?;
+            writeln!(f, "  total: {}", func_total_line_count)?;
+            writeln!(f, "  executable: {}", func.executable_line_count)?;
+            writeln!(f, "  non executable: {}", func.non_executable_line_count)?;
+            writeln!(f, "  covered: {}", func.executable_line_covered)?;
             writeln!(f, "sub functions: {}\n", func.total_sub_functions)?;
         }
 
@@ -298,20 +290,16 @@ impl fmt::Display for SummaryReport {
 impl fmt::Display for FunctionReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let pct = self.coverage;
+        let total_line_count = self.executable_line_count + self.non_executable_line_count;
 
         writeln!(f, "COVERAGE REPORT STATS\n")?;
-        writeln!(f, "executable line count: {}", self.executable_line_count)?;
-        writeln!(
-            f,
-            "non executable line count: {}",
-            self.non_executable_line_count
-        )?;
-        writeln!(
-            f,
-            "executable line covered: {}",
-            self.executable_line_covered
-        )?;
-        writeln!(f, "coverage: {:.2}%\n", pct)?;
+        writeln!(f, "coverage: {:.2}%", pct)?;
+        writeln!(f, "line count:")?;
+        writeln!(f, "  total: {}", total_line_count)?;
+        writeln!(f, "  executable: {}", self.executable_line_count)?;
+        writeln!(f, "  non executable: {}", self.non_executable_line_count)?;
+        writeln!(f, "  covered: {}", self.executable_line_covered)?;
+        writeln!(f)?;
         writeln!(f, "SOURCES\n")?;
 
         for source in &self.source_coverages {
