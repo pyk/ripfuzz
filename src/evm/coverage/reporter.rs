@@ -511,7 +511,13 @@ fn resolve_children(
         let node = if let Some(n) = symbols.get_by_id(rid) {
             Some(n)
         } else if let Some(name) = ref_names.get(&rid) {
-            symbols.get_by_name(name)
+            // Only fall back to name-based lookup for function definitions.
+            // Variables (parameters, locals) from other contracts must not be
+            // matched by name, otherwise unrelated state variables leak into the
+            // report and produce duplicates.
+            symbols
+                .get_by_name(name)
+                .filter(|n| matches!(n, solc::ast::ContractDefinitionNode::FunctionDefinition(_)))
         } else {
             None
         };
