@@ -56,6 +56,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use alloy_json_abi::Function;
+use rayon::prelude::*;
 
 use crate::evm::coverage::context::{CoverageContext, SymbolTable};
 use crate::evm::coverage::shared::SharedCoverage;
@@ -137,32 +138,42 @@ impl CoverageReporter {
         self
     }
 
-    /// Return the detailed report for a specific target function signature.
-    pub fn get_report(&self, function_signature: &str) -> Option<FunctionReport> {
+    /// Return detailed reports for all target functions.
+    ///
+    /// This method computes the shared line-hit and executable-line maps once,
+    /// then builds each per-function report in parallel with `rayon`.
+    pub fn get_reports(&self) -> Vec<(String, FunctionReport)> {
         let line_hits = self.context.build_line_hits(&self.coverage);
         let executable_lines = self.context.build_executable_lines();
-        let artifact = self.context.target_artifact()?;
+        let Some(artifact) = self.context.target_artifact() else {
+            return Vec::new();
+        };
         let contract_name = artifact.name();
-        let symbols = self
+        let Some(symbols) = self
             .context
-            .resolve_contract_symbols(artifact, contract_name)?;
+            .resolve_contract_symbols(artifact, contract_name)
+        else {
+            return Vec::new();
+        };
 
-        let func = self
-            .target_functions
-            .iter()
-            .find(|f| f.signature() == function_signature)?;
-        let func_def = self
-            .context
-            .resolve_function_definition(artifact, contract_name, func)?;
-
-        build_function_report(
-            func_def,
-            &self.context,
-            &line_hits,
-            &executable_lines,
-            &symbols,
-            function_signature,
-        )
+        self.target_functions
+            .par_iter()
+            .filter_map(|func| {
+                let signature = func.signature();
+                let func_def =
+                    self.context
+                        .resolve_function_definition(artifact, contract_name, func)?;
+                let report = build_function_report(
+                    func_def,
+                    &self.context,
+                    &line_hits,
+                    &executable_lines,
+                    &symbols,
+                    &signature,
+                )?;
+                Some((signature, report))
+            })
+            .collect()
     }
 }
 
@@ -979,6 +990,14 @@ mod tests {
 
     use super::*;
 
+    fn get_report(reporter: &CoverageReporter, signature: &str) -> Option<FunctionReport> {
+        reporter
+            .get_reports()
+            .into_iter()
+            .find(|(sig, _)| sig == signature)
+            .map(|(_, report)| report)
+    }
+
     alloy_sol_types::sol! {
         interface CoverageBranch {
             function branch(bool take) external;
@@ -1066,7 +1085,7 @@ mod tests {
             .context(context);
 
         assert!(
-            reporter.get_report("branch(bool)").is_some(),
+            get_report(&reporter, "branch(bool)").is_some(),
             "coverage report should contain reports even when build artifacts include interfaces"
         );
     }
@@ -1104,8 +1123,7 @@ mod tests {
             .context(context);
 
         let expected_file = "fixtures/target-contract-coverage/expected/addAndSub.txt";
-        let report = reporter
-            .get_report("addAndSub(uint256,uint256)")
+        let report = get_report(&reporter, "addAndSub(uint256,uint256)")
             .expect("addAndSub report must be present");
         let formatted = format!("{report}");
         let expected = fs::read_to_string(expected_file)
@@ -1158,8 +1176,7 @@ mod tests {
             .context(context);
 
         let expected_file = "fixtures/target-contract-coverage/expected/addAndSub2.txt";
-        let report = reporter
-            .get_report("addAndSub(uint256,uint256)")
+        let report = get_report(&reporter, "addAndSub(uint256,uint256)")
             .expect("addAndSub report must be present");
         let formatted = format!("{report}");
         let expected = fs::read_to_string(expected_file)
@@ -1205,8 +1222,7 @@ mod tests {
             .context(context);
 
         let expected_file = "fixtures/target-contract-coverage/expected/earlyReturn.txt";
-        let report = reporter
-            .get_report("earlyReturn(uint256)")
+        let report = get_report(&reporter, "earlyReturn(uint256)")
             .expect("earlyReturn report must be present");
         let formatted = format!("{report}");
         let expected = fs::read_to_string(expected_file)
@@ -1250,8 +1266,7 @@ mod tests {
             .target_functions(contract.target_functions)
             .context(context);
 
-        let report = reporter
-            .get_report("inheritanceCall(uint256)")
+        let report = get_report(&reporter, "inheritanceCall(uint256)")
             .expect("inheritanceCall report must be present");
         let formatted = format!("{report}");
         let expected_file = "fixtures/target-contract-coverage/expected/inheritanceCall.txt";
@@ -1298,9 +1313,8 @@ mod tests {
             .target_functions(contract.target_functions)
             .context(context);
 
-        let report = reporter
-            .get_report("libCall(uint256)")
-            .expect("libCall report must be present");
+        let report =
+            get_report(&reporter, "libCall(uint256)").expect("libCall report must be present");
         let formatted = format!("{report}");
         let expected_file = "fixtures/target-contract-coverage/expected/libCall.txt";
         let expected = fs::read_to_string(expected_file)
@@ -1346,8 +1360,7 @@ mod tests {
             .target_functions(contract.target_functions)
             .context(context);
 
-        let report = reporter
-            .get_report("libLinkedCall(uint256)")
+        let report = get_report(&reporter, "libLinkedCall(uint256)")
             .expect("libLinkedCall report must be present");
         let formatted = format!("{report}");
         let expected_file = "fixtures/target-contract-coverage/expected/libLinkedCall.txt";
@@ -1394,8 +1407,7 @@ mod tests {
             .target_functions(contract.target_functions)
             .context(context);
 
-        let report = reporter
-            .get_report("interfaceCall(uint256)")
+        let report = get_report(&reporter, "interfaceCall(uint256)")
             .expect("interfaceCall report must be present");
         let formatted = format!("{report}");
         let expected_file = "fixtures/target-contract-coverage/expected/interfaceCall.txt";
@@ -1436,7 +1448,7 @@ mod tests {
             .context(context);
 
         assert!(
-            reporter.get_report("dummyTargetFunction()").is_some(),
+            get_report(&reporter, "dummyTargetFunction()").is_some(),
             "coverage report must be generated for an empty target function"
         );
     }
@@ -1468,7 +1480,7 @@ mod tests {
             .context(context);
 
         assert!(
-            reporter.get_report("inheritedTargetFunction()").is_some(),
+            get_report(&reporter, "inheritedTargetFunction()").is_some(),
             "coverage report must be generated for a target function inherited from a base contract"
         );
     }
@@ -1528,8 +1540,7 @@ mod tests {
             .target_functions(contract.target_functions)
             .context(context);
 
-        let report = reporter
-            .get_report("dummyTargetFunction()")
+        let report = get_report(&reporter, "dummyTargetFunction()")
             .expect("coverage report must be generated");
         let formatted = format!("{report}");
         let expected_file = "fixtures/target-contract-coverage/expected/missingBaseContractId.txt";
@@ -1598,8 +1609,7 @@ mod tests {
             .target_functions(contract.target_functions)
             .context(context);
 
-        let report = reporter
-            .get_report("inheritanceCall(uint256)")
+        let report = get_report(&reporter, "inheritanceCall(uint256)")
             .expect("coverage report must be generated");
         let formatted = format!("{report}");
         let expected_file =

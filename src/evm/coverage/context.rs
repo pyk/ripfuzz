@@ -29,10 +29,13 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use alloy_json_abi::Function;
 use alloy_primitives::{B256, keccak256};
 use anyhow::{Context, Result};
+use parking_lot::Mutex;
+use rayon::prelude::*;
 use revm::bytecode::Bytecode;
 use revm::primitives::Bytes;
 use tracing::debug;
@@ -194,15 +197,48 @@ fn build_bytecode_entry(
 /// Collects build artifacts, source files, and source indices from one or more
 /// Foundry projects. Can be configured for a specific target runtime code so
 /// that the reporter can resolve bytecode hits back to source lines.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug)]
 pub struct CoverageContext {
     artifacts: HashMap<ArtifactId, Artifact>,
     runtime_entries: Vec<BytecodeEntry>,
+    runtime_hash_map: HashMap<B256, usize>,
     initcode_entries: Vec<BytecodeEntry>,
     source_files: HashMap<PathBuf, SourceFile>,
     source_index: HashMap<usize, PathBuf>,
     target_artifact: Option<ArtifactId>,
     project_path: PathBuf,
+    pc_source_cache: Mutex<HashMap<ArtifactId, Arc<Vec<Option<SourceMapEntry>>>>>,
+}
+impl Default for CoverageContext {
+    fn default() -> Self {
+        Self {
+            artifacts: HashMap::new(),
+            runtime_entries: Vec::new(),
+            runtime_hash_map: HashMap::new(),
+            initcode_entries: Vec::new(),
+            source_files: HashMap::new(),
+            source_index: HashMap::new(),
+            target_artifact: None,
+            project_path: PathBuf::new(),
+            pc_source_cache: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl Clone for CoverageContext {
+    fn clone(&self) -> Self {
+        Self {
+            artifacts: self.artifacts.clone(),
+            runtime_entries: self.runtime_entries.clone(),
+            runtime_hash_map: self.runtime_hash_map.clone(),
+            initcode_entries: self.initcode_entries.clone(),
+            source_files: self.source_files.clone(),
+            source_index: self.source_index.clone(),
+            target_artifact: self.target_artifact.clone(),
+            project_path: self.project_path.clone(),
+            pc_source_cache: Mutex::new(HashMap::new()),
+        }
+    }
 }
 
 /// A symbol table that maps both declaration IDs and symbol names to AST
@@ -310,12 +346,10 @@ impl CoverageContext {
 
     /// Look up an artifact by the keccak256 hash of its runtime bytecode.
     pub fn resolve_artifact_by_hash(&self, hash: &B256) -> Option<&Artifact> {
-        for entry in &self.runtime_entries {
-            if *hash == entry.base_hash {
-                return self.artifacts.get(&entry.id);
-            }
-        }
-        None
+        self.runtime_hash_map
+            .get(hash)
+            .and_then(|&idx| self.runtime_entries.get(idx))
+            .and_then(|entry| self.artifacts.get(&entry.id))
     }
 
     /// Look up a source file by its project-relative path.
@@ -514,47 +548,76 @@ impl CoverageContext {
         &self,
         shared_coverage: &SharedCoverage,
     ) -> HashMap<(PathBuf, usize), u64> {
-        let mut line_hits: HashMap<(PathBuf, usize), u64> = HashMap::new();
         let empty_source = SourceFile {
             content: String::new(),
             line_offsets: Vec::new(),
         };
 
-        for counts in shared_coverage.all_raw_edge_counts_with_bytecodes() {
-            let Some(artifact) = self
-                .resolve_artifact_by_runtime_code(&Bytes::from(counts.bytecode))
-                .or_else(|| self.resolve_artifact_by_hash(&counts.contract_id))
-            else {
-                continue;
-            };
-            let raw_counts = counts.raw_edges;
-            let Some(deployed) = artifact.deployed_bytecode() else {
-                continue;
-            };
-            let source_map = parse_source_map(&deployed.source_map);
-            let code =
-                parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
-            let bytecode = Bytecode::new_legacy(Bytes::from(code));
-            let pc_to_source = build_pc_to_source_map(&bytecode, &source_map);
+        let all_counts = shared_coverage.all_raw_edge_counts_with_bytecodes();
 
-            for (pc, entry) in pc_to_source.iter().enumerate() {
-                let Some(entry) = entry else { continue };
-                let raw_count = raw_counts.get(pc).copied().unwrap_or(0);
-                if raw_count == 0 {
-                    continue;
+        all_counts
+            .into_par_iter()
+            .filter_map(|counts| {
+                let artifact =
+                    self.resolve_artifact_by_hash(&counts.contract_id)
+                        .or_else(|| {
+                            self.resolve_artifact_by_runtime_code(&Bytes::from(counts.bytecode))
+                        })?;
+                let artifact_id = artifact.id().clone();
+                let raw_counts = counts.raw_edges;
+
+                // Fast-path: skip contracts with no hits.
+                if raw_counts.iter().all(|&c| c == 0) {
+                    return None;
                 }
-                let Some(source_path) = self.source_index.get(&entry.source_index) else {
-                    continue;
-                };
-                let source_path = source_path.to_path_buf();
-                let file = self.source_files.get(&source_path).unwrap_or(&empty_source);
-                let line = file.offset_to_line(entry.offset);
-                let current = line_hits.entry((source_path, line)).or_insert(0);
-                *current = (*current).max(raw_count);
-            }
-        }
 
-        line_hits
+                let deployed = artifact.deployed_bytecode()?;
+
+                // Reuse cached pc-to-source map when available.
+                let pc_to_source: Arc<Vec<Option<SourceMapEntry>>> = {
+                    let mut cache = self.pc_source_cache.lock();
+                    if let Some(cached) = cache.get(&artifact_id) {
+                        Arc::clone(cached)
+                    } else {
+                        let source_map = parse_source_map(&deployed.source_map);
+                        let code = parse_bytecode_with_placeholders(
+                            &deployed.object,
+                            &deployed.link_references,
+                        );
+                        let bytecode = Bytecode::new_legacy(Bytes::from(code));
+                        let built = build_pc_to_source_map(&bytecode, &source_map);
+                        let arc = Arc::new(built);
+                        cache.insert(artifact_id, Arc::clone(&arc));
+                        arc
+                    }
+                };
+
+                let mut local_hits: HashMap<(PathBuf, usize), u64> = HashMap::new();
+                for (pc, entry) in pc_to_source.iter().enumerate() {
+                    let Some(entry) = entry else { continue };
+                    let raw_count = raw_counts.get(pc).copied().unwrap_or(0);
+                    if raw_count == 0 {
+                        continue;
+                    }
+                    let Some(source_path) = self.source_index.get(&entry.source_index) else {
+                        continue;
+                    };
+                    let source_path = source_path.to_path_buf();
+                    let file = self.source_files.get(&source_path).unwrap_or(&empty_source);
+                    let line = file.offset_to_line(entry.offset);
+                    let current = local_hits.entry((source_path, line)).or_insert(0);
+                    *current = (*current).max(raw_count);
+                }
+
+                Some(local_hits)
+            })
+            .reduce(HashMap::new, |mut a, b| {
+                for (k, v) in b {
+                    let entry = a.entry(k).or_insert(0);
+                    *entry = (*entry).max(v);
+                }
+                a
+            })
     }
 
     /// Build a set of all executable lines across all contracts.
@@ -616,6 +679,8 @@ impl CoverageContext {
                 .bytecode()
                 .and_then(|b| build_bytecode_entry(b, &id, is_library));
             if let Some(entry) = runtime_entry {
+                let idx = self.runtime_entries.len();
+                self.runtime_hash_map.insert(entry.base_hash, idx);
                 self.runtime_entries.push(entry);
             }
             if let Some(entry) = initcode_entry {

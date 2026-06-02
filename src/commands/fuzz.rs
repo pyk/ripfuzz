@@ -938,24 +938,18 @@ fn write_coverage_report(
     fs::create_dir_all(&coverage_dir)?;
 
     let mut generated = Vec::new();
-    for func in target_contract
-        .target_functions
-        .iter()
-        .chain(target_contract.invariant_functions.iter())
-    {
-        let name = &func.name;
-        if let Some(func_report) = reporter.get_report(&func.signature()) {
-            let func_file = coverage_dir.join(format!(
-                "{}.txt",
-                name.replace(|c: char| !c.is_alphanumeric(), "_")
-            ));
-            fs::write(&func_file, format!("{func_report}"))?;
-            let relative_path = func_file
-                .strip_prefix(&project.path)
-                .unwrap_or(&func_file)
-                .to_path_buf();
-            generated.push((relative_path, func_report.coverage));
-        }
+    for (signature, func_report) in reporter.get_reports() {
+        let name = signature.split('(').next().unwrap_or(&signature);
+        let func_file = coverage_dir.join(format!(
+            "{}.txt",
+            name.replace(|c: char| !c.is_alphanumeric(), "_")
+        ));
+        fs::write(&func_file, format!("{func_report}"))?;
+        let relative_path = func_file
+            .strip_prefix(&project.path)
+            .unwrap_or(&func_file)
+            .to_path_buf();
+        generated.push((relative_path, func_report.coverage));
     }
 
     Ok(generated)
