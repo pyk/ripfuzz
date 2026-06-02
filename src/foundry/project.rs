@@ -102,21 +102,31 @@ impl Project {
                 .unwrap_or_else(|_| self.path.clone())
         });
 
-        let parsed: Vec<Result<(ArtifactId, Artifact)>> = paths
+        let parsed: Vec<(PathBuf, Result<(ArtifactId, Artifact)>)> = paths
             .into_par_iter()
             // checkrs: allow(clone_in_iterator)
             .map(|path| {
                 debug!(path = %path.display(), "parsing artifact");
-                let mut artifact = Artifact::from_json(&path)?;
-                artifact.set_project_path(&project_path);
-                let id = artifact.id().clone();
-                Ok((id, artifact))
+                let result = match Artifact::from_json(&path) {
+                    Ok(mut artifact) => {
+                        artifact.set_project_path(&project_path);
+                        let id = artifact.id().clone();
+                        Ok((id, artifact))
+                    }
+                    Err(e) => Err(e),
+                };
+                (path, result)
             })
             .collect();
 
         let mut artifacts = HashMap::new();
-        for result in parsed {
-            let (id, artifact) = result?;
+        for (path, result) in parsed {
+            let Ok((id, artifact)) = result else {
+                if let Err(e) = result {
+                    debug!(path = %path.display(), error = %e, "skipping artifact");
+                }
+                continue;
+            };
             if artifacts.contains_key(&id) {
                 bail!("duplicate build artifact id: {}", id);
             }
@@ -284,5 +294,29 @@ mod tests {
             assert_eq!(id.name, artifact.name());
             assert!(!artifact.project_path().as_os_str().is_empty());
         }
+    }
+
+    /// Regression test: artifacts without metadata or ContractDefinition
+    /// (e.g. files with only free functions/constants) must be skipped instead
+    /// of failing the entire load.
+    #[test]
+    fn load_artifacts_skips_non_contract_artifacts() {
+        let project = Project::new("fixtures/artifacts-loader");
+        let artifacts = project.load_artifacts().unwrap();
+        assert_eq!(artifacts.len(), 1);
+
+        let counter_id = ArtifactId::try_from("src/Counter.sol:Counter").unwrap();
+        assert!(artifacts.contains_key(&counter_id));
+    }
+
+    /// Regression test: Foundry artifacts for source files with no contract
+    /// definition must fail to parse with a clear error rather than crash.
+    #[test]
+    fn parse_artifact_missing_contract_definition_fails() {
+        let json =
+            fs::read_to_string("fixtures/artifacts-loader/out/ConstantsLib.sol/ConstantsLib.json")
+                .unwrap();
+        let err = Artifact::from_json_str(&json).unwrap_err();
+        assert!(err.to_string().contains("missing compilation target"));
     }
 }

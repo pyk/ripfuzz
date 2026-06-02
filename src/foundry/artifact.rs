@@ -497,29 +497,47 @@ fn get_artifact_id(json: &ArtifactJson) -> Result<ArtifactId> {
         .metadata
         .as_ref()
         .and_then(|m| m.settings.as_ref())
-        .and_then(|s| s.compilation_target.as_ref())
-        .context("missing compilation target in artifact metadata")?;
+        .and_then(|s| s.compilation_target.as_ref());
 
-    ensure!(
-        !target.is_empty(),
-        "empty compilation target in artifact metadata"
-    );
-    ensure!(
-        target.len() == 1,
-        "expected exactly one compilation target, found {}",
-        target.len()
-    );
+    if let Some(target) = target {
+        ensure!(
+            !target.is_empty(),
+            "empty compilation target in artifact metadata"
+        );
+        ensure!(
+            target.len() == 1,
+            "expected exactly one compilation target, found {}",
+            target.len()
+        );
 
-    let (path, name) = target.iter().next().context("empty compilation target")?;
-    ensure!(
-        !path.is_empty() && !name.is_empty(),
-        "empty path or contract name in compilation target"
-    );
+        let (path, name) = target.iter().next().context("empty compilation target")?;
+        ensure!(
+            !path.is_empty() && !name.is_empty(),
+            "empty path or contract name in compilation target"
+        );
 
-    Ok(ArtifactId {
-        path: PathBuf::from(path),
-        name: name.clone(),
-    })
+        return Ok(ArtifactId {
+            path: PathBuf::from(path),
+            name: name.clone(),
+        });
+    }
+
+    // Fallback: derive from AST when metadata is missing.
+    let def = json.ast.nodes.iter().find_map(|node| {
+        if let solc::ast::SourceUnitNode::ContractDefinition(def) = node {
+            Some(def)
+        } else {
+            None
+        }
+    });
+    if let Some(def) = def {
+        return Ok(ArtifactId {
+            path: json.ast.absolute_path.clone(),
+            name: def.name.clone(),
+        });
+    }
+
+    bail!("missing compilation target in artifact metadata")
 }
 
 /// Find the named contract definition in the AST.
