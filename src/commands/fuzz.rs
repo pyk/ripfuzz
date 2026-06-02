@@ -340,7 +340,14 @@ pub fn run(args: Args) -> Result<()> {
 
     // Load build artifacts
     console.begin("loading build artifacts ...")?;
-    let build_artifacts = project.load_artifacts()?;
+    let build_artifacts = match project.load_artifacts() {
+        Ok(artifacts) => artifacts,
+        Err(e) => {
+            console.end_fail("loading build artifacts failed")?;
+            console.print_line(format!("{e:#}"))?;
+            return Err(e);
+        }
+    };
     console.update(format!(
         "loaded {} build artifacts",
         formatter::num(build_artifacts.len() as u64)
@@ -354,7 +361,17 @@ pub fn run(args: Args) -> Result<()> {
 
     // Load target contract and prepare library dependencies.
     console.begin(format!("loading target contract {} ...", args.target.name))?;
-    let target_contract = Contract::try_get(&build_artifacts, &args.target)?;
+    let target_contract = match Contract::try_get(&build_artifacts, &args.target) {
+        Ok(c) => c,
+        Err(e) => {
+            console.end_fail(format!(
+                "loading target contract {} failed",
+                args.target.name
+            ))?;
+            console.print_line(format!("{e:#}"))?;
+            return Err(e);
+        }
+    };
     console.update(format!("loaded {} as target contract", args.target.name))?;
     console.end()?;
 
@@ -381,10 +398,24 @@ pub fn run(args: Args) -> Result<()> {
         .coverage(true);
     if args.fork_mode.rpc_url.is_some() {
         console.update("forking chain")?;
-        let fork_config = args.fork_mode.build_fork_config(&project_path)?;
+        let fork_config = match args.fork_mode.build_fork_config(&project_path) {
+            Ok(c) => c,
+            Err(e) => {
+                console.end_fail("forking chain failed")?;
+                console.print_line(format!("{e:#}"))?;
+                return Err(e);
+            }
+        };
         chain_config = chain_config.fork(fork_config);
     }
-    let mut chain = Chain::new(chain_config)?;
+    let mut chain = match Chain::new(chain_config) {
+        Ok(c) => c,
+        Err(e) => {
+            console.end_fail("spawning test chain failed")?;
+            console.print_line(format!("{e:#}"))?;
+            return Err(e);
+        }
+    };
     console.update("spawned test chain")?;
     console.end()?;
     console.print_line(format!(
@@ -453,11 +484,18 @@ pub fn run(args: Args) -> Result<()> {
     // Run setup if present
     if let Some(ref setup) = target_contract.setup_function {
         console.begin("calling setup")?;
-        let setup_output = chain.setup(
+        let setup_output = match chain.setup(
             SetupInput::new(deployed_address)
                 .calldata(Bytes::from(setup.selector().as_slice().to_vec()))
                 .caller(args.deployer_address),
-        )?;
+        ) {
+            Ok(output) => output,
+            Err(e) => {
+                console.end_fail("calling setup failed")?;
+                console.print_line(format!("{e:#}"))?;
+                return Err(e);
+            }
+        };
         if !setup_output.result.success {
             let mut ctx =
                 TraceContext::from_project(&project)?.with_label(deployed_address, contract_name);
@@ -519,13 +557,18 @@ pub fn run(args: Args) -> Result<()> {
 
     if replay_count > 0 {
         console.begin(format!("replaying {replay_count} corpus items ..."))?;
-        CorpusReplayer::new(shared_coverage.clone())
+        if let Err(e) = CorpusReplayer::new(shared_coverage.clone())
             .shared_corpus(corpus.clone())
             .chain(chain.clone())
             .deployed_address(deployed_address)
             .invariant_functions(target_contract.invariant_functions.clone())
             .caller(args.deployer_address)
-            .replay()?;
+            .replay()
+        {
+            console.end_fail("replaying corpus items failed")?;
+            console.print_line(format!("{e:#}"))?;
+            return Err(e);
+        }
         console.update(format!("replayed {replay_count} corpus items"))?;
         console.end()?;
         console.print_line(format!(
@@ -838,7 +881,7 @@ pub fn run(args: Args) -> Result<()> {
     // TODO(pyk): assert that trace should exists; do not use if else
     if let Some(trace) = exec.trace {
         console.begin("writing trace file ...")?;
-        let trace_file = write_trace_to_file(
+        let trace_file = match write_trace_to_file(
             &trace,
             &project,
             &project_path,
@@ -846,7 +889,14 @@ pub fn run(args: Args) -> Result<()> {
             deployed_address,
             contract_name,
             &chain,
-        )?;
+        ) {
+            Ok(f) => f,
+            Err(e) => {
+                console.end_fail("writing trace file failed")?;
+                console.print_line(format!("{e:#}"))?;
+                return Err(e);
+            }
+        };
         console.update(format!("trace: {}", trace_file.display()))?;
         console.end()?;
     }
