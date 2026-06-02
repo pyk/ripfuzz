@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use alloy_primitives::Address;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use clap::Parser;
 use revm::primitives::{Bytes, U256};
 use tracing::{debug, instrument};
@@ -353,11 +353,6 @@ pub fn run(args: Args) -> Result<()> {
         formatter::num(build_artifacts.len() as u64)
     ))?;
     console.end()?;
-    ensure!(
-        build_artifacts.contains_key(&args.target),
-        "target artifact `{}` not found in build artifacts",
-        args.target
-    );
 
     // Load target contract and prepare library dependencies.
     console.begin(format!("loading target contract {} ...", args.target.name))?;
@@ -689,15 +684,8 @@ pub fn run(args: Args) -> Result<()> {
         console.print_line(stats)?;
         console.new_line()?;
 
-        let runtime_code = deployment.result.output.clone().unwrap_or_default();
         console.begin("generating coverage reports ...")?;
-        match write_coverage_report(
-            &project,
-            &campaign_id,
-            &shared_coverage,
-            &target_contract,
-            &runtime_code,
-        ) {
+        match write_coverage_report(&project, &campaign_id, &shared_coverage, &target_contract) {
             Ok(files) => {
                 let count = files.len();
                 console.update(format!("generated {count} coverage reports"))?;
@@ -901,15 +889,8 @@ pub fn run(args: Args) -> Result<()> {
         console.end()?;
     }
 
-    let runtime_code = deployment.result.output.clone().unwrap_or_default();
     console.begin("generating coverage reports ...")?;
-    match write_coverage_report(
-        &project,
-        &campaign_id,
-        &shared_coverage,
-        &target_contract,
-        &runtime_code,
-    ) {
+    match write_coverage_report(&project, &campaign_id, &shared_coverage, &target_contract) {
         Ok(files) => {
             let count = files.len();
             console.update(format!("generated {count} coverage reports"))?;
@@ -932,9 +913,9 @@ fn write_coverage_report(
     campaign_id: &str,
     shared_coverage: &SharedCoverage,
     target_contract: &Contract,
-    runtime_code: &Bytes,
 ) -> Result<Vec<(PathBuf, f64)>> {
-    let context = CoverageContext::from_project(project)?.with_runtime_code(runtime_code)?;
+    let context = CoverageContext::from_project(project)?
+        .with_target_artifact(&target_contract.artifact_id)?;
 
     let reporter = CoverageReporter::new()
         .coverage(shared_coverage.clone())

@@ -160,9 +160,12 @@ impl Contract {
         build_artifacts: &HashMap<ArtifactId, Artifact>,
         artifact_id: &ArtifactId,
     ) -> Result<Self> {
-        let artifact = build_artifacts
-            .get(artifact_id)
-            .with_context(|| format!("target artifact `{}` not found", artifact_id))?;
+        let artifact = build_artifacts.get(artifact_id).with_context(|| {
+            format!(
+                "target artifact `{}` not found in build artifacts",
+                artifact_id
+            )
+        })?;
         let contract = match artifact {
             Artifact::Contract(c) => c,
             _ => bail!("target artifact must be a concrete contract"),

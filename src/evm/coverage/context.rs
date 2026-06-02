@@ -202,8 +202,6 @@ pub struct CoverageContext {
     source_files: HashMap<PathBuf, SourceFile>,
     source_index: HashMap<usize, PathBuf>,
     target_artifact: Option<ArtifactId>,
-    pc_to_source: Vec<Option<SourceMapEntry>>,
-    runtime_code: Option<Bytes>,
     project_path: PathBuf,
 }
 
@@ -218,23 +216,16 @@ impl CoverageContext {
         Ok(ctx)
     }
 
-    /// Configure this context for a specific target runtime code.
+    /// Configure this context for a specific target artifact.
     ///
-    /// Resolves the runtime code against the indexed artifacts and builds a
-    /// PC-to-source map so that coverage hits can be mapped back to source
+    /// Loads the source index and source files for the artifact's compilation
+    /// unit so that the reporter can resolve bytecode hits back to source
     /// lines.
-    pub fn with_runtime_code(mut self, runtime_code: &Bytes) -> Result<Self> {
+    pub fn with_target_artifact(self, target_artifact_id: &ArtifactId) -> Result<Self> {
         let artifact = self
-            .resolve_artifact_by_runtime_code(runtime_code)
-            .with_context(|| "could not match runtime code to any artifact")?;
-        let artifact_id = artifact.id().clone();
-
-        let deployed = artifact
-            .deployed_bytecode()
-            .with_context(|| "artifact has no deployed bytecode")?;
-        let source_map = parse_source_map(&deployed.source_map);
-        let bytecode = Bytecode::new_legacy(runtime_code.clone());
-        let pc_to_source = build_pc_to_source_map(&bytecode, &source_map);
+            .artifacts
+            .get(target_artifact_id)
+            .with_context(|| "target artifact not found")?;
 
         // Load the source index for this specific artifact's compilation unit.
         // Foundry incremental builds create multiple build-info files; we must
@@ -242,25 +233,24 @@ impl CoverageContext {
         // source IDs in the bytecode source map resolve to the correct files.
         let build_info_sources = BuildInfo::load_source_index_for_artifact(
             &self.project_path,
-            &artifact_id,
+            target_artifact_id,
             artifact.source_id(),
         )?;
-        self.source_index.clear();
+        let mut ctx = self;
+        ctx.source_index.clear();
         for (idx, path) in build_info_sources {
-            self.source_index.insert(idx, path);
+            ctx.source_index.insert(idx, path);
         }
 
-        for path in self.source_index.values().cloned() {
-            let full_path = self.project_path.join(&path);
+        for path in ctx.source_index.values().cloned() {
+            let full_path = ctx.project_path.join(&path);
             if let Ok(content) = fs::read_to_string(&full_path) {
-                self.source_files.insert(path, SourceFile::new(content));
+                ctx.source_files.insert(path, SourceFile::new(content));
             }
         }
 
-        self.target_artifact = Some(artifact_id);
-        self.pc_to_source = pc_to_source;
-        self.runtime_code = Some(runtime_code.clone());
-        Ok(self)
+        ctx.target_artifact = Some(target_artifact_id.clone());
+        Ok(ctx)
     }
 
     /// Look up an artifact by its runtime bytecode.
@@ -313,15 +303,25 @@ impl CoverageContext {
         let ast = artifact.ast();
         let contract = get_contract_definition(ast, contract_name).ok()?;
         let target_selector = hex::encode(target_func.selector());
-        for node in &contract.nodes {
-            let solc::ast::ContractDefinitionNode::FunctionDefinition(func) = node else {
-                continue;
-            };
-            let Some(ref sel) = func.function_selector else {
-                continue;
-            };
-            if sel.trim_start_matches("0x").to_lowercase() == target_selector.to_lowercase() {
-                return Some(func);
+
+        let mut contracts_to_search = vec![contract];
+        for base_id in &contract.linearized_base_contracts {
+            if let Some(base_contract) = self.find_contract_by_id(*base_id) {
+                contracts_to_search.push(base_contract);
+            }
+        }
+
+        for contract in contracts_to_search {
+            for node in &contract.nodes {
+                let solc::ast::ContractDefinitionNode::FunctionDefinition(func) = node else {
+                    continue;
+                };
+                let Some(ref sel) = func.function_selector else {
+                    continue;
+                };
+                if sel.trim_start_matches("0x").to_lowercase() == target_selector.to_lowercase() {
+                    return Some(func);
+                }
             }
         }
         None
@@ -574,10 +574,9 @@ mod tests {
         let target = artifacts
             .get(&ArtifactId::try_from("src/TargetContract.sol:TargetContract").unwrap())
             .unwrap();
-        let runtime_code = target.deployed_bytecode().unwrap().object.parse().unwrap();
         let ctx = CoverageContext::from_project(&project)
             .unwrap()
-            .with_runtime_code(&runtime_code)
+            .with_target_artifact(target.id())
             .unwrap();
         assert!(ctx.resolve_source_file("src/TargetContract.sol").is_some());
     }

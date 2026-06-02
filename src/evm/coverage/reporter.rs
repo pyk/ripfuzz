@@ -803,6 +803,14 @@ mod tests {
             function interfaceCall(uint256 amount) external returns (uint256);
             function counterLinked() external returns (address);
         }
+
+        interface EmptyTargetFunction {
+            function dummyTargetFunction() external;
+        }
+
+        interface InheritedTarget {
+            function inheritedTargetFunction() external;
+        }
     }
 
     fn load_coverage_fixture(id: &str) -> Contract {
@@ -815,7 +823,6 @@ mod tests {
     struct Deployed {
         chain: Chain,
         address: Address,
-        runtime_code: Bytes,
     }
 
     fn deploy_and_setup(contract: &Contract) -> Deployed {
@@ -828,7 +835,6 @@ mod tests {
         let deployment = chain.deploy(deploy_opts).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
-        let runtime_code = deployment.result.output.unwrap_or_default();
 
         if let Some(setup) = &contract.setup_function {
             let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
@@ -840,7 +846,6 @@ mod tests {
         Deployed {
             chain,
             address: target,
-            runtime_code,
         }
     }
 
@@ -862,7 +867,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let context = CoverageContext::from_project(&project)
             .unwrap()
-            .with_runtime_code(&deployed.runtime_code)
+            .with_target_artifact(&contract.artifact_id)
             .unwrap();
 
         let reporter = CoverageReporter::new()
@@ -893,7 +898,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let context = CoverageContext::from_project(&project)
             .unwrap()
-            .with_runtime_code(&deployed.runtime_code)
+            .with_target_artifact(&contract.artifact_id)
             .unwrap();
 
         let project_path = context
@@ -947,7 +952,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let context = CoverageContext::from_project(&project)
             .unwrap()
-            .with_runtime_code(&deployed.runtime_code)
+            .with_target_artifact(&contract.artifact_id)
             .unwrap();
 
         let project_path = context
@@ -994,7 +999,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let context = CoverageContext::from_project(&project)
             .unwrap()
-            .with_runtime_code(&deployed.runtime_code)
+            .with_target_artifact(&contract.artifact_id)
             .unwrap();
 
         let project_path = context
@@ -1040,7 +1045,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let context = CoverageContext::from_project(&project)
             .unwrap()
-            .with_runtime_code(&deployed.runtime_code)
+            .with_target_artifact(&contract.artifact_id)
             .unwrap();
 
         let project_path = context
@@ -1088,7 +1093,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let context = CoverageContext::from_project(&project)
             .unwrap()
-            .with_runtime_code(&deployed.runtime_code)
+            .with_target_artifact(&contract.artifact_id)
             .unwrap();
 
         let project_path = context
@@ -1136,7 +1141,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let context = CoverageContext::from_project(&project)
             .unwrap()
-            .with_runtime_code(&deployed.runtime_code)
+            .with_target_artifact(&contract.artifact_id)
             .unwrap();
 
         let project_path = context
@@ -1184,7 +1189,7 @@ mod tests {
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let context = CoverageContext::from_project(&project)
             .unwrap()
-            .with_runtime_code(&deployed.runtime_code)
+            .with_target_artifact(&contract.artifact_id)
             .unwrap();
 
         let project_path = context
@@ -1211,6 +1216,70 @@ mod tests {
             formatted.trim(),
             expected.trim(),
             "coverage report output for interfaceCall must match expected"
+        );
+    }
+
+    /// Regression test: coverage report must be generated for a target function
+    /// with an empty body.
+    #[test]
+    fn coverage_report_empty_target_function() {
+        let contract = load_coverage_fixture("src/EmptyTargetFunction.sol:EmptyTargetFunction");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
+            EmptyTargetFunction::dummyTargetFunctionCall::new(()).abi_encode(),
+        ))];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let context = CoverageContext::from_project(&project)
+            .unwrap()
+            .with_target_artifact(&contract.artifact_id)
+            .unwrap();
+
+        let reporter = CoverageReporter::new()
+            .coverage(global)
+            .target_functions(contract.target_functions)
+            .context(context);
+
+        assert!(
+            reporter.get_report("dummyTargetFunction()").is_some(),
+            "coverage report must be generated for an empty target function"
+        );
+    }
+
+    /// Regression test: coverage report must be generated for a target function
+    /// inherited from a base contract.
+    #[test]
+    fn coverage_report_inherited_target_function() {
+        let contract = load_coverage_fixture("src/InheritedTarget.sol:InheritedTarget");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
+            InheritedTarget::inheritedTargetFunctionCall::new(()).abi_encode(),
+        ))];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let context = CoverageContext::from_project(&project)
+            .unwrap()
+            .with_target_artifact(&contract.artifact_id)
+            .unwrap();
+
+        let reporter = CoverageReporter::new()
+            .coverage(global)
+            .target_functions(contract.target_functions)
+            .context(context);
+
+        assert!(
+            reporter.get_report("inheritedTargetFunction()").is_some(),
+            "coverage report must be generated for a target function inherited from a base contract"
         );
     }
 }
