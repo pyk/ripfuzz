@@ -57,7 +57,7 @@ use std::path::{Path, PathBuf};
 
 use alloy_json_abi::Function;
 
-use crate::evm::coverage::context::CoverageContext;
+use crate::evm::coverage::context::{CoverageContext, SymbolTable};
 use crate::evm::coverage::shared::SharedCoverage;
 use crate::formatter;
 
@@ -229,7 +229,7 @@ fn build_function_report(
     context: &CoverageContext,
     line_hits: &HashMap<(PathBuf, usize), u64>,
     executable_lines: &HashSet<(PathBuf, usize)>,
-    symbols: &HashMap<i64, &solc::ast::ContractDefinitionNode>,
+    symbols: &SymbolTable,
     function_signature: &str,
 ) -> Option<FunctionReport> {
     let source_path = match context.resolve_source_index(func_def.src.source_index) {
@@ -483,7 +483,7 @@ fn resolve_children(
     context: &CoverageContext,
     line_hits: &HashMap<(PathBuf, usize), u64>,
     executable_lines: &HashSet<(PathBuf, usize)>,
-    symbols: &HashMap<i64, &solc::ast::ContractDefinitionNode>,
+    symbols: &SymbolTable,
     visited_ids: &mut HashSet<i64>,
     project: &Path,
 ) -> ResolveChildrenResult {
@@ -495,8 +495,16 @@ fn resolve_children(
     };
 
     let refs = collect_references_from_body(&func_def.body);
+    let ref_names = collect_reference_names(&func_def.body);
     for rid in refs {
-        let Some(node) = symbols.get(&rid) else {
+        let node = if let Some(n) = symbols.get_by_id(rid) {
+            Some(n)
+        } else if let Some(name) = ref_names.get(&rid) {
+            symbols.get_by_name(name)
+        } else {
+            None
+        };
+        let Some(node) = node else {
             continue;
         };
 
@@ -534,7 +542,7 @@ fn resolve_children(
 
         // Fall back to the original node if no implementation was found.
         if nodes_to_add.is_empty() && !impl_resolved {
-            nodes_to_add.push((*node, rid));
+            nodes_to_add.push((node, rid));
         }
 
         for (node_to_add, id_to_add) in nodes_to_add {
@@ -774,6 +782,187 @@ fn collect_references_from_body(body: &Option<solc::ast::Block>) -> Vec<i64> {
     refs
 }
 
+/// Collect a map from reference id to the referenced symbol's name.
+fn collect_reference_names(body: &Option<solc::ast::Block>) -> HashMap<i64, String> {
+    let mut names = HashMap::new();
+    if let Some(block) = body {
+        for stmt in &block.statements {
+            collect_reference_names_from_statement(stmt, &mut names);
+        }
+    }
+    names
+}
+
+fn collect_reference_names_from_statement(
+    stmt: &solc::ast::Statement,
+    names: &mut HashMap<i64, String>,
+) {
+    match stmt {
+        solc::ast::Statement::ExpressionStatement(expr_stmt) => {
+            collect_reference_names_from_expression(&expr_stmt.expression, names);
+        }
+        solc::ast::Statement::Return(ret) => {
+            if let Some(expr) = &ret.expression {
+                collect_reference_names_from_expression(expr, names);
+            }
+        }
+        solc::ast::Statement::IfStatement(if_stmt) => {
+            collect_reference_names_from_expression(&if_stmt.condition, names);
+            collect_reference_names_from_statement(&if_stmt.true_body, names);
+            if let Some(false_body) = &if_stmt.false_body {
+                collect_reference_names_from_statement(false_body, names);
+            }
+        }
+        solc::ast::Statement::ForStatement(for_stmt) => {
+            if let Some(init) = &for_stmt.initialization_expression {
+                collect_reference_names_from_expression(init, names);
+            }
+            collect_reference_names_from_expression(&for_stmt.condition, names);
+            if let Some(loop_expr) = &for_stmt.loop_expression {
+                collect_reference_names_from_expression(loop_expr, names);
+            }
+            collect_reference_names_from_statement(&for_stmt.body, names);
+        }
+        solc::ast::Statement::WhileStatement(while_stmt) => {
+            collect_reference_names_from_expression(&while_stmt.condition, names);
+            collect_reference_names_from_statement(&while_stmt.body, names);
+        }
+        solc::ast::Statement::DoWhileStatement(do_while) => {
+            collect_reference_names_from_statement(&do_while.body, names);
+            collect_reference_names_from_expression(&do_while.condition, names);
+        }
+        solc::ast::Statement::VariableDeclarationStatement(var_stmt) => {
+            if let Some(init) = &var_stmt.initial_value {
+                collect_reference_names_from_expression(init, names);
+            }
+        }
+        solc::ast::Statement::Block(block) => {
+            for stmt in &block.statements {
+                collect_reference_names_from_statement(stmt, names);
+            }
+        }
+        solc::ast::Statement::UncheckedBlock(unchecked) => {
+            for stmt in &unchecked.statements {
+                collect_reference_names_from_statement(stmt, names);
+            }
+        }
+        solc::ast::Statement::EmitStatement(emit) => {
+            collect_reference_names_from_function_call(&emit.event_call, names);
+        }
+        solc::ast::Statement::TryStatement(try_stmt) => {
+            collect_reference_names_from_expression(&try_stmt.external_call, names);
+            for clause in &try_stmt.clauses {
+                for stmt in &clause.block.statements {
+                    collect_reference_names_from_statement(stmt, names);
+                }
+            }
+        }
+        solc::ast::Statement::RevertStatement(revert) => {
+            collect_reference_names_from_function_call(&revert.error_call, names);
+        }
+        _ => {}
+    }
+}
+
+fn collect_reference_names_from_expression(
+    expr: &solc::ast::Expression,
+    names: &mut HashMap<i64, String>,
+) {
+    match expr {
+        solc::ast::Expression::Identifier(id) => {
+            if let Some(rid) = id.referenced_declaration {
+                names.insert(rid, id.name.clone());
+            }
+        }
+        solc::ast::Expression::MemberAccess(member) => {
+            if let Some(rid) = member.referenced_declaration {
+                names.insert(rid, member.member_name.clone());
+            }
+            collect_reference_names_from_expression(&member.expression, names);
+        }
+        solc::ast::Expression::FunctionCall(call) => {
+            collect_reference_names_from_function_call(call, names);
+        }
+        solc::ast::Expression::Assignment(assignment) => {
+            collect_reference_names_from_expression(&assignment.left_hand_side, names);
+            collect_reference_names_from_expression(&assignment.right_hand_side, names);
+        }
+        solc::ast::Expression::BinaryOperation(bin_op) => {
+            collect_reference_names_from_expression(&bin_op.left_expression, names);
+            collect_reference_names_from_expression(&bin_op.right_expression, names);
+        }
+        solc::ast::Expression::Conditional(cond) => {
+            collect_reference_names_from_expression(&cond.condition, names);
+            collect_reference_names_from_expression(&cond.true_expression, names);
+            collect_reference_names_from_expression(&cond.false_expression, names);
+        }
+        solc::ast::Expression::IndexAccess(idx) => {
+            collect_reference_names_from_expression(&idx.base_expression, names);
+            if let Some(index) = &idx.index_expression {
+                collect_reference_names_from_expression(index, names);
+            }
+        }
+        solc::ast::Expression::IndexRangeAccess(range) => {
+            collect_reference_names_from_expression(&range.base_expression, names);
+            if let Some(start) = &range.start_expression {
+                collect_reference_names_from_expression(start, names);
+            }
+        }
+        solc::ast::Expression::TupleExpression(tuple) => {
+            for expr in tuple.components.iter().flatten() {
+                collect_reference_names_from_expression(expr, names);
+            }
+        }
+        solc::ast::Expression::UnaryOperation(unary) => {
+            collect_reference_names_from_expression(&unary.sub_expression, names);
+        }
+        solc::ast::Expression::ExpressionStatement(stmt) => {
+            collect_reference_names_from_expression(&stmt.expression, names);
+        }
+        solc::ast::Expression::VariableDeclarationStatement(stmt) => {
+            if let Some(init) = &stmt.initial_value {
+                collect_reference_names_from_expression(init, names);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_reference_names_from_function_call(
+    call: &solc::ast::FunctionCall,
+    names: &mut HashMap<i64, String>,
+) {
+    collect_reference_names_from_function_call_expression(&call.expression, names);
+    for arg in &call.arguments {
+        collect_reference_names_from_expression(arg, names);
+    }
+}
+
+fn collect_reference_names_from_function_call_expression(
+    expr: &solc::ast::FunctionCallExpression,
+    names: &mut HashMap<i64, String>,
+) {
+    match expr {
+        solc::ast::FunctionCallExpression::Identifier(id) => {
+            if let Some(rid) = id.referenced_declaration {
+                names.insert(rid, id.name.clone());
+            }
+        }
+        solc::ast::FunctionCallExpression::MemberAccess(member) => {
+            if let Some(rid) = member.referenced_declaration {
+                names.insert(rid, member.member_name.clone());
+            }
+        }
+        solc::ast::FunctionCallExpression::FunctionCall(call) => {
+            collect_reference_names_from_function_call(call, names);
+        }
+        solc::ast::FunctionCallExpression::FunctionCallOptions(options) => {
+            collect_reference_names_from_expression(&options.expression, names);
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -786,6 +975,7 @@ mod tests {
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::coverage::SharedCoverage;
     use crate::foundry;
+    use crate::foundry::Artifact;
 
     use super::*;
 
@@ -1280,6 +1470,147 @@ mod tests {
         assert!(
             reporter.get_report("inheritedTargetFunction()").is_some(),
             "coverage report must be generated for a target function inherited from a base contract"
+        );
+    }
+
+    /// Regression test: coverage report must be generated even when a base
+    /// contract referenced in `linearized_base_contracts` has a different AST id
+    /// in the loaded artifact because it was compiled in a separate compilation
+    /// unit.
+    #[test]
+    fn coverage_report_missing_base_contract_id() {
+        let contract = load_coverage_fixture("src/EmptyTargetFunction.sol:EmptyTargetFunction");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
+            EmptyTargetFunction::dummyTargetFunctionCall::new(()).abi_encode(),
+        ))];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+
+        // Load the original artifact and modify it so the base contract id
+        // no longer matches the loaded RaptorFuzz artifact (simulating the
+        // multi-compilation-unit scenario).
+        let artifact_path = "fixtures/target-contract-coverage/out/EmptyTargetFunction.sol/EmptyTargetFunction.json";
+        let content = fs::read_to_string(artifact_path).unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        for node in json["ast"]["nodes"].as_array_mut().unwrap() {
+            if node["nodeType"] == "ContractDefinition" {
+                node["linearizedBaseContracts"] = serde_json::json!([212, 99999]);
+                for bc in node["baseContracts"].as_array_mut().unwrap() {
+                    bc["baseName"]["referencedDeclaration"] = serde_json::json!(99999);
+                }
+            }
+        }
+        let mut modified = Artifact::from_json_str(&serde_json::to_string(&json).unwrap()).unwrap();
+        modified.set_project_path(&project.path);
+
+        let context = CoverageContext::from_project(&project)
+            .unwrap()
+            .remove_artifact(&contract.artifact_id)
+            .add_artifact(contract.artifact_id.clone(), modified)
+            .with_target_artifact(&contract.artifact_id)
+            .unwrap();
+
+        let project_path = context
+            .target_artifact()
+            .unwrap()
+            .project_path()
+            .to_string_lossy()
+            .to_string();
+
+        let reporter = CoverageReporter::new()
+            .coverage(global)
+            .target_functions(contract.target_functions)
+            .context(context);
+
+        let report = reporter
+            .get_report("dummyTargetFunction()")
+            .expect("coverage report must be generated");
+        let formatted = format!("{report}");
+        let expected_file = "fixtures/target-contract-coverage/expected/missingBaseContractId.txt";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected = expected.replace("fixtures/target-contract-coverage", &project_path);
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output for missing base contract id must match expected"
+        );
+    }
+
+    /// Regression test: coverage report must correctly resolve base contract
+    /// functions by name when the base contract is from a different compilation
+    /// unit and the target function calls those functions.
+    #[test]
+    fn coverage_report_missing_base_contract_id_with_calls() {
+        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
+            TargetContract::inheritanceCallCall::new((U256::from(5),)).abi_encode(),
+        ))];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+
+        // Load the original artifact and modify it so the base contract id
+        // no longer matches the loaded RaptorFuzz artifact (simulating the
+        // multi-compilation-unit scenario).
+        let artifact_path =
+            "fixtures/target-contract-coverage/out/TargetContract.sol/TargetContract.json";
+        let content = fs::read_to_string(artifact_path).unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        for node in json["ast"]["nodes"].as_array_mut().unwrap() {
+            if node["nodeType"] == "ContractDefinition" {
+                node["linearizedBaseContracts"] = serde_json::json!([650, 99999]);
+                for bc in node["baseContracts"].as_array_mut().unwrap() {
+                    bc["baseName"]["referencedDeclaration"] = serde_json::json!(99999);
+                }
+            }
+        }
+        let mut modified = Artifact::from_json_str(&serde_json::to_string(&json).unwrap()).unwrap();
+        modified.set_project_path(&project.path);
+
+        let context = CoverageContext::from_project(&project)
+            .unwrap()
+            .remove_artifact(&contract.artifact_id)
+            .add_artifact(contract.artifact_id.clone(), modified)
+            .with_target_artifact(&contract.artifact_id)
+            .unwrap();
+
+        let project_path = context
+            .target_artifact()
+            .unwrap()
+            .project_path()
+            .to_string_lossy()
+            .to_string();
+
+        let reporter = CoverageReporter::new()
+            .coverage(global)
+            .target_functions(contract.target_functions)
+            .context(context);
+
+        let report = reporter
+            .get_report("inheritanceCall(uint256)")
+            .expect("coverage report must be generated");
+        let formatted = format!("{report}");
+        let expected_file =
+            "fixtures/target-contract-coverage/expected/missingBaseContractIdWithCalls.txt";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected = expected.replace("fixtures/target-contract-coverage", &project_path);
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output for missing base contract id with calls must match expected"
         );
     }
 }

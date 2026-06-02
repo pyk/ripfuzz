@@ -205,6 +205,26 @@ pub struct CoverageContext {
     project_path: PathBuf,
 }
 
+/// A symbol table that maps both declaration IDs and symbol names to AST
+/// nodes. This is needed because base contracts compiled in a different
+/// compilation unit have different AST IDs than the target contract's
+/// references, so we fall back to name-based lookup when ID lookup fails.
+#[derive(Debug, Clone)]
+pub struct SymbolTable<'a> {
+    pub id_map: HashMap<i64, &'a solc::ast::ContractDefinitionNode>,
+    pub name_map: HashMap<&'a str, &'a solc::ast::ContractDefinitionNode>,
+}
+
+impl<'a> SymbolTable<'a> {
+    pub fn get_by_id(&self, id: i64) -> Option<&'a solc::ast::ContractDefinitionNode> {
+        self.id_map.get(&id).copied()
+    }
+
+    pub fn get_by_name(&self, name: &str) -> Option<&'a solc::ast::ContractDefinitionNode> {
+        self.name_map.get(name).copied()
+    }
+}
+
 impl CoverageContext {
     /// Create a new [`CoverageContext`] from a Foundry [`Project`].
     pub fn from_project(project: &Project) -> Result<Self> {
@@ -267,6 +287,21 @@ impl CoverageContext {
                     if i < masked.len() {
                         masked[i] = runtime_code[i];
                     }
+                }
+            }
+        }
+        None
+    }
+
+    /// Find a contract definition by its name across all loaded artifacts.
+    fn find_contract_by_name(&self, name: &str) -> Option<&solc::ast::ContractDefinition> {
+        for artifact in self.artifacts.values() {
+            let ast = artifact.ast();
+            for node in &ast.nodes {
+                if let solc::ast::SourceUnitNode::ContractDefinition(def) = node
+                    && def.name == name
+                {
+                    return Some(def);
                 }
             }
         }
@@ -338,19 +373,50 @@ impl CoverageContext {
         &'a self,
         artifact: &'a Artifact,
         contract_name: &str,
-    ) -> Option<HashMap<i64, &'a solc::ast::ContractDefinitionNode>> {
+    ) -> Option<SymbolTable<'a>> {
         let ast = artifact.ast();
         let contract = get_contract_definition(ast, contract_name).ok()?;
-        let mut map = HashMap::new();
+        let mut id_map = HashMap::new();
+        let mut name_map = HashMap::new();
+
+        // Build a map from base contract id to base contract name so we can
+        // fall back to name-based lookup when the id is from a different
+        // compilation unit.
+        let mut base_id_to_name: HashMap<i64, &str> = HashMap::new();
+        for base in &contract.base_contracts {
+            if let Some(ref decl) = base.base_name.referenced_declaration {
+                base_id_to_name.insert(*decl, base.base_name.name.as_str());
+            }
+        }
+
         for base_id in &contract.linearized_base_contracts {
-            let base_contract = self.find_contract_by_id(*base_id)?;
+            let base_contract = if let Some(c) = self.find_contract_by_id(*base_id) {
+                c
+            } else if let Some(&name) = base_id_to_name.get(base_id) {
+                if let Some(c) = self.find_contract_by_name(name) {
+                    c
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+
+            for base in &base_contract.base_contracts {
+                if let Some(ref decl) = base.base_name.referenced_declaration {
+                    base_id_to_name.insert(*decl, base.base_name.name.as_str());
+                }
+            }
+
             for node in &base_contract.nodes {
                 match node {
                     solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
-                        map.insert(func.id, node);
+                        id_map.insert(func.id, node);
+                        name_map.insert(func.name.as_str(), node);
                     }
                     solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
-                        map.insert(var.id, node);
+                        id_map.insert(var.id, node);
+                        name_map.insert(var.name.as_str(), node);
                     }
                     _ => {}
                 }
@@ -367,17 +433,19 @@ impl CoverageContext {
                 for inner_node in &contract.nodes {
                     match inner_node {
                         solc::ast::ContractDefinitionNode::FunctionDefinition(func) => {
-                            map.insert(func.id, inner_node);
+                            id_map.insert(func.id, inner_node);
+                            name_map.insert(func.name.as_str(), inner_node);
                         }
                         solc::ast::ContractDefinitionNode::VariableDeclaration(var) => {
-                            map.insert(var.id, inner_node);
+                            id_map.insert(var.id, inner_node);
+                            name_map.insert(var.name.as_str(), inner_node);
                         }
                         _ => {}
                     }
                 }
             }
         }
-        Some(map)
+        Some(SymbolTable { id_map, name_map })
     }
 
     /// Find a contract definition by its ID across all loaded artifacts.
@@ -579,5 +647,17 @@ mod tests {
             .with_target_artifact(target.id())
             .unwrap();
         assert!(ctx.resolve_source_file("src/TargetContract.sol").is_some());
+    }
+
+    impl CoverageContext {
+        pub fn remove_artifact(mut self, id: &ArtifactId) -> Self {
+            self.artifacts.remove(id);
+            self
+        }
+
+        pub fn add_artifact(mut self, id: ArtifactId, artifact: Artifact) -> Self {
+            self.artifacts.insert(id, artifact);
+            self
+        }
     }
 }
