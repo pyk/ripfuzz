@@ -333,7 +333,7 @@ impl Artifact {
     }
 
     /// Load a build artifact from a JSON string.
-    #[instrument(err)]
+    #[instrument(err, skip(content))]
     pub fn from_json_str(content: &str) -> Result<Self> {
         let json: ArtifactJson = serde_json::from_str(content)?;
 
