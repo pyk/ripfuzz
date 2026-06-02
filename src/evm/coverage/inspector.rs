@@ -209,6 +209,15 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
     ) {
         if outcome.result.result.is_revert() {
             self.record_revert();
+        } else {
+            // Successful CREATE: discard initcode coverage so that dynamically
+            // generated initcode (e.g. SSTORE2, or initcode with different
+            // constructor arguments) does not inflate the unique contracts count.
+            // Runtime bytecode will still be tracked when the deployed contract is
+            // called later.
+            if let Some(initcode_hash) = self.current_contract {
+                self.local.contracts.remove(&initcode_hash);
+            }
         }
         self.current_call_depth = self.current_call_depth.saturating_sub(1);
         self.current_contract = self.contract_stack.pop().flatten();
@@ -221,6 +230,7 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
+    use crate::CoverageUpdate;
     use crate::evm::Contract;
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::coverage::SharedCoverage;
@@ -249,6 +259,14 @@ mod tests {
             function setup() external;
             function callChild1() external;
             function callChild2() external;
+        }
+
+        interface CoverageDeploy {
+            function deployChild() external;
+        }
+
+        interface CoverageInitcodeFactory {
+            function createChild(uint256 x) external;
         }
     }
 
@@ -482,6 +500,95 @@ mod tests {
         assert!(
             !update2.is_interesting(),
             "identical second run should not be interesting"
+        );
+    }
+
+    /// Deploying the same child contract twice via CREATE must share the same
+    /// coverage contract_id, keeping the unique contract count at 2 (parent + child).
+    #[test]
+    fn coverage_same_contract_deployed_twice() {
+        let contract = load_coverage_fixture("src/CoverageDeploy.sol:CoverageDeploy");
+        let (mut chain, target) = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+
+        let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageDeploy::deployChildCall::new(()).abi_encode(),
+        ))];
+        let exec1 = chain.exec(&txs1).unwrap();
+        let coverage1 = exec1.coverage.expect("coverage must be present");
+        let update1 = global.merge(&coverage1);
+        assert!(update1.is_interesting(), "first run should be interesting");
+        let count_after_1 = global.contract_count();
+        println!("contract count after 1: {}", count_after_1);
+
+        let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageDeploy::deployChildCall::new(()).abi_encode(),
+        ))];
+        let exec2 = chain.exec(&txs2).unwrap();
+        let coverage2 = exec2.coverage.expect("coverage must be present");
+        let update2 = global.merge(&coverage2);
+        println!("update2: {:?}", update2);
+        let count_after_2 = global.contract_count();
+        println!("contract count after 2: {}", count_after_2);
+
+        assert_eq!(
+            count_after_1, count_after_2,
+            "deploying the same contract twice should not increase unique contract count"
+        );
+    }
+
+    /// Regression test: initcode coverage recorded during a successful CREATE
+    /// must not be kept in the local map, so that deploying the same runtime
+    /// contract with different constructor arguments does not inflate the unique
+    /// contracts count.
+    #[test]
+    fn coverage_initcode_removed_on_successful_create() {
+        let contract =
+            load_coverage_fixture("src/CoverageInitcodeFactory.sol:CoverageInitcodeFactory");
+        let (mut chain, target) = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+
+        let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageInitcodeFactory::createChildCall::new((U256::from(1),)).abi_encode(),
+        ))];
+        let exec1 = chain.exec(&txs1).unwrap();
+        let coverage1 = exec1.coverage.expect("coverage must be present");
+        let update1 = global.merge(&coverage1);
+        assert!(update1.is_interesting(), "first run should be interesting");
+        let count_after_1 = global.contract_count();
+        println!("contract count after 1: {}", count_after_1);
+
+        let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageInitcodeFactory::createChildCall::new((U256::from(2),)).abi_encode(),
+        ))];
+        let exec2 = chain.exec(&txs2).unwrap();
+        let coverage2 = exec2.coverage.expect("coverage must be present");
+        let update2 = global.merge(&coverage2);
+        println!("update2: {:?}", update2);
+        let count_after_2 = global.contract_count();
+        println!("contract count after 2: {}", count_after_2);
+
+        // With the fix, only the factory and the child's runtime bytecode are
+        // counted (initcode is discarded on successful CREATE). Without the fix,
+        // each distinct initcode creates a new contract entry.
+        assert_eq!(
+            count_after_2, 2,
+            "deploying the same runtime contract with different constructor args should not increase unique contract count beyond factory + runtime"
+        );
+
+        // Crucially, the second deployment must not be considered "interesting"
+        // coverage. If initcode were still tracked, the new initcode hash would
+        // produce new edges and the corpus would grow indefinitely.
+        assert!(
+            !update2.is_interesting(),
+            "second deployment with different constructor args must not produce new coverage edges; otherwise corpus would balloon"
+        );
+        assert_eq!(
+            update2,
+            CoverageUpdate::default(),
+            "all coverage metrics must be zero on second deployment with identical runtime bytecode"
         );
     }
 }
