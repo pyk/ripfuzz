@@ -351,6 +351,44 @@ fn collect_functions_from_artifacts(
         .collect()
 }
 
+/// Collect source lines that correspond to contract state-variable declarations.
+/// These lines should not be treated as executable.
+fn collect_state_variable_lines_from_artifacts(
+    artifacts: &[Artifact],
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+) -> HashMap<PathBuf, HashSet<usize>> {
+    let mut result: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
+
+    for artifact in artifacts {
+        let ast = artifact.ast();
+        for node in &ast.nodes {
+            let solc::ast::SourceUnitNode::ContractDefinition(contract) = node else {
+                continue;
+            };
+            for node in &contract.nodes {
+                let solc::ast::ContractDefinitionNode::VariableDeclaration(var) = node else {
+                    continue;
+                };
+                if !var.state_variable {
+                    continue;
+                }
+                let Some(path) = resolver.resolve(artifact, var.src.source_index) else {
+                    continue;
+                };
+                let content = source_cache.get(&path).cloned().unwrap_or_default();
+                if content.is_empty() {
+                    continue;
+                }
+                let line = offset_to_line(&content, var.src.offset);
+                result.entry(path).or_default().insert(line);
+            }
+        }
+    }
+
+    result
+}
+
 // ---------------------------------------------------------------------------
 // Coverage report
 // ---------------------------------------------------------------------------
@@ -516,6 +554,17 @@ impl CoverageReporter {
                 }
                 let line = offset_to_line(content, entry.offset);
                 executable_lines.entry(path).or_default().insert(line);
+            }
+        }
+
+        // Exclude state-variable declaration lines from executable lines.
+        let state_variable_lines =
+            collect_state_variable_lines_from_artifacts(&self.artifacts, &resolver, &source_cache);
+        for (path, lines) in &state_variable_lines {
+            if let Some(executable) = executable_lines.get_mut(path) {
+                for line in lines {
+                    executable.remove(line);
+                }
             }
         }
 
