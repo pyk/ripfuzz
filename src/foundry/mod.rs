@@ -9,15 +9,11 @@
 //! 3. **Loading build info**: read compiler build-info files from the project's
 //!    `out/build-info/` directory via [`BuildInfo::load_source_index_for_artifact`].
 
-pub use artifact::{
-    Artifact, ArtifactBytecode, ArtifactId, ContractArtifact, LinkReferences, StorageTypeInfo,
-    get_contract_definition,
-};
-pub use build_info::BuildInfo;
+pub use artifact::{Artifact, ArtifactId, ContractArtifact, LinkReferences, StorageTypeInfo};
+
 pub use build_options::BuildOptions;
 pub use project::Project;
 
 mod artifact;
-mod build_info;
 mod build_options;
 mod project;

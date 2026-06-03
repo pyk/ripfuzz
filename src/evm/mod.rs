@@ -19,8 +19,7 @@ pub use chain::{
 pub use cheatcode::CheatcodeConfig;
 pub use contract::Contract;
 pub use coverage::{
-    CoverageContext, CoverageReporter, CoverageUpdate, ExecutionContractCoverage,
-    ExecutionCoverage, SharedCoverage,
+    CoverageReporter, CoverageUpdate, ExecutionContractCoverage, ExecutionCoverage, SharedCoverage,
 };
 pub use forkdb::ForkDBConfig;
 pub use result::TransactionResult;

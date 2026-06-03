@@ -19,8 +19,8 @@ use crate::corpus::{
     SharedFailedCorpusItem,
 };
 use crate::evm::{
-    Chain, ChainConfig, Contract, CoverageContext, CoverageReporter, DeployInput, ForkDBConfig,
-    SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
+    Chain, ChainConfig, Contract, CoverageReporter, DeployInput, ForkDBConfig, SetupInput,
+    SharedCoverage, Trace, TraceContext, Transaction,
 };
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
@@ -912,22 +912,14 @@ fn write_coverage_report(
     project: &Project,
     campaign_id: &str,
     shared_coverage: &SharedCoverage,
-    target_contract: &Contract,
+    _target_contract: &Contract,
 ) -> Result<Vec<(PathBuf, f64)>> {
-    let context = CoverageContext::from_project(project)?
-        .with_target_artifact(&target_contract.artifact_id)?;
-
+    let artifacts = project.load_artifacts()?;
     let reporter = CoverageReporter::new()
-        .coverage(shared_coverage.clone())
-        .target_functions(
-            target_contract
-                .target_functions
-                .iter()
-                .chain(target_contract.invariant_functions.iter())
-                .cloned()
-                .collect(),
-        )
-        .context(context);
+        .build_artifacts(artifacts.into_values().collect())
+        .shared_coverage(shared_coverage.clone());
+
+    let report = reporter.build();
 
     let coverage_dir = project
         .path
@@ -937,22 +929,17 @@ fn write_coverage_report(
         .join("coverage");
     fs::create_dir_all(&coverage_dir)?;
 
-    let mut generated = Vec::new();
-    for (signature, func_report) in reporter.get_reports() {
-        let name = signature.split('(').next().unwrap_or(&signature);
-        let func_file = coverage_dir.join(format!(
-            "{}.txt",
-            name.replace(|c: char| !c.is_alphanumeric(), "_")
-        ));
-        fs::write(&func_file, format!("{func_report}"))?;
-        let relative_path = func_file
-            .strip_prefix(&project.path)
-            .unwrap_or(&func_file)
-            .to_path_buf();
-        generated.push((relative_path, func_report.coverage));
-    }
+    let lcov_file = coverage_dir.join("lcov.info");
+    let lcov_content = format!("{report}");
+    fs::write(&lcov_file, &lcov_content)?;
 
-    Ok(generated)
+    let relative_path = lcov_file
+        .strip_prefix(&project.path)
+        .unwrap_or(&lcov_file)
+        .to_path_buf();
+    let pct = report.coverage();
+
+    Ok(vec![(relative_path, pct)])
 }
 
 fn write_trace_to_file(
