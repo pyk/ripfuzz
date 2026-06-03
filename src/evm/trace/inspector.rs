@@ -79,7 +79,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
                     .unwrap_or_default();
 
                 if let Some(slots) = self.mapping_slots.get_mut(&address) {
-                    slots.insert(slot.into());
+                    slots.insert_nearby(slot.into());
                 }
 
                 if let Some(frame) = self.stack.last_mut() {
@@ -514,5 +514,45 @@ mod tests {
         let change = &root.storage_changes[0];
         assert_eq!(change.old_value, U256::ZERO, "old value must be 0");
         assert_eq!(change.new_value, U256::from(42), "new value must be 42");
+    }
+
+    /// Regression test: storage changes inside a struct-valued mapping must be
+    /// decoded even when the exact mapping base slot never appears in an SSTORE
+    /// because the first field is never touched.
+    #[test]
+    fn struct_mapping_slot_decoded() {
+        let contract = load_fixture("src/StructMappingSlot.sol:StructMappingSlot");
+
+        let mut chain = Chain::empty(ChainConfig::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(
+            !deployment.result.success,
+            "deployment must fail when constructor reverts"
+        );
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+
+        let root = &deployment.trace.roots[0];
+        assert!(
+            !root.storage_changes.is_empty(),
+            "storage changes must be recorded"
+        );
+        assert_eq!(
+            root.storage_changes.len(),
+            1,
+            "exactly one storage change must be recorded"
+        );
+        let change = &root.storage_changes[0];
+        assert_eq!(change.new_value, U256::from(42), "new value must be 42");
+
+        let project = Project::new("fixtures/trace-inspector");
+        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let deploy_address = root.address.unwrap();
+        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+
+        let formatted = format!("{}", deployment.trace.display_with(&ctx));
+        assert!(
+            formatted.contains("data[1].c"),
+            "mapping slot must be decoded as 'data[1].c', got:\n{formatted}"
+        );
     }
 }

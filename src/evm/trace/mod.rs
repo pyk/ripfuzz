@@ -238,6 +238,31 @@ impl MappingSlots {
         true
     }
 
+    /// Try to register a mapping slot that is the base of a nearby storage
+    /// access. This is needed for struct-valued mappings where the first field
+    /// is never touched, so the exact base slot never appears in an `SSTORE`.
+    pub fn insert_nearby(&mut self, slot: alloy_primitives::B256) -> bool {
+        if self.insert(slot) {
+            return true;
+        }
+        let slot_u256 = U256::from_be_bytes(slot.0);
+        for (known_slot, (key, parent)) in &self.seen_sha3 {
+            let known_u256 = U256::from_be_bytes(known_slot.0);
+            if slot_u256 >= known_u256 {
+                let offset = slot_u256 - known_u256;
+                if offset < 128 {
+                    if !self.keys.contains_key(known_slot) {
+                        self.keys.insert(*known_slot, *key);
+                        self.parent_slots.insert(*known_slot, *parent);
+                        self.insert(*parent);
+                    }
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Return the chain of keys from outermost to innermost for a mapping
     /// slot, or `None` if the slot is unknown.
     pub fn key_chain(&self, slot: alloy_primitives::B256) -> Option<Vec<alloy_primitives::B256>> {
