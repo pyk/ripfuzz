@@ -118,6 +118,22 @@ impl StorageType {
         None
     }
 
+    /// Return the byte size of a single value of this type.
+    pub fn slot_size(&self) -> usize {
+        match self {
+            Self::Bool => 1,
+            Self::Uint(bits) => bits / 8,
+            Self::Int(bits) => bits / 8,
+            Self::Address => 20,
+            Self::FixedBytes(sz) => *sz,
+            Self::DynamicBytes
+            | Self::String
+            | Self::Array { .. }
+            | Self::Mapping
+            | Self::Struct => 32,
+        }
+    }
+
     /// Format a raw storage slot value according to this type.
     ///
     /// `offset` is the byte offset within the 32-byte word, and `bytes` is the

@@ -35,6 +35,7 @@ struct StructField {
     name: String,
     slot_offset: usize,
     ty: StorageType,
+    bytes: usize,
 }
 
 /// Metadata for an array variable so that hashed element slots can be
@@ -378,12 +379,43 @@ impl TraceContext {
                             let key_str = key_ty.format_value(key_u256, 0, 32);
                             label = format!("{}[{}]", label, key_str);
                         }
-                        // Struct field inside mapping value.
-                        if let Some(fields) = &info.value_struct_fields
-                            && let Some(field) =
+                        // Struct field inside mapping value (including array fields).
+                        if let Some(fields) = &info.value_struct_fields {
+                            if let Some(field) =
                                 fields.iter().find(|f| f.slot_offset == offset_usize)
-                        {
-                            return Some(format!("{}.{}", label, field.name));
+                            {
+                                if let StorageType::Array { len: Some(_), .. } = &field.ty {
+                                    return Some(format!("{}.{}[0]", label, field.name));
+                                }
+                                return Some(format!("{}.{}", label, field.name));
+                            }
+                            // Check if offset falls within a struct field that is a fixed array.
+                            for field in fields.iter() {
+                                if let StorageType::Array {
+                                    len: Some(len),
+                                    element,
+                                } = &field.ty
+                                {
+                                    let total_slots = field.bytes.div_ceil(32);
+                                    if offset_usize >= field.slot_offset
+                                        && offset_usize < field.slot_offset + total_slots
+                                    {
+                                        let slot_index = offset_usize - field.slot_offset;
+                                        let element_slots = element.slot_size().div_ceil(32);
+                                        let index = if element_slots > 1 {
+                                            slot_index / element_slots
+                                        } else {
+                                            slot_index * (32 / element.slot_size())
+                                        };
+                                        if index < *len {
+                                            return Some(format!(
+                                                "{}.{}[{}]",
+                                                label, field.name, index
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
                         }
                         // Fixed array element inside mapping value.
                         if let StorageType::Array { len: Some(len), .. } = &info.value_storage_type
@@ -559,12 +591,27 @@ impl TraceContext {
                         if info.base_slot != base_u256 {
                             continue;
                         }
-                        // Struct field inside mapping value.
-                        if let Some(fields) = &info.value_struct_fields
-                            && let Some(field) =
+                        // Struct field inside mapping value (including array fields).
+                        if let Some(fields) = &info.value_struct_fields {
+                            if let Some(field) =
                                 fields.iter().find(|f| f.slot_offset == offset_usize)
-                        {
-                            return Some(&field.ty);
+                            {
+                                if let StorageType::Array { element, .. } = &field.ty {
+                                    return Some(element.as_ref());
+                                }
+                                return Some(&field.ty);
+                            }
+                            // Check if offset falls within a struct field that is a fixed array.
+                            for field in fields.iter() {
+                                if let StorageType::Array { element, .. } = &field.ty {
+                                    let total_slots = field.bytes.div_ceil(32);
+                                    if offset_usize >= field.slot_offset
+                                        && offset_usize < field.slot_offset + total_slots
+                                    {
+                                        return Some(element.as_ref());
+                                    }
+                                }
+                            }
                         }
                         // Fixed array element inside mapping value.
                         if let StorageType::Array {
@@ -1229,11 +1276,16 @@ fn parse_struct_fields(
     for member in &struct_type.members {
         let slot_offset = member.slot.parse::<usize>().ok()?;
         let ty = StorageType::parse(&member.type_name)?;
+        let bytes = types
+            .get(&member.type_name)
+            .and_then(|t| t.number_of_bytes.parse::<usize>().ok())
+            .unwrap_or(32);
         fields.push(StructField {
             // checkrs: allow(clone_in_loops)
             name: member.label.clone(),
             slot_offset,
             ty,
+            bytes,
         });
     }
     Some(fields)
