@@ -102,7 +102,11 @@ impl Inspector {
             .prank
             .start
             .as_ref()
-            .filter(|s| curr_depth > s.set_depth && inputs.target_address != VM_ADDRESS)
+            .filter(|s| {
+                original_caller == s.prank_caller
+                    && curr_depth > s.set_depth
+                    && inputs.target_address != VM_ADDRESS
+            })
             .map(|s| (s.caller, s.origin));
 
         let prank_info = self
@@ -161,7 +165,7 @@ impl Inspector {
             .prank
             .start
             .as_ref()
-            .filter(|s| curr_depth > s.set_depth)
+            .filter(|s| original_caller == s.prank_caller && curr_depth > s.set_depth)
             .map(|s| (s.caller, s.origin));
 
         let prank_info = self

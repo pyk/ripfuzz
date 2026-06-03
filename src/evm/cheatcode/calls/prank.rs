@@ -155,6 +155,14 @@ mod tests {
         }
     }
 
+    alloy_sol_types::sol! {
+        interface PrankLeakTarget {
+            function setup() external;
+            function action() external;
+            function invariant() external view;
+        }
+    }
+
     const PRANK_ADDR: Address = address!("0x1111111111111111111111111111111111111111");
     const PRANK_ADDR_2: Address = address!("0x2222222222222222222222222222222222222222");
     const START_ADDR: Address = address!("0x5555555555555555555555555555555555555555");
@@ -170,6 +178,19 @@ mod tests {
 
     fn deploy_and_setup() -> (Chain, Address) {
         let contract = load_fixture("src/PrankTarget.sol:PrankTarget");
+        let mut chain = Chain::new(ChainConfig::default()).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        let target = deployment.address.unwrap();
+
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
+        assert!(setup.result.success, "setup must succeed");
+
+        (chain, target)
+    }
+
+    fn deploy_and_setup_leak() -> (Chain, Address) {
+        let contract = load_fixture("src/PrankLeakTarget.sol:PrankLeakTarget");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -525,6 +546,29 @@ mod tests {
         assert!(
             execution.results[1].success,
             "invariant must pass on cloned chain"
+        );
+    }
+
+    /// Regression test: vm.startPrank must not leak into sub-calls made by
+    /// contracts that were called with the pranked address.
+    #[test]
+    fn start_prank_does_not_leak_to_sub_calls() {
+        let (mut chain, target) = deploy_and_setup_leak();
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                PrankLeakTarget::actionCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                PrankLeakTarget::invariantCall::new(()).abi_encode(),
+            )),
+        ];
+
+        let execution = chain.exec(&txs).unwrap();
+        assert_eq!(execution.results.len(), 2);
+        assert!(execution.results[0].success, "action must succeed");
+        assert!(
+            execution.results[1].success,
+            "invariant must pass: startPrank must not leak into sub-calls"
         );
     }
 }
