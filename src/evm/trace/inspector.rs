@@ -593,4 +593,32 @@ mod tests {
             "mapping slot must be decoded as 'data[1].arr[1]', got:\n{formatted}"
         );
     }
+
+    #[test]
+    fn return_value_types_trace() {
+        let outer = load_fixture("src/ReturnValueTypesTrace.sol:ReturnValueTypesTrace");
+
+        let project = Project::new("fixtures/trace-inspector");
+        let mut ctx = TraceContext::from_project(&project).unwrap();
+
+        let mut chain = Chain::empty(ChainConfig::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&outer.initcode)).unwrap();
+        assert!(!deployment.result.success, "deployment must fail");
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+
+        let root = &deployment.trace.roots[0];
+        let deploy_address = root.address.unwrap();
+
+        ctx = ctx.with_label(deploy_address, outer.artifact_id.name.clone());
+
+        let formatted = format!("{}", deployment.trace.display_with(&ctx));
+        let expected =
+            fs::read_to_string("fixtures/trace-inspector/expected/ReturnValueTypesTrace.txt")
+                .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "trace output must match expected"
+        );
+    }
 }

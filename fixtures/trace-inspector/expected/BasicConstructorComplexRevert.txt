@@ -46,7 +46,7 @@
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
     │   │   @ block.number: 1
-    │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000002a
+    │   └─ ← [return] 42
     ├─ [581] Counter::setValue(100)
     │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
@@ -174,15 +174,15 @@
     │   │   │   @ msg.value: 0
     │   │   │   @ block.timestamp: 1438269988
     │   │   │   @ block.number: 1
-    │   │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000001e
-    │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000001e
+    │   │   └─ ← [return] 30
+    │   └─ ← [return] 30
     ├─ [910] BasicConstructorComplexRevert::add(10, 20)
     │   ├─  call context:
     │   │   @ msg.sender: RaptorDeployer [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]
     │   │   @ msg.value: 10000
     │   │   @ block.timestamp: 1438269988
     │   │   @ block.number: 1
-    │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000001e
+    │   └─ ← [return] 30
     ├─ [1559] Counter::selfCall(50)
     │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]

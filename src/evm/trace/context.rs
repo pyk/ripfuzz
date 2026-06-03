@@ -772,6 +772,45 @@ impl TraceContext {
         (None, "...".into())
     }
 
+    /// Decode a function return value using the registered ABIs.
+    ///
+    /// Returns a formatted string of decoded return values if the function
+    /// selector is found and the return data can be decoded.
+    pub fn decode_return(&self, input: &Bytes, output: &Bytes) -> Option<String> {
+        if input.len() < 4 || output.is_empty() {
+            return None;
+        }
+        let sel: [u8; 4] = input[..4].try_into().unwrap_or_default();
+        for abi in &self.abis {
+            if let Some(func) = abi.function_by_selector(FixedBytes::new(sel)) {
+                if func.outputs.is_empty() {
+                    return None;
+                }
+                let types: Vec<DynSolType> = func
+                    .outputs
+                    .iter()
+                    .filter_map(|p| DynSolType::parse(&p.selector_type()).ok())
+                    .collect();
+                if types.is_empty() {
+                    return None;
+                }
+                let tuple = DynSolType::Tuple(types);
+                match tuple.abi_decode_params(output) {
+                    Ok(DynSolValue::Tuple(values)) => {
+                        let formatted = format_abi_args(&values, &func.outputs, &self.labels);
+                        return Some(formatted);
+                    }
+                    Ok(other) => {
+                        let formatted = format_abi_args(&[other], &func.outputs, &self.labels);
+                        return Some(formatted);
+                    }
+                    Err(_) => return Some("...".into()),
+                }
+            }
+        }
+        None
+    }
+
     /// Decode an event log using the registered ABIs.
     ///
     /// Returns the event name (if found) and a formatted argument string.

@@ -663,7 +663,10 @@ impl<'a> TraceDisplay<'a> {
                     writeln!(f, "{result_prefix}← [stop]")?;
                 }
             } else {
-                let out = if frame.output.is_empty() {
+                let decoded = self.ctx.decode_return(&frame.input, &frame.output);
+                let out = if let Some(decoded) = decoded {
+                    decoded
+                } else if frame.output.is_empty() {
                     String::new()
                 } else {
                     format!("0x{}", hex::encode(&frame.output))
