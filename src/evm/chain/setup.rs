@@ -5,13 +5,14 @@ use alloy_sol_types::SolCall;
 use revm::primitives::Bytes;
 
 use crate::evm::chain::DEFAULT_DEPLOYER;
-use crate::evm::{result, trace};
+use crate::evm::{ExecutionCoverage, result, trace};
 
 /// Result of a setup call, including the trace.
 #[derive(Debug, Clone)]
 pub struct SetupOutput {
     pub result: result::TransactionResult,
     pub trace: trace::Trace,
+    pub coverage: ExecutionCoverage,
 }
 
 alloy_sol_types::sol! {

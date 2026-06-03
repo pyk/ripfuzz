@@ -256,8 +256,11 @@ impl Chain {
         gas_limit: u64,
     ) -> Result<DeployOutput> {
         let inspector = (
-            trace::Inspector::new(),
-            cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+            (
+                trace::Inspector::new(),
+                cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+            ),
+            coverage::Inspector::new(),
         );
         let tx = TxEnv {
             caller,
@@ -267,15 +270,18 @@ impl Chain {
             value,
             ..Default::default()
         };
-        let (result, (trace_inspector, cheatcode_inspector)) = self.inspect(tx, inspector)?;
+        let (result, ((trace_inspector, cheatcode_inspector), coverage_inspector)) =
+            self.inspect(tx, inspector)?;
         self.cheatcode_state = cheatcode_inspector.state;
         let address = result.created_address;
         let trace = trace_inspector.into_trace();
+        let coverage = coverage_inspector.into_coverage();
         Ok(DeployOutput {
             address,
             libraries: Vec::new(),
             result,
             trace,
+            coverage,
         })
     }
 
@@ -301,8 +307,11 @@ impl Chain {
     /// Execute a setup CALL against the given target and return the full result with trace.
     pub fn setup(&mut self, opts: SetupInput) -> Result<SetupOutput> {
         let inspector = (
-            trace::Inspector::new(),
-            cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+            (
+                trace::Inspector::new(),
+                cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+            ),
+            coverage::Inspector::new(),
         );
         let tx = TxEnv {
             caller: opts.caller,
@@ -312,10 +321,16 @@ impl Chain {
             value: opts.value,
             ..Default::default()
         };
-        let (result, (trace_inspector, cheatcode_inspector)) = self.inspect(tx, inspector)?;
+        let (result, ((trace_inspector, cheatcode_inspector), coverage_inspector)) =
+            self.inspect(tx, inspector)?;
         self.cheatcode_state = cheatcode_inspector.state;
         let trace = trace_inspector.into_trace();
-        Ok(SetupOutput { result, trace })
+        let coverage = coverage_inspector.into_coverage();
+        Ok(SetupOutput {
+            result,
+            trace,
+            coverage,
+        })
     }
 
     /// Execute a sequence of transactions and commit state changes.

@@ -477,6 +477,7 @@ pub fn run(args: Args) -> Result<()> {
     ))?;
 
     // Run setup if present
+    let mut setup_coverage = None;
     if let Some(ref setup) = target_contract.setup_function {
         console.begin("calling setup")?;
         let setup_output = match chain.setup(
@@ -509,6 +510,7 @@ pub fn run(args: Args) -> Result<()> {
             console.print_line(format!("    trace: {}", trace_file.display()))?;
             return Err(anyhow::anyhow!("setup failed"));
         }
+        setup_coverage = Some(setup_output.coverage);
         console.end()?;
     }
 
@@ -548,6 +550,10 @@ pub fn run(args: Args) -> Result<()> {
 
     // Initialize shared coverage and sync with corpus.
     let shared_coverage = SharedCoverage::new();
+    shared_coverage.merge(&deployment.coverage);
+    if let Some(coverage) = setup_coverage {
+        shared_coverage.merge(&coverage);
+    }
     let replay_count = corpus_stats.valid_count;
 
     if replay_count > 0 {

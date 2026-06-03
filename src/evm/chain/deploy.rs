@@ -3,7 +3,7 @@
 use alloy_primitives::{Address, U256};
 
 use crate::evm::chain::DEFAULT_DEPLOYER;
-use crate::evm::{result, trace};
+use crate::evm::{ExecutionCoverage, result, trace};
 
 /// Configuration for a contract deployment.
 #[derive(Debug, Clone)]
@@ -96,4 +96,5 @@ pub struct DeployOutput {
     pub libraries: Vec<DeployLibraryOutput>,
     pub result: result::TransactionResult,
     pub trace: trace::Trace,
+    pub coverage: ExecutionCoverage,
 }
