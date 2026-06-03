@@ -457,6 +457,44 @@ impl<'a> TraceDisplay<'a> {
         let mut child_has_next = has_next.to_vec();
         child_has_next.push(!is_last);
 
+        // Write call metadata as pseudo-children
+        let mut meta_prefix = String::new();
+        for h in &child_has_next {
+            if *h {
+                meta_prefix.push_str("│   ");
+            } else {
+                meta_prefix.push_str("    ");
+            }
+        }
+        meta_prefix.push_str("├─ ");
+        writeln!(f, "{meta_prefix} call metadata:")?;
+
+        let mut meta_detail_prefix = String::new();
+        for h in &child_has_next {
+            if *h {
+                meta_detail_prefix.push_str("│   ");
+            } else {
+                meta_detail_prefix.push_str("    ");
+            }
+        }
+        meta_detail_prefix.push_str("│   ");
+
+        let caller_label = self
+            .labels
+            .get(&frame.caller)
+            .map(|s| s.as_str())
+            .or_else(|| self.ctx.get_label(&frame.caller))
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| frame.caller.to_checksum(None));
+        writeln!(f, "{meta_detail_prefix}msg.sender: {caller_label}")?;
+        writeln!(f, "{meta_detail_prefix}msg.value: {}", frame.value)?;
+        writeln!(
+            f,
+            "{meta_detail_prefix}block.timestamp: {}",
+            frame.timestamp
+        )?;
+        writeln!(f, "{meta_detail_prefix}block.number: {}", frame.number)?;
+
         // Write children
         for child in &frame.children {
             self.write_frame(f, child, &child_has_next, false)?;
@@ -628,6 +666,10 @@ pub struct CallFrame {
     pub depth: usize,
     pub kind: CallFrameKind,
     pub address: Option<Address>,
+    pub caller: Address,
+    pub value: U256,
+    pub timestamp: U256,
+    pub number: U256,
     pub input: Bytes,
     pub output: Bytes,
     pub gas_used: u64,

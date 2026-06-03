@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use alloy_primitives::{Address, B256, U256, keccak256};
 use revm::bytecode::opcode::{KECCAK256, SSTORE};
 use revm::context::JournalTr;
+use revm::context_interface::Block;
 use revm::inspector::Inspector as RevmInspector;
 use revm::interpreter::interpreter_types::{InputsTr, Jumps};
 use revm::interpreter::{CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome};
@@ -99,6 +100,10 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             depth: self.stack.len(),
             kind: CallFrameKind::Call(inputs.scheme),
             address: Some(inputs.target_address),
+            caller: inputs.caller,
+            value: inputs.value.get(),
+            timestamp: _context.block().timestamp(),
+            number: _context.block().number(),
             input,
             output: Bytes::new(),
             gas_used: 0,
@@ -115,6 +120,10 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             depth: 0,
             kind: CallFrameKind::Call(CallScheme::Call),
             address: None,
+            caller: Address::ZERO,
+            value: U256::ZERO,
+            timestamp: U256::ZERO,
+            number: U256::ZERO,
             input: Bytes::new(),
             output: Bytes::new(),
             gas_used: 0,
@@ -140,6 +149,10 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             depth: self.stack.len(),
             kind: CallFrameKind::Create,
             address: None,
+            caller: inputs.caller(),
+            value: inputs.value(),
+            timestamp: _context.block().timestamp(),
+            number: _context.block().number(),
             input: inputs.init_code().clone(),
             output: Bytes::new(),
             gas_used: 0,
@@ -161,6 +174,10 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             depth: 0,
             kind: CallFrameKind::Create,
             address: None,
+            caller: Address::ZERO,
+            value: U256::ZERO,
+            timestamp: U256::ZERO,
+            number: U256::ZERO,
             input: Bytes::new(),
             output: Bytes::new(),
             gas_used: 0,
