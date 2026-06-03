@@ -657,6 +657,18 @@ impl CoverageReporter {
         let mut file_functions =
             collect_functions_from_artifacts(&self.artifacts, &resolver, &source_cache, &line_hits);
 
+        // Ensure every function start line has a corresponding DA entry.
+        // genhtml requires a DA line for every FN line; if the source map
+        // does not include the function signature (e.g. for un-inlined
+        // library functions), we add the line with a 0 hit count so the
+        // report remains valid.
+        for (path, functions) in &file_functions {
+            let lines = executable_lines.entry(path.clone()).or_default(); // checkrs: allow(clone_in_loops)
+            for func in functions {
+                lines.insert(func.line);
+            }
+        }
+
         // -------------------------------------------------------------------
         // 4. Build the report.
         // -------------------------------------------------------------------
@@ -1050,6 +1062,41 @@ mod tests {
         assert!(
             !report.files.is_empty(),
             "coverage report must be generated for a target function inherited from a base contract"
+        );
+    }
+
+    /// Regression test: genhtml requires a DA entry for every FN line. If a
+    /// function's start line is not in the source map, the coverage report must
+    /// still emit a DA entry for that line so genhtml does not fail with
+    /// "unexpected category UNK".
+    #[test]
+    fn coverage_report_function_start_line_without_source_map() {
+        let contract = load_coverage_fixture("src/UnusedLibraryUser.sol:UnusedLibraryUser");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
+            hex::decode("771602f7").unwrap(), // useAdd(uint256,uint256)
+        ))];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&global, &artifacts);
+
+        // The report must contain a DA entry for the unused library function
+        // start line (line 9) even if the library's deployed bytecode source
+        // map does not include it.
+        let unused_library = report
+            .files
+            .iter()
+            .find(|f| f.path.ends_with("UnusedLibrary.sol"))
+            .expect("UnusedLibrary.sol must be in report");
+        assert!(
+            unused_library.line_hits.contains_key(&9),
+            "UnusedLibrary.sol must contain DA entry for unused function at line 9: {unused_library:?}"
         );
     }
 }
