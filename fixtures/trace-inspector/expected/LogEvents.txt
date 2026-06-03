@@ -7,9 +7,9 @@
     └─ ← [return] 106 bytes of code
 
 Logs:
-simple log
-string value: "hello"
-uint256 value: 42
-address value: 0x000000000000000000000000000000000000cafE
-bytes value: 0x1234
-bool value: true
+  simple log
+  string value: "hello"
+  uint256 value: 42
+  address value: 0x000000000000000000000000000000000000cafE
+  bytes value: 0x1234
+  bool value: true

@@ -399,7 +399,7 @@ impl<'a> fmt::Display for TraceDisplay<'a> {
             writeln!(f)?;
             writeln!(f, "Logs:")?;
             for log in logs {
-                writeln!(f, "{log}")?;
+                writeln!(f, "  {log}")?;
             }
         }
 
