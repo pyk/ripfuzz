@@ -482,7 +482,7 @@ impl<'a> TraceDisplay<'a> {
         let mut child_has_next = has_next.to_vec();
         child_has_next.push(!is_last);
 
-        // Write call metadata as pseudo-children
+        // Write call context as pseudo-children
         let mut meta_prefix = String::new();
         for h in &child_has_next {
             if *h {
@@ -492,7 +492,7 @@ impl<'a> TraceDisplay<'a> {
             }
         }
         meta_prefix.push_str("├─ ");
-        writeln!(f, "{meta_prefix} call metadata:")?;
+        writeln!(f, "{meta_prefix} call context:")?;
 
         let mut meta_detail_prefix = String::new();
         for h in &child_has_next {

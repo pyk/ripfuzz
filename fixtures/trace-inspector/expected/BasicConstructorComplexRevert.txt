@@ -1,11 +1,11 @@
 [8580115] → new BasicConstructorComplexRevert@0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63
-    ├─  call metadata:
+    ├─  call context:
     │   @ msg.sender: RaptorDeployer [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]
     │   @ msg.value: 10000
     │   @ block.timestamp: 1438269988
     │   @ block.number: 1
     ├─ [5951271] → new Counter@0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -14,7 +14,7 @@
     │   │   @ value: 0 -> 42
     │   └─ ← [return] 5031 bytes of code
     ├─ [663] Counter::increment()
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -23,7 +23,7 @@
     │   │   @ value: 42 -> 43
     │   └─ ← [stop]
     ├─ [663] Counter::increment()
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -32,7 +32,7 @@
     │   │   @ value: 43 -> 44
     │   └─ ← [stop]
     ├─ [581] Counter::setValue(42)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -41,14 +41,14 @@
     │   │   @ value: 44 -> 42
     │   └─ ← [stop]
     ├─ [543] Counter::getValue() [staticcall]
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
     │   │   @ block.number: 1
     │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000002a
     ├─ [581] Counter::setValue(100)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -57,7 +57,7 @@
     │   │   @ value: 42 -> 100
     │   └─ ← [stop]
     ├─ [43739] Counter::setString("hello")
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -66,7 +66,7 @@
     │   │   @ strValue: "" -> "hello"
     │   └─ ← [stop]
     ├─ [43131] Counter::setBool(true)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -75,7 +75,7 @@
     │   │   @ boolValue: false -> true
     │   └─ ← [stop]
     ├─ [85703] Counter::pushArray(1)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -85,7 +85,7 @@
     │   │   @ arrValues[0]: 0 -> 1
     │   └─ ← [stop]
     ├─ [43335] Counter::pushArray(2)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -95,7 +95,7 @@
     │   │   @ arrValues[1]: 0 -> 2
     │   └─ ← [stop]
     ├─ [43252] Counter::setMap(10, 100)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -104,7 +104,7 @@
     │   │   @ mapValues[10]: 0 -> 100
     │   └─ ← [stop]
     ├─ [129538] Counter::setArray([3, 4, 5])
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -118,7 +118,7 @@
     │   │   @ arrValues[4]: 0 -> 5
     │   └─ ← [stop]
     ├─ [673] Counter::setStruct(Point({ x: 7, y: 8 }))
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -127,7 +127,7 @@
     │   │   @ value: 100 -> 15
     │   └─ ← [stop]
     ├─ [1104] Counter::setNestedStruct(Line({ start: Point({ x: 1, y: 2 }), end: Point({ x: 3, y: 4 }) }))
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -136,7 +136,7 @@
     │   │   @ value: 15 -> 10
     │   └─ ← [stop]
     ├─ [43782] Counter::setBytes(0xdeadbeef)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -145,7 +145,7 @@
     │   │   @ byteValue: 0x00 -> 0xdeadbeef00000000000000000000000000000000000000000000000000000008
     │   └─ ← [stop]
     ├─ [43006] Counter::setFixedBytes(0xcafebabe00000000000000000000000000000000000000000000000000000000)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -154,7 +154,7 @@
     │   │   @ fixedByteValue: 0x00 -> 0xcafebabe00000000000000000000000000000000000000000000000000000000
     │   └─ ← [stop]
     ├─ [670] Counter::doInternal()
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
@@ -163,13 +163,13 @@
     │   │   @ value: 10 -> 15
     │   └─ ← [stop]
     ├─ [5019] Counter::doLibraryCall(10, 20) [staticcall]
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
     │   │   @ block.number: 1
     │   ├─ [910] Counter::add(10, 20)
-    │   │   ├─  call metadata:
+    │   │   ├─  call context:
     │   │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   │   @ msg.value: 0
     │   │   │   @ block.timestamp: 1438269988
@@ -177,20 +177,20 @@
     │   │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000001e
     │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000001e
     ├─ [910] BasicConstructorComplexRevert::add(10, 20)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: RaptorDeployer [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]
     │   │   @ msg.value: 10000
     │   │   @ block.timestamp: 1438269988
     │   │   @ block.number: 1
     │   └─ ← [return] 0x000000000000000000000000000000000000000000000000000000000000001e
     ├─ [1559] Counter::selfCall(50)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
     │   │   @ block.number: 1
     │   ├─ [581] Counter::setValue(50)
-    │   │   ├─  call metadata:
+    │   │   ├─  call context:
     │   │   │   @ msg.sender: Counter [0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007]
     │   │   │   @ msg.value: 0
     │   │   │   @ block.timestamp: 1438269988
@@ -200,7 +200,7 @@
     │   │   └─ ← [stop]
     │   └─ ← [stop]
     ├─ [342] Counter::payableCall()
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 1000
     │   │   @ block.timestamp: 1438269988
@@ -209,20 +209,20 @@
     │   │   @ value: 50 -> 1000
     │   └─ ← [stop]
     ├─ [0] RaptorVM::warp(1234567890)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1438269988
     │   │   @ block.number: 1
     │   └─ ← [stop]
     ├─ [1827579] → new DeepContract@0x2C0cd89b28E26798dB89DA48E29f8B8D0a7378A7
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1234567890
     │   │   @ block.number: 1
     │   ├─ [752835] → new CounterHelper@0x3De67E219caa3135E36B7A70860ABb4280fC6F9A
-    │   │   ├─  call metadata:
+    │   │   ├─  call context:
     │   │   │   @ msg.sender: DeepContract [0x2C0cd89b28E26798dB89DA48E29f8B8D0a7378A7]
     │   │   │   @ msg.value: 0
     │   │   │   @ block.timestamp: 1234567890
@@ -232,13 +232,13 @@
     │   │   @ helper: 0x0000000000000000000000000000000000000000 -> 0x3De67E219caa3135E36B7A70860ABb4280fC6F9A
     │   └─ ← [return] 759 bytes of code
     ├─ [5221] DeepContract::run(0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007)
-    │   ├─  call metadata:
+    │   ├─  call context:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
     │   │   @ block.timestamp: 1234567890
     │   │   @ block.number: 1
     │   ├─ [663] Counter::increment()
-    │   │   ├─  call metadata:
+    │   │   ├─  call context:
     │   │   │   @ msg.sender: DeepContract [0x2C0cd89b28E26798dB89DA48E29f8B8D0a7378A7]
     │   │   │   @ msg.value: 0
     │   │   │   @ block.timestamp: 1234567890
@@ -247,13 +247,13 @@
     │   │   │   @ value: 1000 -> 1001
     │   │   └─ ← [stop]
     │   ├─ [2913] CounterHelper::help(0xbf7f846FB616b0F7d67EC410D79e1Ef1C913C007)
-    │   │   ├─  call metadata:
+    │   │   ├─  call context:
     │   │   │   @ msg.sender: DeepContract [0x2C0cd89b28E26798dB89DA48E29f8B8D0a7378A7]
     │   │   │   @ msg.value: 0
     │   │   │   @ block.timestamp: 1234567890
     │   │   │   @ block.number: 1
     │   │   ├─ [581] Counter::setValue(999)
-    │   │   │   ├─  call metadata:
+    │   │   │   ├─  call context:
     │   │   │   │   @ msg.sender: CounterHelper [0x3De67E219caa3135E36B7A70860ABb4280fC6F9A]
     │   │   │   │   @ msg.value: 0
     │   │   │   │   @ block.timestamp: 1234567890
@@ -262,7 +262,7 @@
     │   │   │   │   @ value: 1001 -> 999
     │   │   │   └─ ← [stop]
     │   │   ├─ [763] Counter::setBool(false)
-    │   │   │   ├─  call metadata:
+    │   │   │   ├─  call context:
     │   │   │   │   @ msg.sender: CounterHelper [0x3De67E219caa3135E36B7A70860ABb4280fC6F9A]
     │   │   │   │   @ msg.value: 0
     │   │   │   │   @ block.timestamp: 1234567890
