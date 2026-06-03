@@ -243,6 +243,12 @@ pub struct LinkReference {
 /// placeholder locations in the bytecode object.
 pub type LinkReferences = HashMap<String, HashMap<String, Vec<LinkReference>>>;
 
+/// Immutable references grouped by AST node ID.
+///
+/// Key: AST node ID of the immutable variable. Value: list of locations in the
+/// deployed bytecode where the immutable value is embedded.
+pub type ImmutableReferences = HashMap<String, Vec<LinkReference>>;
+
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ArtifactBytecode {
     #[serde(default)]
@@ -251,6 +257,8 @@ pub struct ArtifactBytecode {
     pub source_map: String,
     #[serde(default, rename = "linkReferences")]
     pub link_references: LinkReferences,
+    #[serde(default, rename = "immutableReferences")]
+    pub immutable_references: ImmutableReferences,
 }
 
 impl ArtifactBytecode {

@@ -232,6 +232,11 @@ impl<'a> ArtifactIndex<'a> {
                 continue;
             }
             let mut positions = collect_link_positions(&deployed.link_references);
+            for refs in deployed.immutable_references.values() {
+                for r in refs {
+                    positions.push((r.start, r.length));
+                }
+            }
             if matches!(artifact, Artifact::Library(_)) && code.first() == Some(&0x73) {
                 positions.push((1, 20));
             }
@@ -603,8 +608,18 @@ impl CoverageReporter {
         let all_counts = self.shared_coverage.all_raw_edge_counts_with_bytecodes();
         for counts in all_counts {
             let Some(artifact) = index.find(&counts.bytecode) else {
+                tracing::debug!(
+                    "unmatched bytecode: len={}, id={:?}",
+                    counts.bytecode.len(),
+                    counts.contract_id
+                );
                 continue;
             };
+            tracing::debug!(
+                "matched artifact: {} (bytecode len={})",
+                artifact.id(),
+                counts.bytecode.len()
+            );
             let Some(deployed) = artifact.deployed_bytecode() else {
                 continue;
             };
@@ -687,12 +702,16 @@ impl CoverageReporter {
         // Ensure every function start line has a corresponding DA entry.
         // genhtml requires a DA line for every FN line; if the source map
         // does not include the function signature (e.g. for un-inlined
-        // library functions), we add the line with a 0 hit count so the
-        // report remains valid.
+        // library functions), we add the line with the function's hit count
+        // so the report shows the function as covered.
         for (path, functions) in &file_functions {
             let lines = executable_lines.entry(path.clone()).or_default(); // checkrs: allow(clone_in_loops)
+            let hits = line_hits.entry(path.clone()).or_default(); // checkrs: allow(clone_in_loops)
             for func in functions {
                 lines.insert(func.line);
+                hits.entry(func.line)
+                    .and_modify(|e| *e = (*e).max(func.hits))
+                    .or_insert(func.hits);
             }
         }
 
@@ -1196,6 +1215,58 @@ mod tests {
         assert!(
             max_line <= line_count,
             "CoverageTrailingNewline.sol must not contain a line number beyond the file's line count ({line_count}), but found {max_line}"
+        );
+    }
+
+    /// Regression test: contracts with immutable variables must be matched
+    /// correctly by the coverage reporter so that their coverage is not lost.
+    #[test]
+    fn coverage_report_immutable_contract_matched() {
+        let contract = load_coverage_fixture("src/CoverageImmutable.sol:CoverageImmutable");
+        let config = ChainConfig::default().coverage(true);
+        let mut chain = Chain::new(config).unwrap();
+        let deploy_opts = DeployInput::new(&contract.initcode);
+        let deployment = chain.deploy(deploy_opts).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+
+        let global = SharedCoverage::new();
+        global.merge(&deployment.coverage);
+
+        let txs = vec![
+            Transaction::new(deployment.address.unwrap()).calldata(Bytes::from(
+                hex::decode("20965255").unwrap(), // getValue()
+            )),
+        ];
+        let exec = chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&global, &artifacts);
+
+        let file = report
+            .files
+            .iter()
+            .find(|f| f.path.ends_with("CoverageImmutable.sol"))
+            .expect("CoverageImmutable.sol must be in report");
+        let get_value_line = 15; // line of function getValue() signature
+        let body_line = 16; // line of function getValue() body
+        assert!(
+            file.line_hits.contains_key(&get_value_line),
+            "CoverageImmutable.sol must contain DA entry for getValue() line {get_value_line}: {file:?}"
+        );
+        assert!(
+            file.line_hits.get(&get_value_line).unwrap_or(&0) > &0,
+            "CoverageImmutable.sol getValue() line {get_value_line} must have hits > 0: {file:?}"
+        );
+        assert!(
+            file.line_hits.contains_key(&body_line),
+            "CoverageImmutable.sol must contain DA entry for getValue() body line {body_line}: {file:?}"
+        );
+        assert!(
+            file.line_hits.get(&body_line).unwrap_or(&0) > &0,
+            "CoverageImmutable.sol getValue() body line {body_line} must have hits > 0: {file:?}"
         );
     }
 }
