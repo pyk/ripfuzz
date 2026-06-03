@@ -99,6 +99,8 @@ pub struct SharedCoverage {
 pub struct SharedCoverageInner {
     contracts: HashMap<B256, ContractCoverage>,
     bytecodes: HashMap<B256, Vec<u8>>,
+    features: AtomicU64,
+    jump_features: AtomicU64,
 }
 
 impl SharedCoverage {
@@ -108,6 +110,8 @@ impl SharedCoverage {
             inner: Arc::new(SharedCoverageInner {
                 contracts: HashMap::new(),
                 bytecodes: HashMap::new(),
+                features: AtomicU64::new(0),
+                jump_features: AtomicU64::new(0),
             }),
         }
     }
@@ -143,6 +147,7 @@ impl SharedCoverage {
                     update.new_edges += 1;
                 } else if local_bucket > afl_bucket(prev) {
                     update.new_features += 1;
+                    self.inner.features.fetch_add(1, Ordering::Relaxed);
                 }
             }
 
@@ -185,6 +190,7 @@ impl SharedCoverage {
                     update.new_jump_edges += 1;
                 } else if local_bucket > afl_bucket(prev) {
                     update.new_jump_features += 1;
+                    self.inner.jump_features.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }
@@ -259,6 +265,16 @@ impl SharedCoverage {
     pub fn jump_count(&self) -> usize {
         let guard = self.inner.contracts.pin();
         guard.iter().map(|(_, c)| c.jump_edges.len()).sum()
+    }
+
+    /// Total number of edge bucket increases (features) across all contracts.
+    pub fn feature_count(&self) -> u64 {
+        self.inner.features.load(Ordering::Relaxed)
+    }
+
+    /// Total number of jump edge bucket increases (features) across all contracts.
+    pub fn jump_feature_count(&self) -> u64 {
+        self.inner.jump_features.load(Ordering::Relaxed)
     }
 
     /// Return the raw edge counts for a contract, if it exists.
