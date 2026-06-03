@@ -1,15 +1,15 @@
 [11917062] → new StorageTypesRevert@0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2
     ├─  call metadata:
-    │   msg.sender: 0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1
-    │   msg.value: 0
-    │   block.timestamp: 1438269988
-    │   block.number: 1
+    │   @ msg.sender: RaptorDeployer [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]
+    │   @ msg.value: 0
+    │   @ block.timestamp: 1438269988
+    │   @ block.number: 1
     ├─ [11553481] → new StorageTypes@0xB70839f72cA9d90009FE83f9D6D7497bE0bD57b0
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ boolValue: false -> true
     │   │   @ uint8Value: 0 -> 255
@@ -52,128 +52,128 @@
     │   └─ ← [return] 8673 bytes of code
     ├─ [718] StorageTypes::setBool(false)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ boolValue: true -> false
     │   └─ ← [stop]
     ├─ [880] StorageTypes::setUint8(0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ uint8Value: 255 -> 0
     │   └─ ← [stop]
     ├─ [792] StorageTypes::setUint128(0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ uint128Value: 340282366920938463463374607431768211455 -> 0
     │   └─ ← [stop]
     ├─ [582] StorageTypes::setUint256(0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ uint256Value: 115792089237316195423570985008687907853269984665640564039457584007913129639935 -> 0
     │   └─ ← [stop]
     ├─ [771] StorageTypes::setInt8(0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ int8Value: -128 -> 0
     │   └─ ← [stop]
     ├─ [779] StorageTypes::setInt128(0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ int128Value: -170141183460469231731687303715884105728 -> 0
     │   └─ ← [stop]
     ├─ [671] StorageTypes::setInt256(0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ int256Value: -57896044618658097711785492504343953926634992332820282019728792003956564819968 -> 0
     │   └─ ← [stop]
     ├─ [783] StorageTypes::setBytes1(0x0000000000000000000000000000000000000000000000000000000000000000)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ bytes1Value: 0x1 -> 0x00
     │   └─ ← [stop]
     ├─ [670] StorageTypes::setBytes32(0x0000000000000000000000000000000000000000000000000000000000000000)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ bytes32Value: 0xdeadbeef00000000000000000000000000000000000000000000000000000000 -> 0x00
     │   └─ ← [stop]
     ├─ [804] StorageTypes::setAddress(0x0000000000000000000000000000000000000000)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ addressValue: 0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1 -> 0x0000000000000000000000000000000000000000
     │   └─ ← [stop]
     ├─ [1354] StorageTypes::setBytes(0x)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ bytesValue: 0xcafebabe00000000000000000000000000000000000000000000000000000008 -> 0x00
     │   └─ ← [stop]
     ├─ [1332] StorageTypes::setString("")
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ stringValue: "hello" -> ""
     │   └─ ← [stop]
     ├─ [43444] StorageTypes::pushUintArray(3)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ uintArray.length: 2 -> 3
     │   │   @ uintArray[2]: 0 -> 3
     │   └─ ← [stop]
     ├─ [87130] StorageTypes::pushStructArray(Point({ x: 5, y: 6 }))
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ structArray.length: 2 -> 3
     │   │   @ structArray[2].x: 0 -> 5
@@ -181,123 +181,123 @@
     │   └─ ← [stop]
     ├─ [782] StorageTypes::setFixedArray(0, 0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ fixedArray[0]: 10 -> 0
     │   └─ ← [stop]
     ├─ [782] StorageTypes::setFixedArray(1, 0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ fixedArray[1]: 20 -> 0
     │   └─ ← [stop]
     ├─ [782] StorageTypes::setFixedArray(2, 0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ fixedArray[2]: 30 -> 0
     │   └─ ← [stop]
     ├─ [1107] StorageTypes::setTuple(0, 0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   └─ ← [stop]
     ├─ [697] StorageTypes::setStruct(Point({ x: 0, y: 0 }))
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   └─ ← [stop]
     ├─ [1150] StorageTypes::setNestedStruct(Line({ start: Point({ x: 0, y: 0 }), end: Point({ x: 0, y: 0 }) }))
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   └─ ← [stop]
-    ├─ [932] StorageTypes::setBalance(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0)
+    ├─ [932] StorageTypes::setBalance(RaptorDeployer: [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1], 0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ balances[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]: 1000 -> 0
     │   └─ ← [stop]
-    ├─ [1257] StorageTypes::setAllowance(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0x1234567890123456789012345678901234567890, 0)
+    ├─ [1257] StorageTypes::setAllowance(RaptorDeployer: [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1], 0x1234567890123456789012345678901234567890, 0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ allowances[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1][0x1234567890123456789012345678901234567890]: 500 -> 0
     │   └─ ← [stop]
     ├─ [1094] StorageTypes::setIdToOwner(1, 0x0000000000000000000000000000000000000000)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ idToOwner[1]: 0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1 -> 0x0000000000000000000000000000000000000000
     │   └─ ← [stop]
-    ├─ [1134] StorageTypes::setWhitelisted(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, false)
+    ├─ [1134] StorageTypes::setWhitelisted(RaptorDeployer: [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1], false)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ isWhitelisted[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]: true -> false
     │   └─ ← [stop]
     ├─ [896] StorageTypes::setProof(0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658, 0)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ proofs[0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658]: 42 -> 0
     │   └─ ← [stop]
     ├─ [43625] StorageTypes::pushIdToArray(1, 30)
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ idToArray[1].length: 2 -> 3
     │   │   @ idToArray[1][2]: 0 -> 30
     │   └─ ← [stop]
     ├─ [2254] StorageTypes::setIdToPoint(1, Point({ x: 0, y: 0 }))
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ idToPoint[1].x: 7 -> 0
     │   │   @ idToPoint[1].y: 8 -> 0
     │   └─ ← [stop]
-    ├─ [2378] StorageTypes::setUserToPoint(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, Point({ x: 0, y: 0 }))
+    ├─ [2378] StorageTypes::setUserToPoint(RaptorDeployer: [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1], Point({ x: 0, y: 0 }))
     │   ├─  call metadata:
-    │   │   msg.sender: StorageTypesRevert
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: StorageTypesRevert [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   ├─  storage changes:
     │   │   @ userToPoint[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1].x: 9 -> 0
     │   │   @ userToPoint[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1].y: 10 -> 0

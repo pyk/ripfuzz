@@ -509,16 +509,16 @@ impl<'a> TraceDisplay<'a> {
             .get(&frame.caller)
             .map(|s| s.as_str())
             .or_else(|| self.ctx.get_label(&frame.caller))
-            .map(|s| s.to_string())
+            .map(|s| format!("{s} [{}]", frame.caller.to_checksum(None)))
             .unwrap_or_else(|| frame.caller.to_checksum(None));
-        writeln!(f, "{meta_detail_prefix}msg.sender: {caller_label}")?;
-        writeln!(f, "{meta_detail_prefix}msg.value: {}", frame.value)?;
+        writeln!(f, "{meta_detail_prefix}@ msg.sender: {caller_label}")?;
+        writeln!(f, "{meta_detail_prefix}@ msg.value: {}", frame.value)?;
         writeln!(
             f,
-            "{meta_detail_prefix}block.timestamp: {}",
+            "{meta_detail_prefix}@ block.timestamp: {}",
             frame.timestamp
         )?;
-        writeln!(f, "{meta_detail_prefix}block.number: {}", frame.number)?;
+        writeln!(f, "{meta_detail_prefix}@ block.number: {}", frame.number)?;
 
         // Write children
         for child in &frame.children {

@@ -12,6 +12,7 @@ use alloy_sol_types::SolError;
 use anyhow::Result;
 use revm::primitives::{Address, Bytes};
 
+use crate::evm::chain::DEFAULT_DEPLOYER;
 use crate::evm::cheatcode::VM_ADDRESS;
 use crate::evm::trace::{MappingSlots, StorageType};
 use crate::foundry::{Artifact, ArtifactId, Project, StorageTypeInfo};
@@ -98,6 +99,7 @@ impl Default for TraceContext {
     fn default() -> Self {
         let mut labels = HashMap::new();
         labels.insert(VM_ADDRESS, "RaptorVM".into());
+        labels.insert(DEFAULT_DEPLOYER, "RaptorDeployer".into());
         Self {
             labels,
             abis: Vec::new(),

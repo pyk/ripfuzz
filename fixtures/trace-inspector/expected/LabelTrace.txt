@@ -1,29 +1,29 @@
 [7102] → new SelfLabel@0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2
     ├─  call metadata:
-    │   msg.sender: 0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1
-    │   msg.value: 0
-    │   block.timestamp: 1438269988
-    │   block.number: 1
+    │   @ msg.sender: RaptorDeployer [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]
+    │   @ msg.value: 0
+    │   @ block.timestamp: 1438269988
+    │   @ block.number: 1
     ├─ [0] RaptorVM::label(SelfLabel: [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2], "SelfLabel")
     │   ├─  call metadata:
-    │   │   msg.sender: SelfLabel
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: SelfLabel [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   └─ ← [stop]
     ├─ [0] RaptorVM::label(BeefLabel: [0x000000000000000000000000000000000000bEEF], "BeefLabel")
     │   ├─  call metadata:
-    │   │   msg.sender: SelfLabel
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: SelfLabel [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   └─ ← [stop]
     ├─ [0] RaptorVM::deal(BeefLabel: [0x000000000000000000000000000000000000bEEF], 100)
     │   ├─  call metadata:
-    │   │   msg.sender: SelfLabel
-    │   │   msg.value: 0
-    │   │   block.timestamp: 1438269988
-    │   │   block.number: 1
+    │   │   @ msg.sender: SelfLabel [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.value: 0
+    │   │   @ block.timestamp: 1438269988
+    │   │   @ block.number: 1
     │   └─ ← [stop]
     ├─ emit LabeledTransfer(from: BeefLabel: [0x000000000000000000000000000000000000bEEF], to: SelfLabel: [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2], value: 1000)
     └─ ← [revert] constructor always reverts

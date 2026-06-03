@@ -215,7 +215,7 @@ mod tests {
     use alloy_primitives::U256;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, ChainConfig, DEFAULT_DEPLOYER, DeployInput};
+    use crate::evm::chain::{Chain, ChainConfig, DeployInput};
     use crate::evm::trace::TraceContext;
     use crate::foundry::{ArtifactId, Project};
 
@@ -447,7 +447,6 @@ mod tests {
         let deploy_address = root.address.unwrap();
 
         ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
-        ctx = ctx.with_label(DEFAULT_DEPLOYER, "RaptorDeployer");
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected = fs::read_to_string("fixtures/trace-inspector/expected/EmitEvents.txt")
@@ -475,7 +474,6 @@ mod tests {
         let deploy_address = root.address.unwrap();
 
         ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
-        ctx = ctx.with_label(DEFAULT_DEPLOYER, "RaptorDeployer");
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected = fs::read_to_string("fixtures/trace-inspector/expected/LogEvents.txt")

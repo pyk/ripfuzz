@@ -1,7 +1,7 @@
 [233] → new PanicDivisionByZero@0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2
     ├─  call metadata:
-    │   msg.sender: 0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1
-    │   msg.value: 0
-    │   block.timestamp: 1438269988
-    │   block.number: 1
+    │   @ msg.sender: RaptorDeployer [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]
+    │   @ msg.value: 0
+    │   @ block.timestamp: 1438269988
+    │   @ block.number: 1
     └─ ← [revert] panic: division by zero
