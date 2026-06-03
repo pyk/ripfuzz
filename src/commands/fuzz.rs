@@ -684,11 +684,22 @@ pub fn run(args: Args) -> Result<()> {
         console.print_line(stats)?;
         console.new_line()?;
 
-        console.begin("generating coverage reports ...")?;
-        match write_coverage_report(&project, &campaign_id, &shared_coverage, &target_contract) {
+        let artifacts: Vec<Artifact> = project.load_artifacts()?.into_values().collect();
+        let n = artifacts.len();
+        console.begin(format!(
+            "generating coverage reports for {n} build artifacts ..."
+        ))?;
+        match write_coverage_report(
+            &project,
+            &campaign_id,
+            &shared_coverage,
+            &target_contract,
+            artifacts,
+        ) {
             Ok(files) => {
-                let count = files.len();
-                console.update(format!("generated {count} coverage reports"))?;
+                console.update(format!(
+                    "generated coverage reports for {n} build artifacts"
+                ))?;
                 console.end()?;
                 for (file, pct) in files {
                     console.print_line(format!("    [{pct:.2}%] {}", file.display()))?;
@@ -889,11 +900,22 @@ pub fn run(args: Args) -> Result<()> {
         console.end()?;
     }
 
-    console.begin("generating coverage reports ...")?;
-    match write_coverage_report(&project, &campaign_id, &shared_coverage, &target_contract) {
+    let artifacts: Vec<Artifact> = project.load_artifacts()?.into_values().collect();
+    let n = artifacts.len();
+    console.begin(format!(
+        "generating coverage reports for {n} build artifacts ..."
+    ))?;
+    match write_coverage_report(
+        &project,
+        &campaign_id,
+        &shared_coverage,
+        &target_contract,
+        artifacts,
+    ) {
         Ok(files) => {
-            let count = files.len();
-            console.update(format!("generated {count} coverage reports"))?;
+            console.update(format!(
+                "generated coverage reports for {n} build artifacts"
+            ))?;
             console.end()?;
             for (file, pct) in files {
                 console.print_line(format!("    [{pct:.2}%] {}", file.display()))?;
@@ -913,10 +935,10 @@ fn write_coverage_report(
     campaign_id: &str,
     shared_coverage: &SharedCoverage,
     _target_contract: &Contract,
+    artifacts: Vec<Artifact>,
 ) -> Result<Vec<(PathBuf, f64)>> {
-    let artifacts = project.load_artifacts()?;
     let reporter = CoverageReporter::new()
-        .build_artifacts(artifacts.into_values().collect())
+        .build_artifacts(artifacts)
         .shared_coverage(shared_coverage.clone());
 
     let report = reporter.build();
