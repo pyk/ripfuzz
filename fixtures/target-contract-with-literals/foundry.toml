@@ -3,3 +3,8 @@ src = "src"
 out = "out"
 libs = ["lib"]
 solc_version = "0.8.28"
+extra_output = ["storageLayout", "metadata"]
+ast = true
+
+[lint]
+lint_on_build = false
