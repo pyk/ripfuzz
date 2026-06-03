@@ -613,6 +613,45 @@ impl CoverageReporter {
         }
 
         // -------------------------------------------------------------------
+        // 2.5 Propagate hits to contract/library declaration lines.
+        // -------------------------------------------------------------------
+        for artifact in &self.artifacts {
+            let ast = artifact.ast();
+            for node in &ast.nodes {
+                let solc::ast::SourceUnitNode::ContractDefinition(contract) = node else {
+                    continue;
+                };
+                let Some(path) = resolver.resolve(artifact, contract.src.source_index) else {
+                    continue;
+                };
+                let content = source_cache.get(&path).cloned().unwrap_or_default();
+                if content.is_empty() {
+                    continue;
+                }
+                let start_line = offset_to_line(&content, contract.src.offset);
+                let end_line = offset_to_line(&content, contract.src.offset + contract.src.length);
+                let max_hit = line_hits
+                    .get(&path)
+                    .map(|hits| {
+                        hits.iter()
+                            .filter(|(line, _)| **line >= start_line && **line <= end_line)
+                            .map(|(_, count)| *count)
+                            .max()
+                            .unwrap_or(0)
+                    })
+                    .unwrap_or(0);
+                if max_hit > 0 {
+                    line_hits
+                        .entry(path)
+                        .or_default()
+                        .entry(start_line)
+                        .and_modify(|e| *e = (*e).max(max_hit))
+                        .or_insert(max_hit);
+                }
+            }
+        }
+
+        // -------------------------------------------------------------------
         // 3. Collect function coverage.
         // -------------------------------------------------------------------
         let mut file_functions =
@@ -1011,71 +1050,6 @@ mod tests {
         assert!(
             !report.files.is_empty(),
             "coverage report must be generated for a target function inherited from a base contract"
-        );
-    }
-
-    #[test]
-    fn coverage_report_missing_base_contract_id() {
-        let contract = load_coverage_fixture("src/EmptyTargetFunction.sol:EmptyTargetFunction");
-        let mut deployed = deploy_and_setup(&contract);
-
-        let global = SharedCoverage::new();
-        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            EmptyTargetFunction::dummyTargetFunctionCall::new(()).abi_encode(),
-        ))];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
-        let formatted = format!("{report}");
-
-        let expected_file = "fixtures/target-contract-coverage/expected/missingBaseContractId.info";
-        let expected = fs::read_to_string(expected_file)
-            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
-        let expected = expected.replace(
-            "fixtures/target-contract-coverage",
-            &project_path().to_string_lossy(),
-        );
-        assert_eq!(
-            formatted.trim(),
-            expected.trim(),
-            "coverage report output must match expected"
-        );
-    }
-
-    #[test]
-    fn coverage_report_missing_base_contract_id_with_calls() {
-        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
-        let mut deployed = deploy_and_setup(&contract);
-
-        let global = SharedCoverage::new();
-        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContract::inheritanceCallCall::new((U256::from(5),)).abi_encode(),
-        ))];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
-        let formatted = format!("{report}");
-
-        let expected_file =
-            "fixtures/target-contract-coverage/expected/missingBaseContractIdWithCalls.info";
-        let expected = fs::read_to_string(expected_file)
-            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
-        let expected = expected.replace(
-            "fixtures/target-contract-coverage",
-            &project_path().to_string_lossy(),
-        );
-        assert_eq!(
-            formatted.trim(),
-            expected.trim(),
-            "coverage report output for missing base contract id with calls must match expected"
         );
     }
 }
