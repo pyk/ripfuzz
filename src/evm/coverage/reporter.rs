@@ -273,12 +273,16 @@ impl<'a> ArtifactIndex<'a> {
 
 fn offset_to_line(content: &str, offset: usize) -> usize {
     let safe_offset = offset.min(content.len());
-    content
+    let mut line = content
         .bytes()
         .take(safe_offset)
         .filter(|&b| b == b'\n')
         .count()
-        + 1
+        + 1;
+    if safe_offset == content.len() && content.ends_with('\n') {
+        line = line.saturating_sub(1);
+    }
+    line
 }
 
 // ---------------------------------------------------------------------------
@@ -716,6 +720,7 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::{Address, Bytes};
 
+    use crate::evm::coverage::exec::{ExecutionContractCoverage, ExecutionCoverage};
     use crate::evm::{
         Chain, ChainConfig, Contract, DeployInput, SetupInput, SharedCoverage, Transaction,
     };
@@ -1097,6 +1102,71 @@ mod tests {
         assert!(
             unused_library.line_hits.contains_key(&9),
             "UnusedLibrary.sol must contain DA entry for unused function at line 9: {unused_library:?}"
+        );
+    }
+
+    /// Regression test: a source map entry whose offset points to the end of a
+    /// source file that ends with a newline must not produce a line number beyond
+    /// the file's actual line count.
+    #[test]
+    fn coverage_report_trailing_newline_no_out_of_range() {
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let mut artifacts: Vec<Artifact> =
+            project.load_artifacts().unwrap().into_values().collect();
+
+        // Extract the deployed bytecode from the artifact before we modify it.
+        let mut bytecode = Vec::new();
+        for artifact in &artifacts {
+            if artifact.id().to_string()
+                == "src/CoverageTrailingNewline.sol:CoverageTrailingNewline"
+            {
+                bytecode = artifact.deployed_bytecode().unwrap().to_bytes().to_vec();
+            }
+        }
+        assert!(!bytecode.is_empty(), "deployed bytecode must not be empty");
+
+        // Inject a fake source map entry pointing to the end of the file to
+        // simulate a compiler-generated entry that sits past the final newline.
+        let source_path =
+            PathBuf::from("fixtures/target-contract-coverage/src/CoverageTrailingNewline.sol");
+        let content = fs::read_to_string(&source_path).unwrap();
+        let file_len = content.len();
+
+        for artifact in &mut artifacts {
+            if artifact.id().to_string()
+                == "src/CoverageTrailingNewline.sol:CoverageTrailingNewline"
+            {
+                if let Artifact::Contract(a) = artifact {
+                    let original = a.deployed_bytecode.source_map.clone();
+                    a.deployed_bytecode.source_map =
+                        format!("{}:0:{}:-:0;{}", file_len, a.source_id, original);
+                }
+            }
+        }
+
+        // Create a fake coverage hit for PC 0 (the first opcode) which maps to the fake entry.
+        let global = SharedCoverage::new();
+        let mut fake_local = ExecutionCoverage::new();
+        let mut fake_contract = ExecutionContractCoverage::new(bytecode.len());
+        fake_contract.bytecode = bytecode;
+        fake_contract.edges[0] = 1;
+        fake_contract.hit_pcs.push(0);
+        let contract_id = keccak256(&fake_contract.bytecode);
+        fake_local.contracts.insert(contract_id, fake_contract);
+        global.merge(&fake_local);
+
+        let report = build_report(&global, &artifacts);
+
+        let file = report
+            .files
+            .iter()
+            .find(|f| f.path.ends_with("CoverageTrailingNewline.sol"))
+            .expect("CoverageTrailingNewline.sol must be in report");
+        let max_line = *file.line_hits.keys().max().unwrap_or(&0);
+        let line_count = content.lines().count();
+        assert!(
+            max_line <= line_count,
+            "CoverageTrailingNewline.sol must not contain a line number beyond the file's line count ({line_count}), but found {max_line}"
         );
     }
 }
