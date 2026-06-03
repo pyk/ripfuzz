@@ -529,6 +529,29 @@ impl CoverageReporter {
         let index = ArtifactIndex::new(&self.artifacts);
 
         // -------------------------------------------------------------------
+        // Determine active source paths from the shared coverage map.
+        // Only artifacts whose bytecode was recorded during fuzzing are
+        // considered "active". Their metadata source files define the exact
+        // set of files that should appear in the report.
+        // -------------------------------------------------------------------
+        let mut active_source_paths: HashSet<PathBuf> = HashSet::new();
+        let all_counts = self.shared_coverage.all_raw_edge_counts_with_bytecodes();
+        for counts in &all_counts {
+            let Some(artifact) = index.find(&counts.bytecode) else {
+                continue;
+            };
+            if let Some(sources) = artifact.metadata_sources() {
+                for path in sources.keys() {
+                    active_source_paths.insert(PathBuf::from(path));
+                }
+            } else {
+                // checkrs: allow(clone_in_loops)
+                active_source_paths.insert(artifact.ast().absolute_path.clone());
+            }
+        }
+        let has_active_filter = !active_source_paths.is_empty();
+
+        // -------------------------------------------------------------------
         // 1. Collect all executable lines from every artifact.
         // -------------------------------------------------------------------
         let mut executable_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
@@ -678,6 +701,9 @@ impl CoverageReporter {
         // -------------------------------------------------------------------
         let mut files = Vec::new();
         for (path, lines) in executable_lines {
+            if has_active_filter && !active_source_paths.contains(&path) {
+                continue;
+            }
             let hits = line_hits.remove(&path).unwrap_or_default();
             let functions = file_functions.remove(&path).unwrap_or_default();
             let mut file_coverage = FileCoverage {
@@ -694,6 +720,9 @@ impl CoverageReporter {
 
         // Add any remaining hit-only files (should not normally happen, but be safe).
         for (path, hits) in line_hits {
+            if has_active_filter && !active_source_paths.contains(&path) {
+                continue;
+            }
             let functions = file_functions.remove(&path).unwrap_or_default();
             files.push(FileCoverage {
                 path,

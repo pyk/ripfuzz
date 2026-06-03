@@ -111,6 +111,8 @@ pub struct ContractArtifact {
     /// The numeric source ID assigned by the Solidity compiler for this
     /// artifact's source file within its compilation unit.
     pub source_id: usize,
+    /// The metadata source files for this artifact's compilation unit.
+    pub sources: Option<HashMap<String, serde_json::Value>>,
 }
 
 impl ContractArtifact {
@@ -131,6 +133,8 @@ pub struct InterfaceArtifact {
     /// The numeric source ID assigned by the Solidity compiler for this
     /// artifact's source file within its compilation unit.
     pub source_id: usize,
+    /// The metadata source files for this artifact's compilation unit.
+    pub sources: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// A library artifact.
@@ -146,6 +150,8 @@ pub struct LibraryArtifact {
     /// The numeric source ID assigned by the Solidity compiler for this
     /// artifact's source file within its compilation unit.
     pub source_id: usize,
+    /// The metadata source files for this artifact's compilation unit.
+    pub sources: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// An abstract contract artifact.
@@ -158,6 +164,8 @@ pub struct AbstractArtifact {
     /// The numeric source ID assigned by the Solidity compiler for this
     /// artifact's source file within its compilation unit.
     pub source_id: usize,
+    /// The metadata source files for this artifact's compilation unit.
+    pub sources: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// A single storage slot entry from the Solidity `storageLayout` output.
@@ -298,6 +306,8 @@ impl ArtifactBytecode {
 #[derive(Debug, Clone, Deserialize)]
 struct ArtifactMetadata {
     settings: Option<ArtifactSettings>,
+    #[serde(default)]
+    sources: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -341,6 +351,7 @@ impl Artifact {
 
         let def = get_contract_definition(&json.ast, &id.name)?;
         let source_id = json.id;
+        let sources = json.metadata.and_then(|m| m.sources);
         Ok(match def.contract_kind {
             solc::ast::ContractKind::Contract if !def.r#abstract => {
                 Self::Contract(ContractArtifact {
@@ -352,6 +363,7 @@ impl Artifact {
                     deployed_bytecode: json.deployed_bytecode,
                     storage_layout: json.storage_layout,
                     source_id,
+                    sources,
                 })
             }
             solc::ast::ContractKind::Contract => Self::Abstract(AbstractArtifact {
@@ -360,6 +372,7 @@ impl Artifact {
                 ast: json.ast,
                 abi: json.abi,
                 source_id,
+                sources,
             }),
             solc::ast::ContractKind::Interface => Self::Interface(InterfaceArtifact {
                 id,
@@ -367,6 +380,7 @@ impl Artifact {
                 ast: json.ast,
                 abi: json.abi,
                 source_id,
+                sources,
             }),
             solc::ast::ContractKind::Library => Self::Library(LibraryArtifact {
                 id,
@@ -377,6 +391,7 @@ impl Artifact {
                 deployed_bytecode: json.deployed_bytecode,
                 storage_layout: json.storage_layout,
                 source_id,
+                sources,
             }),
         })
     }
@@ -487,6 +502,16 @@ impl Artifact {
             Self::Contract(a) => a.storage_layout.as_ref(),
             Self::Library(a) => a.storage_layout.as_ref(),
             _ => None,
+        }
+    }
+
+    /// The metadata source files for this artifact's compilation unit.
+    pub fn metadata_sources(&self) -> Option<&HashMap<String, serde_json::Value>> {
+        match self {
+            Self::Contract(a) => a.sources.as_ref(),
+            Self::Interface(a) => a.sources.as_ref(),
+            Self::Library(a) => a.sources.as_ref(),
+            Self::Abstract(a) => a.sources.as_ref(),
         }
     }
 }
