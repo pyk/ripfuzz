@@ -282,6 +282,76 @@ fn offset_to_line(content: &str, offset: usize) -> usize {
 }
 
 // ---------------------------------------------------------------------------
+// Function coverage helpers
+// ---------------------------------------------------------------------------
+
+fn collect_functions_from_artifacts(
+    artifacts: &[Artifact],
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+    line_hits: &HashMap<PathBuf, HashMap<usize, u64>>,
+) -> HashMap<PathBuf, Vec<FunctionCoverage>> {
+    let mut file_functions: HashMap<PathBuf, HashMap<String, (usize, u64)>> = HashMap::new();
+
+    for artifact in artifacts {
+        let ast = artifact.ast();
+        let mut collect = |func: &solc::ast::FunctionDefinition| {
+            if func.name.is_empty() {
+                return;
+            }
+            let Some(path) = resolver.resolve(artifact, func.src.source_index) else {
+                return;
+            };
+            let content = source_cache.get(&path).cloned().unwrap_or_default();
+            if content.is_empty() {
+                return;
+            }
+            let start_line = offset_to_line(&content, func.src.offset);
+            let end_line = offset_to_line(&content, func.src.offset + func.src.length);
+            let hits = line_hits
+                .get(&path)
+                .map(|hits| {
+                    hits.iter()
+                        .filter(|(line, _)| **line >= start_line && **line <= end_line)
+                        .map(|(_, count)| *count)
+                        .max()
+                        .unwrap_or(0)
+                })
+                .unwrap_or(0);
+            file_functions
+                .entry(path)
+                .or_default()
+                .insert(func.name.clone(), (start_line, hits)); // checkrs: allow(clone_in_loops)
+        };
+
+        for node in &ast.nodes {
+            match node {
+                solc::ast::SourceUnitNode::FunctionDefinition(func) => collect(func),
+                solc::ast::SourceUnitNode::ContractDefinition(contract) => {
+                    for node in &contract.nodes {
+                        if let solc::ast::ContractDefinitionNode::FunctionDefinition(func) = node {
+                            collect(func);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    file_functions
+        .into_iter()
+        .map(|(path, funcs)| {
+            let functions: Vec<FunctionCoverage> = funcs
+                .into_iter()
+                .map(|(name, (line, hits))| FunctionCoverage { name, line, hits })
+                .collect();
+            (path, functions)
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
 // Coverage report
 // ---------------------------------------------------------------------------
 
@@ -292,9 +362,17 @@ pub struct CoverageReport {
 }
 
 #[derive(Debug, Clone)]
+struct FunctionCoverage {
+    name: String,
+    line: usize,
+    hits: u64,
+}
+
+#[derive(Debug, Clone)]
 struct FileCoverage {
     path: PathBuf,
     line_hits: HashMap<usize, u64>,
+    functions: Vec<FunctionCoverage>,
 }
 
 impl CoverageReport {
@@ -319,6 +397,29 @@ impl fmt::Display for CoverageReport {
         for file in &self.files {
             writeln!(f, "TN:")?;
             writeln!(f, "SF:{}", file.path.display())?;
+
+            let mut functions: Vec<&FunctionCoverage> = file.functions.iter().collect();
+            functions.sort_by(|a, b| {
+                let ord = a.line.cmp(&b.line);
+                if ord == std::cmp::Ordering::Equal {
+                    a.name.cmp(&b.name)
+                } else {
+                    ord
+                }
+            });
+
+            for func in &functions {
+                writeln!(f, "FN:{},{}", func.line, func.name)?;
+            }
+            for func in &functions {
+                writeln!(f, "FNDA:{},{}", func.hits, func.name)?;
+            }
+            let fnf = functions.len();
+            let fnh = functions.iter().filter(|f| f.hits > 0).count();
+            if fnf > 0 {
+                writeln!(f, "FNF:{}", fnf)?;
+                writeln!(f, "FNH:{}", fnh)?;
+            }
 
             let mut lines: Vec<(&usize, &u64)> = file.line_hits.iter().collect();
             lines.sort_by_key(|(line, _)| *line);
@@ -463,14 +564,22 @@ impl CoverageReporter {
         }
 
         // -------------------------------------------------------------------
-        // 3. Build the report.
+        // 3. Collect function coverage.
+        // -------------------------------------------------------------------
+        let mut file_functions =
+            collect_functions_from_artifacts(&self.artifacts, &resolver, &source_cache, &line_hits);
+
+        // -------------------------------------------------------------------
+        // 4. Build the report.
         // -------------------------------------------------------------------
         let mut files = Vec::new();
         for (path, lines) in executable_lines {
             let hits = line_hits.remove(&path).unwrap_or_default();
+            let functions = file_functions.remove(&path).unwrap_or_default();
             let mut file_coverage = FileCoverage {
                 path,
                 line_hits: HashMap::new(),
+                functions,
             };
             for line in lines {
                 let count = hits.get(&line).copied().unwrap_or(0);
@@ -481,9 +590,11 @@ impl CoverageReporter {
 
         // Add any remaining hit-only files (should not normally happen, but be safe).
         for (path, hits) in line_hits {
+            let functions = file_functions.remove(&path).unwrap_or_default();
             files.push(FileCoverage {
                 path,
                 line_hits: hits,
+                functions,
             });
         }
 
@@ -639,7 +750,7 @@ mod tests {
         assert_eq!(
             formatted.trim(),
             expected.trim(),
-            "coverage report output for single execution must match expected"
+            "coverage report output must match expected"
         );
     }
 
@@ -676,7 +787,7 @@ mod tests {
         assert_eq!(
             formatted.trim(),
             expected.trim(),
-            "coverage report output for 2x execution must match expected"
+            "coverage report output must match expected"
         );
     }
 
@@ -708,7 +819,7 @@ mod tests {
         assert_eq!(
             formatted.trim(),
             expected.trim(),
-            "coverage report output for early return must match expected"
+            "coverage report output must match expected"
         );
     }
 
@@ -740,7 +851,7 @@ mod tests {
         assert_eq!(
             formatted.trim(),
             expected.trim(),
-            "coverage report output for lib call must match expected"
+            "coverage report output must match expected"
         );
     }
 
@@ -772,7 +883,7 @@ mod tests {
         assert_eq!(
             formatted.trim(),
             expected.trim(),
-            "coverage report output for lib linked call must match expected"
+            "coverage report output must match expected"
         );
     }
 
@@ -804,7 +915,7 @@ mod tests {
         assert_eq!(
             formatted.trim(),
             expected.trim(),
-            "coverage report output for interface call must match expected"
+            "coverage report output must match expected"
         );
     }
 
@@ -882,7 +993,7 @@ mod tests {
         assert_eq!(
             formatted.trim(),
             expected.trim(),
-            "coverage report output for missing base contract id must match expected"
+            "coverage report output must match expected"
         );
     }
 
