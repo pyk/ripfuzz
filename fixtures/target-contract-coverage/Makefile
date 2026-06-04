@@ -20,7 +20,17 @@ TargetContractBasicTwice:
 	@genhtml expected/TargetContractBasicTwice.info -o coverage/TargetContractBasicTwice --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractBasicTwice/
 
-# 3. earlyReturn
+# 3. TargetContractWithLoop
+# - All files from TargetContractWithLoop compilation unit are expected:
+# 	- src/TargetContractWithLoop.sol
+# 	- src/RaptorFuzz.sol
+# - constructor, setup, and runLoop functions have hits
+.PHONY: check
+TargetContractWithLoop:
+	@genhtml expected/TargetContractWithLoop.info -o coverage/TargetContractWithLoop --flat
+	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLoop/
+
+# 4. earlyReturn
 # - All files from TargetContract compilation unit are expected:
 # 	- src/TargetContract.sol
 # 	- src/RaptorFuzz.sol
@@ -35,7 +45,7 @@ earlyReturn:
 	@genhtml expected/earlyReturn.info -o coverage/earlyReturn --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/earlyReturn/
 
-# 4. interfaceCall
+# 5. interfaceCall
 # - All files from TargetContract compilation unit are expected:
 # 	- src/TargetContract.sol
 # 	- src/RaptorFuzz.sol
@@ -50,7 +60,7 @@ interfaceCall:
 	@genhtml expected/interfaceCall.info -o coverage/interfaceCall --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/interfaceCall/
 
-# 5. libCall
+# 6. libCall
 # - All files from TargetContract compilation unit are expected:
 # 	- src/TargetContract.sol
 # 	- src/RaptorFuzz.sol
@@ -65,7 +75,7 @@ libCall:
 	@genhtml expected/libCall.info -o coverage/libCall --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/libCall/
 
-# 6. libLinkedCall
+# 7. libLinkedCall
 # - All files from TargetContract compilation unit are expected:
 # 	- src/TargetContract.sol
 # 	- src/RaptorFuzz.sol
@@ -80,7 +90,7 @@ libLinkedCall:
 	@genhtml expected/libLinkedCall.info -o coverage/libLinkedCall --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/libLinkedCall/
 
-# 7. emptyTargetFunction
+# 8. emptyTargetFunction
 # - All files from EmptyTargetFunction compilation unit are expected:
 # 	- src/EmptyTargetFunction.sol
 # 	- src/RaptorFuzz.sol

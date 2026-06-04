@@ -1060,6 +1060,11 @@ mod tests {
             function addAndSub(uint256 a, uint256 b) external returns (uint256);
         }
 
+        interface TargetContractWithLoop {
+            function runLoop(uint256 count) external;
+            function runNestedLoop(uint256 outer, uint256 inner) external;
+        }
+
         interface EmptyTargetFunction {
             function dummyTargetFunction() external;
         }
@@ -1215,6 +1220,47 @@ mod tests {
 
         let expected_file =
             "fixtures/target-contract-coverage/expected/TargetContractBasicTwice.info";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected = expected.replace(
+            "fixtures/target-contract-coverage",
+            &project_path().to_string_lossy(),
+        );
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output must match expected"
+        );
+    }
+
+    /// Regression test: coverage must be correctly reported for contracts
+    /// that contain loops in constructor, setup, and target functions.
+    #[test]
+    fn target_contract_with_loop() {
+        let contract =
+            load_coverage_fixture("src/TargetContractWithLoop.sol:TargetContractWithLoop");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let txs = vec![
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithLoop::runLoopCall::new((U256::from(3),)).abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithLoop::runNestedLoopCall::new((U256::from(2), U256::from(2)))
+                    .abi_encode(),
+            )),
+        ];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        deployed.global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&deployed.global, &artifacts);
+        let formatted = format!("{report}");
+
+        let expected_file =
+            "fixtures/target-contract-coverage/expected/TargetContractWithLoop.info";
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         let expected = expected.replace(
