@@ -45,20 +45,17 @@ interfaceCall:
 	@genhtml expected/interfaceCall.info -o coverage/interfaceCall --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/interfaceCall/
 
-# 6. libCall
-# - All files from TargetContract compilation unit are expected:
-# 	- src/TargetContract.sol
+# 6. TargetContractWithLib
+# - All files from TargetContractWithLib compilation unit are expected:
+# 	- src/TargetContractWithLib.sol
 # 	- src/RaptorFuzz.sol
 # 	- src/Counter.sol
-# 	- src/CounterLinked.sol
-# 	- src/ICounter.sol
 # 	- src/MathLib.sol
-# 	- src/MathLibLinked.sol
 # - libCall function have 1 hit
 .PHONY: check
-libCall:
-	@genhtml expected/libCall.info -o coverage/libCall --flat
-	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/libCall/
+TargetContractWithLib:
+	@genhtml expected/TargetContractWithLib.info -o coverage/TargetContractWithLib --flat
+	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLib/
 
 # 7. libLinkedCall
 # - All files from TargetContract compilation unit are expected:

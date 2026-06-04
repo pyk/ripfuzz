@@ -24,12 +24,6 @@ contract TargetContract is RaptorFuzz {
         return bounded;
     }
 
-    function libCall(uint256 amount) external returns (uint256) {
-        counter.increment(amount);
-        latestValue = counter.value();
-        return latestValue;
-    }
-
     function libLinkedCall(uint256 amount) external returns (uint256) {
         counterLinked.increment(amount);
         latestValue = counterLinked.value();

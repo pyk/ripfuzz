@@ -1716,10 +1716,13 @@ mod tests {
 
         interface TargetContract {
             function inheritanceCall(uint256 a) external returns (uint256);
-            function libCall(uint256 amount) external returns (uint256);
             function libLinkedCall(uint256 amount) external returns (uint256);
             function interfaceCall(uint256 amount) external returns (uint256);
             function counterLinked() external returns (address);
+        }
+
+        interface TargetContractWithLib {
+            function libCall(uint256 amount) external returns (uint256);
         }
 
         interface TargetContractBasic {
@@ -1943,12 +1946,12 @@ mod tests {
     /// Regression test: internal library coverage must be correctly reported,
     /// including the active contract that uses the library.
     #[test]
-    fn coverage_report_lib_call() {
-        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
+    fn target_contract_with_lib() {
+        let contract = load_coverage_fixture("src/TargetContractWithLib.sol:TargetContractWithLib");
         let mut deployed = deploy_and_setup(&contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContract::libCallCall::new((U256::from(123),)).abi_encode(),
+            TargetContractWithLib::libCallCall::new((U256::from(123),)).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
@@ -1959,7 +1962,7 @@ mod tests {
         let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
-        let expected_file = "fixtures/target-contract-coverage/expected/libCall.info";
+        let expected_file = "fixtures/target-contract-coverage/expected/TargetContractWithLib.info";
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         let expected = expected.replace(
