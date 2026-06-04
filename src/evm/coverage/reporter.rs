@@ -185,25 +185,18 @@ struct SourceIdResolver {
 
 impl SourceIdResolver {
     fn new(artifacts: &[Artifact]) -> Self {
-        // Build a global map from source path to numeric source_id (the `id` field in the
-        // artifact JSON). This is the ID that the Solidity source map uses.
-        let mut path_to_source_id: HashMap<PathBuf, usize> = HashMap::new();
-        for artifact in artifacts {
-            // checkrs: allow(clone_in_loops)
-            let path = artifact.ast().absolute_path.clone();
-            path_to_source_id.insert(path, artifact.source_id());
-        }
-
         let mut local_maps = HashMap::new();
-        let mut imports = HashMap::new();
+        let mut imports: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+        let mut source_cache: HashMap<PathBuf, String> = HashMap::new();
 
+        // Pre-read source files and build direct imports map.
         for artifact in artifacts {
             // checkrs: allow(clone_in_loops)
             let artifact_path = artifact.ast().absolute_path.clone();
-            let mut local = HashMap::new();
-            // The artifact's own source_id -> path.
-            // checkrs: allow(clone_in_loops)
-            local.insert(artifact.source_id(), artifact_path.clone());
+            let full_path = artifact.project_path().join(&artifact_path);
+            if let Ok(content) = fs::read_to_string(&full_path) {
+                source_cache.insert(artifact_path.clone(), content); // checkrs: allow(clone_in_loops)
+            }
 
             let mut artifact_imports = Vec::new();
             for node in &artifact.ast().nodes {
@@ -212,16 +205,105 @@ impl SourceIdResolver {
                 };
                 // checkrs: allow(clone_in_loops)
                 let imported_path = import.absolute_path.clone();
-                // Look up the imported file's source_id from the global map.
-                if let Some(&source_id) = path_to_source_id.get(&imported_path) {
-                    // checkrs: allow(clone_in_loops)
-                    local.insert(source_id, imported_path.clone());
+                let imported_full = artifact.project_path().join(&imported_path);
+                if let Ok(content) = fs::read_to_string(&imported_full) {
+                    source_cache.insert(imported_path.clone(), content); // checkrs: allow(clone_in_loops)
                 }
                 artifact_imports.push(imported_path);
             }
-            // checkrs: allow(clone_in_loops)
-            local_maps.insert(artifact_path.clone(), local);
             imports.insert(artifact_path, artifact_imports);
+        }
+
+        for artifact in artifacts {
+            // checkrs: allow(clone_in_loops)
+            let artifact_path = artifact.ast().absolute_path.clone();
+            let mut local = HashMap::new();
+
+            // The artifact's own source_id -> path.
+            local.insert(artifact.source_id(), artifact_path.clone()); // checkrs: allow(clone_in_loops)
+
+            // Collect source map entries from both bytecode and deployed bytecode.
+            let mut source_map_entries: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
+            for sm in [
+                artifact.bytecode().map(|b| b.source_map.as_str()),
+                artifact.deployed_bytecode().map(|b| b.source_map.as_str()),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                for entry in parse_source_map(sm) {
+                    source_map_entries
+                        .entry(entry.source_index)
+                        .or_default()
+                        .push((entry.offset, entry.length));
+                }
+            }
+
+            // Gather candidate source files (self + transitive imports).
+            let mut candidates: HashSet<PathBuf> = HashSet::new();
+            candidates.insert(artifact_path.clone()); // checkrs: allow(clone_in_loops)
+            let mut visited = HashSet::new();
+            let mut queue = vec![artifact_path.clone()];
+            while let Some(current) = queue.pop() {
+                // checkrs: allow(clone_in_loops)
+                if !visited.insert(current.clone()) {
+                    continue;
+                }
+                // checkrs: allow(nested_if_let)
+                if let Some(direct_imports) = imports.get(&current) {
+                    for imported in direct_imports {
+                        // checkrs: allow(clone_in_loops)
+                        if candidates.insert(imported.clone()) {
+                            queue.push(imported.clone()); // checkrs: allow(clone_in_loops)
+                        }
+                    }
+                }
+            }
+
+            // Try to match unknown source IDs to candidate files.
+            // checkrs: allow(clone_in_loops)
+            let mut unknown_source_ids: Vec<usize> = source_map_entries
+                .keys()
+                .copied()
+                .filter(|id| !local.contains_key(id))
+                .collect();
+
+            let mut fits: HashMap<usize, Vec<PathBuf>> = HashMap::new();
+            for sid in &unknown_source_ids {
+                let Some(entries) = source_map_entries.get(sid) else {
+                    continue;
+                };
+                for candidate in &candidates {
+                    if let Some(content) = source_cache.get(candidate)
+                        && entries
+                            .iter()
+                            .all(|(offset, length)| offset.saturating_add(*length) <= content.len())
+                    {
+                        fits.entry(*sid).or_default().push(candidate.clone()); // checkrs: allow(clone_in_loops)
+                    }
+                }
+            }
+
+            // Greedy assignment: sort by number of fits (ascending) and assign
+            // when a unique remaining candidate exists.
+            unknown_source_ids.sort_by_key(|sid| fits.get(sid).map(|v| v.len()).unwrap_or(0));
+
+            for sid in unknown_source_ids {
+                let Some(candidates) = fits.get(&sid) else {
+                    continue;
+                };
+                let available: Vec<PathBuf> = candidates
+                    .iter()
+                    .filter(|c| !local.values().any(|v| v == *c))
+                    .cloned()
+                    .collect();
+                if available.len() == 1 {
+                    local.insert(sid, available[0].clone()); // checkrs: allow(clone_in_loops)
+                }
+            }
+
+            // checkrs: allow(clone_in_loops)
+            local_maps.insert(artifact_path, local);
         }
 
         Self {
@@ -432,6 +514,38 @@ fn resolve_content(
 // Statement hit computation
 // ---------------------------------------------------------------------------
 
+/// Return the maximum hit count for a source range.
+///
+/// First checks `source_hits` for the exact range. If that yields zero, falls
+/// back to `line_hits` so that inherited functions whose bytecode was executed
+/// by a child contract are still reported correctly.
+fn max_hit_from_src(
+    artifact: &Artifact,
+    source_hits: &ArtifactSourceHits,
+    line_hits: &HashMap<PathBuf, HashMap<usize, u64>>,
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+    src: &solc::ast::SourceLocation,
+) -> u64 {
+    let hit = source_hits.max_in_range(src.source_index, src.offset, src.length);
+    if hit > 0 {
+        return hit;
+    }
+    let Some((path, content)) = resolve_content(artifact, resolver, source_cache, src) else {
+        return 0;
+    };
+    let empty = HashMap::new();
+    let file_hits = line_hits.get(&path).unwrap_or(&empty);
+    let start_line = offset_to_line(&content, src.offset);
+    let end_line = offset_to_line(&content, src.offset + src.length);
+    file_hits
+        .iter()
+        .filter(|(line, _)| **line >= start_line && **line <= end_line)
+        .map(|(_, count)| *count)
+        .max()
+        .unwrap_or(0)
+}
+
 fn compute_statement_hit(
     stmt: &solc::ast::Statement,
     artifact: &Artifact,
@@ -459,7 +573,14 @@ fn compute_statement_hit(
             .unwrap_or(0),
         solc::ast::Statement::IfStatement(if_stmt) => {
             let cond_src = expr_src(if_stmt.condition.as_ref());
-            source_hits.max_in_range(cond_src.source_index, cond_src.offset, cond_src.length)
+            max_hit_from_src(
+                artifact,
+                source_hits,
+                line_hits,
+                resolver,
+                source_cache,
+                cond_src,
+            )
         }
         solc::ast::Statement::ForStatement(for_stmt) => {
             let entry_hit = for_stmt
@@ -467,26 +588,59 @@ fn compute_statement_hit(
                 .as_ref()
                 .map(|expr| {
                     let src = expr_src(expr.as_ref());
-                    source_hits.max_in_range(src.source_index, src.offset, src.length)
+                    max_hit_from_src(
+                        artifact,
+                        source_hits,
+                        line_hits,
+                        resolver,
+                        source_cache,
+                        src,
+                    )
                 })
                 .unwrap_or(0);
             let cond_src = expr_src(for_stmt.condition.as_ref());
-            let cond_hit =
-                source_hits.max_in_range(cond_src.source_index, cond_src.offset, cond_src.length);
+            let cond_hit = max_hit_from_src(
+                artifact,
+                source_hits,
+                line_hits,
+                resolver,
+                source_cache,
+                cond_src,
+            );
             if entry_hit > 0 { entry_hit } else { cond_hit }
         }
         solc::ast::Statement::WhileStatement(while_stmt) => {
             let cond_src = expr_src(while_stmt.condition.as_ref());
-            source_hits.max_in_range(cond_src.source_index, cond_src.offset, cond_src.length)
+            max_hit_from_src(
+                artifact,
+                source_hits,
+                line_hits,
+                resolver,
+                source_cache,
+                cond_src,
+            )
         }
         solc::ast::Statement::DoWhileStatement(do_while_stmt) => {
             let cond_src = expr_src(do_while_stmt.condition.as_ref());
-            source_hits.max_in_range(cond_src.source_index, cond_src.offset, cond_src.length)
+            max_hit_from_src(
+                artifact,
+                source_hits,
+                line_hits,
+                resolver,
+                source_cache,
+                cond_src,
+            )
         }
         solc::ast::Statement::TryStatement(try_stmt) => {
             let call_src = expr_src(try_stmt.external_call.as_ref());
-            let call_hit =
-                source_hits.max_in_range(call_src.source_index, call_src.offset, call_src.length);
+            let call_hit = max_hit_from_src(
+                artifact,
+                source_hits,
+                line_hits,
+                resolver,
+                source_cache,
+                call_src,
+            );
             let clauses_hit = try_stmt
                 .clauses
                 .iter()
