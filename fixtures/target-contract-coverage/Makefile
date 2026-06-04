@@ -30,22 +30,7 @@ TargetContractWithLoop:
 	@genhtml expected/TargetContractWithLoop.info -o coverage/TargetContractWithLoop --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLoop/
 
-# 4. earlyReturn
-# - All files from TargetContract compilation unit are expected:
-# 	- src/TargetContract.sol
-# 	- src/RaptorFuzz.sol
-# 	- src/Counter.sol
-# 	- src/CounterLinked.sol
-# 	- src/ICounter.sol
-# 	- src/MathLib.sol
-# 	- src/MathLibLinked.sol
-# - earlyReturn function have 1 hit
-.PHONY: check
-earlyReturn:
-	@genhtml expected/earlyReturn.info -o coverage/earlyReturn --flat
-	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/earlyReturn/
-
-# 5. interfaceCall
+# 4. interfaceCall
 # - All files from TargetContract compilation unit are expected:
 # 	- src/TargetContract.sol
 # 	- src/RaptorFuzz.sol

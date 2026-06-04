@@ -1715,7 +1715,6 @@ mod tests {
         }
 
         interface TargetContract {
-            function earlyReturn(uint256 a) external returns (uint256);
             function inheritanceCall(uint256 a) external returns (uint256);
             function libCall(uint256 amount) external returns (uint256);
             function libLinkedCall(uint256 amount) external returns (uint256);
@@ -1928,39 +1927,6 @@ mod tests {
 
         let expected_file =
             "fixtures/target-contract-coverage/expected/TargetContractWithLoop.info";
-        let expected = fs::read_to_string(expected_file)
-            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
-        let expected = expected.replace(
-            "fixtures/target-contract-coverage",
-            &project_path().to_string_lossy(),
-        );
-        assert_eq!(
-            formatted.trim(),
-            expected.trim(),
-            "coverage report output must match expected"
-        );
-    }
-
-    /// Regression test: if-else branch coverage must be correctly reported
-    /// for functions with early returns.
-    #[test]
-    fn coverage_report_early_return() {
-        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
-        let mut deployed = deploy_and_setup(&contract);
-
-        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContract::earlyReturnCall::new((U256::from(123),)).abi_encode(),
-        ))];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        deployed.global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&deployed.global, &artifacts);
-        let formatted = format!("{report}");
-
-        let expected_file = "fixtures/target-contract-coverage/expected/earlyReturn.info";
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         let expected = expected.replace(

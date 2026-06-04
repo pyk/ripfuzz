@@ -18,14 +18,6 @@ contract TargetContract is RaptorFuzz {
         counterInterface = ICounter(address(counter));
     }
 
-    function earlyReturn(uint256 a) external returns (uint256) {
-        if (a == 0) {
-            return 0;
-        }
-        latestValue = a;
-        return latestValue;
-    }
-
     function inheritanceCall(uint256 a) external returns (uint256) {
         uint256 bounded = bound(a, 10, 100);
         latestValue = bounded;
