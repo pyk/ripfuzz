@@ -6,6 +6,8 @@ use alloy_primitives::Address;
 use anyhow::{Context, Result};
 use tracing::debug;
 
+use rayon::prelude::*;
+
 use crate::corpus::{Call, SharedCorpus};
 use crate::evm;
 use crate::evm::SharedCoverage;
@@ -98,34 +100,39 @@ impl CorpusReplayer {
             .collect();
 
         let items = shared_corpus.items();
-        debug!(count = items.len(), "replaying corpus items");
+        let total = items.len();
+        debug!(count = total, "replaying corpus items");
 
-        for (idx, item) in items.iter().enumerate() {
-            let transactions: Vec<evm::Transaction> = item
-                .calls
-                .iter()
-                .chain(invariant_calls.iter())
-                .map(|call| call.into_transaction(deployed_address))
-                .collect();
-            // checkrs: allow(clone_in_loops)
-            let mut fresh_chain = chain.clone();
-            let exec = fresh_chain.exec(&transactions)?;
-            let coverage = exec.coverage.context("coverage is required")?;
-            let update = self.shared_coverage.merge(&coverage);
-            debug!(
-                idx = idx + 1,
-                total = items.len(),
-                item_id = %item.id(),
-                new_edges = update.new_edges,
-                new_features = update.new_features,
-                new_depths = update.new_depths,
-                new_reverts = update.new_reverts,
-                new_jump_edges = update.new_jump_edges,
-                new_jump_features = update.new_jump_features,
-                hit_count = self.shared_coverage.hit_count(),
-                "corpus item replayed"
-            );
-        }
+        let shared_coverage = self.shared_coverage;
+        items
+            .into_par_iter()
+            .enumerate()
+            .try_for_each(|(idx, item)| {
+                let transactions: Vec<evm::Transaction> = item
+                    .calls
+                    .iter()
+                    .chain(invariant_calls.iter())
+                    .map(|call| call.into_transaction(deployed_address))
+                    .collect();
+                let mut fresh_chain = chain.clone();
+                let exec = fresh_chain.exec(&transactions)?;
+                let coverage = exec.coverage.context("coverage is required")?;
+                let update = shared_coverage.merge(&coverage);
+                debug!(
+                    idx = idx + 1,
+                    total,
+                    item_id = %item.id(),
+                    new_edges = update.new_edges,
+                    new_features = update.new_features,
+                    new_depths = update.new_depths,
+                    new_reverts = update.new_reverts,
+                    new_jump_edges = update.new_jump_edges,
+                    new_jump_features = update.new_jump_features,
+                    hit_count = shared_coverage.hit_count(),
+                    "corpus item replayed"
+                );
+                Result::<(), anyhow::Error>::Ok(())
+            })?;
 
         Ok(())
     }
