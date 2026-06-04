@@ -259,6 +259,7 @@ struct ArtifactIndexEntry<'a> {
     artifact: &'a Artifact,
     hash: B256,
     positions: Vec<(usize, usize)>,
+    is_initcode: bool,
 }
 
 struct ArtifactIndex<'a> {
@@ -269,41 +270,67 @@ impl<'a> ArtifactIndex<'a> {
     fn new(artifacts: &'a [Artifact]) -> Self {
         let mut entries = Vec::new();
         for artifact in artifacts {
-            let Some(deployed) = artifact.deployed_bytecode() else {
-                continue;
-            };
-            let code =
-                parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
-            if code.is_empty() {
-                continue;
-            }
-            let mut positions = collect_link_positions(&deployed.link_references);
-            for refs in deployed.immutable_references.values() {
-                for r in refs {
-                    positions.push((r.start, r.length));
+            // Index deployed bytecode.
+            let deployed_entry = artifact.deployed_bytecode().and_then(|deployed| {
+                let code =
+                    parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
+                if code.is_empty() {
+                    return None;
                 }
-            }
-            if matches!(artifact, Artifact::Library(_)) && code.first() == Some(&0x73) {
-                positions.push((1, 20));
-            }
-            let mut masked = code;
-            zero_out_positions(&mut masked, &positions);
-            let hash = keccak256(&masked);
-            entries.push(ArtifactIndexEntry {
-                artifact,
-                hash,
-                positions,
+                let mut positions = collect_link_positions(&deployed.link_references);
+                for refs in deployed.immutable_references.values() {
+                    for r in refs {
+                        positions.push((r.start, r.length));
+                    }
+                }
+                if matches!(artifact, Artifact::Library(_)) && code.first() == Some(&0x73) {
+                    positions.push((1, 20));
+                }
+                let mut masked = code;
+                zero_out_positions(&mut masked, &positions);
+                let hash = keccak256(&masked);
+                Some(ArtifactIndexEntry {
+                    artifact,
+                    hash,
+                    positions,
+                    is_initcode: false,
+                })
             });
+            if let Some(entry) = deployed_entry {
+                entries.push(entry);
+            }
+
+            // Index initcode (bytecode) for constructor coverage.
+            let initcode_entry = artifact.bytecode().and_then(|bytecode| {
+                let code =
+                    parse_bytecode_with_placeholders(&bytecode.object, &bytecode.link_references);
+                if code.is_empty() {
+                    return None;
+                }
+                let positions = collect_link_positions(&bytecode.link_references);
+                let mut masked = code;
+                zero_out_positions(&mut masked, &positions);
+                let hash = keccak256(&masked);
+                Some(ArtifactIndexEntry {
+                    artifact,
+                    hash,
+                    positions,
+                    is_initcode: true,
+                })
+            });
+            if let Some(entry) = initcode_entry {
+                entries.push(entry);
+            }
         }
         Self { entries }
     }
 
-    fn find(&self, raw_bytecode: &[u8]) -> Option<&'a Artifact> {
+    fn find(&self, raw_bytecode: &[u8]) -> Option<(&'a Artifact, bool)> {
         let mut masked = raw_bytecode.to_vec();
         for entry in &self.entries {
             zero_out_positions(&mut masked, &entry.positions);
             if keccak256(&masked) == entry.hash {
-                return Some(entry.artifact);
+                return Some((entry.artifact, entry.is_initcode));
             }
             // Restore masked bytes for the next entry.
             for (start, len) in &entry.positions {
@@ -807,7 +834,7 @@ impl CoverageReporter {
 
         let all_counts = self.shared_coverage.all_raw_edge_counts_with_bytecodes();
         for counts in &all_counts {
-            let Some(artifact) = index.find(&counts.bytecode) else {
+            let Some((artifact, _is_initcode)) = index.find(&counts.bytecode) else {
                 continue;
             };
             if resolved_artifacts.insert(artifact.id()) {
@@ -867,7 +894,7 @@ impl CoverageReporter {
 
         let all_counts = self.shared_coverage.all_raw_edge_counts_with_bytecodes();
         for counts in all_counts {
-            let Some(artifact) = index.find(&counts.bytecode) else {
+            let Some((artifact, is_initcode)) = index.find(&counts.bytecode) else {
                 tracing::debug!(
                     "unmatched bytecode: len={}, id={:?}",
                     counts.bytecode.len(),
@@ -876,16 +903,28 @@ impl CoverageReporter {
                 continue;
             };
             tracing::debug!(
-                "matched artifact: {} (bytecode len={})",
+                "matched artifact: {} (bytecode len={}, initcode={})",
                 artifact.id(),
-                counts.bytecode.len()
+                counts.bytecode.len(),
+                is_initcode
             );
-            let Some(deployed) = artifact.deployed_bytecode() else {
-                continue;
+            let (code, source_map) = if is_initcode {
+                let Some(bytecode) = artifact.bytecode() else {
+                    continue;
+                };
+                let code =
+                    parse_bytecode_with_placeholders(&bytecode.object, &bytecode.link_references);
+                let source_map = parse_source_map(&bytecode.source_map);
+                (code, source_map)
+            } else {
+                let Some(deployed) = artifact.deployed_bytecode() else {
+                    continue;
+                };
+                let code =
+                    parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
+                let source_map = parse_source_map(&deployed.source_map);
+                (code, source_map)
             };
-            let code =
-                parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
-            let source_map = parse_source_map(&deployed.source_map);
             let pc_map = build_pc_to_source_map(&code, &source_map);
 
             // checkrs: allow(clone_in_loops)
@@ -1044,6 +1083,7 @@ mod tests {
     struct Deployed {
         chain: Chain,
         address: Address,
+        global: SharedCoverage,
     }
 
     fn deploy_and_setup(contract: &Contract) -> Deployed {
@@ -1051,22 +1091,27 @@ mod tests {
         let mut chain = Chain::new(config).unwrap();
         let mut deploy_opts = DeployInput::new(&contract.initcode);
         for lib in &contract.libraries {
-            deploy_opts = deploy_opts.add_library(lib.clone());
+            deploy_opts = deploy_opts.add_library(lib.clone()); // checkrs: allow(clone_in_loops)
         }
         let deployment = chain.deploy(deploy_opts).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
+
+        let global = SharedCoverage::new();
+        global.merge(&deployment.coverage);
 
         if let Some(setup) = &contract.setup_function {
             let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
             let setup_opts = SetupInput::new(target).calldata(setup_data);
             let setup = chain.setup(setup_opts).unwrap();
             assert!(setup.result.success, "setup must succeed");
+            global.merge(&setup.coverage);
         }
 
         Deployed {
             chain,
             address: target,
+            global,
         }
     }
 
@@ -1089,17 +1134,16 @@ mod tests {
         let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
         let mut deployed = deploy_and_setup(&contract);
 
-        let global = SharedCoverage::new();
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             CoverageBranch::branchCall::new((false,)).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let report = build_report(&deployed.global, &artifacts);
 
         assert!(
             !report.files.is_empty(),
@@ -1113,7 +1157,6 @@ mod tests {
         let contract = load_coverage_fixture("src/TargetContractBasic.sol:TargetContractBasic");
         let mut deployed = deploy_and_setup(&contract);
 
-        let global = SharedCoverage::new();
         let txs = vec![
             Transaction::new(deployed.address).calldata(Bytes::from(
                 TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
@@ -1122,11 +1165,11 @@ mod tests {
         ];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
         let expected_file =
@@ -1150,7 +1193,6 @@ mod tests {
         let contract = load_coverage_fixture("src/TargetContractBasic.sol:TargetContractBasic");
         let mut deployed = deploy_and_setup(&contract);
 
-        let global = SharedCoverage::new();
         let txs = vec![
             Transaction::new(deployed.address).calldata(Bytes::from(
                 TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
@@ -1160,15 +1202,15 @@ mod tests {
 
         let exec1 = deployed.chain.exec(&txs).unwrap();
         let coverage1 = exec1.coverage.expect("coverage must be present");
-        global.merge(&coverage1);
+        deployed.global.merge(&coverage1);
 
         let exec2 = deployed.chain.exec(&txs).unwrap();
         let coverage2 = exec2.coverage.expect("coverage must be present");
-        global.merge(&coverage2);
+        deployed.global.merge(&coverage2);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
         let expected_file =
@@ -1193,17 +1235,16 @@ mod tests {
         let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
         let mut deployed = deploy_and_setup(&contract);
 
-        let global = SharedCoverage::new();
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             TargetContract::earlyReturnCall::new((U256::from(123),)).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
         let expected_file = "fixtures/target-contract-coverage/expected/earlyReturn.info";
@@ -1227,17 +1268,16 @@ mod tests {
         let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
         let mut deployed = deploy_and_setup(&contract);
 
-        let global = SharedCoverage::new();
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             TargetContract::libCallCall::new((U256::from(123),)).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
         let expected_file = "fixtures/target-contract-coverage/expected/libCall.info";
@@ -1261,17 +1301,16 @@ mod tests {
         let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
         let mut deployed = deploy_and_setup(&contract);
 
-        let global = SharedCoverage::new();
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             TargetContract::libLinkedCallCall::new((U256::from(123),)).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
         let expected_file = "fixtures/target-contract-coverage/expected/libLinkedCall.info";
@@ -1295,17 +1334,16 @@ mod tests {
         let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
         let mut deployed = deploy_and_setup(&contract);
 
-        let global = SharedCoverage::new();
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             TargetContract::interfaceCallCall::new((U256::from(123),)).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
         let expected_file = "fixtures/target-contract-coverage/expected/interfaceCall.info";
@@ -1329,17 +1367,16 @@ mod tests {
         let contract = load_coverage_fixture("src/EmptyTargetFunction.sol:EmptyTargetFunction");
         let mut deployed = deploy_and_setup(&contract);
 
-        let global = SharedCoverage::new();
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             EmptyTargetFunction::dummyTargetFunctionCall::new(()).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
         let expected_file = "fixtures/target-contract-coverage/expected/emptyTargetFunction.info";
@@ -1361,17 +1398,16 @@ mod tests {
         let contract = load_coverage_fixture("src/InheritedTarget.sol:InheritedTarget");
         let mut deployed = deploy_and_setup(&contract);
 
-        let global = SharedCoverage::new();
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             InheritedTarget::inheritedTargetFunctionCall::new(()).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let report = build_report(&deployed.global, &artifacts);
 
         assert!(
             !report.files.is_empty(),
@@ -1388,17 +1424,16 @@ mod tests {
         let contract = load_coverage_fixture("src/UnusedLibraryUser.sol:UnusedLibraryUser");
         let mut deployed = deploy_and_setup(&contract);
 
-        let global = SharedCoverage::new();
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             hex::decode("771602f7").unwrap(), // useAdd(uint256,uint256)
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let report = build_report(&deployed.global, &artifacts);
 
         // The report must contain a DA entry for the unused library function
         // start line (line 9) even if the library's deployed bytecode source
@@ -1542,17 +1577,16 @@ mod tests {
         let contract = load_coverage_fixture("src/CoverageInactiveUser.sol:CoverageInactiveUser");
         let mut deployed = deploy_and_setup(&contract);
 
-        let global = SharedCoverage::new();
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             CoverageInactiveUser::callUsedCall::new(()).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let report = build_report(&deployed.global, &artifacts);
 
         let file = report
             .files

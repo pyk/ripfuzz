@@ -51,6 +51,8 @@ pub struct ContractCoverage {
     /// Branch-direction hitcount buckets for JUMP / JUMPI edges.
     /// Key = Medusa-style edge marker; value = raw hit count.
     pub jump_edges: HashMap<u64, AtomicU8>,
+    /// Whether this contract is initcode (constructor) rather than runtime bytecode.
+    pub is_initcode: bool,
 }
 
 impl std::fmt::Debug for ContractCoverage {
@@ -65,7 +67,7 @@ impl std::fmt::Debug for ContractCoverage {
 }
 
 impl ContractCoverage {
-    pub fn new(bytecode_len: usize) -> Self {
+    pub fn new_with_initcode(bytecode_len: usize, is_initcode: bool) -> Self {
         let depth_len = bytecode_len.min(DEPTH_TRACKED_PCS);
         let revert_words = bytecode_len.div_ceil(64);
         Self {
@@ -74,6 +76,7 @@ impl ContractCoverage {
             depths: (0..depth_len).map(|_| AtomicU64::new(0)).collect(),
             reverts: (0..revert_words).map(|_| AtomicU64::new(0)).collect(),
             jump_edges: HashMap::new(),
+            is_initcode,
         }
     }
 }
@@ -125,10 +128,10 @@ impl SharedCoverage {
         let bytecodes_guard = self.inner.bytecodes.pin();
 
         for (contract_id, local_contract) in &local.contracts {
-            let global = guard.get_or_insert(
-                *contract_id,
-                ContractCoverage::new(local_contract.edges.len()),
-            );
+            let is_initcode = local_contract.is_initcode;
+            let global = guard.get_or_insert_with(*contract_id, || {
+                ContractCoverage::new_with_initcode(local_contract.edges.len(), is_initcode)
+            });
 
             // Store the contract bytecode so that linked library artifacts can be
             // resolved later via `resolve_artifact_by_runtime_code`.
@@ -143,11 +146,13 @@ impl SharedCoverage {
                 let local_bucket = afl_bucket(local_raw);
                 let prev = global.edges[pc].fetch_max(local_bucket, Ordering::Relaxed);
                 global.raw_edges[pc].fetch_add(local_raw as u64, Ordering::Relaxed);
-                if prev == 0 {
-                    update.new_edges += 1;
-                } else if local_bucket > afl_bucket(prev) {
-                    update.new_features += 1;
-                    self.inner.features.fetch_add(1, Ordering::Relaxed);
+                if !is_initcode {
+                    if prev == 0 {
+                        update.new_edges += 1;
+                    } else if local_bucket > afl_bucket(prev) {
+                        update.new_features += 1;
+                        self.inner.features.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
 
@@ -156,7 +161,7 @@ impl SharedCoverage {
                 let local_depth = local_contract.depths[pc];
                 let prev = global.depths[pc].fetch_or(local_depth, Ordering::Relaxed);
                 let new_bits = local_depth & !prev;
-                if new_bits != 0 {
+                if !is_initcode && new_bits != 0 {
                     update.new_depths += 1;
                 }
             }
@@ -172,7 +177,7 @@ impl SharedCoverage {
                 }
                 let prev = global.reverts[i].fetch_or(local_rev, Ordering::Relaxed);
                 let new_bits = local_rev & !prev;
-                if new_bits != 0 {
+                if !is_initcode && new_bits != 0 {
                     update.new_reverts += 1;
                 }
             }
@@ -186,11 +191,13 @@ impl SharedCoverage {
                 let local_bucket = afl_bucket(local_raw);
                 let entry = jump_guard.get_or_insert_with(marker, || AtomicU8::new(0));
                 let prev = entry.fetch_max(local_bucket, Ordering::Relaxed);
-                if prev == 0 {
-                    update.new_jump_edges += 1;
-                } else if local_bucket > afl_bucket(prev) {
-                    update.new_jump_features += 1;
-                    self.inner.jump_features.fetch_add(1, Ordering::Relaxed);
+                if !is_initcode {
+                    if prev == 0 {
+                        update.new_jump_edges += 1;
+                    } else if local_bucket > afl_bucket(prev) {
+                        update.new_jump_features += 1;
+                        self.inner.jump_features.fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
         }
@@ -198,11 +205,13 @@ impl SharedCoverage {
         update
     }
 
-    /// Total number of unique coverage hits (edges + jump edges) across all contracts.
+    /// Total number of unique coverage hits (edges + jump edges) across all
+    /// runtime contracts. Initcode coverage is excluded for fuzzing metrics.
     pub fn hit_count(&self) -> usize {
         let guard = self.inner.contracts.pin();
         let edge_hits: usize = guard
             .iter()
+            .filter(|(_, c)| !c.is_initcode)
             .map(|(_, c)| {
                 c.edges
                     .iter()
@@ -210,20 +219,32 @@ impl SharedCoverage {
                     .count()
             })
             .sum();
-        let jump_hits: usize = guard.iter().map(|(_, c)| c.jump_edges.len()).sum();
+        let jump_hits: usize = guard
+            .iter()
+            .filter(|(_, c)| !c.is_initcode)
+            .map(|(_, c)| c.jump_edges.len())
+            .sum();
         edge_hits + jump_hits
     }
 
-    /// Number of unique contracts in the coverage map.
+    /// Number of unique runtime contracts in the coverage map.
+    /// Initcode coverage is excluded for fuzzing metrics.
     pub fn contract_count(&self) -> usize {
-        self.inner.contracts.pin().len()
+        self.inner
+            .contracts
+            .pin()
+            .iter()
+            .filter(|(_, c)| !c.is_initcode)
+            .count()
     }
 
-    /// Total number of hit edges across all contracts.
+    /// Total number of hit edges across all runtime contracts.
+    /// Initcode coverage is excluded for fuzzing metrics.
     pub fn edge_count(&self) -> usize {
         let guard = self.inner.contracts.pin();
         guard
             .iter()
+            .filter(|(_, c)| !c.is_initcode)
             .map(|(_, c)| {
                 c.edges
                     .iter()
@@ -233,11 +254,13 @@ impl SharedCoverage {
             .sum()
     }
 
-    /// Total number of hit depths across all contracts.
+    /// Total number of hit depths across all runtime contracts.
+    /// Initcode coverage is excluded for fuzzing metrics.
     pub fn depth_count(&self) -> usize {
         let guard = self.inner.contracts.pin();
         guard
             .iter()
+            .filter(|(_, c)| !c.is_initcode)
             .map(|(_, c)| {
                 c.depths
                     .iter()
@@ -247,11 +270,13 @@ impl SharedCoverage {
             .sum()
     }
 
-    /// Total number of hit reverts across all contracts.
+    /// Total number of hit reverts across all runtime contracts.
+    /// Initcode coverage is excluded for fuzzing metrics.
     pub fn revert_count(&self) -> usize {
         let guard = self.inner.contracts.pin();
         guard
             .iter()
+            .filter(|(_, c)| !c.is_initcode)
             .map(|(_, c)| {
                 c.reverts
                     .iter()
@@ -261,10 +286,15 @@ impl SharedCoverage {
             .sum()
     }
 
-    /// Total number of jump edges across all contracts.
+    /// Total number of jump edges across all runtime contracts.
+    /// Initcode coverage is excluded for fuzzing metrics.
     pub fn jump_count(&self) -> usize {
         let guard = self.inner.contracts.pin();
-        guard.iter().map(|(_, c)| c.jump_edges.len()).sum()
+        guard
+            .iter()
+            .filter(|(_, c)| !c.is_initcode)
+            .map(|(_, c)| c.jump_edges.len())
+            .sum()
     }
 
     /// Total number of edge bucket increases (features) across all contracts.

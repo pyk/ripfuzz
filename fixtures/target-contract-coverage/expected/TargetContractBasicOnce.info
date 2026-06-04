@@ -39,15 +39,15 @@ FN:13,addAndSub
 FN:19,add
 FN:24,sub
 FN:30,div
-FNDA:0,constructor
+FNDA:1,constructor
 FNDA:1,addAndSub
 FNDA:1,add
 FNDA:1,sub
 FNDA:0,div
 FNF:5
-FNH:3
-DA:9,0
-DA:10,0
+FNH:4
+DA:9,1
+DA:10,1
 DA:13,1
 DA:14,1
 DA:15,1
@@ -62,5 +62,5 @@ DA:30,0
 DA:31,0
 DA:32,0
 LF:15
-LH:10
+LH:12
 end_of_record

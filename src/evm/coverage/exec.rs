@@ -48,6 +48,8 @@ pub struct ExecutionContractCoverage {
     pub hit_reverts: Vec<usize>,
     /// Raw bytecode of the contract. Used to resolve linked library artifacts.
     pub bytecode: Vec<u8>,
+    /// Whether this contract is initcode (constructor) rather than runtime bytecode.
+    pub is_initcode: bool,
 }
 
 impl ExecutionContractCoverage {
@@ -63,6 +65,7 @@ impl ExecutionContractCoverage {
             hit_depths: Vec::new(),
             hit_reverts: Vec::new(),
             bytecode: Vec::new(),
+            is_initcode: false,
         }
     }
 

@@ -63,6 +63,7 @@ pub struct Inspector {
     current_contract: Option<B256>,
     contract_stack: Vec<Option<B256>>,
     last_pc: usize,
+    is_initcode: bool,
 }
 
 impl Inspector {
@@ -73,6 +74,7 @@ impl Inspector {
             current_contract: None,
             contract_stack: Vec::new(),
             last_pc: 0,
+            is_initcode: false,
         }
     }
 
@@ -112,9 +114,12 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
         if !hash.is_zero() && !interp.bytecode.is_empty() {
             let id = B256::from(hash);
             self.current_contract = Some(id);
+            let is_initcode = self.is_initcode;
+            self.is_initcode = false;
             self.local.contracts.entry(id).or_insert_with(|| {
                 let mut coverage = ExecutionContractCoverage::new(interp.bytecode.len());
                 coverage.bytecode = interp.bytecode.original_bytes().to_vec();
+                coverage.is_initcode = is_initcode;
                 coverage
             });
         }
@@ -198,6 +203,7 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
     ) -> Option<revm::interpreter::CreateOutcome> {
         self.contract_stack.push(self.current_contract);
         self.current_call_depth += 1;
+        self.is_initcode = true;
         None
     }
 
@@ -209,18 +215,10 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
     ) {
         if outcome.result.result.is_revert() {
             self.record_revert();
-        } else {
-            // Successful CREATE: discard initcode coverage so that dynamically
-            // generated initcode (e.g. SSTORE2, or initcode with different
-            // constructor arguments) does not inflate the unique contracts count.
-            // Runtime bytecode will still be tracked when the deployed contract is
-            // called later.
-            if let Some(initcode_hash) = self.current_contract {
-                self.local.contracts.remove(&initcode_hash);
-            }
         }
         self.current_call_depth = self.current_call_depth.saturating_sub(1);
         self.current_contract = self.contract_stack.pop().flatten();
+        self.is_initcode = false;
     }
 }
 
