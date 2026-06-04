@@ -2,23 +2,22 @@
 pragma solidity ^0.8.28;
 
 import {RaptorFuzz} from "./RaptorFuzz.sol";
-import {Counter} from "./Counter.sol";
 import {ICounter} from "./ICounter.sol";
+import {Vm} from "./Vm.sol";
 
-contract TargetContract is RaptorFuzz {
+contract TargetContractWithInterface is RaptorFuzz {
+    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
     uint256 public latestValue;
-    Counter public counter;
     ICounter public counterInterface;
 
     constructor() {
-        counter = new Counter();
-        counterInterface = ICounter(address(counter));
-    }
-
-    function inheritanceCall(uint256 a) external returns (uint256) {
-        uint256 bounded = bound(a, 10, 100);
-        latestValue = bounded;
-        return bounded;
+        bytes memory code = vm.getCode("src/Counter.sol:Counter");
+        address counter;
+        assembly {
+            counter := create(0, add(code, 0x20), mload(code))
+        }
+        require(counter != address(0), "deployment failed");
+        counterInterface = ICounter(counter);
     }
 
     function interfaceCall(uint256 amount) external returns (uint256) {

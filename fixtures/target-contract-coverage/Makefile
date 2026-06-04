@@ -30,20 +30,19 @@ TargetContractWithLoop:
 	@genhtml expected/TargetContractWithLoop.info -o coverage/TargetContractWithLoop --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLoop/
 
-# 4. interfaceCall
-# - All files from TargetContract compilation unit are expected:
-# 	- src/TargetContract.sol
+# 4. TargetContractWithInterface
+# - All files from TargetContractWithInterface compilation unit are expected:
+# 	- src/TargetContractWithInterface.sol
 # 	- src/RaptorFuzz.sol
 # 	- src/Counter.sol
-# 	- src/CounterLinked.sol
 # 	- src/ICounter.sol
 # 	- src/MathLib.sol
-# 	- src/MathLibLinked.sol
-# - interfaceCall function have 1 hit
+# 	- src/Vm.sol
+# - constructor and interfaceCall functions have hits
 .PHONY: check
-interfaceCall:
-	@genhtml expected/interfaceCall.info -o coverage/interfaceCall --flat
-	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/interfaceCall/
+TargetContractWithInterface:
+	@genhtml expected/TargetContractWithInterface.info -o coverage/TargetContractWithInterface --flat --show-zero-columns --num-spaces 4 --simplified-colors
+	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithInterface/
 
 # 6. TargetContractWithLib
 # - All files from TargetContractWithLib compilation unit are expected:

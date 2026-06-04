@@ -1002,6 +1002,9 @@ fn collect_functions_from_artifacts(
     for artifact in artifacts {
         let ast = artifact.ast();
         let mut collect = |func: &solc::ast::FunctionDefinition| {
+            if func.body.is_none() {
+                return;
+            }
             let name = match func.kind {
                 solc::ast::FunctionKind::Constructor => "constructor".to_string(),
                 solc::ast::FunctionKind::Fallback => "fallback".to_string(),
@@ -1714,8 +1717,7 @@ mod tests {
             function branch(bool take) external;
         }
 
-        interface TargetContract {
-            function inheritanceCall(uint256 a) external returns (uint256);
+        interface TargetContractWithInterface {
             function interfaceCall(uint256 amount) external returns (uint256);
         }
 
@@ -1763,7 +1765,22 @@ mod tests {
     }
 
     fn deploy_and_setup(contract: &Contract) -> Deployed {
-        let config = ChainConfig::default().coverage(true);
+        let mut config = ChainConfig::default().coverage(true);
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let artifacts = project.load_artifacts().unwrap();
+        let mut compiled_contracts = HashMap::new();
+        for (id, artifact) in &artifacts {
+            let initcode: Bytes = match artifact {
+                foundry::Artifact::Contract(c) => c.bytecode.object.parse().unwrap_or_default(),
+                foundry::Artifact::Library(c) => c.bytecode.object.parse().unwrap_or_default(),
+                _ => continue,
+            };
+            if initcode.is_empty() {
+                continue;
+            }
+            compiled_contracts.insert(id.into(), initcode);
+        }
+        config = config.with_compiled_contracts(compiled_contracts);
         let mut chain = Chain::new(config).unwrap();
         let mut deploy_opts = DeployInput::new(&contract.initcode);
         for lib in &contract.libraries {
@@ -2021,13 +2038,19 @@ mod tests {
     /// Regression test: a deployed contract must be reported correctly even
     /// when the caller interacts with it through an interface.
     #[test]
-    fn coverage_report_interface_call() {
-        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
+    fn target_contract_with_interface() {
+        let contract = load_coverage_fixture(
+            "src/TargetContractWithInterface.sol:TargetContractWithInterface",
+        );
         let mut deployed = deploy_and_setup(&contract);
 
-        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContract::interfaceCallCall::new((U256::from(123),)).abi_encode(),
-        ))];
+        let txs =
+            vec![
+                Transaction::new(deployed.address).calldata(Bytes::from(
+                    TargetContractWithInterface::interfaceCallCall::new((U256::from(123),))
+                        .abi_encode(),
+                )),
+            ];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
@@ -2037,7 +2060,8 @@ mod tests {
         let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
-        let expected_file = "fixtures/target-contract-coverage/expected/interfaceCall.info";
+        let expected_file =
+            "fixtures/target-contract-coverage/expected/TargetContractWithInterface.info";
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         let expected = expected.replace(
