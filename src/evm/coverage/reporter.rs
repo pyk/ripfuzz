@@ -31,17 +31,49 @@
 //!
 //! # Expected report output
 //!
-//! An **active artifact** is any artifact whose deployed bytecode hash appears
-//! in the [`SharedCoverage`] data.
+//! ## Root Artifact
 //!
-//! For every active artifact, the reporter reads `metadata.sources` (the list of
-//! source files that were compiled together in that artifact's compilation unit).
-//! Each source key (e.g. `src/Counter.sol`) maps to a source file that may also
-//! have its own artifact with its own `metadata.sources`.
+//! A **Root Artifact** is any artifact whose deployed bytecode hash appears in
+//! the [`SharedCoverage`] data.
 //!
-//! The reporter resolves every source file in the active artifact's compilation
-//! unit and guarantees that **all resolved source files appear in the final
-//! report**, even if they contain no executable lines in the deployed bytecode.
+//! ## Child Artifact
+//!
+//! A **Child Artifact** is a resolved artifact based on a Root Artifact's
+//! `metadata.sources`. Child artifacts can have their own child artifacts and
+//! must be resolved recursively.
+//!
+//! ## Report's Source Files
+//!
+//! Every source file path listed in `metadata.sources` of a resolved artifact
+//! must appear in the final report.
+//!
+//! ## Executable vs Non Executable Lines
+//!
+//! Executable and non-executable lines are derived from the resolved
+//! artifact's AST nodes. A single node may span multiple lines.
+//!
+//! | AST Node | Executable |
+//! |----------|------------|
+//! | `PragmaDirective` | No |
+//! | `ImportDirective` | No |
+//! | `ContractDefinition` | No |
+//! | `VariableDeclaration` | No |
+//! | `ExpressionStatement` | Yes |
+//! | `VariableDeclarationStatement` | Yes |
+//! | `IfStatement` | Yes |
+//! | `ForStatement` | Yes |
+//! | `WhileStatement` | Yes |
+//! | `DoWhileStatement` | Yes |
+//! | `Return` | Yes |
+//! | `EmitStatement` | Yes |
+//! | `RevertStatement` | Yes |
+//! | `TryStatement` | Yes |
+//! | `InlineAssembly` | Yes |
+//! | `Break` | Yes |
+//! | `Continue` | Yes |
+//!
+//! All executable lines have a hit count of **0** by default. Only lines that
+//! actually receive a coverage hit are updated with a positive count.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -309,7 +341,7 @@ fn offset_to_line(content: &str, offset: usize) -> usize {
 // ---------------------------------------------------------------------------
 
 fn collect_functions_from_artifacts(
-    artifacts: &[Artifact],
+    artifacts: &[&Artifact],
     resolver: &SourceIdResolver,
     source_cache: &HashMap<PathBuf, String>,
     line_hits: &HashMap<PathBuf, HashMap<usize, u64>>,
@@ -377,45 +409,242 @@ fn collect_functions_from_artifacts(
         .collect()
 }
 
-/// Collect source lines that correspond to contract state-variable declarations.
-/// These lines should not be treated as executable.
-fn collect_state_variable_lines_from_artifacts(
-    artifacts: &[Artifact],
+/// Return the [`SourceLocation`] of a [`Statement`].
+fn stmt_src(stmt: &solc::ast::Statement) -> &solc::ast::SourceLocation {
+    match stmt {
+        solc::ast::Statement::Block(block) => &block.src,
+        solc::ast::Statement::Break(b) => &b.src,
+        solc::ast::Statement::Continue(c) => &c.src,
+        solc::ast::Statement::DoWhileStatement(stmt) => &stmt.src,
+        solc::ast::Statement::EmitStatement(stmt) => &stmt.src,
+        solc::ast::Statement::ExpressionStatement(stmt) => &stmt.src,
+        solc::ast::Statement::ForStatement(stmt) => &stmt.src,
+        solc::ast::Statement::IfStatement(stmt) => &stmt.src,
+        solc::ast::Statement::InlineAssembly(stmt) => &stmt.src,
+        solc::ast::Statement::PlaceholderStatement(stmt) => &stmt.src,
+        solc::ast::Statement::Return(stmt) => &stmt.src,
+        solc::ast::Statement::RevertStatement(stmt) => &stmt.src,
+        solc::ast::Statement::TryStatement(stmt) => &stmt.src,
+        solc::ast::Statement::UncheckedBlock(block) => &block.src,
+        solc::ast::Statement::VariableDeclarationStatement(stmt) => &stmt.src,
+        solc::ast::Statement::WhileStatement(stmt) => &stmt.src,
+    }
+}
+
+/// Recursively add all lines spanned by a [`SourceLocation`] to the executable
+/// line set.
+fn add_executable_lines_from_src(
+    artifact: &Artifact,
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+    src: &solc::ast::SourceLocation,
+    executable_lines: &mut HashMap<PathBuf, HashSet<usize>>,
+) {
+    let Some(path) = resolver.resolve(artifact, src.source_index) else {
+        return;
+    };
+    let content = source_cache.get(&path).cloned().unwrap_or_else(|| {
+        let full_path = artifact.project_path().join(&path);
+        fs::read_to_string(&full_path).unwrap_or_default()
+    });
+    if content.is_empty() {
+        return;
+    }
+    let start_line = offset_to_line(&content, src.offset);
+    let end_line = offset_to_line(&content, src.offset + src.length);
+    for line in start_line..=end_line {
+        executable_lines
+            .entry(path.clone()) // checkrs: allow(clone_in_loops)
+            .or_default()
+            .insert(line);
+    }
+}
+
+/// Recursively collect executable lines from a [`Statement`] and its children.
+fn collect_executable_lines_from_statement(
+    stmt: &solc::ast::Statement,
+    artifact: &Artifact,
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+    executable_lines: &mut HashMap<PathBuf, HashSet<usize>>,
+) {
+    match stmt {
+        solc::ast::Statement::Block(block) => {
+            for stmt in &block.statements {
+                collect_executable_lines_from_statement(
+                    stmt,
+                    artifact,
+                    resolver,
+                    source_cache,
+                    executable_lines,
+                );
+            }
+        }
+        solc::ast::Statement::UncheckedBlock(block) => {
+            for stmt in &block.statements {
+                collect_executable_lines_from_statement(
+                    stmt,
+                    artifact,
+                    resolver,
+                    source_cache,
+                    executable_lines,
+                );
+            }
+        }
+        solc::ast::Statement::IfStatement(if_stmt) => {
+            add_executable_lines_from_src(
+                artifact,
+                resolver,
+                source_cache,
+                &if_stmt.src,
+                executable_lines,
+            );
+            collect_executable_lines_from_statement(
+                &if_stmt.true_body,
+                artifact,
+                resolver,
+                source_cache,
+                executable_lines,
+            );
+            if let Some(false_body) = &if_stmt.false_body {
+                collect_executable_lines_from_statement(
+                    false_body,
+                    artifact,
+                    resolver,
+                    source_cache,
+                    executable_lines,
+                );
+            }
+        }
+        solc::ast::Statement::ForStatement(for_stmt) => {
+            add_executable_lines_from_src(
+                artifact,
+                resolver,
+                source_cache,
+                &for_stmt.src,
+                executable_lines,
+            );
+            collect_executable_lines_from_statement(
+                &for_stmt.body,
+                artifact,
+                resolver,
+                source_cache,
+                executable_lines,
+            );
+        }
+        solc::ast::Statement::WhileStatement(while_stmt) => {
+            add_executable_lines_from_src(
+                artifact,
+                resolver,
+                source_cache,
+                &while_stmt.src,
+                executable_lines,
+            );
+            collect_executable_lines_from_statement(
+                &while_stmt.body,
+                artifact,
+                resolver,
+                source_cache,
+                executable_lines,
+            );
+        }
+        solc::ast::Statement::DoWhileStatement(do_while_stmt) => {
+            add_executable_lines_from_src(
+                artifact,
+                resolver,
+                source_cache,
+                &do_while_stmt.src,
+                executable_lines,
+            );
+            collect_executable_lines_from_statement(
+                &do_while_stmt.body,
+                artifact,
+                resolver,
+                source_cache,
+                executable_lines,
+            );
+        }
+        solc::ast::Statement::TryStatement(try_stmt) => {
+            add_executable_lines_from_src(
+                artifact,
+                resolver,
+                source_cache,
+                &try_stmt.src,
+                executable_lines,
+            );
+            for clause in &try_stmt.clauses {
+                for stmt in &clause.block.statements {
+                    collect_executable_lines_from_statement(
+                        stmt,
+                        artifact,
+                        resolver,
+                        source_cache,
+                        executable_lines,
+                    );
+                }
+            }
+        }
+        _ => {
+            // All other statement types are executable.
+            add_executable_lines_from_src(
+                artifact,
+                resolver,
+                source_cache,
+                stmt_src(stmt),
+                executable_lines,
+            );
+        }
+    }
+}
+
+/// Collect executable lines from the AST of all resolved artifacts.
+fn collect_executable_lines_from_artifacts(
+    artifacts: &[&Artifact],
     resolver: &SourceIdResolver,
     source_cache: &HashMap<PathBuf, String>,
 ) -> HashMap<PathBuf, HashSet<usize>> {
-    let mut result: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
+    let mut executable_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
 
     for artifact in artifacts {
         let ast = artifact.ast();
         for node in &ast.nodes {
-            let solc::ast::SourceUnitNode::ContractDefinition(contract) = node else {
-                continue;
-            };
-            for node in &contract.nodes {
-                let solc::ast::ContractDefinitionNode::VariableDeclaration(var) = node else {
-                    continue;
-                };
-                if !var.state_variable {
-                    continue;
+            match node {
+                solc::ast::SourceUnitNode::ContractDefinition(contract) => {
+                    for node in &contract.nodes {
+                        if let solc::ast::ContractDefinitionNode::FunctionDefinition(func) = node
+                            && let Some(body) = &func.body
+                        {
+                            for stmt in &body.statements {
+                                collect_executable_lines_from_statement(
+                                    stmt,
+                                    artifact,
+                                    resolver,
+                                    source_cache,
+                                    &mut executable_lines,
+                                );
+                            }
+                        }
+                    }
                 }
-                let Some(path) = resolver.resolve(artifact, var.src.source_index) else {
-                    continue;
-                };
-                let content = source_cache.get(&path).cloned().unwrap_or_else(|| {
-                    let full_path = artifact.project_path().join(&path);
-                    fs::read_to_string(&full_path).unwrap_or_default()
-                });
-                if content.is_empty() {
-                    continue;
+                solc::ast::SourceUnitNode::FunctionDefinition(func) => {
+                    if let Some(body) = &func.body {
+                        for stmt in &body.statements {
+                            collect_executable_lines_from_statement(
+                                stmt,
+                                artifact,
+                                resolver,
+                                source_cache,
+                                &mut executable_lines,
+                            );
+                        }
+                    }
                 }
-                let line = offset_to_line(&content, var.src.offset);
-                result.entry(path).or_default().insert(line);
+                _ => {}
             }
         }
     }
 
-    result
+    executable_lines
 }
 
 // ---------------------------------------------------------------------------
@@ -546,100 +775,89 @@ impl CoverageReporter {
 
     /// Build the coverage report.
     ///
-    /// This method scans all artifacts to discover every executable source line,
-    /// then merges the raw PC hits from the shared coverage map and converts
-    /// them into per-file line hits.
+    /// 1. Resolve root artifacts (bytecode in [`SharedCoverage`]) and their
+    ///    child artifacts recursively via `metadata.sources`.
+    /// 2. Collect executable lines from the AST of every resolved artifact.
+    /// 3. Map raw PC hits to source lines using the artifact source maps.
+    /// 4. Assemble the final `lcov.info` report.
     pub fn build(self) -> CoverageReport {
         let resolver = SourceIdResolver::new(&self.artifacts);
         let index = ArtifactIndex::new(&self.artifacts);
 
         // -------------------------------------------------------------------
-        // Determine active artifacts and active source paths from the shared
-        // coverage map.
+        // 1. Resolve root and child artifacts.
         //
-        // `active_artifacts`: artifacts whose deployed bytecode was recorded
-        // during fuzzing. Their source maps are the only ones we trust to
-        // define *executable* lines.
-        //
-        // `active_source_paths`: all source files that belong to the active
-        // artifacts' compilation units. This filters the *final report* so
-        // completely unrelated files (e.g. a test contract that is never
-        // deployed and never imported) never appear.
+        // Root artifacts are those whose deployed bytecode appears in the
+        // coverage data. Child artifacts are resolved recursively from each
+        // root artifact's `metadata.sources`.
         // -------------------------------------------------------------------
-        let mut active_source_paths: HashSet<PathBuf> = HashSet::new();
-        let mut active_artifacts: HashSet<&ArtifactId> = HashSet::new();
+        let mut path_to_artifact: HashMap<PathBuf, &Artifact> = HashMap::new();
+        for artifact in &self.artifacts {
+            // checkrs: allow(clone_in_loops)
+            path_to_artifact.insert(artifact.ast().absolute_path.clone(), artifact);
+        }
+
+        let mut resolved_source_paths: HashSet<PathBuf> = HashSet::new();
+        let mut resolved_artifacts: HashSet<&ArtifactId> = HashSet::new();
+        let mut queue: Vec<&Artifact> = Vec::new();
+
         let all_counts = self.shared_coverage.all_raw_edge_counts_with_bytecodes();
         for counts in &all_counts {
             let Some(artifact) = index.find(&counts.bytecode) else {
                 continue;
             };
-            active_artifacts.insert(artifact.id());
-            if let Some(sources) = artifact.metadata_sources() {
-                for path in sources.keys() {
-                    active_source_paths.insert(PathBuf::from(path));
-                }
-            } else {
-                // checkrs: allow(clone_in_loops)
-                active_source_paths.insert(artifact.ast().absolute_path.clone());
+            if resolved_artifacts.insert(artifact.id()) {
+                queue.push(artifact);
             }
         }
-        let has_active_filter = !active_source_paths.is_empty();
+
+        while let Some(artifact) = queue.pop() {
+            match artifact.metadata_sources() {
+                Some(sources) => {
+                    for path in sources.keys() {
+                        let path = PathBuf::from(path);
+                        // checkrs: allow(clone_in_loops)
+                        let inserted = resolved_source_paths.insert(path.clone());
+                        if inserted
+                            && let Some(child) = path_to_artifact.get(&path)
+                            && resolved_artifacts.insert(child.id())
+                        {
+                            queue.push(child);
+                        }
+                    }
+                }
+                None => {
+                    // checkrs: allow(clone_in_loops)
+                    resolved_source_paths.insert(artifact.ast().absolute_path.clone());
+                }
+            }
+        }
+
+        let has_active_filter = !resolved_source_paths.is_empty();
 
         // -------------------------------------------------------------------
-        // 1. Collect all executable lines from active artifacts only.
+        // 2. Collect executable lines from the AST of resolved artifacts.
         //
-        // Inactive artifacts (e.g. test contracts that are never deployed) may
-        // have source map entries pointing to non-executable lines (comments,
-        // closing braces, documentation) in shared source files. If we include
-        // them, those lines appear in the report with 0 hits, which is
-        // incorrect.
+        // Executable lines are determined by AST statement nodes, not by the
+        // deployed-bytecode source map. This ensures every executable line is
+        // reported even when the compiler omits it from the source map.
         // -------------------------------------------------------------------
-        let mut executable_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
         let mut source_cache: HashMap<PathBuf, String> = HashMap::new();
 
-        for artifact in &self.artifacts {
-            if !active_artifacts.is_empty() && !active_artifacts.contains(artifact.id()) {
-                continue;
-            }
-            let Some(deployed) = artifact.deployed_bytecode() else {
-                continue;
-            };
-            let code =
-                parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
-            let source_map = parse_source_map(&deployed.source_map);
-            let pc_map = build_pc_to_source_map(&code, &source_map);
+        let resolved_artifact_refs: Vec<&Artifact> = self
+            .artifacts
+            .iter()
+            .filter(|a| resolved_artifacts.contains(a.id()))
+            .collect();
 
-            for entry in &pc_map {
-                let Some(entry) = entry else { continue };
-                let Some(path) = resolver.resolve(artifact, entry.source_index) else {
-                    continue;
-                };
-                let project_path = artifact.project_path();
-                let full_path = project_path.join(&path);
-                let content = source_cache
-                    .entry(path.clone()) // checkrs: allow(clone_in_loops)
-                    .or_insert_with(|| fs::read_to_string(&full_path).unwrap_or_default());
-                if content.is_empty() {
-                    continue;
-                }
-                let line = offset_to_line(content, entry.offset);
-                executable_lines.entry(path).or_default().insert(line);
-            }
-        }
-
-        // Exclude state-variable declaration lines from executable lines.
-        let state_variable_lines =
-            collect_state_variable_lines_from_artifacts(&self.artifacts, &resolver, &source_cache);
-        for (path, lines) in &state_variable_lines {
-            if let Some(executable) = executable_lines.get_mut(path) {
-                for line in lines {
-                    executable.remove(line);
-                }
-            }
-        }
+        let mut executable_lines = collect_executable_lines_from_artifacts(
+            &resolved_artifact_refs,
+            &resolver,
+            &source_cache,
+        );
 
         // -------------------------------------------------------------------
-        // 2. Collect line hits from the shared coverage map.
+        // 3. Collect line hits from the shared coverage map.
         // -------------------------------------------------------------------
         let mut line_hits: HashMap<PathBuf, HashMap<usize, u64>> = HashMap::new();
 
@@ -693,55 +911,16 @@ impl CoverageReporter {
         }
 
         // -------------------------------------------------------------------
-        // 2.5 Propagate hits to contract/library declaration lines.
+        // 4. Collect function coverage.
         // -------------------------------------------------------------------
-        for artifact in &self.artifacts {
-            let ast = artifact.ast();
-            for node in &ast.nodes {
-                let solc::ast::SourceUnitNode::ContractDefinition(contract) = node else {
-                    continue;
-                };
-                let Some(path) = resolver.resolve(artifact, contract.src.source_index) else {
-                    continue;
-                };
-                let content = source_cache.get(&path).cloned().unwrap_or_default();
-                if content.is_empty() {
-                    continue;
-                }
-                let start_line = offset_to_line(&content, contract.src.offset);
-                let end_line = offset_to_line(&content, contract.src.offset + contract.src.length);
-                let max_hit = line_hits
-                    .get(&path)
-                    .map(|hits| {
-                        hits.iter()
-                            .filter(|(line, _)| **line >= start_line && **line <= end_line)
-                            .map(|(_, count)| *count)
-                            .max()
-                            .unwrap_or(0)
-                    })
-                    .unwrap_or(0);
-                if max_hit > 0 {
-                    line_hits
-                        .entry(path)
-                        .or_default()
-                        .entry(start_line)
-                        .and_modify(|e| *e = (*e).max(max_hit))
-                        .or_insert(max_hit);
-                }
-            }
-        }
-
-        // -------------------------------------------------------------------
-        // 3. Collect function coverage.
-        // -------------------------------------------------------------------
-        let mut file_functions =
-            collect_functions_from_artifacts(&self.artifacts, &resolver, &source_cache, &line_hits);
+        let mut file_functions = collect_functions_from_artifacts(
+            &resolved_artifact_refs,
+            &resolver,
+            &source_cache,
+            &line_hits,
+        );
 
         // Ensure every function start line has a corresponding DA entry.
-        // genhtml requires a DA line for every FN line; if the source map
-        // does not include the function signature (e.g. for un-inlined
-        // library functions), we add the line with the function's hit count
-        // so the report shows the function as covered.
         for (path, functions) in &file_functions {
             let lines = executable_lines.entry(path.clone()).or_default(); // checkrs: allow(clone_in_loops)
             let hits = line_hits.entry(path.clone()).or_default(); // checkrs: allow(clone_in_loops)
@@ -753,19 +932,18 @@ impl CoverageReporter {
             }
         }
 
-        // Ensure all files from the active artifact's compilation unit are
-        // included in the report, even if they have no executable lines.
-        for path in &active_source_paths {
+        // Ensure all resolved source files appear in the report.
+        for path in &resolved_source_paths {
             // checkrs: allow(clone_in_loops)
             executable_lines.entry(path.clone()).or_default();
         }
 
         // -------------------------------------------------------------------
-        // 4. Build the report.
+        // 5. Build the report.
         // -------------------------------------------------------------------
         let mut files = Vec::new();
         for (path, lines) in executable_lines {
-            if has_active_filter && !active_source_paths.contains(&path) {
+            if has_active_filter && !resolved_source_paths.contains(&path) {
                 continue;
             }
             let hits = line_hits.remove(&path).unwrap_or_default();
@@ -784,7 +962,7 @@ impl CoverageReporter {
 
         // Add any remaining hit-only files (should not normally happen, but be safe).
         for (path, hits) in line_hits {
-            if has_active_filter && !active_source_paths.contains(&path) {
+            if has_active_filter && !resolved_source_paths.contains(&path) {
                 continue;
             }
             let functions = file_functions.remove(&path).unwrap_or_default();
