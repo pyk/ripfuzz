@@ -1,29 +1,34 @@
 # Check the expected output of the reporter manually
 
-# 1. addAndSub
-# - Only two files expected in the generated report:
-# 	- src/TargetContract.sol
+# 1. TargetContractBasicOnce
+# - All files from TargetContractBasic compilation unit are expected:
+# 	- src/TargetContractBasic.sol
 # 	- src/RaptorFuzz.sol
 # - addAndSub function have 1 hit
 .PHONY: check
-addAndSub:
-	@genhtml expected/addAndSub.info -o coverage/addAndSub --flat
-	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/addAndSub/
+TargetContractBasicOnce:
+	@genhtml expected/TargetContractBasicOnce.info -o coverage/TargetContractBasicOnce --flat
+	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractBasicOnce/
 
-# 2. addAndSub2
-# - Only two files expected in the generated report:
-# 	- src/TargetContract.sol
+# 2. TargetContractBasicTwice
+# - All files from TargetContractBasic compilation unit are expected:
+# 	- src/TargetContractBasic.sol
 # 	- src/RaptorFuzz.sol
 # - addAndSub function have 2 hits
 .PHONY: check
-addAndSub2:
-	@genhtml expected/addAndSub2.info -o coverage/addAndSub2 --flat
-	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/addAndSub2/
+TargetContractBasicTwice:
+	@genhtml expected/TargetContractBasicTwice.info -o coverage/TargetContractBasicTwice --flat
+	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractBasicTwice/
 
 # 3. earlyReturn
-# - Only two files expected in the generated report:
+# - All files from TargetContract compilation unit are expected:
 # 	- src/TargetContract.sol
 # 	- src/RaptorFuzz.sol
+# 	- src/Counter.sol
+# 	- src/CounterLinked.sol
+# 	- src/ICounter.sol
+# 	- src/MathLib.sol
+# 	- src/MathLibLinked.sol
 # - earlyReturn function have 1 hit
 .PHONY: check
 earlyReturn:
@@ -31,11 +36,14 @@ earlyReturn:
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/earlyReturn/
 
 # 4. interfaceCall
-# - Only 4 files expected in the generated report:
+# - All files from TargetContract compilation unit are expected:
 # 	- src/TargetContract.sol
 # 	- src/RaptorFuzz.sol
 # 	- src/Counter.sol
+# 	- src/CounterLinked.sol
+# 	- src/ICounter.sol
 # 	- src/MathLib.sol
+# 	- src/MathLibLinked.sol
 # - interfaceCall function have 1 hit
 .PHONY: check
 interfaceCall:
@@ -43,11 +51,14 @@ interfaceCall:
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/interfaceCall/
 
 # 5. libCall
-# - Only 4 files expected in the generated report:
+# - All files from TargetContract compilation unit are expected:
 # 	- src/TargetContract.sol
 # 	- src/RaptorFuzz.sol
 # 	- src/Counter.sol
+# 	- src/CounterLinked.sol
+# 	- src/ICounter.sol
 # 	- src/MathLib.sol
+# 	- src/MathLibLinked.sol
 # - libCall function have 1 hit
 .PHONY: check
 libCall:
@@ -55,13 +66,26 @@ libCall:
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/libCall/
 
 # 6. libLinkedCall
-# - Only 4 files expected in the generated report:
+# - All files from TargetContract compilation unit are expected:
 # 	- src/TargetContract.sol
 # 	- src/RaptorFuzz.sol
+# 	- src/Counter.sol
 # 	- src/CounterLinked.sol
+# 	- src/ICounter.sol
+# 	- src/MathLib.sol
 # 	- src/MathLibLinked.sol
 # - libLinkedCall function have 1 hit
 .PHONY: check
 libLinkedCall:
 	@genhtml expected/libLinkedCall.info -o coverage/libLinkedCall --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/libLinkedCall/
+
+# 7. emptyTargetFunction
+# - All files from EmptyTargetFunction compilation unit are expected:
+# 	- src/EmptyTargetFunction.sol
+# 	- src/RaptorFuzz.sol
+# - dummyTargetFunction function have 1 hit
+.PHONY: check
+emptyTargetFunction:
+	@genhtml expected/emptyTargetFunction.info -o coverage/emptyTargetFunction --flat
+	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/emptyTargetFunction/

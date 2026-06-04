@@ -28,6 +28,20 @@
 //!     .build();
 //! let lcov_info = format!("{report}");
 //! ```
+//!
+//! # Expected report output
+//!
+//! An **active artifact** is any artifact whose deployed bytecode hash appears
+//! in the [`SharedCoverage`] data.
+//!
+//! For every active artifact, the reporter reads `metadata.sources` (the list of
+//! source files that were compiled together in that artifact's compilation unit).
+//! Each source key (e.g. `src/Counter.sol`) maps to a source file that may also
+//! have its own artifact with its own `metadata.sources`.
+//!
+//! The reporter resolves every source file in the active artifact's compilation
+//! unit and guarantees that **all resolved source files appear in the final
+//! report**, even if they contain no executable lines in the deployed bytecode.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -311,7 +325,10 @@ fn collect_functions_from_artifacts(
             let Some(path) = resolver.resolve(artifact, func.src.source_index) else {
                 return;
             };
-            let content = source_cache.get(&path).cloned().unwrap_or_default();
+            let content = source_cache.get(&path).cloned().unwrap_or_else(|| {
+                let full_path = artifact.project_path().join(&path);
+                fs::read_to_string(&full_path).unwrap_or_default()
+            });
             if content.is_empty() {
                 return;
             }
@@ -385,7 +402,10 @@ fn collect_state_variable_lines_from_artifacts(
                 let Some(path) = resolver.resolve(artifact, var.src.source_index) else {
                     continue;
                 };
-                let content = source_cache.get(&path).cloned().unwrap_or_default();
+                let content = source_cache.get(&path).cloned().unwrap_or_else(|| {
+                    let full_path = artifact.project_path().join(&path);
+                    fs::read_to_string(&full_path).unwrap_or_default()
+                });
                 if content.is_empty() {
                     continue;
                 }
@@ -733,6 +753,13 @@ impl CoverageReporter {
             }
         }
 
+        // Ensure all files from the active artifact's compilation unit are
+        // included in the report, even if they have no executable lines.
+        for path in &active_source_paths {
+            // checkrs: allow(clone_in_loops)
+            executable_lines.entry(path.clone()).or_default();
+        }
+
         // -------------------------------------------------------------------
         // 4. Build the report.
         // -------------------------------------------------------------------
@@ -800,13 +827,16 @@ mod tests {
         }
 
         interface TargetContract {
-            function addAndSub(uint256 a, uint256 b) external returns (uint256);
             function earlyReturn(uint256 a) external returns (uint256);
             function inheritanceCall(uint256 a) external returns (uint256);
             function libCall(uint256 amount) external returns (uint256);
             function libLinkedCall(uint256 amount) external returns (uint256);
             function interfaceCall(uint256 amount) external returns (uint256);
             function counterLinked() external returns (address);
+        }
+
+        interface TargetContractBasic {
+            function addAndSub(uint256 a, uint256 b) external returns (uint256);
         }
 
         interface EmptyTargetFunction {
@@ -897,14 +927,17 @@ mod tests {
 
     /// Regression test: lines executed once must display a hit count of 1.
     #[test]
-    fn coverage_report_executed_once() {
-        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
+    fn target_contract_basic_call_once() {
+        let contract = load_coverage_fixture("src/TargetContractBasic.sol:TargetContractBasic");
         let mut deployed = deploy_and_setup(&contract);
 
         let global = SharedCoverage::new();
-        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContract::addAndSubCall::new((U256::from(123), U256::from(123))).abi_encode(),
-        ))];
+        let txs = vec![
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+                    .abi_encode(),
+            )),
+        ];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
         global.merge(&coverage);
@@ -914,7 +947,8 @@ mod tests {
         let report = build_report(&global, &artifacts);
         let formatted = format!("{report}");
 
-        let expected_file = "fixtures/target-contract-coverage/expected/addAndSub.info";
+        let expected_file =
+            "fixtures/target-contract-coverage/expected/TargetContractBasicOnce.info";
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         let expected = expected.replace(
@@ -930,14 +964,17 @@ mod tests {
 
     /// Regression test: lines executed twice must display a hit count of 2.
     #[test]
-    fn coverage_report_hit_counts_two_executions() {
-        let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
+    fn target_contract_basic_call_twice() {
+        let contract = load_coverage_fixture("src/TargetContractBasic.sol:TargetContractBasic");
         let mut deployed = deploy_and_setup(&contract);
 
         let global = SharedCoverage::new();
-        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContract::addAndSubCall::new((U256::from(123), U256::from(123))).abi_encode(),
-        ))];
+        let txs = vec![
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+                    .abi_encode(),
+            )),
+        ];
 
         let exec1 = deployed.chain.exec(&txs).unwrap();
         let coverage1 = exec1.coverage.expect("coverage must be present");
@@ -952,7 +989,8 @@ mod tests {
         let report = build_report(&global, &artifacts);
         let formatted = format!("{report}");
 
-        let expected_file = "fixtures/target-contract-coverage/expected/addAndSub2.info";
+        let expected_file =
+            "fixtures/target-contract-coverage/expected/TargetContractBasicTwice.info";
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         let expected = expected.replace(
@@ -1102,6 +1140,8 @@ mod tests {
         );
     }
 
+    /// Regression test: coverage report generation must not crash and must
+    /// produce non-empty output even when the target function body is empty.
     #[test]
     fn coverage_report_empty_target_function() {
         let contract = load_coverage_fixture("src/EmptyTargetFunction.sol:EmptyTargetFunction");
@@ -1118,10 +1158,19 @@ mod tests {
         let project = foundry::Project::new("fixtures/target-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&global, &artifacts);
+        let formatted = format!("{report}");
 
-        assert!(
-            !report.files.is_empty(),
-            "coverage report must be generated for an empty target function"
+        let expected_file = "fixtures/target-contract-coverage/expected/emptyTargetFunction.info";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected = expected.replace(
+            "fixtures/target-contract-coverage",
+            &project_path().to_string_lossy(),
+        );
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output must match expected"
         );
     }
 
