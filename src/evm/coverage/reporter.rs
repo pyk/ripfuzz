@@ -1193,7 +1193,7 @@ fn collect_executable_lines_from_statement(
                 artifact,
                 resolver,
                 source_cache,
-                &if_stmt.src,
+                expr_src(if_stmt.condition.as_ref()),
                 executable_lines,
             );
             collect_executable_lines_from_statement(
@@ -1214,13 +1214,23 @@ fn collect_executable_lines_from_statement(
             }
         }
         solc::ast::Statement::ForStatement(for_stmt) => {
-            add_executable_lines_from_src(
-                artifact,
-                resolver,
-                source_cache,
-                &for_stmt.src,
-                executable_lines,
-            );
+            if let Some(init) = &for_stmt.initialization_expression {
+                add_executable_lines_from_src(
+                    artifact,
+                    resolver,
+                    source_cache,
+                    expr_src(init.as_ref()),
+                    executable_lines,
+                );
+            } else {
+                add_executable_lines_from_src(
+                    artifact,
+                    resolver,
+                    source_cache,
+                    expr_src(for_stmt.condition.as_ref()),
+                    executable_lines,
+                );
+            }
             collect_executable_lines_from_statement(
                 &for_stmt.body,
                 artifact,
@@ -1234,7 +1244,7 @@ fn collect_executable_lines_from_statement(
                 artifact,
                 resolver,
                 source_cache,
-                &while_stmt.src,
+                expr_src(while_stmt.condition.as_ref()),
                 executable_lines,
             );
             collect_executable_lines_from_statement(
@@ -1250,7 +1260,7 @@ fn collect_executable_lines_from_statement(
                 artifact,
                 resolver,
                 source_cache,
-                &do_while_stmt.src,
+                expr_src(do_while_stmt.condition.as_ref()),
                 executable_lines,
             );
             collect_executable_lines_from_statement(
@@ -1266,7 +1276,7 @@ fn collect_executable_lines_from_statement(
                 artifact,
                 resolver,
                 source_cache,
-                &try_stmt.src,
+                expr_src(try_stmt.external_call.as_ref()),
                 executable_lines,
             );
             for clause in &try_stmt.clauses {
@@ -1893,6 +1903,13 @@ mod tests {
             function runNestedLoop(uint256 outer, uint256 inner) external;
         }
 
+        interface TargetContractWithIf {
+            function runIf(bool condition) external;
+            function runIfElse(bool condition) external;
+            function runIfElseWithNewline(bool condition) external;
+            function runNestedIf(bool a, bool b) external;
+        }
+
         interface EmptyTargetFunction {
             function dummyTargetFunction() external;
         }
@@ -2217,6 +2234,56 @@ mod tests {
 
         let expected_file =
             "fixtures/target-contract-coverage/expected/TargetContractWithInterface.info";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected = expected.replace(
+            "fixtures/target-contract-coverage",
+            &project_path().to_string_lossy(),
+        );
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output must match expected"
+        );
+    }
+
+    /// Regression test: coverage report for if-statement close brackets and
+    /// empty lines between if-else branches must be handled correctly.
+    #[test]
+    fn target_contract_with_if() {
+        let contract = load_coverage_fixture("src/TargetContractWithIf.sol:TargetContractWithIf");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let txs = vec![
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runIfCall::new((true,)).abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runIfElseCall::new((true,)).abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runIfElseCall::new((false,)).abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runIfElseWithNewlineCall::new((true,)).abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runIfElseWithNewlineCall::new((false,)).abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runNestedIfCall::new((true, true)).abi_encode(),
+            )),
+        ];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        deployed.global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&deployed.global, &artifacts);
+        let formatted = format!("{report}");
+
+        let expected_file = "fixtures/target-contract-coverage/expected/TargetContractWithIf.info";
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         let expected = expected.replace(

@@ -68,4 +68,14 @@ TargetContractWithLibLinked:
 	@genhtml expected/TargetContractWithLibLinked.info -o coverage/TargetContractWithLibLinked --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLibLinked/
 
+# 8. TargetContractWithIf
+# - All files from TargetContractWithIf compilation unit are expected:
+# 	- src/TargetContractWithIf.sol
+# 	- src/RaptorFuzz.sol
+# - if statement, if-else, and if-else with empty lines have hits
+.PHONY: check
+TargetContractWithIf:
+	@genhtml expected/TargetContractWithIf.info -o coverage/TargetContractWithIf --flat --show-zero-columns --num-spaces 4 --simplified-colors
+	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithIf/
+
 
