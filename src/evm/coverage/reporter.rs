@@ -351,9 +351,13 @@ fn collect_functions_from_artifacts(
     for artifact in artifacts {
         let ast = artifact.ast();
         let mut collect = |func: &solc::ast::FunctionDefinition| {
-            if func.name.is_empty() {
-                return;
-            }
+            let name = match func.kind {
+                solc::ast::FunctionKind::Constructor => "constructor".to_string(),
+                solc::ast::FunctionKind::Fallback => "fallback".to_string(),
+                solc::ast::FunctionKind::Receive => "receive".to_string(),
+                _ if func.name.is_empty() => return,
+                _ => func.name.clone(), // checkrs: allow(clone_in_loops)
+            };
             let Some(path) = resolver.resolve(artifact, func.src.source_index) else {
                 return;
             };
@@ -379,7 +383,7 @@ fn collect_functions_from_artifacts(
             file_functions
                 .entry(path)
                 .or_default()
-                .insert(func.name.clone(), (start_line, hits)); // checkrs: allow(clone_in_loops)
+                .insert(name, (start_line, hits)); // checkrs: allow(clone_in_loops)
         };
 
         for node in &ast.nodes {
