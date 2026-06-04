@@ -57,20 +57,17 @@ TargetContractWithLib:
 	@genhtml expected/TargetContractWithLib.info -o coverage/TargetContractWithLib --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLib/
 
-# 7. libLinkedCall
-# - All files from TargetContract compilation unit are expected:
-# 	- src/TargetContract.sol
+# 7. TargetContractWithLibLinked
+# - All files from TargetContractWithLibLinked compilation unit are expected:
+# 	- src/TargetContractWithLibLinked.sol
 # 	- src/RaptorFuzz.sol
-# 	- src/Counter.sol
 # 	- src/CounterLinked.sol
-# 	- src/ICounter.sol
-# 	- src/MathLib.sol
 # 	- src/MathLibLinked.sol
 # - libLinkedCall function have 1 hit
 .PHONY: check
-libLinkedCall:
-	@genhtml expected/libLinkedCall.info -o coverage/libLinkedCall --flat
-	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/libLinkedCall/
+TargetContractWithLibLinked:
+	@genhtml expected/TargetContractWithLibLinked.info -o coverage/TargetContractWithLibLinked --flat
+	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLibLinked/
 
 # 8. emptyTargetFunction
 # - All files from EmptyTargetFunction compilation unit are expected:
