@@ -94,6 +94,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use alloy_primitives::{B256, keccak256};
+use rayon::prelude::*;
+use tracing::instrument;
 
 use crate::evm::coverage::shared::SharedCoverage;
 use crate::evm::coverage::source_map::{SourceMapEntry, parse_source_map};
@@ -355,10 +357,12 @@ struct ArtifactIndexEntry<'a> {
     hash: B256,
     positions: Vec<(usize, usize)>,
     is_initcode: bool,
+    code_len: usize,
 }
 
 struct ArtifactIndex<'a> {
     entries: Vec<ArtifactIndexEntry<'a>>,
+    entries_by_len: HashMap<usize, Vec<usize>>,
 }
 
 impl<'a> ArtifactIndex<'a> {
@@ -381,6 +385,7 @@ impl<'a> ArtifactIndex<'a> {
                 if matches!(artifact, Artifact::Library(_)) && code.first() == Some(&0x73) {
                     positions.push((1, 20));
                 }
+                let code_len = code.len();
                 let mut masked = code;
                 zero_out_positions(&mut masked, &positions);
                 let hash = keccak256(&masked);
@@ -389,6 +394,7 @@ impl<'a> ArtifactIndex<'a> {
                     hash,
                     positions,
                     is_initcode: false,
+                    code_len,
                 })
             });
             if let Some(entry) = deployed_entry {
@@ -403,6 +409,7 @@ impl<'a> ArtifactIndex<'a> {
                     return None;
                 }
                 let positions = collect_link_positions(&bytecode.link_references);
+                let code_len = code.len();
                 let mut masked = code;
                 zero_out_positions(&mut masked, &positions);
                 let hash = keccak256(&masked);
@@ -411,18 +418,29 @@ impl<'a> ArtifactIndex<'a> {
                     hash,
                     positions,
                     is_initcode: true,
+                    code_len,
                 })
             });
             if let Some(entry) = initcode_entry {
                 entries.push(entry);
             }
         }
-        Self { entries }
+        let mut entries_by_len: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (idx, entry) in entries.iter().enumerate() {
+            entries_by_len.entry(entry.code_len).or_default().push(idx);
+        }
+        Self {
+            entries,
+            entries_by_len,
+        }
     }
 
+    #[instrument(skip(self, raw_bytecode), level = "trace")]
     fn find(&self, raw_bytecode: &[u8]) -> Option<(&'a Artifact, bool)> {
+        let candidates = self.entries_by_len.get(&raw_bytecode.len())?;
         let mut masked = raw_bytecode.to_vec();
-        for entry in &self.entries {
+        for idx in candidates {
+            let entry = &self.entries[*idx];
             zero_out_positions(&mut masked, &entry.positions);
             if keccak256(&masked) == entry.hash {
                 return Some((entry.artifact, entry.is_initcode));
@@ -909,6 +927,7 @@ fn collect_statement_line_hits(
     }
 }
 
+#[instrument(skip_all, level = "trace")]
 fn collect_statement_line_hits_from_artifacts(
     artifacts: &[&Artifact],
     resolver: &SourceIdResolver,
@@ -990,6 +1009,7 @@ fn offset_to_line(content: &str, offset: usize) -> usize {
 // Function coverage helpers
 // ---------------------------------------------------------------------------
 
+#[instrument(skip_all, level = "trace")]
 fn collect_functions_from_artifacts(
     artifacts: &[&Artifact],
     resolver: &SourceIdResolver,
@@ -1275,6 +1295,7 @@ fn collect_executable_lines_from_statement(
 }
 
 /// Collect executable lines from the AST of all resolved artifacts.
+#[instrument(skip_all, level = "trace")]
 fn collect_executable_lines_from_artifacts(
     artifacts: &[&Artifact],
     resolver: &SourceIdResolver,
@@ -1452,14 +1473,32 @@ impl CoverageReporter {
 
     /// Build the coverage report.
     ///
-    /// 1. Resolve root artifacts (bytecode in [`SharedCoverage`]) and their
-    ///    child artifacts recursively via `metadata.sources`.
-    /// 2. Collect executable lines from the AST of every resolved artifact.
-    /// 3. Map raw PC hits to source lines using the artifact source maps.
-    /// 4. Assemble the final `lcov.info` report.
+    /// The pipeline is split into sequential phases separated by parallel
+    /// sections. The heavy work (bytecode-to-source mapping and AST walks)
+    /// is distributed with `rayon`.
+    ///
+    /// 1. **Resolve active artifacts**: BFS from root artifacts (bytecode
+    ///    present in [`SharedCoverage`]) through `metadata.sources`.
+    /// 2. **Pre-populate caches**: Read every resolved source file once and
+    ///    build a `line_cache` (newline offsets) so that `offset_to_line`
+    ///    becomes a binary search instead of a linear scan.
+    /// 3. **Parallel coverage mapping**: Two independent branches run in
+    ///    parallel:
+    ///    a. Collect executable lines from the AST of resolved artifacts.
+    ///    b. Map raw PC hits to source lines using artifact source maps.
+    ///    Each coverage entry is processed on its own thread;
+    ///    per-thread results are merged with `max` for hit counts.
+    /// 4. **Parallel AST post-processing**: Two independent passes run in
+    ///    parallel:
+    ///    a. Adjust line hits with statement-level coverage.
+    ///    b. Collect function coverage.
+    /// 5. **Assemble the final `lcov.info` report.**
+    #[instrument(skip(self), level = "trace")]
     pub fn build(self) -> CoverageReport {
-        let resolver = SourceIdResolver::new(&self.artifacts);
-        let index = ArtifactIndex::new(&self.artifacts);
+        let (resolver, index) = rayon::join(
+            || SourceIdResolver::new(&self.artifacts),
+            || ArtifactIndex::new(&self.artifacts),
+        );
 
         // -------------------------------------------------------------------
         // 1. Resolve root and child artifacts.
@@ -1478,9 +1517,35 @@ impl CoverageReporter {
         let mut resolved_artifacts: HashSet<&ArtifactId> = HashSet::new();
         let mut queue: Vec<&Artifact> = Vec::new();
 
-        let all_counts = self.shared_coverage.all_raw_edge_counts_with_bytecodes();
-        for counts in &all_counts {
-            let Some((artifact, _is_initcode)) = index.find(&counts.bytecode) else {
+        // -------------------------------------------------------------------
+        // 1. Resolve root and child artifacts.
+        //
+        // Root artifacts are those whose deployed bytecode appears in the
+        // coverage data. Child artifacts are resolved recursively from each
+        // root artifact's `metadata.sources`.
+        //
+        // We only load the bytecodes here (not the full raw edge counts) so
+        // that factory-generated contracts that have no matching artifact do
+        // not force us to materialise their huge atomic arrays.
+        // -------------------------------------------------------------------
+        let all_bytecodes = self.shared_coverage.all_bytecodes();
+        tracing::trace!(all_bytecodes_len = all_bytecodes.len());
+
+        // Precompute artifact lookup for every unique contract_id so we do
+        // not call the expensive index.find() twice.
+        let mut artifact_cache: HashMap<B256, Option<(&Artifact, bool)>> = HashMap::new();
+        let mut matched_ids: Vec<B256> = Vec::new();
+        for (id, bytecode) in &all_bytecodes {
+            let result = index.find(bytecode);
+            if result.is_some() {
+                matched_ids.push(*id);
+            }
+            artifact_cache.insert(*id, result);
+        }
+        tracing::trace!(matched_ids_len = matched_ids.len());
+
+        for id in &matched_ids {
+            let Some((artifact, _is_initcode)) = artifact_cache.get(id).copied().flatten() else {
                 continue;
             };
             if resolved_artifacts.insert(artifact.id()) {
@@ -1512,106 +1577,202 @@ impl CoverageReporter {
 
         let has_active_filter = !resolved_source_paths.is_empty();
 
-        // -------------------------------------------------------------------
-        // 2. Collect executable lines from the AST of resolved artifacts.
-        //
-        // Executable lines are determined by AST statement nodes, not by the
-        // deployed-bytecode source map. This ensures every executable line is
-        // reported even when the compiler omits it from the source map.
-        // -------------------------------------------------------------------
-        let mut source_cache: HashMap<PathBuf, String> = HashMap::new();
-
         let resolved_artifact_refs: Vec<&Artifact> = self
             .artifacts
             .iter()
             .filter(|a| resolved_artifacts.contains(a.id()))
             .collect();
 
-        let mut executable_lines = collect_executable_lines_from_artifacts(
-            &resolved_artifact_refs,
-            &resolver,
-            &source_cache,
-        );
-
         // -------------------------------------------------------------------
-        // 3. Collect line hits from the shared coverage map.
+        // 2. Pre-populate source_cache and line_cache.
+        //
+        // Every resolved source file is read once up front. The line_cache
+        // stores the byte offset of every newline so that `offset_to_line`
+        // is a binary search (partition_point) instead of an O(n) scan.
+        // This is the biggest single speed-up because the inner loop below
+        // calls it once per hit PC.
         // -------------------------------------------------------------------
-        let mut line_hits: HashMap<PathBuf, HashMap<usize, u64>> = HashMap::new();
-        let mut source_hits: HashMap<&ArtifactId, ArtifactSourceHits> = HashMap::new();
-
-        let all_counts = self.shared_coverage.all_raw_edge_counts_with_bytecodes();
-        for counts in all_counts {
-            let Some((artifact, is_initcode)) = index.find(&counts.bytecode) else {
-                tracing::debug!(
-                    "unmatched bytecode: len={}, id={:?}",
-                    counts.bytecode.len(),
-                    counts.contract_id
-                );
-                continue;
-            };
-            tracing::debug!(
-                "matched artifact: {} (bytecode len={}, initcode={})",
-                artifact.id(),
-                counts.bytecode.len(),
-                is_initcode
-            );
-            let (code, source_map) = if is_initcode {
-                let Some(bytecode) = artifact.bytecode() else {
-                    continue;
-                };
-                let code =
-                    parse_bytecode_with_placeholders(&bytecode.object, &bytecode.link_references);
-                let source_map = parse_source_map(&bytecode.source_map);
-                (code, source_map)
-            } else {
-                let Some(deployed) = artifact.deployed_bytecode() else {
-                    continue;
-                };
-                let code =
-                    parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
-                let source_map = parse_source_map(&deployed.source_map);
-                (code, source_map)
-            };
-            let pc_map = build_pc_to_source_map(&code, &source_map);
-
-            // checkrs: allow(clone_in_loops)
-            for (pc, raw_count) in counts.raw_edges.iter().enumerate() {
-                if *raw_count == 0 {
-                    continue;
+        let mut source_cache: HashMap<PathBuf, String> = HashMap::new();
+        let mut line_cache: HashMap<PathBuf, Vec<usize>> = HashMap::new();
+        // checkrs: allow(nested_if_let)
+        if let Some(first_artifact) = resolved_artifact_refs.first() {
+            let project_path = first_artifact.project_path();
+            for path in &resolved_source_paths {
+                let full_path = project_path.join(path);
+                // checkrs: allow(nested_if_let)
+                if let Ok(content) = fs::read_to_string(&full_path) {
+                    let newlines: Vec<usize> = content
+                        .bytes()
+                        .enumerate()
+                        .filter(|(_, b)| *b == b'\n')
+                        .map(|(i, _)| i)
+                        .collect();
+                    // checkrs: allow(clone_in_loops)
+                    line_cache.insert(path.clone(), newlines);
+                    // checkrs: allow(clone_in_loops)
+                    source_cache.insert(path.clone(), content);
                 }
-                let Some(entry) = pc_map.get(pc).copied().flatten() else {
-                    continue;
-                };
-                let Some(path) = resolver.resolve(artifact, entry.source_index) else {
-                    continue;
-                };
-                let project_path = artifact.project_path();
-                let full_path = project_path.join(&path);
-                let content = source_cache
-                    .entry(path.clone()) // checkrs: allow(clone_in_loops)
-                    .or_insert_with(|| fs::read_to_string(&full_path).unwrap_or_default());
-                if content.is_empty() {
-                    continue;
-                }
-                let line = offset_to_line(content, entry.offset);
-                let file_hits = line_hits.entry(path).or_default();
-                let current = file_hits.entry(line).or_insert(0);
-                *current = (*current).max(*raw_count);
-
-                let hits = source_hits.entry(artifact.id()).or_default();
-                hits.add(entry.source_index, entry.offset, *raw_count);
             }
         }
 
         // -------------------------------------------------------------------
-        // 3.5. Adjust line hits with statement-level coverage.
+        // 3. Parallel coverage mapping.
+        //
+        // Left branch: collect executable lines from the AST of resolved
+        // artifacts. Executable lines are determined by AST statement nodes,
+        // not by the deployed-bytecode source map, so every executable line is
+        // reported even when the compiler omits it from the source map.
+        //
+        // Right branch: map raw PC hits to source lines using artifact source
+        // maps. Each coverage entry is processed on its own thread; per-thread
+        // `line_hits` and `source_hits` maps are merged with `max`.
         // -------------------------------------------------------------------
-        let statement_line_hits = collect_statement_line_hits_from_artifacts(
-            &resolved_artifact_refs,
-            &resolver,
-            &source_cache,
-            &source_hits,
-            &line_hits,
+        // Only materialise raw edge counts for contracts that actually
+        // match a known artifact. Factory-generated bytecodes are skipped.
+        let matched_counts = self
+            .shared_coverage
+            .raw_edge_counts_with_bytecodes_for_ids(&matched_ids);
+        tracing::trace!(matched_counts_len = matched_counts.len());
+
+        // Precompute pc_map for every resolved artifact so the parallel
+        // loop does not re-parse bytecode and source maps for each coverage
+        // entry that maps to the same artifact.
+        let mut pc_map_cache: HashMap<(&ArtifactId, bool), Vec<Option<SourceMapEntry>>> =
+            HashMap::new();
+        for artifact in &resolved_artifact_refs {
+            if let Some(bytecode) = artifact.bytecode() {
+                let code =
+                    parse_bytecode_with_placeholders(&bytecode.object, &bytecode.link_references);
+                let source_map = parse_source_map(&bytecode.source_map);
+                let pc_map = build_pc_to_source_map(&code, &source_map);
+                pc_map_cache.insert((artifact.id(), true), pc_map);
+            }
+            if let Some(deployed) = artifact.deployed_bytecode() {
+                let code =
+                    parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
+                let source_map = parse_source_map(&deployed.source_map);
+                let pc_map = build_pc_to_source_map(&code, &source_map);
+                pc_map_cache.insert((artifact.id(), false), pc_map);
+            }
+        }
+
+        let (mut executable_lines, (mut line_hits, source_hits)) = rayon::join(
+            || {
+                collect_executable_lines_from_artifacts(
+                    &resolved_artifact_refs,
+                    &resolver,
+                    &source_cache,
+                )
+            },
+            || {
+                matched_counts
+                    .into_par_iter()
+                    .map(|counts| {
+                        let mut local_line_hits: HashMap<PathBuf, HashMap<usize, u64>> =
+                            HashMap::new();
+                        let mut local_source_hits: HashMap<&ArtifactId, ArtifactSourceHits> =
+                            HashMap::new();
+
+                        let Some((artifact, is_initcode)) =
+                            artifact_cache.get(&counts.contract_id).copied().flatten()
+                        else {
+                            unreachable!("matched_counts is pre-filtered");
+                        };
+                        tracing::debug!(
+                            "matched artifact: {} (bytecode len={}, initcode={})",
+                            artifact.id(),
+                            counts.bytecode.len(),
+                            is_initcode
+                        );
+                        let Some(pc_map) = pc_map_cache.get(&(artifact.id(), is_initcode)) else {
+                            return (local_line_hits, local_source_hits);
+                        };
+
+                        for (pc, raw_count) in counts.raw_edges.iter().enumerate() {
+                            if *raw_count == 0 {
+                                continue;
+                            }
+                            let Some(entry) = pc_map.get(pc).copied().flatten() else {
+                                continue;
+                            };
+                            let Some(path) = resolver.resolve(artifact, entry.source_index) else {
+                                continue;
+                            };
+
+                            let content = source_cache.get(&path).cloned().unwrap_or_else(|| {
+                                let full_path = artifact.project_path().join(&path);
+                                fs::read_to_string(&full_path).unwrap_or_default()
+                            });
+                            if content.is_empty() {
+                                continue;
+                            }
+
+                            let line = if let Some(newlines) = line_cache.get(&path) {
+                                let safe_offset = entry.offset.min(content.len());
+                                newlines.partition_point(|&n| n < safe_offset) + 1
+                            } else {
+                                offset_to_line(&content, entry.offset)
+                            };
+
+                            let file_hits = local_line_hits.entry(path).or_default();
+                            let current = file_hits.entry(line).or_insert(0);
+                            *current = (*current).max(*raw_count);
+
+                            let hits = local_source_hits.entry(artifact.id()).or_default();
+                            hits.add(entry.source_index, entry.offset, *raw_count);
+                        }
+
+                        (local_line_hits, local_source_hits)
+                    })
+                    .reduce(
+                        || (HashMap::new(), HashMap::new()),
+                        |(mut a_line, mut a_src), (b_line, b_src)| {
+                            for (path, b_hits) in b_line {
+                                let a_hits = a_line.entry(path).or_default();
+                                for (line, b_count) in b_hits {
+                                    let a_count = a_hits.entry(line).or_insert(0);
+                                    *a_count = (*a_count).max(b_count);
+                                }
+                            }
+                            for (id, b_hits) in b_src {
+                                let a_hits = a_src.entry(id).or_default();
+                                for (key, b_count) in b_hits.hits {
+                                    let a_count = a_hits.hits.entry(key).or_insert(0);
+                                    *a_count = (*a_count).max(b_count);
+                                }
+                            }
+                            (a_line, a_src)
+                        },
+                    )
+            },
+        );
+
+        // -------------------------------------------------------------------
+        // 4. Parallel AST post-processing.
+        //
+        // Left branch: adjust line hits with statement-level coverage.
+        // Right branch: collect function coverage.
+        // Both are independent and run in parallel.
+        // -------------------------------------------------------------------
+        let (statement_line_hits, file_functions) = rayon::join(
+            || {
+                collect_statement_line_hits_from_artifacts(
+                    &resolved_artifact_refs,
+                    &resolver,
+                    &source_cache,
+                    &source_hits,
+                    &line_hits,
+                )
+            },
+            || {
+                collect_functions_from_artifacts(
+                    &resolved_artifact_refs,
+                    &resolver,
+                    &source_cache,
+                    &source_hits,
+                    &line_hits,
+                )
+            },
         );
 
         for (path, stmt_hits) in &statement_line_hits {
@@ -1622,16 +1783,7 @@ impl CoverageReporter {
             }
         }
 
-        // -------------------------------------------------------------------
-        // 4. Collect function coverage.
-        // -------------------------------------------------------------------
-        let mut file_functions = collect_functions_from_artifacts(
-            &resolved_artifact_refs,
-            &resolver,
-            &source_cache,
-            &source_hits,
-            &line_hits,
-        );
+        let mut file_functions = file_functions;
 
         // Ensure every function start line has a corresponding DA entry.
         for (path, functions) in &file_functions {
@@ -1655,22 +1807,25 @@ impl CoverageReporter {
         // 5. Build the report.
         // -------------------------------------------------------------------
         let mut files = Vec::new();
-        for (path, lines) in executable_lines {
-            if has_active_filter && !resolved_source_paths.contains(&path) {
-                continue;
+        {
+            let _span = tracing::info_span!("assemble_report").entered();
+            for (path, lines) in executable_lines {
+                if has_active_filter && !resolved_source_paths.contains(&path) {
+                    continue;
+                }
+                let hits = line_hits.remove(&path).unwrap_or_default();
+                let functions = file_functions.remove(&path).unwrap_or_default();
+                let mut file_coverage = FileCoverage {
+                    path,
+                    line_hits: HashMap::new(),
+                    functions,
+                };
+                for line in lines {
+                    let count = hits.get(&line).copied().unwrap_or(0);
+                    file_coverage.line_hits.insert(line, count);
+                }
+                files.push(file_coverage);
             }
-            let hits = line_hits.remove(&path).unwrap_or_default();
-            let functions = file_functions.remove(&path).unwrap_or_default();
-            let mut file_coverage = FileCoverage {
-                path,
-                line_hits: HashMap::new(),
-                functions,
-            };
-            for line in lines {
-                let count = hits.get(&line).copied().unwrap_or(0);
-                file_coverage.line_hits.insert(line, count);
-            }
-            files.push(file_coverage);
         }
 
         // Add any remaining hit-only files (should not normally happen, but be safe).

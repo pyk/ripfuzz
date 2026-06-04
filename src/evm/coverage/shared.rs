@@ -357,6 +357,48 @@ impl SharedCoverage {
             })
             .collect()
     }
+
+    /// Return the bytecodes for all contracts in the coverage map.
+    ///
+    /// This is cheaper than [`all_raw_edge_counts_with_bytecodes`] when the
+    /// caller only needs to inspect the bytecodes (e.g. to match them against
+    /// build artifacts) before deciding which contracts to fully materialise.
+    pub fn all_bytecodes(&self) -> Vec<(B256, Vec<u8>)> {
+        let guard = self.inner.contracts.pin();
+        let bytecodes_guard = self.inner.bytecodes.pin();
+        guard
+            .iter()
+            .map(|(id, _)| {
+                let bytecode = bytecodes_guard.get(id).cloned().unwrap_or_default();
+                (*id, bytecode)
+            })
+            .collect()
+    }
+
+    /// Return the raw edge counts and bytecodes for a specific set of contract IDs.
+    ///
+    /// Use this after filtering contract IDs against an artifact index so
+    /// that unmatched (factory-generated) bytecodes are not materialised.
+    pub fn raw_edge_counts_with_bytecodes_for_ids(&self, ids: &[B256]) -> Vec<RawEdgeCounts> {
+        let guard = self.inner.contracts.pin();
+        let bytecodes_guard = self.inner.bytecodes.pin();
+        ids.iter()
+            .filter_map(|id| {
+                let contract = guard.get(id)?;
+                let raw_edges = contract
+                    .raw_edges
+                    .iter()
+                    .map(|e| e.load(Ordering::Relaxed))
+                    .collect();
+                let bytecode = bytecodes_guard.get(id).cloned().unwrap_or_default();
+                Some(RawEdgeCounts {
+                    contract_id: *id,
+                    bytecode,
+                    raw_edges,
+                })
+            })
+            .collect()
+    }
 }
 
 /// Raw edge counts and bytecode for a single contract.
