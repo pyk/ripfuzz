@@ -29,7 +29,7 @@
 //! let lcov_info = format!("{report}");
 //! ```
 //!
-//! # Expected report output
+//! # Definitions
 //!
 //! ## Root Artifact
 //!
@@ -52,25 +52,25 @@
 //! Executable and non-executable lines are derived from the resolved
 //! artifact's AST nodes. A single node may span multiple lines.
 //!
-//! | AST Node | Executable |
-//! |----------|------------|
-//! | `PragmaDirective` | No |
-//! | `ImportDirective` | No |
-//! | `ContractDefinition` | No |
-//! | `VariableDeclaration` | No |
-//! | `ExpressionStatement` | Yes |
-//! | `VariableDeclarationStatement` | Yes |
-//! | `IfStatement` | Yes |
-//! | `ForStatement` | Yes |
-//! | `WhileStatement` | Yes |
-//! | `DoWhileStatement` | Yes |
-//! | `Return` | Yes |
-//! | `EmitStatement` | Yes |
-//! | `RevertStatement` | Yes |
-//! | `TryStatement` | Yes |
-//! | `InlineAssembly` | Yes |
-//! | `Break` | Yes |
-//! | `Continue` | Yes |
+//! | AST Node                       | Executable |
+//! |--------------------------------|------------|
+//! | `PragmaDirective`              | No         |
+//! | `ImportDirective`              | No         |
+//! | `ContractDefinition`           | No         |
+//! | `VariableDeclaration`          | No         |
+//! | `ExpressionStatement`          | Yes        |
+//! | `VariableDeclarationStatement` | Yes        |
+//! | `IfStatement`                  | Yes        |
+//! | `ForStatement`                 | Yes        |
+//! | `WhileStatement`               | Yes        |
+//! | `DoWhileStatement`             | Yes        |
+//! | `Return`                       | Yes        |
+//! | `EmitStatement`                | Yes        |
+//! | `RevertStatement`              | Yes        |
+//! | `TryStatement`                 | Yes        |
+//! | `InlineAssembly`               | Yes        |
+//! | `Break`                        | Yes        |
+//! | `Continue`                     | Yes        |
 //!
 //! All executable lines have a hit count of **0** by default. Only lines that
 //! actually receive a coverage hit are updated with a positive count.
