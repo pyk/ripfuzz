@@ -38,7 +38,7 @@ use alloy_primitives::{B256, keccak256};
 
 use crate::evm::coverage::shared::SharedCoverage;
 use crate::evm::coverage::source_map::{SourceMapEntry, parse_source_map};
-use crate::foundry::{Artifact, LinkReferences};
+use crate::foundry::{Artifact, ArtifactId, LinkReferences};
 
 // ---------------------------------------------------------------------------
 // Bytecode helpers
@@ -534,17 +534,26 @@ impl CoverageReporter {
         let index = ArtifactIndex::new(&self.artifacts);
 
         // -------------------------------------------------------------------
-        // Determine active source paths from the shared coverage map.
-        // Only artifacts whose bytecode was recorded during fuzzing are
-        // considered "active". Their metadata source files define the exact
-        // set of files that should appear in the report.
+        // Determine active artifacts and active source paths from the shared
+        // coverage map.
+        //
+        // `active_artifacts`: artifacts whose deployed bytecode was recorded
+        // during fuzzing. Their source maps are the only ones we trust to
+        // define *executable* lines.
+        //
+        // `active_source_paths`: all source files that belong to the active
+        // artifacts' compilation units. This filters the *final report* so
+        // completely unrelated files (e.g. a test contract that is never
+        // deployed and never imported) never appear.
         // -------------------------------------------------------------------
         let mut active_source_paths: HashSet<PathBuf> = HashSet::new();
+        let mut active_artifacts: HashSet<&ArtifactId> = HashSet::new();
         let all_counts = self.shared_coverage.all_raw_edge_counts_with_bytecodes();
         for counts in &all_counts {
             let Some(artifact) = index.find(&counts.bytecode) else {
                 continue;
             };
+            active_artifacts.insert(artifact.id());
             if let Some(sources) = artifact.metadata_sources() {
                 for path in sources.keys() {
                     active_source_paths.insert(PathBuf::from(path));
@@ -557,12 +566,21 @@ impl CoverageReporter {
         let has_active_filter = !active_source_paths.is_empty();
 
         // -------------------------------------------------------------------
-        // 1. Collect all executable lines from every artifact.
+        // 1. Collect all executable lines from active artifacts only.
+        //
+        // Inactive artifacts (e.g. test contracts that are never deployed) may
+        // have source map entries pointing to non-executable lines (comments,
+        // closing braces, documentation) in shared source files. If we include
+        // them, those lines appear in the report with 0 hits, which is
+        // incorrect.
         // -------------------------------------------------------------------
         let mut executable_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
         let mut source_cache: HashMap<PathBuf, String> = HashMap::new();
 
         for artifact in &self.artifacts {
+            if !active_artifacts.is_empty() && !active_artifacts.contains(artifact.id()) {
+                continue;
+            }
             let Some(deployed) = artifact.deployed_bytecode() else {
                 continue;
             };
@@ -797,6 +815,10 @@ mod tests {
 
         interface InheritedTarget {
             function inheritedTargetFunction() external;
+        }
+
+        interface CoverageInactiveUser {
+            function callUsed() external pure returns (uint256);
         }
     }
 
@@ -1267,6 +1289,45 @@ mod tests {
         assert!(
             file.line_hits.get(&body_line).unwrap_or(&0) > &0,
             "CoverageImmutable.sol getValue() body line {body_line} must have hits > 0: {file:?}"
+        );
+    }
+
+    /// Regression test: inactive artifacts must not contribute executable lines
+    /// to the coverage report. Only artifacts whose bytecode was recorded during
+    /// fuzzing should define the set of executable source lines.
+    /// Regression test: inactive artifacts must not contribute executable lines
+    /// to the coverage report. Only artifacts whose bytecode was recorded during
+    /// fuzzing should define the set of executable source lines.
+    #[test]
+    fn coverage_report_inactive_artifact_no_executable_lines() {
+        let contract = load_coverage_fixture("src/CoverageInactiveUser.sol:CoverageInactiveUser");
+        let mut deployed = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
+            CoverageInactiveUser::callUsedCall::new(()).abi_encode(),
+        ))];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&global, &artifacts);
+
+        let file = report
+            .files
+            .iter()
+            .find(|f| f.path.ends_with("CoverageInactive.sol"))
+            .expect("CoverageInactive.sol must be in report");
+
+        // The active contract only inlines usedFunction (lines 8-9). The inactive
+        // library artifact CoverageInactive has a source map covering line 7
+        // (library declaration). Without the fix, line 7 would be added to
+        // executable_lines by the inactive artifact and appear in the report.
+        assert!(
+            !file.line_hits.contains_key(&7),
+            "CoverageInactive.sol must not contain a DA entry for library declaration line 7 contributed by inactive artifact: {file:?}"
         );
     }
 }
