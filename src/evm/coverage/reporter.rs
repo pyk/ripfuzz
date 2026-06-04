@@ -74,8 +74,21 @@
 //!
 //! All executable lines have a hit count of **0** by default. Only lines that
 //! actually receive a coverage hit are updated with a positive count.
+//!
+//! # Function Hit Count
+//!
+//! The hit count of a function is derived from the maximum **direct** statement
+//! child. A function's direct children are the top-level executable statements
+//! in its body.
+//!
+//! # Statement Hit Count
+//!
+//! A compound statement's hit count is the number of times it is entered. For
+//! `ForStatement`, this is the hit count of the initialization expression. For
+//! `IfStatement`, this is the hit count of the condition expression. The hit
+//! count of a leaf statement is the maximum line hit across its source range.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
@@ -346,6 +359,462 @@ impl<'a> ArtifactIndex<'a> {
 }
 
 // ---------------------------------------------------------------------------
+// Source range hits
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default)]
+struct ArtifactSourceHits {
+    hits: BTreeMap<(usize, usize), u64>,
+}
+
+impl ArtifactSourceHits {
+    fn add(&mut self, source_index: usize, offset: usize, hit: u64) {
+        let key = (source_index, offset);
+        let entry = self.hits.entry(key).or_insert(0);
+        *entry = (*entry).max(hit);
+    }
+
+    fn max_in_range(&self, source_index: usize, offset: usize, length: usize) -> u64 {
+        self.hits
+            .range((source_index, offset)..(source_index, offset + length))
+            .map(|(_, hit)| *hit)
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Expression source helpers
+// ---------------------------------------------------------------------------
+
+fn expr_src(expr: &solc::ast::Expression) -> &solc::ast::SourceLocation {
+    match expr {
+        solc::ast::Expression::Assignment(e) => &e.src,
+        solc::ast::Expression::BinaryOperation(e) => &e.src,
+        solc::ast::Expression::Conditional(e) => &e.src,
+        solc::ast::Expression::ElementaryTypeNameExpression(e) => &e.src,
+        solc::ast::Expression::FunctionCall(e) => &e.src,
+        solc::ast::Expression::Identifier(e) => &e.src,
+        solc::ast::Expression::IndexAccess(e) => &e.src,
+        solc::ast::Expression::IndexRangeAccess(e) => &e.src,
+        solc::ast::Expression::Literal(e) => &e.src,
+        solc::ast::Expression::MemberAccess(e) => &e.src,
+        solc::ast::Expression::NewExpression(e) => &e.src,
+        solc::ast::Expression::TupleExpression(e) => &e.src,
+        solc::ast::Expression::UnaryOperation(e) => &e.src,
+        solc::ast::Expression::VariableDeclarationStatement(e) => &e.src,
+        solc::ast::Expression::ExpressionStatement(e) => &e.src,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Source content resolution
+// ---------------------------------------------------------------------------
+
+fn resolve_content(
+    artifact: &Artifact,
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+    src: &solc::ast::SourceLocation,
+) -> Option<(PathBuf, String)> {
+    let path = resolver.resolve(artifact, src.source_index)?;
+    let content = source_cache.get(&path).cloned().unwrap_or_else(|| {
+        let full_path = artifact.project_path().join(&path);
+        fs::read_to_string(&full_path).unwrap_or_default()
+    });
+    if content.is_empty() {
+        return None;
+    }
+    Some((path, content))
+}
+
+// ---------------------------------------------------------------------------
+// Statement hit computation
+// ---------------------------------------------------------------------------
+
+fn compute_statement_hit(
+    stmt: &solc::ast::Statement,
+    artifact: &Artifact,
+    source_hits: &ArtifactSourceHits,
+    line_hits: &HashMap<PathBuf, HashMap<usize, u64>>,
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+) -> u64 {
+    match stmt {
+        solc::ast::Statement::Block(block) => block
+            .statements
+            .iter()
+            .map(|s| {
+                compute_statement_hit(s, artifact, source_hits, line_hits, resolver, source_cache)
+            })
+            .max()
+            .unwrap_or(0),
+        solc::ast::Statement::UncheckedBlock(block) => block
+            .statements
+            .iter()
+            .map(|s| {
+                compute_statement_hit(s, artifact, source_hits, line_hits, resolver, source_cache)
+            })
+            .max()
+            .unwrap_or(0),
+        solc::ast::Statement::IfStatement(if_stmt) => {
+            let cond_src = expr_src(if_stmt.condition.as_ref());
+            source_hits.max_in_range(cond_src.source_index, cond_src.offset, cond_src.length)
+        }
+        solc::ast::Statement::ForStatement(for_stmt) => {
+            let entry_hit = for_stmt
+                .initialization_expression
+                .as_ref()
+                .map(|expr| {
+                    let src = expr_src(expr.as_ref());
+                    source_hits.max_in_range(src.source_index, src.offset, src.length)
+                })
+                .unwrap_or(0);
+            let cond_src = expr_src(for_stmt.condition.as_ref());
+            let cond_hit =
+                source_hits.max_in_range(cond_src.source_index, cond_src.offset, cond_src.length);
+            if entry_hit > 0 { entry_hit } else { cond_hit }
+        }
+        solc::ast::Statement::WhileStatement(while_stmt) => {
+            let cond_src = expr_src(while_stmt.condition.as_ref());
+            source_hits.max_in_range(cond_src.source_index, cond_src.offset, cond_src.length)
+        }
+        solc::ast::Statement::DoWhileStatement(do_while_stmt) => {
+            let cond_src = expr_src(do_while_stmt.condition.as_ref());
+            source_hits.max_in_range(cond_src.source_index, cond_src.offset, cond_src.length)
+        }
+        solc::ast::Statement::TryStatement(try_stmt) => {
+            let call_src = expr_src(try_stmt.external_call.as_ref());
+            let call_hit =
+                source_hits.max_in_range(call_src.source_index, call_src.offset, call_src.length);
+            let clauses_hit = try_stmt
+                .clauses
+                .iter()
+                .map(|c| {
+                    c.block
+                        .statements
+                        .iter()
+                        .map(|s| {
+                            compute_statement_hit(
+                                s,
+                                artifact,
+                                source_hits,
+                                line_hits,
+                                resolver,
+                                source_cache,
+                            )
+                        })
+                        .max()
+                        .unwrap_or(0)
+                })
+                .max()
+                .unwrap_or(0);
+            call_hit.max(clauses_hit)
+        }
+        _ => {
+            let src = stmt_src(stmt);
+            let Some((path, content)) = resolve_content(artifact, resolver, source_cache, src)
+            else {
+                return 0;
+            };
+            let empty = HashMap::new();
+            let file_hits = line_hits.get(&path).unwrap_or(&empty);
+            let start_line = offset_to_line(&content, src.offset);
+            let end_line = offset_to_line(&content, src.offset + src.length);
+            file_hits
+                .iter()
+                .filter(|(line, _)| **line >= start_line && **line <= end_line)
+                .map(|(_, count)| *count)
+                .max()
+                .unwrap_or(0)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Statement line hit helpers
+// ---------------------------------------------------------------------------
+
+fn add_statement_line_hits(
+    artifact: &Artifact,
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+    src: &solc::ast::SourceLocation,
+    hit: u64,
+    statement_line_hits: &mut HashMap<PathBuf, HashMap<usize, u64>>,
+) {
+    let Some(path) = resolver.resolve(artifact, src.source_index) else {
+        return;
+    };
+    let content = source_cache.get(&path).cloned().unwrap_or_else(|| {
+        let full_path = artifact.project_path().join(&path);
+        fs::read_to_string(&full_path).unwrap_or_default()
+    });
+    if content.is_empty() {
+        return;
+    }
+    let start_line = offset_to_line(&content, src.offset);
+    let end_line = offset_to_line(&content, src.offset + src.length);
+    let hits = statement_line_hits.entry(path).or_default();
+    for line in start_line..=end_line {
+        hits.insert(line, hit);
+    }
+}
+
+fn collect_statement_line_hits(
+    stmt: &solc::ast::Statement,
+    artifact: &Artifact,
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+    source_hits: &ArtifactSourceHits,
+    line_hits: &HashMap<PathBuf, HashMap<usize, u64>>,
+    statement_line_hits: &mut HashMap<PathBuf, HashMap<usize, u64>>,
+) {
+    match stmt {
+        solc::ast::Statement::Block(block) => {
+            for stmt in &block.statements {
+                collect_statement_line_hits(
+                    stmt,
+                    artifact,
+                    resolver,
+                    source_cache,
+                    source_hits,
+                    line_hits,
+                    statement_line_hits,
+                );
+            }
+        }
+        solc::ast::Statement::UncheckedBlock(block) => {
+            for stmt in &block.statements {
+                collect_statement_line_hits(
+                    stmt,
+                    artifact,
+                    resolver,
+                    source_cache,
+                    source_hits,
+                    line_hits,
+                    statement_line_hits,
+                );
+            }
+        }
+        solc::ast::Statement::IfStatement(if_stmt) => {
+            // Only process children; do not set the if statement lines.
+            // The if line already gets its hit from the condition PC, and
+            // body lines are overridden by their respective statements.
+            collect_statement_line_hits(
+                &if_stmt.true_body,
+                artifact,
+                resolver,
+                source_cache,
+                source_hits,
+                line_hits,
+                statement_line_hits,
+            );
+            if let Some(false_body) = &if_stmt.false_body {
+                collect_statement_line_hits(
+                    false_body,
+                    artifact,
+                    resolver,
+                    source_cache,
+                    source_hits,
+                    line_hits,
+                    statement_line_hits,
+                );
+            }
+        }
+        solc::ast::Statement::ForStatement(for_stmt) => {
+            let stmt_hit = compute_statement_hit(
+                stmt,
+                artifact,
+                source_hits,
+                line_hits,
+                resolver,
+                source_cache,
+            );
+            add_statement_line_hits(
+                artifact,
+                resolver,
+                source_cache,
+                &for_stmt.src,
+                stmt_hit,
+                statement_line_hits,
+            );
+            collect_statement_line_hits(
+                &for_stmt.body,
+                artifact,
+                resolver,
+                source_cache,
+                source_hits,
+                line_hits,
+                statement_line_hits,
+            );
+        }
+        solc::ast::Statement::WhileStatement(while_stmt) => {
+            let stmt_hit = compute_statement_hit(
+                stmt,
+                artifact,
+                source_hits,
+                line_hits,
+                resolver,
+                source_cache,
+            );
+            add_statement_line_hits(
+                artifact,
+                resolver,
+                source_cache,
+                &while_stmt.src,
+                stmt_hit,
+                statement_line_hits,
+            );
+            collect_statement_line_hits(
+                &while_stmt.body,
+                artifact,
+                resolver,
+                source_cache,
+                source_hits,
+                line_hits,
+                statement_line_hits,
+            );
+        }
+        solc::ast::Statement::DoWhileStatement(do_while_stmt) => {
+            let stmt_hit = compute_statement_hit(
+                stmt,
+                artifact,
+                source_hits,
+                line_hits,
+                resolver,
+                source_cache,
+            );
+            add_statement_line_hits(
+                artifact,
+                resolver,
+                source_cache,
+                &do_while_stmt.src,
+                stmt_hit,
+                statement_line_hits,
+            );
+            collect_statement_line_hits(
+                &do_while_stmt.body,
+                artifact,
+                resolver,
+                source_cache,
+                source_hits,
+                line_hits,
+                statement_line_hits,
+            );
+        }
+        solc::ast::Statement::TryStatement(try_stmt) => {
+            let stmt_hit = compute_statement_hit(
+                stmt,
+                artifact,
+                source_hits,
+                line_hits,
+                resolver,
+                source_cache,
+            );
+            add_statement_line_hits(
+                artifact,
+                resolver,
+                source_cache,
+                &try_stmt.src,
+                stmt_hit,
+                statement_line_hits,
+            );
+            for clause in &try_stmt.clauses {
+                for stmt in &clause.block.statements {
+                    collect_statement_line_hits(
+                        stmt,
+                        artifact,
+                        resolver,
+                        source_cache,
+                        source_hits,
+                        line_hits,
+                        statement_line_hits,
+                    );
+                }
+            }
+        }
+        _ => {
+            let stmt_hit = compute_statement_hit(
+                stmt,
+                artifact,
+                source_hits,
+                line_hits,
+                resolver,
+                source_cache,
+            );
+            add_statement_line_hits(
+                artifact,
+                resolver,
+                source_cache,
+                stmt_src(stmt),
+                stmt_hit,
+                statement_line_hits,
+            );
+        }
+    }
+}
+
+fn collect_statement_line_hits_from_artifacts(
+    artifacts: &[&Artifact],
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+    source_hits: &HashMap<&ArtifactId, ArtifactSourceHits>,
+    line_hits: &HashMap<PathBuf, HashMap<usize, u64>>,
+) -> HashMap<PathBuf, HashMap<usize, u64>> {
+    let mut statement_line_hits: HashMap<PathBuf, HashMap<usize, u64>> = HashMap::new();
+
+    for artifact in artifacts {
+        let ast = artifact.ast();
+        for node in &ast.nodes {
+            match node {
+                solc::ast::SourceUnitNode::ContractDefinition(contract) => {
+                    for node in &contract.nodes {
+                        if let solc::ast::ContractDefinitionNode::FunctionDefinition(func) = node
+                            && let Some(body) = &func.body
+                        {
+                            for stmt in &body.statements {
+                                collect_statement_line_hits(
+                                    stmt,
+                                    artifact,
+                                    resolver,
+                                    source_cache,
+                                    source_hits
+                                        .get(artifact.id())
+                                        .unwrap_or(&ArtifactSourceHits::default()),
+                                    line_hits,
+                                    &mut statement_line_hits,
+                                );
+                            }
+                        }
+                    }
+                }
+                solc::ast::SourceUnitNode::FunctionDefinition(func) => {
+                    if let Some(body) = &func.body {
+                        for stmt in &body.statements {
+                            collect_statement_line_hits(
+                                stmt,
+                                artifact,
+                                resolver,
+                                source_cache,
+                                source_hits
+                                    .get(artifact.id())
+                                    .unwrap_or(&ArtifactSourceHits::default()),
+                                line_hits,
+                                &mut statement_line_hits,
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    statement_line_hits
+}
+
+// ---------------------------------------------------------------------------
 // Line offset helpers
 // ---------------------------------------------------------------------------
 
@@ -371,6 +840,7 @@ fn collect_functions_from_artifacts(
     artifacts: &[&Artifact],
     resolver: &SourceIdResolver,
     source_cache: &HashMap<PathBuf, String>,
+    source_hits: &HashMap<&ArtifactId, ArtifactSourceHits>,
     line_hits: &HashMap<PathBuf, HashMap<usize, u64>>,
 ) -> HashMap<PathBuf, Vec<FunctionCoverage>> {
     let mut file_functions: HashMap<PathBuf, HashMap<String, (usize, u64)>> = HashMap::new();
@@ -396,21 +866,40 @@ fn collect_functions_from_artifacts(
                 return;
             }
             let start_line = offset_to_line(&content, func.src.offset);
-            let end_line = offset_to_line(&content, func.src.offset + func.src.length);
-            let hits = line_hits
-                .get(&path)
-                .map(|hits| {
-                    hits.iter()
-                        .filter(|(line, _)| **line >= start_line && **line <= end_line)
-                        .map(|(_, count)| *count)
-                        .max()
+
+            let source_hits = source_hits.get(artifact.id()).cloned().unwrap_or_default();
+
+            let func_hits = func.body.as_ref().map_or(0, |body| {
+                let stmt_hits = body
+                    .statements
+                    .iter()
+                    .map(|stmt| {
+                        compute_statement_hit(
+                            stmt,
+                            artifact,
+                            &source_hits,
+                            line_hits,
+                            resolver,
+                            source_cache,
+                        )
+                    })
+                    .max()
+                    .unwrap_or(0);
+                if stmt_hits > 0 {
+                    stmt_hits
+                } else {
+                    // Fall back to the raw line hit for the function start line.
+                    line_hits
+                        .get(&path)
+                        .and_then(|hits| hits.get(&start_line).copied())
                         .unwrap_or(0)
-                })
-                .unwrap_or(0);
+                }
+            });
+
             file_functions
                 .entry(path)
                 .or_default()
-                .insert(name, (start_line, hits)); // checkrs: allow(clone_in_loops)
+                .insert(name, (start_line, func_hits)); // checkrs: allow(clone_in_loops)
         };
 
         for node in &ast.nodes {
@@ -891,6 +1380,7 @@ impl CoverageReporter {
         // 3. Collect line hits from the shared coverage map.
         // -------------------------------------------------------------------
         let mut line_hits: HashMap<PathBuf, HashMap<usize, u64>> = HashMap::new();
+        let mut source_hits: HashMap<&ArtifactId, ArtifactSourceHits> = HashMap::new();
 
         let all_counts = self.shared_coverage.all_raw_edge_counts_with_bytecodes();
         for counts in all_counts {
@@ -950,6 +1440,28 @@ impl CoverageReporter {
                 let file_hits = line_hits.entry(path).or_default();
                 let current = file_hits.entry(line).or_insert(0);
                 *current = (*current).max(*raw_count);
+
+                let hits = source_hits.entry(artifact.id()).or_default();
+                hits.add(entry.source_index, entry.offset, *raw_count);
+            }
+        }
+
+        // -------------------------------------------------------------------
+        // 3.5. Adjust line hits with statement-level coverage.
+        // -------------------------------------------------------------------
+        let statement_line_hits = collect_statement_line_hits_from_artifacts(
+            &resolved_artifact_refs,
+            &resolver,
+            &source_cache,
+            &source_hits,
+            &line_hits,
+        );
+
+        for (path, stmt_hits) in &statement_line_hits {
+            // checkrs: allow(clone_in_loops)
+            let file_hits = line_hits.entry(path.clone()).or_default();
+            for (line, hit) in stmt_hits {
+                file_hits.insert(*line, *hit);
             }
         }
 
@@ -960,6 +1472,7 @@ impl CoverageReporter {
             &resolved_artifact_refs,
             &resolver,
             &source_cache,
+            &source_hits,
             &line_hits,
         );
 
