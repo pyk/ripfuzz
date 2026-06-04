@@ -870,10 +870,8 @@ mod tests {
             .unwrap_or_else(|_| PathBuf::from("fixtures/target-contract-coverage"))
     }
 
-    // -----------------------------------------------------------------------
-    // Regression tests
-    // -----------------------------------------------------------------------
-
+    /// Regression test: build artifacts that include interfaces (which have
+    /// no deployed bytecode) must not cause coverage report generation to fail.
     #[test]
     fn coverage_report_build_with_interface_artifact() {
         let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
@@ -897,6 +895,7 @@ mod tests {
         );
     }
 
+    /// Regression test: lines executed once must display a hit count of 1.
     #[test]
     fn coverage_report_executed_once() {
         let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
@@ -929,6 +928,7 @@ mod tests {
         );
     }
 
+    /// Regression test: lines executed twice must display a hit count of 2.
     #[test]
     fn coverage_report_hit_counts_two_executions() {
         let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
@@ -966,6 +966,8 @@ mod tests {
         );
     }
 
+    /// Regression test: if-else branch coverage must be correctly reported
+    /// for functions with early returns.
     #[test]
     fn coverage_report_early_return() {
         let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
@@ -998,6 +1000,8 @@ mod tests {
         );
     }
 
+    /// Regression test: internal library coverage must be correctly reported,
+    /// including the active contract that uses the library.
     #[test]
     fn coverage_report_lib_call() {
         let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
@@ -1030,6 +1034,8 @@ mod tests {
         );
     }
 
+    /// Regression test: linked library coverage must be correctly reported,
+    /// including the active contract that uses the linked library.
     #[test]
     fn coverage_report_lib_linked_call() {
         let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
@@ -1062,6 +1068,8 @@ mod tests {
         );
     }
 
+    /// Regression test: a deployed contract must be reported correctly even
+    /// when the caller interacts with it through an interface.
     #[test]
     fn coverage_report_interface_call() {
         let contract = load_coverage_fixture("src/TargetContract.sol:TargetContract");
