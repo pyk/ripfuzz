@@ -68,12 +68,4 @@ TargetContractWithLibLinked:
 	@genhtml expected/TargetContractWithLibLinked.info -o coverage/TargetContractWithLibLinked --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLibLinked/
 
-# 8. emptyTargetFunction
-# - All files from EmptyTargetFunction compilation unit are expected:
-# 	- src/EmptyTargetFunction.sol
-# 	- src/RaptorFuzz.sol
-# - dummyTargetFunction function have 1 hit
-.PHONY: check
-emptyTargetFunction:
-	@genhtml expected/emptyTargetFunction.info -o coverage/emptyTargetFunction --flat
-	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/emptyTargetFunction/
+
