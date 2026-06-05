@@ -75,6 +75,23 @@
 //! All executable lines have a hit count of **0** by default. Only lines that
 //! actually receive a coverage hit are updated with a positive count.
 //!
+//! ## Optimizer-Eliminated Return Statements
+//!
+//! When the Solidity optimizer is enabled, the Yul optimizer's function
+//! inliner may eliminate `return` statements in internal functions. The
+//! bytecode for those lines is removed, and their source map entries are
+//! folded into broad function-level ranges. Reporting such lines as "executed
+//! 0 times" is misleading because they genuinely have no corresponding
+//! bytecode.
+//!
+//! When at least one resolved artifact has the optimizer enabled, the
+//! reporter checks every `Return` statement line against the artifact's
+//! source map. A `Return` line is considered **eliminated** if no source map
+//! entry has its source range fully contained within that line. Eliminated
+//! return lines are excluded from the report's `DA` output, which makes them
+//! appear as non-instrumented (neutral background in `genhtml`) instead of
+//! uncovered (red).
+//!
 //! # Function Hit Count
 //!
 //! The hit count of a function is derived from the maximum **direct** statement
@@ -1356,6 +1373,266 @@ fn collect_executable_lines_from_artifacts(
 }
 
 // ---------------------------------------------------------------------------
+// Optimizer-aware return filtering
+// ---------------------------------------------------------------------------
+
+/// Check whether any resolved artifact has the Solidity optimizer enabled.
+fn has_optimizer_enabled(artifacts: &[&Artifact]) -> bool {
+    artifacts
+        .iter()
+        .any(|a| a.optimizer().map(|o| o.enabled).unwrap_or(false))
+}
+
+/// Recursively collect source lines that contain a `Return` statement.
+fn collect_return_lines_from_statement(
+    stmt: &solc::ast::Statement,
+    artifact: &Artifact,
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+    return_lines: &mut HashMap<PathBuf, HashSet<usize>>,
+) {
+    match stmt {
+        solc::ast::Statement::Block(block) => {
+            for stmt in &block.statements {
+                collect_return_lines_from_statement(
+                    stmt,
+                    artifact,
+                    resolver,
+                    source_cache,
+                    return_lines,
+                );
+            }
+        }
+        solc::ast::Statement::UncheckedBlock(block) => {
+            for stmt in &block.statements {
+                collect_return_lines_from_statement(
+                    stmt,
+                    artifact,
+                    resolver,
+                    source_cache,
+                    return_lines,
+                );
+            }
+        }
+        solc::ast::Statement::IfStatement(if_stmt) => {
+            collect_return_lines_from_statement(
+                &if_stmt.true_body,
+                artifact,
+                resolver,
+                source_cache,
+                return_lines,
+            );
+            if let Some(false_body) = &if_stmt.false_body {
+                collect_return_lines_from_statement(
+                    false_body,
+                    artifact,
+                    resolver,
+                    source_cache,
+                    return_lines,
+                );
+            }
+        }
+        solc::ast::Statement::ForStatement(for_stmt) => {
+            collect_return_lines_from_statement(
+                &for_stmt.body,
+                artifact,
+                resolver,
+                source_cache,
+                return_lines,
+            );
+        }
+        solc::ast::Statement::WhileStatement(while_stmt) => {
+            collect_return_lines_from_statement(
+                &while_stmt.body,
+                artifact,
+                resolver,
+                source_cache,
+                return_lines,
+            );
+        }
+        solc::ast::Statement::DoWhileStatement(do_while_stmt) => {
+            collect_return_lines_from_statement(
+                &do_while_stmt.body,
+                artifact,
+                resolver,
+                source_cache,
+                return_lines,
+            );
+        }
+        solc::ast::Statement::TryStatement(try_stmt) => {
+            for clause in &try_stmt.clauses {
+                for stmt in &clause.block.statements {
+                    collect_return_lines_from_statement(
+                        stmt,
+                        artifact,
+                        resolver,
+                        source_cache,
+                        return_lines,
+                    );
+                }
+            }
+        }
+        solc::ast::Statement::Return(return_stmt) => {
+            let src = &return_stmt.src;
+            let Some(path) = resolver.resolve(artifact, src.source_index) else {
+                return;
+            };
+            let content = source_cache.get(&path).cloned().unwrap_or_else(|| {
+                let full_path = artifact.project_path().join(&path);
+                fs::read_to_string(&full_path).unwrap_or_default()
+            });
+            if content.is_empty() {
+                return;
+            }
+            let start_line = offset_to_line(&content, src.offset);
+            let end_line = offset_to_line(&content, src.offset + src.length);
+            let lines = return_lines.entry(path).or_default();
+            for line in start_line..=end_line {
+                lines.insert(line);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Collect all `Return` statement lines from the AST of resolved artifacts.
+fn collect_return_lines(
+    artifacts: &[&Artifact],
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+) -> HashMap<PathBuf, HashSet<usize>> {
+    let mut return_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
+
+    for artifact in artifacts {
+        let ast = artifact.ast();
+        for node in &ast.nodes {
+            match node {
+                solc::ast::SourceUnitNode::ContractDefinition(contract) => {
+                    for node in &contract.nodes {
+                        if let solc::ast::ContractDefinitionNode::FunctionDefinition(func) = node
+                            && let Some(body) = &func.body
+                        {
+                            for stmt in &body.statements {
+                                collect_return_lines_from_statement(
+                                    stmt,
+                                    artifact,
+                                    resolver,
+                                    source_cache,
+                                    &mut return_lines,
+                                );
+                            }
+                        }
+                    }
+                }
+                solc::ast::SourceUnitNode::FunctionDefinition(func) => {
+                    if let Some(body) = &func.body {
+                        for stmt in &body.statements {
+                            collect_return_lines_from_statement(
+                                stmt,
+                                artifact,
+                                resolver,
+                                source_cache,
+                                &mut return_lines,
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    return_lines
+}
+
+/// Build a set of source lines that have at least one source map entry whose
+/// range is fully contained within the line.
+///
+/// A line is considered to have a "specific" source map entry when an entry
+/// `(offset, length)` satisfies `offset >= line_start && offset + length <=
+/// line_end`. Entries that span multiple lines (broad function-level ranges)
+/// are excluded.
+fn collect_source_map_specific_lines(
+    artifact: &Artifact,
+    resolver: &SourceIdResolver,
+    source_cache: &HashMap<PathBuf, String>,
+    line_cache: &HashMap<PathBuf, Vec<usize>>,
+) -> HashMap<PathBuf, HashSet<usize>> {
+    let mut specific_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
+
+    for sm in [
+        artifact.bytecode().map(|b| b.source_map.as_str()),
+        artifact.deployed_bytecode().map(|b| b.source_map.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for entry in parse_source_map(sm) {
+            if entry.length == 0 {
+                continue;
+            }
+            let Some(path) = resolver.resolve(artifact, entry.source_index) else {
+                continue;
+            };
+            let content = source_cache.get(&path).cloned().unwrap_or_else(|| {
+                let full_path = artifact.project_path().join(&path);
+                fs::read_to_string(&full_path).unwrap_or_default()
+            });
+            if content.is_empty() {
+                continue;
+            }
+
+            let source_offset = entry.offset;
+            let source_end = entry.offset.saturating_add(entry.length);
+            let start_line = if let Some(newlines) = line_cache.get(&path) {
+                let safe_offset = source_offset.min(content.len());
+                newlines.partition_point(|&n| n < safe_offset) + 1
+            } else {
+                offset_to_line(&content, source_offset)
+            };
+            let end_line = if let Some(newlines) = line_cache.get(&path) {
+                let safe_end = source_end.min(content.len());
+                newlines.partition_point(|&n| n < safe_end) + 1
+            } else {
+                offset_to_line(&content, source_end)
+            };
+
+            // Only counts as "specific" if the entire source range falls
+            // within a single line.
+            if start_line == end_line {
+                specific_lines.entry(path).or_default().insert(start_line);
+            }
+        }
+    }
+
+    specific_lines
+}
+
+/// Remove eliminated `Return` lines from the executable line set.
+///
+/// A `Return` line is eliminated by the optimizer when it has no source map
+/// entry whose range is fully contained within that line (i.e. it only appears
+/// in broad multi-line ranges).
+fn filter_eliminated_return_lines(
+    executable_lines: &mut HashMap<PathBuf, HashSet<usize>>,
+    return_lines: &HashMap<PathBuf, HashSet<usize>>,
+    source_map_specific_lines: &HashMap<PathBuf, HashSet<usize>>,
+) {
+    for (path, ret_lines) in return_lines {
+        let Some(exec_lines) = executable_lines.get_mut(path) else {
+            continue;
+        };
+        let specific = source_map_specific_lines.get(path);
+        for line in ret_lines {
+            let has_specific = specific.map(|s| s.contains(line)).unwrap_or(false);
+            if !has_specific {
+                exec_lines.remove(line);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Coverage report
 // ---------------------------------------------------------------------------
 
@@ -1758,6 +2035,42 @@ impl CoverageReporter {
         );
 
         // -------------------------------------------------------------------
+        // 3b. Remove optimizer-eliminated Return lines from executable_lines.
+        //
+        // When the optimizer is enabled, return statements in inlined internal
+        // functions may lose their dedicated source map entries. Rather than
+        // reporting those lines as "executed 0 times" (misleading), we exclude
+        // them from DA entirely. A Return line is only excluded when *no*
+        // source map entry has its range fully contained within that line.
+        // -------------------------------------------------------------------
+        if has_optimizer_enabled(&resolved_artifact_refs) {
+            let return_lines =
+                collect_return_lines(&resolved_artifact_refs, &resolver, &source_cache);
+
+            let mut source_map_specific_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
+            for artifact in &resolved_artifact_refs {
+                let lines = collect_source_map_specific_lines(
+                    artifact,
+                    &resolver,
+                    &source_cache,
+                    &line_cache,
+                );
+                for (path, line_set) in lines {
+                    source_map_specific_lines
+                        .entry(path)
+                        .or_default()
+                        .extend(line_set);
+                }
+            }
+
+            filter_eliminated_return_lines(
+                &mut executable_lines,
+                &return_lines,
+                &source_map_specific_lines,
+            );
+        }
+
+        // -------------------------------------------------------------------
         // 4. Parallel AST post-processing.
         //
         // Left branch: adjust line hits with statement-level coverage.
@@ -2081,6 +2394,80 @@ mod tests {
 
         let expected_file =
             "fixtures/coverage-report-optimizer-disabled/reports/TargetContractBasicOnce.info";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output must match expected"
+        );
+    }
+
+    /// Regression test: with optimizer enabled, coverage report must
+    /// correctly report hit counts of 1 for lines executed once.
+    #[test]
+    fn optimizer_enabled_target_contract_basic_call_once() {
+        let project_path = "fixtures/coverage-report-optimizer-enabled";
+        let project = foundry::Project::new(project_path);
+        let artifacts = project.load_artifacts().unwrap();
+        let artifact_id =
+            foundry::ArtifactId::try_from("src/TargetContractBasic.sol:TargetContractBasic")
+                .unwrap();
+        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+        // Deploy and setup using the optimizer-enabled project.
+        let mut config = ChainConfig::default().coverage(true);
+        let mut compiled_contracts = HashMap::new();
+        for (id, artifact) in &artifacts {
+            let initcode: Bytes = match artifact {
+                foundry::Artifact::Contract(c) => c.bytecode.object.parse().unwrap_or_default(),
+                foundry::Artifact::Library(c) => c.bytecode.object.parse().unwrap_or_default(),
+                _ => continue,
+            };
+            if initcode.is_empty() {
+                continue;
+            }
+            compiled_contracts.insert(id.into(), initcode);
+        }
+        config = config.with_compiled_contracts(compiled_contracts);
+        let mut chain = Chain::new(config).unwrap();
+        let mut deploy_opts = DeployInput::new(&contract.initcode);
+        for lib in &contract.libraries {
+            deploy_opts = deploy_opts.add_library(lib.clone()); // checkrs: allow(clone_in_loops)
+        }
+        let deployment = chain.deploy(deploy_opts).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        let target = deployment.address.unwrap();
+
+        let global = SharedCoverage::new();
+        global.merge(&deployment.coverage);
+
+        if let Some(setup) = &contract.setup_function {
+            let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
+            let setup_opts = SetupInput::new(target).calldata(setup_data);
+            let setup = chain.setup(setup_opts).unwrap();
+            assert!(setup.result.success, "setup must succeed");
+            global.merge(&setup.coverage);
+        }
+
+        // Execute addAndSub(123, 123) once.
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+                    .abi_encode(),
+            )),
+        ];
+        let exec = chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        // Build report from the optimizer-enabled project artifacts.
+        let artifacts: Vec<Artifact> = artifacts.into_values().collect();
+        let report = build_report(&global, &artifacts);
+        let formatted = format!("{report}");
+
+        let expected_file =
+            "fixtures/coverage-report-optimizer-enabled/reports/TargetContractBasicOnce.info";
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         assert_eq!(
