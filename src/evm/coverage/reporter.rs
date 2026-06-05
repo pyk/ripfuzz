@@ -2016,6 +2016,80 @@ mod tests {
         );
     }
 
+    /// Regression test: with optimizer disabled, coverage report must
+    /// correctly report hit counts of 1 for lines executed once.
+    #[test]
+    fn optimizer_disabled_target_contract_basic_call_once() {
+        let project_path = "fixtures/coverage-report-optimizer-disabled";
+        let project = foundry::Project::new(project_path);
+        let artifacts = project.load_artifacts().unwrap();
+        let artifact_id =
+            foundry::ArtifactId::try_from("src/TargetContractBasic.sol:TargetContractBasic")
+                .unwrap();
+        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+        // Deploy and setup using the optimizer-disabled project.
+        let mut config = ChainConfig::default().coverage(true);
+        let mut compiled_contracts = HashMap::new();
+        for (id, artifact) in &artifacts {
+            let initcode: Bytes = match artifact {
+                foundry::Artifact::Contract(c) => c.bytecode.object.parse().unwrap_or_default(),
+                foundry::Artifact::Library(c) => c.bytecode.object.parse().unwrap_or_default(),
+                _ => continue,
+            };
+            if initcode.is_empty() {
+                continue;
+            }
+            compiled_contracts.insert(id.into(), initcode);
+        }
+        config = config.with_compiled_contracts(compiled_contracts);
+        let mut chain = Chain::new(config).unwrap();
+        let mut deploy_opts = DeployInput::new(&contract.initcode);
+        for lib in &contract.libraries {
+            deploy_opts = deploy_opts.add_library(lib.clone()); // checkrs: allow(clone_in_loops)
+        }
+        let deployment = chain.deploy(deploy_opts).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        let target = deployment.address.unwrap();
+
+        let global = SharedCoverage::new();
+        global.merge(&deployment.coverage);
+
+        if let Some(setup) = &contract.setup_function {
+            let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
+            let setup_opts = SetupInput::new(target).calldata(setup_data);
+            let setup = chain.setup(setup_opts).unwrap();
+            assert!(setup.result.success, "setup must succeed");
+            global.merge(&setup.coverage);
+        }
+
+        // Execute addAndSub(123, 123) once.
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+                    .abi_encode(),
+            )),
+        ];
+        let exec = chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        global.merge(&coverage);
+
+        // Build report from the optimizer-disabled project artifacts.
+        let artifacts: Vec<Artifact> = artifacts.into_values().collect();
+        let report = build_report(&global, &artifacts);
+        let formatted = format!("{report}");
+
+        let expected_file =
+            "fixtures/coverage-report-optimizer-disabled/reports/TargetContractBasicOnce.info";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output must match expected"
+        );
+    }
+
     /// Regression test: lines executed once must display a hit count of 1.
     #[test]
     fn target_contract_basic_call_once() {
