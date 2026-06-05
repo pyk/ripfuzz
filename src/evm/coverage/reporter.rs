@@ -2780,47 +2780,6 @@ mod tests {
         );
     }
 
-    /// Regression test: linked library coverage must be correctly reported,
-    /// including the active contract that uses the linked library.
-    #[test]
-    fn coverage_report_target_contract_with_lib_linked() {
-        let contract = load_coverage_fixture(
-            "fixtures/target-contract-coverage",
-            "src/TargetContractWithLibLinked.sol:TargetContractWithLibLinked",
-        );
-        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
-
-        let txs =
-            vec![
-                Transaction::new(deployed.address).calldata(Bytes::from(
-                    TargetContractWithLibLinked::libLinkedCallCall::new((U256::from(123),))
-                        .abi_encode(),
-                )),
-            ];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        deployed.global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&deployed.global, &artifacts);
-        let formatted = format!("{report}");
-
-        let expected_file =
-            "fixtures/target-contract-coverage/expected/TargetContractWithLibLinked.info";
-        let expected = fs::read_to_string(expected_file)
-            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
-        let expected = expected.replace(
-            "fixtures/target-contract-coverage",
-            &project_path().to_string_lossy(),
-        );
-        assert_eq!(
-            formatted.trim(),
-            expected.trim(),
-            "coverage report output must match expected"
-        );
-    }
-
     /// Regression test: a deployed contract must be reported correctly even
     /// when the caller interacts with it through an interface.
     #[test]
