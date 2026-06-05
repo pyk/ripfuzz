@@ -22,3 +22,8 @@ TargetContractWithLib:
 TargetContractWithLibLinked:
 	@genhtml reports/TargetContractWithLibLinked.info -o coverage/TargetContractWithLibLinked --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLibLinked/
+
+.PHONY: TargetContractWithInterface
+TargetContractWithInterface:
+	@genhtml reports/TargetContractWithInterface.info -o coverage/TargetContractWithInterface --flat
+	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithInterface/
