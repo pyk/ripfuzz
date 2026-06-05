@@ -12,3 +12,8 @@ TargetContractBasicTwice:
 TargetContractWithLoop:
 	@genhtml reports/TargetContractWithLoop.info -o coverage/TargetContractWithLoop --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLoop/
+
+.PHONY: TargetContractWithLib
+TargetContractWithLib:
+	@genhtml reports/TargetContractWithLib.info -o coverage/TargetContractWithLib --flat
+	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLib/
