@@ -208,10 +208,19 @@ impl SourceIdResolver {
         let mut imports: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
         let mut source_cache: HashMap<PathBuf, String> = HashMap::new();
 
+        // Build a global mapping of every known numeric source ID to its
+        // file path. Every artifact carries a `source_id()` that the
+        // Solidity compiler assigned during compilation. Source indices
+        // that do not appear in this map are compiler-internal (e.g.
+        // optimizer-generated dispatch helpers) and must not be resolved
+        // to project source files.
+        let mut global_source_ids: HashMap<usize, PathBuf> = HashMap::new();
+
         // Pre-read source files and build direct imports map.
         for artifact in artifacts {
             // checkrs: allow(clone_in_loops)
             let artifact_path = artifact.ast().absolute_path.clone();
+            global_source_ids.insert(artifact.source_id(), artifact_path.clone()); // checkrs: allow(clone_in_loops)
             let full_path = artifact.project_path().join(&artifact_path);
             if let Ok(content) = fs::read_to_string(&full_path) {
                 source_cache.insert(artifact_path.clone(), content); // checkrs: allow(clone_in_loops)
@@ -280,11 +289,16 @@ impl SourceIdResolver {
             }
 
             // Try to match unknown source IDs to candidate files.
+            // Only consider source IDs that appear in the global mapping
+            // (i.e., were assigned by the compiler to a known project file).
+            // Compiler-internal source IDs (e.g. optimizer dispatch helpers)
+            // are excluded: they carry offsets into a compiler-generated
+            // virtual file that does not correspond to any project source.
             // checkrs: allow(clone_in_loops)
             let mut unknown_source_ids: Vec<usize> = source_map_entries
                 .keys()
                 .copied()
-                .filter(|id| !local.contains_key(id))
+                .filter(|id| !local.contains_key(id) && global_source_ids.contains_key(id))
                 .collect();
 
             let mut fits: HashMap<usize, Vec<PathBuf>> = HashMap::new();

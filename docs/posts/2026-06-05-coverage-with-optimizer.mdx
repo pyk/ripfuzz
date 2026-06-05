@@ -1,0 +1,467 @@
+---
+published: false
+date: 2026-06-05T00:00:00+00:00
+title: "How I made raptor's coverage report work with the Solidity optimizer"
+description:
+    Raptor is a Solidity fuzzer. The optimizer makes it faster but also breaks
+    coverage reports. Here is how I fixed it, from bytecode source maps to AST
+    traversal.
+topics:
+    - rust
+    - solidity
+    - evm
+    - fuzzing
+    - coverage
+    - compiler
+---
+
+Raptor is a parallelized, coverage-guided Solidity fuzzer. It generates random
+transactions, feeds them to a contract, and uses coverage feedback to steer
+toward unexplored code paths. The optimizer is great for fuzzing. It reduces gas
+cost, which means more transactions per second. But it also breaks coverage
+reports.
+
+When I enabled `via_ir = true` and `optimizer = true` in the test fixtures, 7
+out of 14 coverage tests failed. The reports were wrong. Functions that were
+never called showed hits. Functions that were called showed no hits. Line counts
+were inflated.
+
+I spent a few days fixing this. Here is what I learned.
+
+## How coverage tracking works
+
+Before the optimizer, coverage tracking is straightforward. The fuzzer deploys a
+contract, runs transactions, and records which program counters were hit. Each
+PC in the deployed bytecode maps back to a source location through a **source
+map**.
+
+### The source map
+
+The Solidity compiler emits a source map alongside the bytecode. It is a
+semicolon-separated string where each entry maps one EVM instruction to a source
+range.
+
+```
+s:l:f:j:m
+```
+
+| Field | Meaning                                          |
+| ----- | ------------------------------------------------ |
+| `s`   | Byte offset in the source file                   |
+| `l`   | Length of the source range in bytes              |
+| `f`   | Source file index                                |
+| `j`   | Jump type (`i` = into, `o` = out, `-` = regular) |
+| `m`   | Modifier depth                                   |
+
+For a simple contract like this:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+contract Counter {
+    uint256 public value;
+
+    function increment(uint256 amount) external {
+        value = value + amount;
+    }
+}
+```
+
+The compiler produces bytecode and a source map that says "instruction 3 maps to
+byte offset 110 in Counter.sol, which is line 6". The reporter reads this, looks
+up which AST node is at that offset, and marks the corresponding line as
+covered.
+
+### Building the report
+
+Raptor's coverage reporter takes two inputs: the build artifacts and the raw
+coverage data.
+
+The build artifacts are the JSON files produced by `forge build --ast`. They
+contain the bytecode, the source map, the AST, and metadata about imported
+files.
+
+The raw coverage data is a map from contract ID to per-PC hit counts. Each
+contract is identified by hashing its deployed bytecode. The hit count at each
+PC says how many times that instruction was executed during the fuzzing
+campaign.
+
+The reporter does this:
+
+1. **Match contracts.** Hash the bytecodes from the build artifacts and match
+   them against the contracts in the coverage data. This handles factory-created
+   contracts and library-linked deployments.
+
+2. **Resolve source IDs.** The source map uses integer file indices. These can
+   shift between compilation units (Foundry does incremental builds). The
+   reporter builds a local map from source ID to file path by scanning imports
+   and greedily matching offsets.
+
+3. **Map PCs to source lines.** For each PC that was hit, look up the
+   corresponding source map entry. Convert the byte offset to a line number.
+   Aggregate by file and line.
+
+4. **Walk the AST.** Use the compiler's AST to determine which lines are
+   executable. Cross-reference the AST statement nodes with the source map hits
+   to compute statement-level and function-level coverage.
+
+5. **Emit LCOV.** Format everything into the standard `lcov.info` format.
+
+This works perfectly without the optimizer. Every instruction in the bytecode
+maps to exactly one source location. The hit counts reflect what actually
+happened.
+
+## What the optimizer does to coverage
+
+The Solidity optimizer runs in three stages. Each stage can change the
+relationship between bytecode and source map.
+
+First, the **Yul-based optimizer** inlines functions, eliminates common
+sub-expressions, removes dead code, and reorders independent calls. This is the
+most powerful stage. It can reason across function boundaries and restructure
+the entire program.
+
+Second, the **opcode-based optimizer** works on EVM assembly. It splits code
+into basic blocks, regenerates each block from a dependency graph, and drops
+unused operations.
+
+Third, there are **codegen-level optimizations** that happen before IR emission.
+These are limited but can still affect source mappings.
+
+Each optimization has a specific effect on the source map.
+
+| Optimization                         | Effect on source map                                                                                     |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| **Dead code elimination**            | Instructions disappear, taking their source map entries with them.                                       |
+| **Function inlining**                | The callee's source ranges appear in the caller. The source map now mixes locations from both functions. |
+| **Code reordering**                  | Consecutive PCs may jump between unrelated source locations.                                             |
+| **Common subexpression elimination** | Duplicate expressions are replaced; only the first evaluation keeps its source mapping.                  |
+| **Generated code**                   | The compiler adds internal routines (ABI encoders, Yul utilities) with their own source IDs.             |
+
+The result is that a single source line can map to many different PCs with
+different hit counts. Some source lines disappear entirely. Others get hit more
+times than expected because shared code paths attribute hits to the same source
+location.
+
+Here is what this looks like in practice. Take this contract:
+
+```solidity
+contract TargetContractBasic is RaptorFuzz {
+    function addAndSub(uint256 a, uint256 b) external returns (uint256) {
+        uint256 result = add(a, b);
+        result = sub(result, b);
+        return result;
+    }
+
+    function add(uint256 a, uint256 b) internal returns (uint256) {
+        latestValue = a + b;
+        return latestValue;
+    }
+}
+```
+
+Without the optimizer, calling `addAndSub(123, 123)` produces clean coverage.
+The `add` function is called once. Line 20 gets hit exactly once.
+
+With the optimizer enabled, the `add` function gets inlined. Its bytecode is
+copied into `addAndSub`. The standalone `add` function might be kept, or it
+might be discarded. If it is kept, the source locations for `add` now appear in
+two places in the bytecode. Both get hit. The line hit count doubles.
+
+And if the optimizer merges the `return` statement with the preceding
+expression, the source map entry for the `return` disappears. That line shows
+zero hits even though the function completed normally.
+
+I had to fix all of this.
+
+## Fix 1: Filter out generated source IDs
+
+The first thing I noticed was that `RaptorFuzz.sol` showed coverage hits in the
+`_bound` function. This is an internal function inherited by the target
+contract. The target contract never calls `_bound`, so these hits were wrong.
+
+The problem was in the source ID resolver. The optimizer produces **generated
+sources**: internal files like `#utility.yul` that contain compiler-generated
+Yul code. These have their own source IDs. My resolver was greedily matching
+unknown source IDs to candidate files based on whether the offsets fit within
+the file's length.
+
+A generated source with ID 33 had offsets ranging from 198 to 794. By
+coincidence, `RaptorFuzz.sol` is 1242 bytes long. All those offsets fit. The
+resolver assigned source ID 33 to `RaptorFuzz.sol`, and suddenly the generated
+code's coverage was attributed to a user source file.
+
+The fix was simple. I collected all known artifact source IDs before building
+the local maps. Any source ID that is not in the known set is generated code and
+gets skipped.
+
+```rust
+let mut known_source_ids: HashSet<usize> = HashSet::new();
+for artifact in artifacts {
+    known_source_ids.insert(artifact.source_id());
+}
+
+// Later, when filtering unknown source IDs:
+let unknown_source_ids: Vec<usize> = source_map_entries
+    .keys()
+    .copied()
+    .filter(|id| {
+        !local.contains_key(id)
+            && known_source_ids.contains(id)
+            && *id != usize::MAX // source_id == -1 is compiler-generated
+    })
+    .collect();
+```
+
+This fixed the `RaptorFuzz.sol` phantom coverage. But there were more problems.
+
+## Fix 2: Prefer narrow source map entries
+
+The optimizer emits broad source map entries. A single entry might say "this
+instruction is part of the function definition" and span 96 bytes. Other entries
+are narrow, like "this instruction is the assignment expression" spanning 5
+bytes.
+
+Both the broad and narrow entries can map to the same source line. The broad
+entry might have a hit count of 2 because the function is entered multiple ways.
+The narrow entry has a hit count of 1 because the actual expression only
+executes once per call.
+
+Before my fix, the reporter took the **maximum** hit count across all entries
+for a line. This meant the broad entry's inflated count won. The function
+definition line showed 2 instead of 1.
+
+I changed the reporter to prefer hits from **narrower** entries. When adding a
+hit for a line, I tracked the source map entry length alongside the hit count.
+If the new entry is narrower, its hit replaces the existing one. If it is wider,
+it is ignored.
+
+```rust
+let file_hits = local_line_hits.entry(path.clone()).or_default();
+let file_lengths = local_line_lengths.entry(path).or_default();
+let current_len = file_lengths.entry(start_line).or_insert(usize::MAX);
+let current = file_hits.entry(start_line).or_insert(0);
+
+if entry.length < *current_len {
+    *current_len = entry.length;
+    *current = *raw_count;
+} else if entry.length == *current_len {
+    *current = (*current).max(*raw_count);
+}
+```
+
+This gave clean line counts for individual statements. But function-level hits
+were still wrong.
+
+## Fix 3: Use minimum for function hit counts
+
+The reporter computes function hit counts by looking at the statements inside
+the function body. The function `add` has two statements: an assignment and a
+return. If the assignment shows hit count 2 (because of inlining) and the return
+shows 1, what should the function hit count be?
+
+Before, it was the maximum: 2. The function was called once, but the report said
+FNDA:2. This was wrong.
+
+I changed it to the **minimum** of the non-zero statement hits. The minimum
+across all statements better reflects the actual call count. If the function was
+called once, at least one statement should show 1. If any statement shows more,
+that is optimizer inflation.
+
+```rust
+let stmt_hits: Vec<u64> = body
+    .statements
+    .iter()
+    .map(|stmt| compute_statement_hit(stmt, ...))
+    .filter(|&h| h > 0)
+    .collect();
+if !stmt_hits.is_empty() {
+    stmt_hits.into_iter().min().unwrap_or(0)
+} else {
+    // fallback to line hit
+}
+```
+
+This fixed the FNDA counts. But the `return` statements themselves were still
+showing zero hits in some cases.
+
+## Fix 4: Handle missing return statements
+
+The optimizer can merge a `return` statement with the preceding expression. If
+this happens, the source map entry for the `return` disappears. The statement
+has zero hits even though the function returned normally.
+
+I added special handling for `Return` statements. When computing the hit for a
+return statement with zero direct hits, the reporter falls back through a chain:
+
+1. Try the return expression's source location.
+2. Check nearby lines in the same source file.
+3. Check already-processed sibling statements.
+
+```rust
+solc::ast::Statement::Return(return_stmt) => {
+    let mut hit = max_hit_from_src(artifact, source_hits, ..., &return_stmt.src);
+    if hit == 0 {
+        // Try the return expression
+        if let Some(expr) = &return_stmt.expression {
+            hit = max_hit_from_src(artifact, ..., expr_src(expr.as_ref()));
+        }
+        // Check nearby lines
+        if hit == 0 {
+            // scan up to 5 lines before the return
+            for line in (start_line.saturating_sub(5))..start_line {
+                if let Some(&h) = file_hits.get(&line) && h > 0 {
+                    hit = h;
+                    break;
+                }
+            }
+        }
+    }
+    hit
+}
+```
+
+This fixed the return coverage. Five of the seven failing tests now passed.
+
+## Fix 5: Conservative merging in source hits
+
+The reporter maintains two hit-count maps per artifact. One maps source
+locations directly to hit counts. The other tracks ranges with their lengths,
+and filters out superset ranges that would incorrectly mark unexecuted code as
+covered.
+
+The direct hits map used maximum merging. The ranges map used minimum merging.
+When looking up a source range, the reporter checked direct hits first. This
+meant it always got the inflated value.
+
+I reversed the priority. Now the reporter checks filtered ranges first.
+
+```rust
+fn max_in_range(&self, source_index: usize, offset: usize, length: usize) -> u64 {
+    let end = offset + length;
+
+    // Prefer filtered ranges (min-hit, no superset entries).
+    let range_hit = self.ranges
+        .range((source_index, 0)..(source_index, end))
+        .filter(|((_, so), (sl, _))| *so < end && *so + *sl > offset)
+        .map(|(_, (_, hit))| *hit)
+        .max()
+        .unwrap_or(0);
+    if range_hit > 0 {
+        return range_hit;
+    }
+
+    // Fallback: check raw hits for exact matches.
+    self.hits
+        .range((source_index, offset)..(source_index, end))
+        .map(|(_, hit)| *hit)
+        .max()
+        .unwrap_or(0)
+}
+```
+
+And I changed the direct hits to also use minimum merging, since the optimizer
+can inflate individual PC hit counts.
+
+```rust
+fn add(&mut self, source_index: usize, offset: usize, length: usize, hit: u64) {
+    let key = (source_index, offset);
+    let entry = self.hits.entry(key).or_insert(0);
+    if hit > 0 && (*entry == 0 || hit < *entry) {
+        *entry = hit;
+    }
+    let range_entry = self.ranges.entry(key).or_insert((length, 0));
+    if hit > 0 && (range_entry.1 == 0 || hit < range_entry.1) {
+        range_entry.1 = hit;
+    }
+}
+```
+
+## What still breaks
+
+The optimizer has two behaviors that I could not fix at the source map level.
+
+**Function deduplication.** When two functions have identical bodies, the
+optimizer merges them into a single copy. The source map attributes the merged
+code to whichever function it kept. The other function shows zero coverage, even
+though it was called. Fixing this requires comparing function bytecodes or
+tracking which selectors were called, which is a different layer of the system.
+
+**Dead code attribution.** The optimizer can inline, reorder, and merge code
+paths in ways that attribute coverage to source locations that should be
+unreachable. Lines in an `else` branch can show hits even when the condition was
+always true. Fixing this requires control flow analysis.
+
+Both are known limitations of coverage with optimizer-enabled builds. Foundry
+does not support it at all. Medusa accepts the source map as-is. Raptor now
+handles the cases that can be handled at the source map level, and for the
+remaining cases, the report is as accurate as the compiler's source map allows.
+
+## Results
+
+Before:
+
+```
+failures:
+    coverage_report_target_contract_with_lib_linked
+    target_contract_basic_call_once
+    target_contract_basic_call_twice
+    target_contract_with_if
+    target_contract_with_interface
+    target_contract_with_lib
+    target_contract_with_loop
+
+test result: FAILED. 7 passed; 7 failed
+```
+
+After:
+
+```
+failures:
+    target_contract_with_if
+    target_contract_with_loop
+
+test result: FAILED. 12 passed; 2 failed
+```
+
+Five of seven failing tests now pass. The remaining two fail because of function
+deduplication and dead code attribution, which require changes beyond the source
+map layer.
+
+## What I learned
+
+This work taught me a few things about compilers and coverage.
+
+First, source maps are best-effort. The Solidity compiler does not guarantee
+that every source location has a corresponding instruction in the optimized
+bytecode. It does not guarantee that the mapping is one-to-one. A coverage tool
+must be prepared for missing, duplicated, and ambiguous mappings.
+
+Second, length matters for source map entries. A broad entry that covers an
+entire function is less informative than a narrow entry that covers a single
+expression. When both map to the same line, the narrow one should win.
+
+Third, the AST is your friend. The compiler's AST is generated before
+optimization and faithfully reflects the original source structure. When the
+source map gives you ambiguous or missing information, the AST tells you what
+should be there. Cross-referencing the two is essential for accurate coverage.
+
+Fourth, `min` is better than `max` for the optimizer. Every merging operation in
+the reporter used to take the maximum. With the optimizer, the maximum is almost
+always inflated. The minimum of non-zero hits is more conservative and more
+accurate.
+
+Finally, function deduplication is the hardest problem. The optimizer cannot
+tell the difference between two functions that differ only in whitespace. And
+when it merges them, one disappears from the coverage report entirely. Solving
+this requires information that is not in the source map at all.
+
+The optimizer is worth it. The gas reduction makes fuzzing campaigns faster, and
+the coverage reports are now accurate enough to be useful. The remaining edge
+cases are on my list, but for now, optimization mode is ready to use.
+
+<br>
+
+> I used [Kimi K2.6](https://agents.kimi.com/) to help me implement these fixes.
+> All results were verified by me.

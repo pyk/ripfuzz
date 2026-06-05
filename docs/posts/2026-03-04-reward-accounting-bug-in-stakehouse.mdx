@@ -1,0 +1,270 @@
+---
+published: true
+date: 2026-03-04T06:14:07+00:00
+# "Security Audit Review: [Other Vulnerability Pattern] in [Protocol Name]"
+# "Security Audit Review: [Finding ID] - [Description]"
+#
+title: "Security Audit Review: A Reward Accounting Bug in Stakehouse"
+description:
+    I'm reviewing past audit findings to build a personal checklist for future
+    audits. This post analyzes a reward accounting bug in Stakehouse where old
+    stakers could steal new deposits.
+topics:
+    - solidity
+    - audit
+    - liquid-staking
+    - defi
+    - codearena
+    - stakehouse
+---
+
+I've been reviewing past audit findings to build a personal checklist for future
+audits. One vulnerability from the
+[Codearena Stakehouse Audit (2022)](https://code4rena.com/reports/2022-11-stakehouse)
+caught my attention because of how simple yet devastating it was: old stakers
+could steal the entire deposit of any new staker.
+
+The bug was in the
+[StakingFundsVault](https://github.com/code-423n4/2022-11-stakehouse/blob/5f853d055d7aa1bebe9e24fd0e863ef58c004339/contracts/liquid-staking/StakingFundsVault.sol)
+contract. It's designed to distribute MEV rewards and fees proportionally among
+LP token holders. But the implementation had a subtle flaw in how it calculated
+rewards.
+
+Stakehouse is a liquid staking protocol. Users deposit ETH into vaults, receive
+LP tokens, and earn rewards from validators. The `StakingFundsVault` manages one
+type of vault for MEV+fees.
+
+The reward distribution works like this:
+
+```solidity
+function _distributeETHRewardsToUserForToken(address _user, address _token, uint256 _balance, address _recipient)
+    internal
+{
+    // @audit-note: This function distributes rewards based on accumulatedETHPerLPShare
+    // @audit-note: CRITICAL: accumulatedETHPerLPShare may include deposits, not just rewards
+    require(_recipient != address(0), "Zero address");
+    uint256 balance = _balance;
+    if (balance > 0) {
+        // Calculate how much ETH rewards the address is owed / due
+        uint256 due = ((accumulatedETHPerLPShare * balance) / PRECISION) - claimed[_user][_token];
+        if (due > 0) {
+            claimed[_user][_token] = due;
+
+            totalClaimed += due;
+
+            (bool success,) = _recipient.call{value: due}("");
+            require(success, "Failed to transfer");
+
+            emit ETHDistributed(_user, _recipient, due);
+        }
+    }
+}
+```
+
+The `accumulatedETHPerLPShare` is calculated by comparing the current balance to
+the last seen balance:
+
+```solidity
+function _updateAccumulatedETHPerLP(uint256 _numOfShares) internal {
+    // @audit-note: totalRewardsReceived() includes new deposits
+    // @audit-note: When called in depositETHForStaking, new ETH is already in balance
+    // @audit-note: This causes new deposits to be counted as rewards
+    if (_numOfShares > 0) {
+        uint256 received = totalRewardsReceived();
+        uint256 unprocessed = received - totalETHSeen;
+
+        if (unprocessed > 0) {
+            emit ETHReceived(unprocessed);
+
+            // accumulated ETH per minted share is scaled to avoid precision loss. it is scaled down later
+            accumulatedETHPerLPShare += (unprocessed * PRECISION) / _numOfShares;
+
+            totalETHSeen = received;
+        }
+    }
+}
+```
+
+Seems reasonable, right? The contract tracks rewards by checking its balance.
+But here's the bug.
+
+When a new user deposits ETH, the contract does this:
+
+```solidity
+/// @notice Deposit ETH against a BLS public key for staking
+/// @param _blsPublicKeyOfKnot BLS public key of validator registered by a node runner
+/// @param _amount Amount of ETH being staked
+function depositETHForStaking(bytes calldata _blsPublicKeyOfKnot, uint256 _amount)
+    public
+    payable
+    returns (uint256)
+{
+    // @audit-note: updateAccumulatedETHPerLP() called BEFORE deposit is tracked
+    // @audit-note: At this point, msg.value is already in address(this).balance
+    // @audit-note: This means new deposits get counted as rewards!
+    require(
+        liquidStakingNetworkManager.isBLSPublicKeyBanned(_blsPublicKeyOfKnot) == false,
+        "BLS public key is banned or not a part of LSD network"
+    );
+    require(
+        getAccountManager().blsPublicKeyToLifecycleStatus(_blsPublicKeyOfKnot)
+            == IDataStructures.LifecycleStatus.INITIALS_REGISTERED,
+        "Lifecycle status must be one"
+    );
+
+    require(msg.value == _amount, "Must provide correct amount of ETH");
+
+    // Update accrued ETH to contract per LP
+    updateAccumulatedETHPerLP();
+
+    // Give anything owed to the user before making updates to user state
+    LPToken tokenForKnot = lpTokenForKnot[_blsPublicKeyOfKnot];
+    if (address(tokenForKnot) != address(0)) {
+        _distributeETHRewardsToUserForToken(
+            msg.sender, address(tokenForKnot), tokenForKnot.balanceOf(msg.sender), msg.sender
+        );
+    }
+
+    _depositETHForStaking(_blsPublicKeyOfKnot, _amount, true);
+
+    // Ensure user cannot get historical rewards
+    tokenForKnot = lpTokenForKnot[_blsPublicKeyOfKnot];
+    claimed[msg.sender][address(tokenForKnot)] =
+        (tokenForKnot.balanceOf(msg.sender) * accumulatedETHPerLPShare) / PRECISION;
+
+    return _amount;
+}
+```
+
+Notice step 1. The `updateAccumulatedETHPerLP` function checks the contract's
+balance. But at this point, **the new deposit is already in the balance**.
+
+So when a new user deposits 4 ETH, the system counts it as 4 ETH of "rewards"
+that existing LP token holders can claim.
+
+Here's how an attacker exploits this:
+
+1. Alice stakes 4 ETH to BLS Key #1
+2. The validator with Key #1 gets registered and derivatives are minted
+3. Bob deposits 4 ETH to BLS Key #2 (goes to the same vault)
+4. Alice calls `claimRewards` on Key #1 and gets Bob's 4 ETH
+
+```solidity
+/// @notice Any LP tokens for BLS keys that have had their derivatives minted can claim ETH from the syndicate contract
+/// @param _blsPubKeys List of BLS public keys being processed
+function claimRewards(address _recipient, bytes[] calldata _blsPubKeys) external nonReentrant {
+    // @audit-note: This function claims rewards based on accumulatedETHPerLPShare
+    // @audit-note: If accumulatedETHPerLPShare includes new deposits, claimers can steal them
+    // @audit-note: call this after someone deposits to steal their funds
+    for (uint256 i; i < _blsPubKeys.length; ++i) {
+        require(liquidStakingNetworkManager.isBLSPublicKeyBanned(_blsPubKeys[i]) == false, "Unknown BLS public key");
+
+        // Ensure that the BLS key has its derivatives minted
+        require(
+            getAccountManager().blsPublicKeyToLifecycleStatus(_blsPubKeys[i])
+                == IDataStructures.LifecycleStatus.TOKENS_MINTED,
+            "Derivatives not minted"
+        );
+
+        if (
+            i == 0
+                && !Syndicate(payable(liquidStakingNetworkManager.syndicate()))
+                    .isNoLongerPartOfSyndicate(_blsPubKeys[i])
+        ) {
+            // Withdraw any ETH accrued on free floating SLOT from syndicate to this contract
+            // If a partial list of BLS keys that have free floating staked are supplied, then partial funds accrued will be fetched
+            _claimFundsFromSyndicateForDistribution(liquidStakingNetworkManager.syndicate(), _blsPubKeys);
+
+            // Distribute ETH per LP
+            updateAccumulatedETHPerLP();
+        }
+
+        // If msg.sender has a balance for the LP token associated with the BLS key, then send them any accrued ETH
+        LPToken token = lpTokenForKnot[_blsPubKeys[i]];
+        require(address(token) != address(0), "Invalid BLS key");
+        require(
+            token.lastInteractedTimestamp(msg.sender) + 30 minutes < block.timestamp, "Last transfer too recent"
+        );
+        _distributeETHRewardsToUserForToken(msg.sender, address(token), token.balanceOf(msg.sender), _recipient);
+    }
+}
+```
+
+Alice never earned any rewards. She just stole Bob's deposit because the system
+counted it as a reward.
+
+## The Root Cause
+
+The problem is the order of operations in `depositETHForStaking`:
+
+**Wrong order:**
+
+1. User sends ETH, Balance increases
+2. Calculate rewards using current balance (includes new deposit!)
+3. Mint LP tokens
+
+**Right order:**
+
+1. Calculate rewards using old balance
+2. User sends ETH, Balance increases
+3. Mint LP tokens
+
+The reward calculation should happen **before** new deposits are counted, not
+after.
+
+## The Fix
+
+The fix is straightforward. Exclude newly staked amounts from the reward
+calculation. Track deposits separately from rewards.
+
+```solidity
+// @audit-note: PROPOSED FIX: Track deposits separately from rewards
+uint256 private totalDeposits;
+
+function depositETHForStaking(bytes calldata _blsPubKey, uint256 _amount) external payable {
+    // @audit-note: FIX: Call updateAccumulatedETHPerLP() BEFORE accepting the deposit
+    // This ensures rewards are calculated without including the new deposit
+    updateAccumulatedETHPerLP();
+
+    // Track the deposit separately
+    totalDeposits += _amount;
+
+    // Mint LP tokens
+    LPToken token = lpTokenForKnot[_blsPubKey];
+    token.mint(msg.sender, _amount);
+}
+
+// @audit-note: FIX: Override totalRewardsReceived() to exclude deposits
+function totalRewardsReceived() internal view returns (uint256) {
+    // Only count rewards, not deposits
+    // This prevents new deposits from being counted as claimable rewards
+    return address(this).balance - totalDeposits;
+}
+```
+
+## Lessons Learned
+
+Analyzing Stakehouse H-18 gave me several insights about auditing liquid staking
+protocols that I'll keep in mind for future audits.
+
+The biggest takeaway is that deposits and rewards need to be tracked separately.
+When they're mixed together like this, accounting bugs emerge. The contract
+should have a clear distinction between what's a deposit and what's a reward.
+
+I also learned to be skeptical of balance-based accounting. Using
+`address(this).balance` to track rewards is fragile because deposits can change
+the balance unexpectedly. In this case, the contract literally couldn't tell the
+difference between a new deposit and a reward that arrived from the Syndicate.
+
+The order of operations matters more than I thought. When state transitions
+happen, the sequence can make or break the logic. Here, deposits were being
+counted before the reward calculations were complete, which created the
+vulnerability.
+
+Finally, I'm reminded that edge cases are where the bugs live. This bug would
+have been caught by a simple test: have one person stake, then someone else
+deposit, then the first person claim rewards. Testing multi-user interactions is
+so important.
+
+The bug was simple, but the impact was severe. Any protocol that manages rewards
+and deposits needs to be extremely careful about how it tracks both.
