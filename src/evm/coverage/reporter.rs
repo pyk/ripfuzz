@@ -1943,6 +1943,20 @@ impl CoverageReporter {
             }
         }
 
+        // Pre-compute the set of lines that have specific (single-line)
+        // source map entries. When a broad (multi-line) entry overlaps a
+        // line that also has a specific entry, the broad entry is skipped
+        // to prevent inflated hit counts. See the module-level docs under
+        // "Optimizer-Eliminated Return Statements".
+        let mut specific_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
+        for artifact in &resolved_artifact_refs {
+            let lines =
+                collect_source_map_specific_lines(artifact, &resolver, &source_cache, &line_cache);
+            for (path, line_set) in lines {
+                specific_lines.entry(path).or_default().extend(line_set);
+            }
+        }
+
         let (mut executable_lines, (mut line_hits, source_hits)) = rayon::join(
             || {
                 collect_executable_lines_from_artifacts(
@@ -2001,9 +2015,49 @@ impl CoverageReporter {
                                 offset_to_line(&content, entry.offset)
                             };
 
+                            // Skip broad (multi-line) source map entries when
+                            // the line already has a specific entry. Broad
+                            // entries (function-level ranges) inflate hit
+                            // counts when the optimizer restructures code.
+                            if entry.length > 0 {
+                                let end_offset =
+                                    entry.offset.saturating_add(entry.length).min(content.len());
+                                let end_line = if let Some(newlines) = line_cache.get(&path) {
+                                    newlines.partition_point(|&n| n < end_offset) + 1
+                                } else {
+                                    offset_to_line(&content, end_offset)
+                                };
+                                if line != end_line
+                                    && specific_lines
+                                        .get(&path)
+                                        .map(|s| s.contains(&line))
+                                        .unwrap_or(false)
+                                {
+                                    continue;
+                                }
+                            }
+
                             let file_hits = local_line_hits.entry(path).or_default();
                             let current = file_hits.entry(line).or_insert(0);
-                            *current = (*current).max(*raw_count);
+                            // When the optimizer is enabled, shared code paths
+                            // can inflate per-line hit counts (the Solidity
+                            // optimizer extracts common sub-expressions into
+                            // shared helpers whose source map points to the
+                            // original function). Using the minimum non-zero
+                            // raw count gives the lower bound: the number of
+                            // times the least-executed instruction on that
+                            // line was hit.
+                            if artifact.optimizer().map(|o| o.enabled).unwrap_or(false) {
+                                if *raw_count > 0 {
+                                    if *current == 0 {
+                                        *current = *raw_count;
+                                    } else {
+                                        *current = (*current).min(*raw_count);
+                                    }
+                                }
+                            } else {
+                                *current = (*current).max(*raw_count);
+                            }
 
                             let hits = local_source_hits.entry(artifact.id()).or_default();
                             hits.add(entry.source_index, entry.offset, *raw_count);
@@ -2047,27 +2101,7 @@ impl CoverageReporter {
             let return_lines =
                 collect_return_lines(&resolved_artifact_refs, &resolver, &source_cache);
 
-            let mut source_map_specific_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
-            for artifact in &resolved_artifact_refs {
-                let lines = collect_source_map_specific_lines(
-                    artifact,
-                    &resolver,
-                    &source_cache,
-                    &line_cache,
-                );
-                for (path, line_set) in lines {
-                    source_map_specific_lines
-                        .entry(path)
-                        .or_default()
-                        .extend(line_set);
-                }
-            }
-
-            filter_eliminated_return_lines(
-                &mut executable_lines,
-                &return_lines,
-                &source_map_specific_lines,
-            );
+            filter_eliminated_return_lines(&mut executable_lines, &return_lines, &specific_lines);
         }
 
         // -------------------------------------------------------------------
