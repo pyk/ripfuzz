@@ -2860,6 +2860,59 @@ mod tests {
         );
     }
 
+    /// Regression test: with optimizer disabled, coverage report for
+    /// if-statement close brackets and empty lines between if-else branches
+    /// must be handled correctly.
+    #[test]
+    fn optimizer_disabled_target_contract_with_if() {
+        let project_path = "fixtures/coverage-report-optimizer-disabled";
+        let contract = load_coverage_fixture(
+            project_path,
+            "src/TargetContractWithIf.sol:TargetContractWithIf",
+        );
+        let mut deployed = deploy_and_setup(project_path, &contract);
+
+        let txs = vec![
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runIfCall::new((true,)).abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runIfElseCall::new((true,)).abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runIfElseCall::new((false,)).abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runIfElseWithNewlineCall::new((true,)).abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runIfElseWithNewlineCall::new((false,)).abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractWithIf::runNestedIfCall::new((true, true)).abi_encode(),
+            )),
+        ];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        deployed.global.merge(&coverage);
+
+        // Build report from the optimizer-disabled project artifacts.
+        let project = foundry::Project::new(project_path);
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&deployed.global, &artifacts);
+        let formatted = format!("{report}");
+
+        let expected_file =
+            "fixtures/coverage-report-optimizer-disabled/reports/TargetContractWithIf.info";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output must match expected"
+        );
+    }
+
     /// Regression test: coverage report for if-statement close brackets and
     /// empty lines between if-else branches must be handled correctly.
     #[test]
