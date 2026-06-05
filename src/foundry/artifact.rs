@@ -113,6 +113,8 @@ pub struct ContractArtifact {
     pub source_id: usize,
     /// The metadata source files for this artifact's compilation unit.
     pub sources: Option<HashMap<String, serde_json::Value>>,
+    /// Compiler optimizer settings, if present in the artifact metadata.
+    pub optimizer: Option<Optimizer>,
 }
 
 impl ContractArtifact {
@@ -135,6 +137,8 @@ pub struct InterfaceArtifact {
     pub source_id: usize,
     /// The metadata source files for this artifact's compilation unit.
     pub sources: Option<HashMap<String, serde_json::Value>>,
+    /// Compiler optimizer settings, if present in the artifact metadata.
+    pub optimizer: Option<Optimizer>,
 }
 
 /// A library artifact.
@@ -152,6 +156,8 @@ pub struct LibraryArtifact {
     pub source_id: usize,
     /// The metadata source files for this artifact's compilation unit.
     pub sources: Option<HashMap<String, serde_json::Value>>,
+    /// Compiler optimizer settings, if present in the artifact metadata.
+    pub optimizer: Option<Optimizer>,
 }
 
 /// An abstract contract artifact.
@@ -166,6 +172,8 @@ pub struct AbstractArtifact {
     pub source_id: usize,
     /// The metadata source files for this artifact's compilation unit.
     pub sources: Option<HashMap<String, serde_json::Value>>,
+    /// Compiler optimizer settings, if present in the artifact metadata.
+    pub optimizer: Option<Optimizer>,
 }
 
 /// A single storage slot entry from the Solidity `storageLayout` output.
@@ -318,10 +326,20 @@ struct ArtifactMetadata {
     sources: Option<HashMap<String, serde_json::Value>>,
 }
 
+/// Compiler optimizer settings from the artifact metadata.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct Optimizer {
+    pub enabled: bool,
+    #[serde(default)]
+    pub runs: Option<usize>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct ArtifactSettings {
     #[serde(rename = "compilationTarget")]
     compilation_target: Option<HashMap<String, String>>,
+    #[serde(default)]
+    optimizer: Option<Optimizer>,
 }
 
 impl Artifact {
@@ -359,6 +377,11 @@ impl Artifact {
 
         let def = get_contract_definition(&json.ast, &id.name)?;
         let source_id = json.id;
+        let optimizer = json
+            .metadata
+            .as_ref()
+            .and_then(|m| m.settings.as_ref())
+            .and_then(|s| s.optimizer.clone());
         let sources = json.metadata.and_then(|m| m.sources);
         Ok(match def.contract_kind {
             solc::ast::ContractKind::Contract if !def.r#abstract => {
@@ -372,6 +395,7 @@ impl Artifact {
                     storage_layout: json.storage_layout,
                     source_id,
                     sources,
+                    optimizer,
                 })
             }
             solc::ast::ContractKind::Contract => Self::Abstract(AbstractArtifact {
@@ -381,6 +405,7 @@ impl Artifact {
                 abi: json.abi,
                 source_id,
                 sources,
+                optimizer,
             }),
             solc::ast::ContractKind::Interface => Self::Interface(InterfaceArtifact {
                 id,
@@ -389,6 +414,7 @@ impl Artifact {
                 abi: json.abi,
                 source_id,
                 sources,
+                optimizer,
             }),
             solc::ast::ContractKind::Library => Self::Library(LibraryArtifact {
                 id,
@@ -400,6 +426,7 @@ impl Artifact {
                 storage_layout: json.storage_layout,
                 source_id,
                 sources,
+                optimizer,
             }),
         })
     }
@@ -520,6 +547,16 @@ impl Artifact {
             Self::Interface(a) => a.sources.as_ref(),
             Self::Library(a) => a.sources.as_ref(),
             Self::Abstract(a) => a.sources.as_ref(),
+        }
+    }
+
+    /// The compiler optimizer settings, if present in the artifact metadata.
+    pub fn optimizer(&self) -> Option<&Optimizer> {
+        match self {
+            Self::Contract(a) => a.optimizer.as_ref(),
+            Self::Interface(a) => a.optimizer.as_ref(),
+            Self::Library(a) => a.optimizer.as_ref(),
+            Self::Abstract(a) => a.optimizer.as_ref(),
         }
     }
 }
