@@ -7,3 +7,8 @@ TargetContractBasicOnce:
 TargetContractBasicTwice:
 	@genhtml reports/TargetContractBasicTwice.info -o coverage/TargetContractBasicTwice --flat
 	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractBasicTwice/
+
+.PHONY: TargetContractWithLoop
+TargetContractWithLoop:
+	@genhtml reports/TargetContractWithLoop.info -o coverage/TargetContractWithLoop --flat
+	@python3 -m http.server 8000 --bind 0.0.0.0 --directory coverage/TargetContractWithLoop/
