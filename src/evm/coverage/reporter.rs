@@ -2224,7 +2224,7 @@ impl CoverageReporter {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use alloy_primitives::U256;
     use alloy_sol_types::SolCall;
@@ -2284,8 +2284,8 @@ mod tests {
         }
     }
 
-    fn load_coverage_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+    fn load_coverage_fixture(project_path: impl AsRef<Path>, id: &str) -> Contract {
+        let project = foundry::Project::new(project_path);
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
@@ -2297,9 +2297,9 @@ mod tests {
         global: SharedCoverage,
     }
 
-    fn deploy_and_setup(contract: &Contract) -> Deployed {
+    fn deploy_and_setup(project_path: impl AsRef<Path>, contract: &Contract) -> Deployed {
         let mut config = ChainConfig::default().coverage(true);
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let project = foundry::Project::new(project_path);
         let artifacts = project.load_artifacts().unwrap();
         let mut compiled_contracts = HashMap::new();
         for (id, artifact) in &artifacts {
@@ -2357,8 +2357,11 @@ mod tests {
     /// no deployed bytecode) must not cause coverage report generation to fail.
     #[test]
     fn coverage_report_build_with_interface_artifact() {
-        let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
-        let mut deployed = deploy_and_setup(&contract);
+        let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
+            "src/CoverageBranch.sol:CoverageBranch",
+        );
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             CoverageBranch::branchCall::new((false,)).abi_encode(),
@@ -2382,62 +2385,27 @@ mod tests {
     #[test]
     fn optimizer_disabled_target_contract_basic_call_once() {
         let project_path = "fixtures/coverage-report-optimizer-disabled";
-        let project = foundry::Project::new(project_path);
-        let artifacts = project.load_artifacts().unwrap();
-        let artifact_id =
-            foundry::ArtifactId::try_from("src/TargetContractBasic.sol:TargetContractBasic")
-                .unwrap();
-        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
-
-        // Deploy and setup using the optimizer-disabled project.
-        let mut config = ChainConfig::default().coverage(true);
-        let mut compiled_contracts = HashMap::new();
-        for (id, artifact) in &artifacts {
-            let initcode: Bytes = match artifact {
-                foundry::Artifact::Contract(c) => c.bytecode.object.parse().unwrap_or_default(),
-                foundry::Artifact::Library(c) => c.bytecode.object.parse().unwrap_or_default(),
-                _ => continue,
-            };
-            if initcode.is_empty() {
-                continue;
-            }
-            compiled_contracts.insert(id.into(), initcode);
-        }
-        config = config.with_compiled_contracts(compiled_contracts);
-        let mut chain = Chain::new(config).unwrap();
-        let mut deploy_opts = DeployInput::new(&contract.initcode);
-        for lib in &contract.libraries {
-            deploy_opts = deploy_opts.add_library(lib.clone()); // checkrs: allow(clone_in_loops)
-        }
-        let deployment = chain.deploy(deploy_opts).unwrap();
-        assert!(deployment.result.success, "deployment must succeed");
-        let target = deployment.address.unwrap();
-
-        let global = SharedCoverage::new();
-        global.merge(&deployment.coverage);
-
-        if let Some(setup) = &contract.setup_function {
-            let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
-            let setup_opts = SetupInput::new(target).calldata(setup_data);
-            let setup = chain.setup(setup_opts).unwrap();
-            assert!(setup.result.success, "setup must succeed");
-            global.merge(&setup.coverage);
-        }
+        let contract = load_coverage_fixture(
+            project_path,
+            "src/TargetContractBasic.sol:TargetContractBasic",
+        );
+        let mut deployed = deploy_and_setup(project_path, &contract);
 
         // Execute addAndSub(123, 123) once.
         let txs = vec![
-            Transaction::new(target).calldata(Bytes::from(
+            Transaction::new(deployed.address).calldata(Bytes::from(
                 TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
                     .abi_encode(),
             )),
         ];
-        let exec = chain.exec(&txs).unwrap();
+        let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         // Build report from the optimizer-disabled project artifacts.
-        let artifacts: Vec<Artifact> = artifacts.into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let project = foundry::Project::new(project_path);
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
         let expected_file =
@@ -2456,62 +2424,27 @@ mod tests {
     #[test]
     fn optimizer_enabled_target_contract_basic_call_once() {
         let project_path = "fixtures/coverage-report-optimizer-enabled";
-        let project = foundry::Project::new(project_path);
-        let artifacts = project.load_artifacts().unwrap();
-        let artifact_id =
-            foundry::ArtifactId::try_from("src/TargetContractBasic.sol:TargetContractBasic")
-                .unwrap();
-        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
-
-        // Deploy and setup using the optimizer-enabled project.
-        let mut config = ChainConfig::default().coverage(true);
-        let mut compiled_contracts = HashMap::new();
-        for (id, artifact) in &artifacts {
-            let initcode: Bytes = match artifact {
-                foundry::Artifact::Contract(c) => c.bytecode.object.parse().unwrap_or_default(),
-                foundry::Artifact::Library(c) => c.bytecode.object.parse().unwrap_or_default(),
-                _ => continue,
-            };
-            if initcode.is_empty() {
-                continue;
-            }
-            compiled_contracts.insert(id.into(), initcode);
-        }
-        config = config.with_compiled_contracts(compiled_contracts);
-        let mut chain = Chain::new(config).unwrap();
-        let mut deploy_opts = DeployInput::new(&contract.initcode);
-        for lib in &contract.libraries {
-            deploy_opts = deploy_opts.add_library(lib.clone()); // checkrs: allow(clone_in_loops)
-        }
-        let deployment = chain.deploy(deploy_opts).unwrap();
-        assert!(deployment.result.success, "deployment must succeed");
-        let target = deployment.address.unwrap();
-
-        let global = SharedCoverage::new();
-        global.merge(&deployment.coverage);
-
-        if let Some(setup) = &contract.setup_function {
-            let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
-            let setup_opts = SetupInput::new(target).calldata(setup_data);
-            let setup = chain.setup(setup_opts).unwrap();
-            assert!(setup.result.success, "setup must succeed");
-            global.merge(&setup.coverage);
-        }
+        let contract = load_coverage_fixture(
+            project_path,
+            "src/TargetContractBasic.sol:TargetContractBasic",
+        );
+        let mut deployed = deploy_and_setup(project_path, &contract);
 
         // Execute addAndSub(123, 123) once.
         let txs = vec![
-            Transaction::new(target).calldata(Bytes::from(
+            Transaction::new(deployed.address).calldata(Bytes::from(
                 TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
                     .abi_encode(),
             )),
         ];
-        let exec = chain.exec(&txs).unwrap();
+        let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
+        deployed.global.merge(&coverage);
 
         // Build report from the optimizer-enabled project artifacts.
-        let artifacts: Vec<Artifact> = artifacts.into_values().collect();
-        let report = build_report(&global, &artifacts);
+        let project = foundry::Project::new(project_path);
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
         let expected_file =
@@ -2525,11 +2458,57 @@ mod tests {
         );
     }
 
+    /// Regression test: with optimizer disabled, calling addAndSub twice must
+    /// report a hit count of 2 for all lines inside add, sub, and addAndSub.
+    #[test]
+    fn optimizer_disabled_target_contract_basic_call_twice() {
+        let project_path = "fixtures/coverage-report-optimizer-disabled";
+        let contract = load_coverage_fixture(
+            project_path,
+            "src/TargetContractBasic.sol:TargetContractBasic",
+        );
+        let mut deployed = deploy_and_setup(project_path, &contract);
+
+        // Execute addAndSub(123, 123) twice.
+        let txs = vec![
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+                    .abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+                    .abi_encode(),
+            )),
+        ];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        deployed.global.merge(&coverage);
+
+        // Build report from the optimizer-disabled project artifacts.
+        let project = foundry::Project::new(project_path);
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&deployed.global, &artifacts);
+        let formatted = format!("{report}");
+
+        let expected_file =
+            "fixtures/coverage-report-optimizer-disabled/reports/TargetContractBasicTwice.info";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output must match expected"
+        );
+    }
+
     /// Regression test: lines executed once must display a hit count of 1.
     #[test]
     fn target_contract_basic_call_once() {
-        let contract = load_coverage_fixture("src/TargetContractBasic.sol:TargetContractBasic");
-        let mut deployed = deploy_and_setup(&contract);
+        let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
+            "src/TargetContractBasic.sol:TargetContractBasic",
+        );
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs = vec![
             Transaction::new(deployed.address).calldata(Bytes::from(
@@ -2564,8 +2543,11 @@ mod tests {
     /// Regression test: lines executed twice must display a hit count of 2.
     #[test]
     fn target_contract_basic_call_twice() {
-        let contract = load_coverage_fixture("src/TargetContractBasic.sol:TargetContractBasic");
-        let mut deployed = deploy_and_setup(&contract);
+        let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
+            "src/TargetContractBasic.sol:TargetContractBasic",
+        );
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs = vec![
             Transaction::new(deployed.address).calldata(Bytes::from(
@@ -2606,9 +2588,11 @@ mod tests {
     /// that contain loops in constructor, setup, and target functions.
     #[test]
     fn target_contract_with_loop() {
-        let contract =
-            load_coverage_fixture("src/TargetContractWithLoop.sol:TargetContractWithLoop");
-        let mut deployed = deploy_and_setup(&contract);
+        let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
+            "src/TargetContractWithLoop.sol:TargetContractWithLoop",
+        );
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs = vec![
             Transaction::new(deployed.address).calldata(Bytes::from(
@@ -2647,8 +2631,11 @@ mod tests {
     /// including the active contract that uses the library.
     #[test]
     fn target_contract_with_lib() {
-        let contract = load_coverage_fixture("src/TargetContractWithLib.sol:TargetContractWithLib");
-        let mut deployed = deploy_and_setup(&contract);
+        let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
+            "src/TargetContractWithLib.sol:TargetContractWithLib",
+        );
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             TargetContractWithLib::libCallCall::new((U256::from(123),)).abi_encode(),
@@ -2681,9 +2668,10 @@ mod tests {
     #[test]
     fn coverage_report_target_contract_with_lib_linked() {
         let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
             "src/TargetContractWithLibLinked.sol:TargetContractWithLibLinked",
         );
-        let mut deployed = deploy_and_setup(&contract);
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs =
             vec![
@@ -2721,9 +2709,10 @@ mod tests {
     #[test]
     fn target_contract_with_interface() {
         let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
             "src/TargetContractWithInterface.sol:TargetContractWithInterface",
         );
-        let mut deployed = deploy_and_setup(&contract);
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs =
             vec![
@@ -2760,8 +2749,11 @@ mod tests {
     /// empty lines between if-else branches must be handled correctly.
     #[test]
     fn target_contract_with_if() {
-        let contract = load_coverage_fixture("src/TargetContractWithIf.sol:TargetContractWithIf");
-        let mut deployed = deploy_and_setup(&contract);
+        let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
+            "src/TargetContractWithIf.sol:TargetContractWithIf",
+        );
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs = vec![
             Transaction::new(deployed.address).calldata(Bytes::from(
@@ -2810,8 +2802,11 @@ mod tests {
     /// produce non-empty output even when the target function body is empty.
     #[test]
     fn coverage_report_empty_target_function() {
-        let contract = load_coverage_fixture("src/EmptyTargetFunction.sol:EmptyTargetFunction");
-        let mut deployed = deploy_and_setup(&contract);
+        let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
+            "src/EmptyTargetFunction.sol:EmptyTargetFunction",
+        );
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             EmptyTargetFunction::dummyTargetFunctionCall::new(()).abi_encode(),
@@ -2839,8 +2834,11 @@ mod tests {
 
     #[test]
     fn coverage_report_inherited_target_function() {
-        let contract = load_coverage_fixture("src/InheritedTarget.sol:InheritedTarget");
-        let mut deployed = deploy_and_setup(&contract);
+        let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
+            "src/InheritedTarget.sol:InheritedTarget",
+        );
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             InheritedTarget::inheritedTargetFunctionCall::new(()).abi_encode(),
@@ -2865,8 +2863,11 @@ mod tests {
     /// "unexpected category UNK".
     #[test]
     fn coverage_report_function_start_line_without_source_map() {
-        let contract = load_coverage_fixture("src/UnusedLibraryUser.sol:UnusedLibraryUser");
-        let mut deployed = deploy_and_setup(&contract);
+        let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
+            "src/UnusedLibraryUser.sol:UnusedLibraryUser",
+        );
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             hex::decode("771602f7").unwrap(), // useAdd(uint256,uint256)
@@ -2962,7 +2963,10 @@ mod tests {
     /// correctly by the coverage reporter so that their coverage is not lost.
     #[test]
     fn coverage_report_immutable_contract_matched() {
-        let contract = load_coverage_fixture("src/CoverageImmutable.sol:CoverageImmutable");
+        let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
+            "src/CoverageImmutable.sol:CoverageImmutable",
+        );
         let config = ChainConfig::default().coverage(true);
         let mut chain = Chain::new(config).unwrap();
         let deploy_opts = DeployInput::new(&contract.initcode);
@@ -3018,8 +3022,11 @@ mod tests {
     /// fuzzing should define the set of executable source lines.
     #[test]
     fn coverage_report_inactive_artifact_no_executable_lines() {
-        let contract = load_coverage_fixture("src/CoverageInactiveUser.sol:CoverageInactiveUser");
-        let mut deployed = deploy_and_setup(&contract);
+        let contract = load_coverage_fixture(
+            "fixtures/target-contract-coverage",
+            "src/CoverageInactiveUser.sol:CoverageInactiveUser",
+        );
+        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             CoverageInactiveUser::callUsedCall::new(()).abi_encode(),
