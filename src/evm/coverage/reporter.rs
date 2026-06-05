@@ -2740,6 +2740,46 @@ mod tests {
         );
     }
 
+    /// Regression test: with optimizer enabled, linked library coverage
+    /// must be correctly reported, including the active contract that uses
+    /// the linked library.
+    #[test]
+    fn optimizer_enabled_target_contract_with_lib_linked() {
+        let project_path = "fixtures/coverage-report-optimizer-enabled";
+        let contract = load_coverage_fixture(
+            project_path,
+            "src/TargetContractWithLibLinked.sol:TargetContractWithLibLinked",
+        );
+        let mut deployed = deploy_and_setup(project_path, &contract);
+
+        let txs =
+            vec![
+                Transaction::new(deployed.address).calldata(Bytes::from(
+                    TargetContractWithLibLinked::libLinkedCallCall::new((U256::from(123),))
+                        .abi_encode(),
+                )),
+            ];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        deployed.global.merge(&coverage);
+
+        // Build report from the optimizer-enabled project artifacts.
+        let project = foundry::Project::new(project_path);
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&deployed.global, &artifacts);
+        let formatted = format!("{report}");
+
+        let expected_file =
+            "fixtures/coverage-report-optimizer-enabled/reports/TargetContractWithLibLinked.info";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output must match expected"
+        );
+    }
+
     /// Regression test: linked library coverage must be correctly reported,
     /// including the active contract that uses the linked library.
     #[test]
