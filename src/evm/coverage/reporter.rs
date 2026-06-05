@@ -2501,6 +2501,49 @@ mod tests {
         );
     }
 
+    /// Regression test: with optimizer enabled, calling addAndSub twice must
+    /// report a hit count of 2 for all lines inside add, sub, and addAndSub.
+    #[test]
+    fn optimizer_enabled_target_contract_basic_call_twice() {
+        let project_path = "fixtures/coverage-report-optimizer-enabled";
+        let contract = load_coverage_fixture(
+            project_path,
+            "src/TargetContractBasic.sol:TargetContractBasic",
+        );
+        let mut deployed = deploy_and_setup(project_path, &contract);
+
+        // Execute addAndSub(123, 123) twice.
+        let txs = vec![
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+                    .abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+                    .abi_encode(),
+            )),
+        ];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        deployed.global.merge(&coverage);
+
+        // Build report from the optimizer-enabled project artifacts.
+        let project = foundry::Project::new(project_path);
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&deployed.global, &artifacts);
+        let formatted = format!("{report}");
+
+        let expected_file =
+            "fixtures/coverage-report-optimizer-enabled/reports/TargetContractBasicTwice.info";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output must match expected"
+        );
+    }
+
     /// Regression test: with optimizer disabled, coverage must be correctly
     /// reported for contracts that contain loops in constructor, setup, and
     /// target functions.
@@ -2578,92 +2621,6 @@ mod tests {
             "fixtures/coverage-report-optimizer-enabled/reports/TargetContractWithLoop.info";
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
-        assert_eq!(
-            formatted.trim(),
-            expected.trim(),
-            "coverage report output must match expected"
-        );
-    }
-
-    /// Regression test: with optimizer enabled, calling addAndSub twice must
-    /// report a hit count of 2 for all lines inside add, sub, and addAndSub.
-    #[test]
-    fn optimizer_enabled_target_contract_basic_call_twice() {
-        let project_path = "fixtures/coverage-report-optimizer-enabled";
-        let contract = load_coverage_fixture(
-            project_path,
-            "src/TargetContractBasic.sol:TargetContractBasic",
-        );
-        let mut deployed = deploy_and_setup(project_path, &contract);
-
-        // Execute addAndSub(123, 123) twice.
-        let txs = vec![
-            Transaction::new(deployed.address).calldata(Bytes::from(
-                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
-                    .abi_encode(),
-            )),
-            Transaction::new(deployed.address).calldata(Bytes::from(
-                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
-                    .abi_encode(),
-            )),
-        ];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        deployed.global.merge(&coverage);
-
-        // Build report from the optimizer-enabled project artifacts.
-        let project = foundry::Project::new(project_path);
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&deployed.global, &artifacts);
-        let formatted = format!("{report}");
-
-        let expected_file =
-            "fixtures/coverage-report-optimizer-enabled/reports/TargetContractBasicTwice.info";
-        let expected = fs::read_to_string(expected_file)
-            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
-        assert_eq!(
-            formatted.trim(),
-            expected.trim(),
-            "coverage report output must match expected"
-        );
-    }
-
-    /// Regression test: coverage must be correctly reported for contracts
-    /// that contain loops in constructor, setup, and target functions.
-    #[test]
-    fn target_contract_with_loop() {
-        let contract = load_coverage_fixture(
-            "fixtures/target-contract-coverage",
-            "src/TargetContractWithLoop.sol:TargetContractWithLoop",
-        );
-        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
-
-        let txs = vec![
-            Transaction::new(deployed.address).calldata(Bytes::from(
-                TargetContractWithLoop::runLoopCall::new((U256::from(3),)).abi_encode(),
-            )),
-            Transaction::new(deployed.address).calldata(Bytes::from(
-                TargetContractWithLoop::runNestedLoopCall::new((U256::from(2), U256::from(2)))
-                    .abi_encode(),
-            )),
-        ];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        deployed.global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&deployed.global, &artifacts);
-        let formatted = format!("{report}");
-
-        let expected_file =
-            "fixtures/target-contract-coverage/expected/TargetContractWithLoop.info";
-        let expected = fs::read_to_string(expected_file)
-            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
-        let expected = expected.replace(
-            "fixtures/target-contract-coverage",
-            &project_path().to_string_lossy(),
-        );
         assert_eq!(
             formatted.trim(),
             expected.trim(),
