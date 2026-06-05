@@ -2501,6 +2501,49 @@ mod tests {
         );
     }
 
+    /// Regression test: with optimizer enabled, calling addAndSub twice must
+    /// report a hit count of 2 for all lines inside add, sub, and addAndSub.
+    #[test]
+    fn optimizer_enabled_target_contract_basic_call_twice() {
+        let project_path = "fixtures/coverage-report-optimizer-enabled";
+        let contract = load_coverage_fixture(
+            project_path,
+            "src/TargetContractBasic.sol:TargetContractBasic",
+        );
+        let mut deployed = deploy_and_setup(project_path, &contract);
+
+        // Execute addAndSub(123, 123) twice.
+        let txs = vec![
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+                    .abi_encode(),
+            )),
+            Transaction::new(deployed.address).calldata(Bytes::from(
+                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+                    .abi_encode(),
+            )),
+        ];
+        let exec = deployed.chain.exec(&txs).unwrap();
+        let coverage = exec.coverage.expect("coverage must be present");
+        deployed.global.merge(&coverage);
+
+        // Build report from the optimizer-enabled project artifacts.
+        let project = foundry::Project::new(project_path);
+        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
+        let report = build_report(&deployed.global, &artifacts);
+        let formatted = format!("{report}");
+
+        let expected_file =
+            "fixtures/coverage-report-optimizer-enabled/reports/TargetContractBasicTwice.info";
+        let expected = fs::read_to_string(expected_file)
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "coverage report output must match expected"
+        );
+    }
+
     /// Regression test: lines executed once must display a hit count of 1.
     #[test]
     fn target_contract_basic_call_once() {
