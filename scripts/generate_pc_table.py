@@ -72,16 +72,58 @@ def resolve_artifact(
 def build_source_id_map(
     artifacts_dir: Path,
     artifact_data: dict,
+    artifact_path: str,
 ) -> dict[int, str]:
-    """Build file-ID -> path map from metadata.sources.
+    """Build file-ID -> path map from build-info files.
 
-    The file ID in a Solidity source map is the index into the alphabetically
-    sorted ``metadata.sources`` keys.  A file ID of ``-1`` means no source.
+    Loads all build-info JSON files from ``out/build-info/``, most recent
+    first, and returns the ``source_id_to_path`` map from the one that
+    contains ``artifact_path`` with the same numeric source ID as the
+    artifact's ``id`` field.
+
+    This matches the logic in ``src/foundry/build_info.rs`` and ensures the
+    returned map is consistent with the source IDs in the artifact's
+    bytecode source map.
     """
-    metadata = artifact_data.get('metadata', {})
-    sources = metadata.get('sources', {})
-    sorted_paths = sorted(sources.keys())
-    return dict(enumerate(sorted_paths))
+    artifact_source_id = artifact_data.get('id')
+    if artifact_source_id is None:
+        raise SystemExit("Artifact is missing 'id' field")
+
+    build_info_dir = artifacts_dir / 'build-info'
+    if not build_info_dir.is_dir():
+        raise SystemExit(
+            f"build-info directory not found: {build_info_dir}. "
+            "Run `forge build --ast --extra-output storageLayout` first."
+        )
+
+    # Collect JSON files sorted by modification time (most recent first).
+    files: list[Path] = []
+    for entry in build_info_dir.iterdir():
+        if entry.suffix != '.json':
+            continue
+        if entry.is_file():
+            files.append(entry)
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+    key = str(artifact_source_id)
+    for path in files:
+        info = json.loads(path.read_text())
+        sid_map = info.get('source_id_to_path', {})
+        if sid_map.get(key) == artifact_path:
+            # Found the matching build-info. Build and return its map.
+            result: dict[int, str] = {}
+            for k, v in sid_map.items():
+                try:
+                    result[int(k)] = v
+                except ValueError:
+                    continue
+            return result
+
+    raise SystemExit(
+        f"No build-info file found for source path '{artifact_path}' "
+        f"with source ID {artifact_source_id}. "
+        "Run `forge clean && forge build --ast --extra-output storageLayout` first."
+    )
 
 
 def get_content(src: str, offset: int, length: int, max_len: int = 50) -> str:
@@ -103,6 +145,7 @@ def _cell(value: str) -> str:
 def generate_table(
     artifacts_dir: Path,
     artifact_data: dict,
+    artifact_id: str,
     filter_ids: set[int] | None = None,
     use_deployed: bool = True,
 ) -> str:
@@ -111,6 +154,7 @@ def generate_table(
     Args:
         artifacts_dir: Path to Foundry's ``out/`` directory.
         artifact_data: Parsed artifact JSON.
+        artifact_id: The artifact identifier string (e.g. ``src/File.sol:Contract``).
         filter_ids: If set, only emit rows for these source map file IDs.
         use_deployed: Use ``deployedBytecode`` if True, else ``bytecode``
             (initcode / constructor).
@@ -133,7 +177,8 @@ def generate_table(
         return f"Error: cast disassemble failed:\n{result.stderr}"
     lines = result.stdout.strip().split('\n')
 
-    id_map = build_source_id_map(artifacts_dir, artifact_data)
+    source_path = artifact_id.rsplit(':', 1)[0]
+    id_map = build_source_id_map(artifacts_dir, artifact_data, source_path)
 
     # Read resolved source files.
     source_cache: dict[int, str] = {}
@@ -247,7 +292,7 @@ def main() -> None:
     artifact_path = resolve_artifact(args.artifacts_dir, args.artifact_id)
     artifact_data = load_artifact(artifact_path)
 
-    print(generate_table(args.artifacts_dir, artifact_data, filter_ids, use_deployed))
+    print(generate_table(args.artifacts_dir, artifact_data, args.artifact_id, filter_ids, use_deployed))
 
 
 if __name__ == '__main__':
