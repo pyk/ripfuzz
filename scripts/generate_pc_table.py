@@ -170,8 +170,8 @@ def generate_table(
     parsed = parse_source_map(sm)
 
     result = subprocess.run(
-        ['cast', 'disassemble', bc],
-        capture_output=True, text=True,
+        ['cast', 'disassemble'],
+        capture_output=True, text=True, input=bc,
     )
     if result.returncode != 0:
         return f"Error: cast disassemble failed:\n{result.stderr}"
