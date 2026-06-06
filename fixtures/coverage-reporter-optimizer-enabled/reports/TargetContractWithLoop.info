@@ -6,6 +6,7 @@ FNDA:3,_bound
 FNDA:3,bound
 FNF:2
 FNH:2
+DA:1,4
 DA:8,3
 DA:12,3
 DA:13,3
@@ -28,8 +29,8 @@ DA:34,0
 DA:38,3
 DA:42,3
 DA:43,3
-LF:22
-LH:8
+LF:23
+LH:9
 end_of_record
 TN:
 SF:src/TargetContractWithLoop.sol

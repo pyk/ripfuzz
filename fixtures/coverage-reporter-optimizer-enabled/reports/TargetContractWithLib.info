@@ -25,10 +25,8 @@ end_of_record
 TN:
 SF:src/RaptorFuzz.sol
 FN:8,_bound
-FN:38,bound
 FNDA:1,_bound
-FNDA:0,bound
-FNF:2
+FNF:1
 FNH:1
 DA:1,1
 DA:5,1
@@ -43,8 +41,7 @@ DA:23,1
 DA:25,1
 DA:26,1
 DA:27,1
-DA:38,0
-LF:14
+LF:13
 LH:10
 end_of_record
 TN:

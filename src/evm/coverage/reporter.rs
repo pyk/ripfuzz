@@ -283,9 +283,6 @@ fn build_source_id_map(
     .flatten()
     {
         for entry in parse_source_map(sm) {
-            if entry.source_index == 0 {
-                continue;
-            }
             if !sid_map.contains_key(&entry.source_index) {
                 unknown_entries
                     .entry(entry.source_index)
@@ -496,6 +493,7 @@ fn collect_function_coverage(
     path_to_artifact: &HashMap<PathBuf, &Artifact>,
     source_cache: &HashMap<PathBuf, String>,
     line_hits: &HashMap<PathBuf, HashMap<usize, u64>>,
+    source_map_lines: &HashMap<PathBuf, HashSet<usize>>,
 ) -> HashMap<PathBuf, Vec<FunctionCoverage>> {
     let mut file_functions: HashMap<PathBuf, Vec<FunctionCoverage>> = HashMap::new();
 
@@ -523,6 +521,24 @@ fn collect_function_coverage(
                 return;
             }
             let start_line = offset_to_line(&content, func.src.offset);
+
+            // If the function has a body but no source map entry covers any
+            // line of its definition (signature + body), the compiler
+            // eliminated the function entirely; skip it.
+            if func.body.is_some() {
+                let func_start_line = offset_to_line(&content, func.src.offset);
+                let func_end_line =
+                    offset_to_line(&content, func.src.offset.saturating_add(func.src.length));
+                let has_source_map = source_map_lines
+                    .get(path)
+                    .map(|sm_lines| {
+                        (func_start_line..=func_end_line).any(|l| sm_lines.contains(&l))
+                    })
+                    .unwrap_or(false);
+                if !has_source_map {
+                    return;
+                }
+            }
 
             let body_hits = func.body.as_ref().map_or(0, |body| {
                 let start = body.src.offset;
@@ -944,6 +960,7 @@ impl CoverageReporter {
             &path_to_artifact,
             &source_cache,
             &line_hits,
+            &source_map_lines,
         );
 
         // Ensure every function start line has a DA entry.
@@ -979,6 +996,10 @@ impl CoverageReporter {
         for path in all_paths {
             let line_hits = executable_line_hits.remove(&path).unwrap_or_default();
             let functions = file_functions_out.remove(&path).unwrap_or_default();
+            // Skip files that have no executable lines and no functions.
+            if line_hits.is_empty() && functions.is_empty() {
+                continue;
+            }
             files.push(FileCoverage {
                 path,
                 line_hits,
@@ -1287,17 +1308,22 @@ mod tests {
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
 
-        // The report must contain a DA entry for the unused library function
-        // start line (line 9) even if the library's deployed bytecode source
-        // map does not include it.
+        // Functions whose bodies are eliminated by the compiler (no source
+        // map entries for the function start line) must not appear in the
+        // report. Only usedAdd (line 5) which is called via inlining should
+        // be present; unusedAdd (line 9) must be absent.
         let unused_library = report
             .files
             .iter()
             .find(|f| f.path.ends_with("UnusedLibrary.sol"))
             .expect("UnusedLibrary.sol must be in report");
         assert!(
-            unused_library.line_hits.contains_key(&9),
-            "UnusedLibrary.sol must contain DA entry for unused function at line 9: {unused_library:?}"
+            unused_library.line_hits.contains_key(&5),
+            "UnusedLibrary.sol must contain DA entry for used function at line 5: {unused_library:?}"
+        );
+        assert!(
+            !unused_library.line_hits.contains_key(&9),
+            "UnusedLibrary.sol must NOT contain DA entry for eliminated function at line 9: {unused_library:?}"
         );
     }
 
