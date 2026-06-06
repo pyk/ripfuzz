@@ -10,6 +10,38 @@
 //! The reporter resolves every hit PC back to a source line using the artifact
 //! source maps, then aggregates the results into a single `lcov.info` report.
 //!
+//! # Two-tier coverage model
+//!
+//! The reporter uses a two-tier strategy to produce accurate coverage data
+//! even when the Solidity optimizer deduplicates code paths (sharing return
+//! sequences across internal functions):
+//!
+//! ## Tier 1: per-function hit counts (FNDA)
+//!
+//! Function hit counts are derived from the raw count of each function's
+//! *entry JUMPDEST*: the first bytecode instruction whose source-map entry
+//! maps to the function's AST source range. Because the optimizer never
+//! merges distinct function entry points (callers must jump to unique
+//! addresses), the entry-PC count is always an accurate call count, free
+//! from the inflation that affects shared epilogue / clean-up blocks.
+//!
+//! ## Tier 2: binary line hits (DA)
+//!
+//! Per-line hit counts are reported as **binary** (1 = hit, 0 = not hit).
+//! When the optimizer merges post-call return paths, multiple functions may
+//! execute the same bytecode. The source map attributes that code to the
+//! first function that contained it, causing raw hit counts on those PCs
+//! to be higher than any single function's call count. By collapsing every
+//! line to a binary value the reporter avoids misleading counts while still
+//! faithfully indicating whether a line was exercised.
+//!
+//! ## lcov.info mapping
+//!
+//! | lcov field | Source |
+//! |---|---|
+//! | `FNDA:<count>,<name>` | Raw count of the function's entry-PC |
+//! | `DA:<line>,<hits>` | 1 if the line is executable *and* at least one PC maps to it, else 0. Function-definition lines carry the same count as their FNDA entry. |
+//!
 //! # Pipeline
 //!
 //! 1. **Build path-to-artifact** map from all loaded artifacts.
@@ -21,12 +53,13 @@
 //! 4. **Pre-read source files** and build caches.
 //! 5. **Build PC-counter map**: for each matched codehash, walk PCs with
 //!    hits, resolve through the artifact source map to (file, line), and
-//!    aggregate hit counts.
+//!    record *binary* line hit markers.
 //! 6. **Determine executable lines** from the source map: a line is
 //!    executable when at least one source map entry maps to it, the line
 //!    is not a close-bracket (`}`), the line is not empty, and the line is
 //!    not a contract/interface/library definition.
-//! 7. **Collect function coverage** from the AST of resolved artifacts.
+//! 7. **Collect function coverage** from the AST of resolved artifacts,
+//!    using entry-PC raw counts for accurate per-function hit counts.
 //! 8. **Assemble the final `lcov.info` report.**
 //!
 //! # Usage
@@ -47,7 +80,7 @@ use std::path::PathBuf;
 use alloy_primitives::{B256, keccak256};
 use tracing::instrument;
 
-use crate::evm::coverage::shared::SharedCoverage;
+use crate::evm::coverage::shared::{RawEdgeCounts, SharedCoverage};
 use crate::evm::coverage::source_map::{SourceMapEntry, parse_source_map};
 use crate::foundry::{Artifact, ArtifactBytecode, ArtifactId, BuildInfo, LinkReferences};
 
@@ -377,15 +410,19 @@ fn populate_source_map_lines_from_deployed<'a>(
 
 /// Collect function definitions from resolved artifacts by walking the AST.
 ///
-/// For each function, the hit count is derived from the maximum line hit
-/// across the function body. If no body line has hits, the function start
-/// line's hit is used as fallback.
+/// For each function the hit count is taken from the raw coverage count of
+/// the function's *entry PC*: the earliest PC whose source-map entry
+/// falls within the function's AST source range. Entry PCs are never shared
+/// by the optimizer, so this count accurately reflects how many times the
+/// function was entered during the campaign.
 fn collect_function_coverage(
     artifacts: &[&Artifact],
     sid_maps: &HashMap<&ArtifactId, HashMap<usize, PathBuf>>,
     source_cache: &HashMap<PathBuf, String>,
-    line_hits: &HashMap<PathBuf, HashMap<usize, u64>>,
     source_map_lines: &HashMap<PathBuf, HashSet<usize>>,
+    matched_counts: &[RawEdgeCounts],
+    pc_map_cache: &HashMap<(&ArtifactId, bool), Vec<Option<SourceMapEntry>>>,
+    codehash_match: &HashMap<B256, (&Artifact, bool)>,
 ) -> HashMap<PathBuf, Vec<FunctionCoverage>> {
     let mut file_functions: HashMap<PathBuf, Vec<FunctionCoverage>> = HashMap::new();
 
@@ -434,26 +471,61 @@ fn collect_function_coverage(
                 }
             }
 
-            let body_hits = func.body.as_ref().map_or(0, |body| {
-                let start = body.src.offset;
-                let end = body.src.offset.saturating_add(body.src.length);
-                let start_body_line = offset_to_line(&content, start);
-                let end_body_line = offset_to_line(&content, end);
-                let mut max_hit = 0u64;
-                for line in start_body_line..=end_body_line {
-                    if let Some(hit) = line_hits.get(path).and_then(|h| h.get(&line)) {
-                        max_hit = max_hit.max(*hit);
+            // Tier 1: look up the function entry-PC raw count.
+            // Walk every matched bytecode whose artifact matches ours,
+            // scan the pc_map for the earliest PC within the function's
+            // source range, and use its raw hit count.
+            //
+            // Constructors only exist in initcode; runtime functions only
+            // exist in deployed bytecode. Filter by is_initcode so that
+            // a deployed-bytecode source-map entry that happens to fall
+            // within the constructor's source range cannot shadow the
+            // real initcode entry.
+            let func_src_start = func.src.offset;
+            let func_src_end = func.src.offset.saturating_add(func.src.length);
+            let target_initcode = matches!(func.kind, solc::ast::FunctionKind::Constructor);
+            let mut entry_hits: u64 = 0;
+
+            for counts in matched_counts {
+                let Some((matched_artifact, is_initcode)) = codehash_match.get(&counts.contract_id)
+                else {
+                    continue;
+                };
+                if matched_artifact.id() != artifact.id() {
+                    continue;
+                }
+                // Only match constructors against initcode, runtime
+                // functions against deployed bytecode.
+                if *is_initcode != target_initcode {
+                    continue;
+                }
+                let Some(pc_map) = pc_map_cache.get(&(artifact.id(), *is_initcode)) else {
+                    continue;
+                };
+
+                // Find the earliest PC whose sourcemap offset falls
+                // within the function's AST source range. For runtime
+                // functions this will be a JUMPDEST; for initcode
+                // (constructors) it will be the first instruction.
+                let mut best_pc: Option<usize> = None;
+                for (pc, entry) in pc_map.iter().enumerate() {
+                    let Some(e) = entry else {
+                        continue;
+                    };
+                    if e.offset < func_src_start || e.offset >= func_src_end {
+                        continue;
                     }
+                    best_pc = Some(match best_pc {
+                        None => pc,
+                        Some(prev) => prev.min(pc),
+                    });
                 }
-                if max_hit > 0 {
-                    return max_hit;
+
+                if let Some(pc) = best_pc {
+                    entry_hits = counts.raw_edges.get(pc).copied().unwrap_or(0);
+                    break;
                 }
-                // Fall back to the function start line hit.
-                line_hits
-                    .get(path)
-                    .and_then(|h| h.get(&start_line).copied())
-                    .unwrap_or(0)
-            });
+            }
 
             // checkrs: allow(clone_in_loops)
             file_functions
@@ -463,7 +535,7 @@ fn collect_function_coverage(
                 .push(FunctionCoverage {
                     name,
                     line: start_line,
-                    hits: body_hits,
+                    hits: entry_hits,
                 });
         };
 
@@ -798,11 +870,10 @@ impl CoverageReporter {
                     .or_default()
                     .insert(line);
 
-                // Update line hits (max aggregation).
+                // Update line hits (binary: 1 = hit, 0 = not hit).
                 // checkrs: allow(clone_in_loops)
                 let file_hits = line_hits.entry(path.clone()).or_default();
-                let current = file_hits.entry(line).or_insert(0);
-                *current = (*current).max(*raw_count);
+                file_hits.entry(line).or_insert(1);
             }
         }
 
@@ -864,23 +935,21 @@ impl CoverageReporter {
             &resolved_artifact_refs,
             &sid_maps,
             &source_cache,
-            &line_hits,
             &source_map_lines,
+            &matched_counts,
+            &pc_map_cache,
+            &codehash_match,
         );
 
-        // Ensure every function start line has a DA entry.
+        // Ensure every function start line has a DA entry whose value
+        // matches the function's FNDA count (Tier 1), not a binary 1.
         let mut file_functions_out: HashMap<PathBuf, Vec<FunctionCoverage>> = HashMap::new();
         for (path, functions) in file_functions {
             // checkrs: allow(clone_in_loops)
             let file_lines = executable_line_hits.entry(path.clone()).or_default();
-            // checkrs: allow(clone_in_loops)
-            let hits = line_hits.entry(path.clone()).or_default();
 
             for func in &functions {
                 file_lines.insert(func.line, func.hits);
-                hits.entry(func.line)
-                    .and_modify(|e| *e = (*e).max(func.hits))
-                    .or_insert(func.hits);
             }
             file_functions_out.insert(path, functions);
         }
