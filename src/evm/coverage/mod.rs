@@ -2,7 +2,7 @@
 
 pub use exec::{ExecutionContractCoverage, ExecutionCoverage};
 pub use inspector::Inspector;
-pub use reporter::CoverageReporter;
+pub use reporter::{CoverageReport, CoverageReporter};
 pub use shared::{CoverageUpdate, SharedCoverage};
 
 mod edge;

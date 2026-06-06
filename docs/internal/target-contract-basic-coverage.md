@@ -4,8 +4,8 @@ This document investigates why coverage reports differ between
 optimizer-disabled and optimizer-enabled builds of `TargetContractBasic.sol`,
 using the fixture projects at:
 
-- `fixtures/coverage-report-optimizer-disabled`
-- `fixtures/coverage-report-optimizer-enabled`
+- `fixtures/coverage-reporter-optimizer-disabled`
+- `fixtures/coverage-reporter-optimizer-enabled`
 
 ## 1. Context
 
@@ -28,7 +28,7 @@ to match regardless of optimizer.
 `src/evm/coverage/reporter.rs`) deploys `TargetContractBasic` from the
 optimizer-enabled fixture, calls `addAndSub(123, 123)` once, and compares the
 generated `lcov` report against
-`fixtures/coverage-report-optimizer-enabled/reports/TargetContractBasicOnce.info`.
+`fixtures/coverage-reporter-optimizer-enabled/reports/TargetContractBasicOnce.info`.
 
 The test **fails** because the generated report differs from the expected
 report.
@@ -212,7 +212,7 @@ coverage tools (e.g., `forge coverage`).
 
 The standard approach in the Solidity ecosystem is to measure coverage against
 unoptimized bytecode. This guarantees 1:1 source map fidelity. Raptor already
-supports this via the `coverage-report-optimizer-disabled` fixture.
+supports this via the `coverage-reporter-optimizer-disabled` fixture.
 
 ### 7.2 Customize the Yul Optimizer Sequence
 
@@ -252,8 +252,8 @@ but it could close the gap for simple cases like `TargetContractBasic`.
 
 | File                                                            | Role                                         |
 | --------------------------------------------------------------- | -------------------------------------------- |
-| `fixtures/coverage-report-optimizer-disabled/`                  | Fixture with `optimizer = false`             |
-| `fixtures/coverage-report-optimizer-enabled/`                   | Fixture with `optimizer = true, runs = 1000` |
+| `fixtures/coverage-reporter-optimizer-disabled/`                  | Fixture with `optimizer = false`             |
+| `fixtures/coverage-reporter-optimizer-enabled/`                   | Fixture with `optimizer = true, runs = 1000` |
 | `src/evm/coverage/reporter.rs`                                  | Coverage report generation and tests         |
 | `src/evm/coverage/source_map.rs`                                | Source map parser                            |
 | `external/argotorg/solidity/docs/internals/optimizer.rst`       | Solidity optimizer documentation             |

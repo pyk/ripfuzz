@@ -5,11 +5,11 @@ pub use corpus::{
     SharedFailedCorpusItem, Stats,
 };
 pub use evm::{
-    CallFrame, CallFrameKind, Chain, ChainConfig, CheatcodeConfig, Contract, CoverageUpdate,
-    DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput, ExecOutput,
-    ExecutionContractCoverage, ExecutionCoverage, ForkDBConfig, SetupInput, SetupOutput,
-    SharedCoverage, StorageChange, StorageChangeInfo, StorageType, Trace, TraceContext,
-    TraceDisplay, Transaction, TransactionResult,
+    CallFrame, CallFrameKind, Chain, ChainConfig, CheatcodeConfig, Contract, CoverageReport,
+    CoverageReporter, CoverageUpdate, DeployInput, DeployLibraryInput, DeployLibraryOutput,
+    DeployOutput, ExecOutput, ExecutionContractCoverage, ExecutionCoverage, ForkDBConfig,
+    SetupInput, SetupOutput, SharedCoverage, StorageChange, StorageChangeInfo, StorageType, Trace,
+    TraceContext, TraceDisplay, Transaction, TransactionResult,
 };
 pub use foundry::{Artifact, ArtifactId, BuildOptions, Project};
 pub use fuzzer::{
