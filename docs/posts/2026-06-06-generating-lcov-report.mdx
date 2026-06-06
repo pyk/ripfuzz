@@ -1,0 +1,194 @@
+---
+published: false
+date: 2026-06-06T00:00:00+00:00
+title: "How I built LCOV coverage reporting for raptor"
+description:
+    Raptor is a Solidity fuzzer. I needed a way to see which lines of a contract
+    were covered during a campaign so I could judge whether the fuzzer was doing
+    useful work. Here is how I built the coverage reporter, from matching
+    deployed bytecode to parsing source maps to walking the Solidity AST.
+topics:
+    - rust
+    - solidity
+    - evm
+    - fuzzing
+    - coverage
+    - lcov
+---
+
+Raptor is a parallelized, coverage-guided, mutational Solidity fuzzer built on
+top of revm. It generates random transactions and feeds them to a contract,
+using coverage feedback to steer toward unexplored code paths. After a campaign
+runs, I get a corpus of interesting inputs. But I had no way to see which lines
+were actually exercised. Did the fuzzer reach the `withdraw` function? Did it
+take the fallback branch? The corpus alone could not tell me.
+
+I wanted an [LCOV](https://github.com/linux-test-project/lcov) report. LCOV is
+the standard format for line coverage. Building this took me through bytecode
+matching, source map parsing, AST traversal, and a few dead ends I did not
+expect.
+
+Here is how it works. To demonstrate line coverage, I will use these two
+contracts.
+
+`TargetContractBasic` inherits from `RaptorFuzz`. It exposes one external
+function, `addAndSub`, which chains together two internal calls:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+import {RaptorFuzz} from "./RaptorFuzz.sol";
+
+contract TargetContractBasic is RaptorFuzz {
+    uint256 public latestValue;
+
+    constructor() {
+        latestValue = 0;
+    }
+
+    function addAndSub(uint256 a, uint256 b) external returns (uint256) {
+        uint256 result = add(a, b);
+        result = sub(result, b);
+        return result;
+    }
+
+    function add(uint256 a, uint256 b) internal returns (uint256) {
+        latestValue = a + b;
+        return latestValue;
+    }
+
+    function sub(uint256 a, uint256 b) internal returns (uint256) {
+        latestValue = a - b;
+        return latestValue;
+    }
+
+    // this should have 0 hits
+    function div(uint256 a, uint256 b) internal returns (uint256) {
+        latestValue = a / b;
+        return latestValue;
+    }
+}
+```
+
+`RaptorFuzz` is the base contract. It provides `_bound` and `bound`, two
+functions that constrain a value to a range. Neither is called by `addAndSub`,
+so every line in `RaptorFuzz` should show zero hits in the coverage report:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract RaptorFuzz {
+    uint256 private constant _UINT256_MAX =
+        115792089237316195423570985008687907853269984665640564039457584007913129639935;
+
+    function _bound(
+        uint256 x,
+        uint256 min,
+        uint256 max
+    ) internal pure returns (uint256 result) {
+        require(
+            min <= max,
+            "bound(uint256,uint256,uint256): Max is less than min."
+        );
+        if (x >= min && x <= max) return x;
+
+        uint256 size = max - min + 1;
+
+        if (x <= 3 && size > x) return min + x;
+        if (x >= _UINT256_MAX - 3 && size > _UINT256_MAX - x)
+            return max - (_UINT256_MAX - x);
+
+        if (x > max) {
+            uint256 diff = x - max;
+            uint256 rem = diff % size;
+            if (rem == 0) return max;
+            result = min + rem - 1;
+        } else if (x < min) {
+            uint256 diff = min - x;
+            uint256 rem = diff % size;
+            if (rem == 0) return min;
+            result = max - rem + 1;
+        }
+    }
+
+    function bound(
+        uint256 x,
+        uint256 min,
+        uint256 max
+    ) internal pure returns (uint256 result) {
+        result = _bound(x, min, max);
+    }
+}
+```
+
+`div` is also never called and serves the same purpose. These three functions
+(`_bound`, `bound`, `div`) are the coverage report's ground truth. If the report
+shows hits on any of them, something is wrong.
+
+## The Foundry artifact
+
+Raptor uses Foundry as its compiler backend. When I run `forge build --ast`,
+Foundry compiles every Solidity file and writes one JSON artifact per contract
+into the `out/` directory. The artifact for `TargetContractBasic` looks like
+this:
+
+```json
+{
+    "abi": [...],
+    "bytecode": { "object": "0x60806040...", "sourceMap": "104:730:6:-:0;;..." },
+    "deployedBytecode": { "object": "0x60806040...", "sourceMap": "104:730:..." },
+    "ast": { "absolutePath": "src/TargetContractBasic.sol", "nodes": [...] },
+    "methodIdentifiers": { "addAndSub(uint256,uint256)": "19e9d629", ... },
+    "storageLayout": { "storage": [...], "types": {...} },
+    "id": 6
+}
+```
+
+Three fields matter for coverage. The **deployed bytecode** is the hex string
+that lives on chain after deployment. The **source map** is a
+semicolon-separated string that maps each EVM instruction back to a source
+location. The **AST** is the compiler's parsed representation of the source
+file, with a source range for every node.
+
+Together, these three are enough to answer "which line got hit?" for any program
+counter the fuzzer records. No other tooling is needed. No source file
+re-parsing. The artifact is self-contained.
+
+The bytecode and source map are paired one-to-one. Each semicolon-delimited
+entry in the source map corresponds to one EVM instruction in the bytecode. An
+entry looks like this:
+
+```
+s:l:f:j:m
+```
+
+| Field | Meaning                                          |
+| ----- | ------------------------------------------------ |
+| `s`   | Byte offset where this instruction's code starts |
+| `l`   | Length of the source range in bytes              |
+| `f`   | Source file index within the compilation unit    |
+| `j`   | Jump type (`i` = into, `o` = out, `-` = regular) |
+| `m`   | Modifier depth                                   |
+
+For example, this snippet from the deployed source map of `TargetContractBasic`:
+
+```
+238:167;;;;;;;;;;;;;:::i;:::-;;;;;;;:::i;:::-;;;;;;;;238:167;297:7;316:14;...
+```
+
+The entry `297:7` says "the instruction at this PC starts at byte offset 297 in
+the source file and spans 7 bytes." That range falls inside the `add` function
+body. When the fuzzer records a hit at that PC, the reporter translates it to
+"line 20 was executed." (I will cover how the fuzzer tracks PCs in the next
+section.)
+
+The source map uses integer file indices (`f`) rather than file paths. The
+artifact's `id` field (6 in this example) maps to `src/TargetContractBasic.sol`.
+For imported files like `RaptorFuzz.sol`, the source maps use different indices
+that the reporter must resolve later. I will come back to that in the next
+section.
+
+With the artifact in hand, the next step is tracking which PCs the fuzzer
+actually hits during a campaign.
