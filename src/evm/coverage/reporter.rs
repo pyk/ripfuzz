@@ -928,9 +928,11 @@ impl CoverageReporter {
                 let line_num = line_idx + 1;
                 let trimmed = line_text.trim();
 
-                // Non-executable: close bracket, empty line, or contract definition.
+                // Non-executable: close bracket, empty line, comment, or
+                // contract definition.
                 if trimmed == "}"
                     || trimmed.is_empty()
+                    || trimmed.starts_with("//")
                     || cd_lines.map(|s| s.contains(&line_num)).unwrap_or(false)
                 {
                     continue;

@@ -4,7 +4,6 @@ FN:8,_bound
 FNDA:2,_bound
 FNF:1
 FNH:1
-DA:1,4
 DA:5,2
 DA:6,2
 DA:8,2
@@ -21,8 +20,8 @@ DA:28,2
 DA:29,2
 DA:31,2
 DA:32,2
-LF:17
-LH:13
+LF:16
+LH:12
 end_of_record
 TN:
 SF:src/TargetContractBasic.sol
