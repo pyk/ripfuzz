@@ -31,8 +31,4 @@ contract TargetContractBasic is RaptorFuzz {
         latestValue = a / b;
         return latestValue;
     }
-
-    function love() external returns (uint256) {
-        return add(2, 2);
-    }
 }

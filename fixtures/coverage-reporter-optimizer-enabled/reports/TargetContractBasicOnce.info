@@ -4,13 +4,11 @@ FN:9,constructor
 FN:13,addAndSub
 FN:19,add
 FN:24,sub
-FN:35,love
 FNDA:1,constructor
 FNDA:3,addAndSub
 FNDA:2,add
 FNDA:1,sub
-FNDA:0,love
-FNF:5
+FNF:4
 FNH:4
 DA:7,0
 DA:9,1
@@ -22,8 +20,6 @@ DA:19,2
 DA:20,2
 DA:24,1
 DA:25,1
-DA:35,0
-DA:36,0
-LF:12
+LF:10
 LH:9
 end_of_record
