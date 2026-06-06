@@ -942,14 +942,14 @@ impl CoverageReporter {
         );
 
         // Ensure every function start line has a DA entry whose value
-        // matches the function's FNDA count (Tier 1), not a binary 1.
+        // is 1 if the function was hit at least once, 0 otherwise.
         let mut file_functions_out: HashMap<PathBuf, Vec<FunctionCoverage>> = HashMap::new();
         for (path, functions) in file_functions {
             // checkrs: allow(clone_in_loops)
             let file_lines = executable_line_hits.entry(path.clone()).or_default();
 
             for func in &functions {
-                file_lines.insert(func.line, func.hits);
+                file_lines.insert(func.line, u64::from(func.hits > 0));
             }
             file_functions_out.insert(path, functions);
         }
