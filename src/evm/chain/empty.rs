@@ -78,6 +78,7 @@ impl Chain {
         let cheatcode_state = ExecutionState::from_config(config.cheatcode());
         Self {
             database: Some(Database::Empty(db)),
+            fork_backend: None,
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,

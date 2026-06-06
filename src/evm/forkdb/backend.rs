@@ -80,9 +80,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use alloy_primitives::Address;
 use anyhow::Result;
 use papaya::HashMap as PapayaMap;
-use parking_lot::{Condvar, Mutex};
+use parking_lot::{Condvar, Mutex, RwLock};
 use serde_json::Value;
 use tracing::instrument;
 use walkdir::WalkDir;
@@ -117,6 +118,13 @@ struct SharedBackendInner {
     backoff: Duration,
     limiter: Option<Arc<RateLimiter>>,
     cache_dir: Option<PathBuf>,
+    /// Addresses created locally during EVM execution. ForkDB::basic_ref
+    /// skips RPC for these addresses so that contract deployment and nested
+    /// CREATEs do not trigger unnecessary remote fetches.
+    ///
+    /// Read-heavy: `is_local` is checked on every `basic_ref` call (many
+    /// per execution), while `mark_local` only fires on CREATE (rare).
+    local_addresses: RwLock<HashSet<Address>>,
 }
 
 #[derive(Debug)]
@@ -161,9 +169,23 @@ impl SharedBackend {
             backoff: Duration::from_millis(config.backoff_ms),
             limiter,
             cache_dir: config.cache_dir,
+            local_addresses: RwLock::new(HashSet::new()),
         });
 
         Self { inner }
+    }
+
+    /// Mark an address as locally-created so that `ForkDB::basic_ref` skips
+    /// RPC for it. Thread-safe: can be called from an EVM inspector during
+    /// execution.
+    pub fn mark_local(&self, address: Address) {
+        self.inner.local_addresses.write().insert(address);
+    }
+
+    /// Check whether `address` is locally-created (no RPC needed) or a known
+    /// on-chain account (RPC fetch required).
+    pub fn is_local(&self, address: Address) -> bool {
+        self.inner.local_addresses.read().contains(&address)
     }
 
     /// Fetch one or more requests.

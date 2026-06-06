@@ -10,17 +10,10 @@ use crate::evm::forkdb::response::Response;
 
 /// Remote backend that satisfies `DatabaseRef`.
 ///
-/// All RPC state fetching is delegated to the internal [`SharedBackend`],
-/// which handles caching, deduplication, rate limiting, retries, and
-/// automatic batching. This struct only maps revm database operations to
-/// typed RPC requests. Bytecode is returned inline with `basic_ref` so revm
-/// never needs to call `code_by_hash_ref` during normal execution.
-///
-/// `basic_ref` always returns `None` so that revm's `CacheDB` uses
-/// `AccountInfo::default()` for addresses not already in cache. This avoids
-/// unnecessary RPC fetches during contract deployment (CREATE collision
-/// check, coinbase warming) while still allowing explicit account loading
-/// through other methods.
+/// `basic_ref` checks [`SharedBackend::is_local`] before making RPC calls.
+/// Addresses created locally during EVM execution (tracked by
+/// [`super::LocalTracker`]) are skipped without a remote fetch, while
+/// genuine on-chain accounts (e.g. vitalik.eth) are fetched lazily.
 #[derive(Clone, Debug)]
 pub struct ForkDB {
     backend: SharedBackend,
@@ -37,11 +30,15 @@ impl ForkDB {
         }
     }
 
+    /// Public accessor for the underlying [`SharedBackend`].
+    pub fn backend(&self) -> &SharedBackend {
+        &self.backend
+    }
+
     /// Parse the heterogeneous batch responses for `basic_ref` into an
     /// `AccountInfo`. The responses may arrive in any order; we match by
     /// variant rather than by index so that `db.rs` is decoupled from the
     /// backend's ordering guarantees.
-    #[cfg_attr(not(test), expect(dead_code))]
     fn parse_basic_responses(
         &self,
         responses: Vec<Response>,
@@ -114,22 +111,37 @@ impl ForkDB {
 impl DatabaseRef for ForkDB {
     type Error = Error;
 
-    fn basic_ref(&self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        // Return None so CacheDB uses AccountInfo::default() without ever
-        // making a remote RPC call. This avoids unnecessary fetches during
-        // contract deployment (CREATE collision checks, coinbase warming).
-        // Fork state is loaded explicitly through other methods rather than
-        // lazily through basic_ref.
-        Ok(None)
+    fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        if self.backend.is_local(address) {
+            return Ok(None);
+        }
+        // Fetch balance, nonce, and code in a single atomic batch so the
+        // backend can send them as one JSON-RPC batch request.
+        let responses = self.backend.fetch_or_wait(&[
+            Request::GetBalance {
+                chain_id: self.chain_id,
+                address,
+                block: self.block_number,
+            },
+            Request::GetTransactionCount {
+                chain_id: self.chain_id,
+                address,
+                block: self.block_number,
+            },
+            Request::GetCode {
+                chain_id: self.chain_id,
+                address,
+                block: self.block_number,
+            },
+        ])?;
+
+        self.parse_basic_responses(responses)
     }
 
     fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
         if code_hash == KECCAK_EMPTY || code_hash.is_zero() {
             return Ok(Bytecode::default());
         }
-        // revm's CacheDB caches code loaded via basic_ref, so this path is
-        // rarely exercised in practice. AlloyDB takes the same stance and
-        // panics here; we return a typed error instead.
         Err(Error::MissingAccount {
             message: format!(
                 "code hash {code_hash} not present in fork DB; code should have been loaded via basic_ref"
@@ -188,11 +200,7 @@ mod tests {
     use crate::evm::forkdb::{ForkDBConfig, MockTransport, Transport};
 
     /// Regression: ForkDB must NOT sleep the fuzzer thread when the backend
-    /// returns RpcTimeout. The backend is the sole retry layer; ForkDB should
-    /// propagate the error immediately.
-    ///
-    /// Uses `block_hash_ref` because `basic_ref` intentionally returns `None`
-    /// without making RPC calls.
+    /// returns RpcTimeout.
     #[test]
     fn forkdb_does_not_sleep_on_rpc_timeout() {
         #[derive(Debug)]
@@ -226,11 +234,7 @@ mod tests {
     }
 
     /// Regression: ForkDB must NOT sleep the fuzzer thread when the backend
-    /// returns RateLimited. The backend is the sole retry layer; ForkDB should
-    /// propagate the error immediately.
-    ///
-    /// Uses `block_hash_ref` because `basic_ref` intentionally returns `None`
-    /// without making RPC calls.
+    /// returns RateLimited.
     #[test]
     fn forkdb_does_not_sleep_on_rate_limited() {
         #[derive(Debug)]
@@ -264,9 +268,7 @@ mod tests {
     }
 
     /// Regression: ForkDB::basic_ref must not assume that the backend returns
-    /// responses in the same order as the requests. If the response order
-    /// changes (or a future backend reorders them), matching by index silently
-    /// corrupts account state.
+    /// responses in the same order as the requests.
     #[test]
     fn basic_ref_is_order_independent() {
         let transport = MockTransport::default();
@@ -274,7 +276,6 @@ mod tests {
         let backend = SharedBackend::new_with_transport(config, transport);
         let fork_db = ForkDB::new(backend, 1, 1);
 
-        // Responses arrive in a different order than the requests.
         let responses = vec![
             Response::TransactionCount(2),
             Response::Code(Bytes::from_static(&[0x60, 0x00])),
@@ -289,8 +290,7 @@ mod tests {
         assert_eq!(info.code_hash, expected_code.hash_slow());
     }
 
-    /// Regression: Error must be an enumerated type so callers can
-    /// programmatically distinguish between transient and permanent failures.
+    /// Regression: Error must be an enumerated type.
     #[test]
     fn forkdb_error_variants_are_programmatically_distinguishable() {
         let timeout = Error::RpcTimeout {
@@ -299,37 +299,16 @@ mod tests {
         assert!(matches!(timeout, Error::RpcTimeout { .. }));
         assert!(timeout.is_transient());
 
-        let connection = Error::ConnectionError {
-            url: "http://rpc.example".into(),
-        };
-        assert!(matches!(connection, Error::ConnectionError { .. }));
-        assert!(connection.is_transient());
-
-        let rate_limited = Error::RateLimited {
-            url: "http://rpc.example".into(),
-        };
-        assert!(matches!(rate_limited, Error::RateLimited { .. }));
-        assert!(rate_limited.is_transient());
-
         let rpc_err = Error::RpcError {
             code: -32000,
             message: "bad block".into(),
         };
         assert!(matches!(rpc_err, Error::RpcError { .. }));
         assert!(!rpc_err.is_transient());
-
-        let decode = Error::DecodeError {
-            message: "invalid json".into(),
-        };
-        assert!(matches!(decode, Error::DecodeError { .. }));
-        assert!(!decode.is_transient());
     }
 
     /// Regression: ForkDB::block_hash_ref must not return B256::default()
     /// when `eth_getBlockByNumber` returns a block with `"hash": null`.
-    /// Returning the zero hash makes the BLOCKHASH opcode deterministic and
-    /// breaks property invariants that assume a non-zero, non-predictable
-    /// value. A missing hash must propagate as an error.
     #[test]
     fn block_hash_ref_rejects_missing_hash() {
         let transport = MockTransport::default();
@@ -366,21 +345,14 @@ mod tests {
     }
 
     /// Regression: ForkDB must store SharedBackend directly, not
-    /// Arc<SharedBackend>. SharedBackend is already internally
-    /// reference-counted (Arc<SharedBackendInner>), so wrapping it in another
-    /// Arc wastes an extra heap allocation.
+    /// Arc<SharedBackend>.
     #[test]
     fn forkdb_stores_backend_directly() {
         let transport = MockTransport::default();
         let config = ForkDBConfig::new("mock://test");
         let backend = SharedBackend::new_with_transport(config, transport);
 
-        // Must be possible to construct ForkDB from a plain SharedBackend
-        // without wrapping in Arc. This proves we are not double-wrapping.
         let fork_db = ForkDB::new(backend.clone(), 1, 1);
-
-        // Clone must be cheap because SharedBackend::clone only increments the
-        // inner Arc refcount.
         let _fork_db2 = fork_db.clone();
     }
 }

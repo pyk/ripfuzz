@@ -8,7 +8,6 @@ use revm::{
     MainBuilder, MainContext,
     context::{BlockEnv, CfgEnv, Context, TxEnv},
     context_interface::either::Either,
-    handler::ExecuteCommitEvm,
     inspector::{InspectCommitEvm, Inspector as RevmInspector, NoOpInspector},
     primitives::{Bytes, TxKind},
     state::AccountInfo,
@@ -21,6 +20,7 @@ pub use exec::ExecOutput;
 pub use setup::{SetupInput, SetupOutput};
 pub use transaction::Transaction;
 
+use crate::evm::forkdb::{LocalTracker, SharedBackend};
 use crate::evm::{cheatcode, coverage, database, result, trace};
 
 mod config;
@@ -45,6 +45,9 @@ pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4
 #[derive(Clone, Debug)]
 pub struct Chain {
     database: Option<database::Database>,
+    /// Shared fork backend used by [`LocalTracker`] to mark locally-created
+    /// addresses so `basic_ref` skips RPC for them. `None` on empty chains.
+    fork_backend: Option<SharedBackend>,
     cfg_env: CfgEnv,
     block_env: BlockEnv,
     deployer: Address,
@@ -257,8 +260,11 @@ impl Chain {
     ) -> Result<DeployOutput> {
         let inspector = (
             (
-                trace::Inspector::new(),
-                cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+                (
+                    trace::Inspector::new(),
+                    cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+                ),
+                LocalTracker::new(self.fork_backend.clone()),
             ),
             coverage::Inspector::new(),
         );
@@ -270,8 +276,10 @@ impl Chain {
             value,
             ..Default::default()
         };
-        let (result, ((trace_inspector, cheatcode_inspector), coverage_inspector)) =
-            self.inspect(tx, inspector)?;
+        let (
+            result,
+            (((trace_inspector, cheatcode_inspector), _local_tracker), coverage_inspector),
+        ) = self.inspect(tx, inspector)?;
         self.cheatcode_state = cheatcode_inspector.state;
         let address = result.created_address;
         let trace = trace_inspector.into_trace();
@@ -308,8 +316,11 @@ impl Chain {
     pub fn setup(&mut self, opts: SetupInput) -> Result<SetupOutput> {
         let inspector = (
             (
-                trace::Inspector::new(),
-                cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+                (
+                    trace::Inspector::new(),
+                    cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+                ),
+                LocalTracker::new(self.fork_backend.clone()),
             ),
             coverage::Inspector::new(),
         );
@@ -321,8 +332,10 @@ impl Chain {
             value: opts.value,
             ..Default::default()
         };
-        let (result, ((trace_inspector, cheatcode_inspector), coverage_inspector)) =
-            self.inspect(tx, inspector)?;
+        let (
+            result,
+            (((trace_inspector, cheatcode_inspector), _local_tracker), coverage_inspector),
+        ) = self.inspect(tx, inspector)?;
         self.cheatcode_state = cheatcode_inspector.state;
         let trace = trace_inspector.into_trace();
         let coverage = coverage_inspector.into_coverage();
@@ -340,7 +353,10 @@ impl Chain {
     /// transaction to the next.
     pub fn exec(&mut self, transactions: &[Transaction]) -> Result<ExecOutput> {
         let inspector = (
-            cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+            (
+                cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+                LocalTracker::new(self.fork_backend.clone()),
+            ),
             (
                 if self.config.trace_enabled() {
                     Either::Left(trace::Inspector::new())
@@ -409,8 +425,11 @@ impl Chain {
         let mut ctx = Context::mainnet().with_db(db);
         ctx.block = self.block_env.clone();
         ctx.cfg = self.cfg_env.clone();
-        let mut evm = ctx.build_mainnet();
-        let result = evm.transact_commit(tx).context("transact_commit failed")?;
+        let mut evm =
+            ctx.build_mainnet_with_inspector(LocalTracker::new(self.fork_backend.clone()));
+        let result = evm
+            .inspect_tx_commit(tx)
+            .context("transact_commit failed")?;
         self.database = Some(evm.ctx.journaled_state.database);
         self.block_env = evm.ctx.block;
         self.cfg_env = evm.ctx.cfg;

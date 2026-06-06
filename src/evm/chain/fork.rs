@@ -108,6 +108,19 @@ impl Chain {
                 Some(BlobExcessGasAndPrice::new_with_spec(excess.to(), spec_id));
         }
 
+        // Seed the coinbase so that gas payment during execution does not
+        // trigger an RPC fetch for a real miner address.
+        database.insert_account_info(
+            block.coinbase,
+            AccountInfo {
+                balance: U256::MAX,
+                nonce: 0,
+                code_hash: revm::primitives::KECCAK_EMPTY,
+                code: None,
+                account_id: None,
+            },
+        );
+
         // Set deployer balance
         let info = AccountInfo {
             balance: U256::MAX,
@@ -135,6 +148,7 @@ impl Chain {
         let cheatcode_state = ExecutionState::from_config(chain_config.cheatcode());
         Ok(Self {
             database: Some(Database::Fork(database)),
+            fork_backend: Some(backend),
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,

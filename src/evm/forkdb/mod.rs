@@ -14,6 +14,7 @@ pub use backend::SharedBackend;
 pub use config::ForkDBConfig;
 pub use db::ForkDB;
 pub use error::Error;
+pub use inspector::LocalTracker;
 pub use request::{Request, url_hash};
 pub use response::Response;
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -23,6 +24,7 @@ mod backend;
 mod config;
 mod db;
 mod error;
+mod inspector;
 mod limiter;
 mod request;
 mod response;
