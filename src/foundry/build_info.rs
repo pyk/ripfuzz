@@ -143,15 +143,23 @@ mod tests {
     // load_for_artifact tests
     // -----------------------------------------------------------------------
 
-    fn write_build_info(dir: &Path, filename: &str, id_to_path: &[(&str, &str)]) {
-        let build_info_dir = dir.join("out").join("build-info");
+    fn write_build_info(
+        dir: impl AsRef<Path>,
+        filename: &str,
+        id_to_path: &[(&str, impl AsRef<Path>)],
+    ) {
+        let build_info_dir = dir.as_ref().join("out").join("build-info");
         fs::create_dir_all(&build_info_dir).unwrap();
         let mut sources = String::new();
         for (i, (id, path)) in id_to_path.iter().enumerate() {
             if i > 0 {
                 sources.push_str(",\n");
             }
-            sources.push_str(&format!("        \"{}\": \"{}\"", id, path));
+            sources.push_str(&format!(
+                "        \"{}\": \"{}\"",
+                id,
+                path.as_ref().to_string_lossy()
+            ));
         }
         let json = format!(
             r#"{{
