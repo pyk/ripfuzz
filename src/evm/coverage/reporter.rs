@@ -49,7 +49,7 @@ use tracing::instrument;
 
 use crate::evm::coverage::shared::SharedCoverage;
 use crate::evm::coverage::source_map::{SourceMapEntry, parse_source_map};
-use crate::foundry::{Artifact, ArtifactBytecode, ArtifactId, LinkReferences};
+use crate::foundry::{Artifact, ArtifactBytecode, ArtifactId, BuildInfo, LinkReferences};
 
 // ---------------------------------------------------------------------------
 // Bytecode helpers
@@ -251,119 +251,7 @@ fn offset_to_line(content: &str, offset: usize) -> usize {
 }
 
 // ---------------------------------------------------------------------------
-// Source ID resolution from metadata.sources
-// ---------------------------------------------------------------------------
-
-/// Build a source_id → file_path map for a root artifact.
-///
-/// The artifact's own `source_id()` maps to its source file. Unknown source
-/// indices appearing in the artifact's source map are resolved by matching
-/// byte offsets against candidate source files from `metadata.sources`.
-/// A source id matches a candidate file when every source map entry for that
-/// id has its `offset + length` within the file's byte length.
-fn build_source_id_map(
-    artifact: &Artifact,
-    path_to_artifact: &HashMap<PathBuf, &Artifact>,
-    source_cache: &HashMap<PathBuf, String>,
-) -> HashMap<usize, PathBuf> {
-    let mut sid_map: HashMap<usize, PathBuf> = HashMap::new();
-
-    // The artifact's own source_id always maps to its source file.
-    // checkrs: allow(clone_in_loops)
-    sid_map.insert(artifact.source_id(), artifact.ast().absolute_path.clone());
-
-    // Collect all source_ids seen in source maps, grouped by their
-    // (offset, length) pairs.
-    let mut unknown_entries: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
-    for sm in [
-        artifact.bytecode().map(|b| b.source_map.as_str()),
-        artifact.deployed_bytecode().map(|b| b.source_map.as_str()),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        for entry in parse_source_map(sm) {
-            if !sid_map.contains_key(&entry.source_index) {
-                unknown_entries
-                    .entry(entry.source_index)
-                    .or_default()
-                    .push((entry.offset, entry.length));
-            }
-        }
-    }
-
-    if unknown_entries.is_empty() {
-        return sid_map;
-    }
-
-    // Collect candidate files: the artifact itself plus all metadata.sources
-    // files (including recursively resolved children).
-    let mut candidates: HashSet<PathBuf> = HashSet::new();
-    if let Some(sources) = artifact.metadata_sources() {
-        for path_str in sources.keys() {
-            candidates.insert(PathBuf::from(path_str));
-        }
-    }
-    let mut visited: HashSet<&ArtifactId> = HashSet::new();
-    let mut queue: Vec<&Artifact> = vec![artifact];
-    while let Some(current) = queue.pop() {
-        if !visited.insert(current.id()) {
-            continue;
-        }
-        // checkrs: allow(nested_if_let)
-        if let Some(sources) = current.metadata_sources() {
-            for path_str in sources.keys() {
-                let path = PathBuf::from(path_str);
-                // checkrs: allow(nested_if_let)
-                // checkrs: allow(clone_in_loops)
-                let path_clone = path.clone();
-                if candidates.insert(path_clone)
-                    && let Some(child) = path_to_artifact.get(&path)
-                {
-                    queue.push(child);
-                }
-            }
-        }
-    }
-
-    // For each unknown source id, find candidate files that contain
-    // all its source map entries.
-    for (sid, entries) in &unknown_entries {
-        let mut fits: Vec<PathBuf> = Vec::new();
-        for candidate in &candidates {
-            // checkrs: allow(nested_if_let)
-            if let Some(content) = source_cache.get(candidate) {
-                let content_len = content.len();
-                if entries
-                    .iter()
-                    .all(|(offset, len)| offset.saturating_add(*len) <= content_len)
-                {
-                    // checkrs: allow(clone_in_loops)
-                    fits.push(candidate.clone());
-                }
-            }
-        }
-
-        // Greedy assignment: prefer files that haven't been assigned yet.
-        if fits.len() == 1 {
-            // checkrs: allow(clone_in_loops)
-            sid_map.insert(*sid, fits[0].clone());
-        } else {
-            let unassigned: Vec<PathBuf> = fits
-                .iter()
-                .filter(|f| !sid_map.values().any(|v| v == *f))
-                .cloned()
-                .collect();
-            if unassigned.len() == 1 {
-                // checkrs: allow(clone_in_loops)
-                sid_map.insert(*sid, unassigned[0].clone());
-            }
-        }
-    }
-
-    sid_map
-}
-
+// Source ID resolution from build-info
 // ---------------------------------------------------------------------------
 // Coverage report types
 // ---------------------------------------------------------------------------
@@ -471,7 +359,11 @@ fn populate_source_map_lines_from_deployed<'a>(
     let source_map = parse_source_map(&deployed.source_map);
     let pc_map = build_pc_to_source_map(&code, &source_map);
     for entry in source_map.iter() {
-        if let Some(path) = sid_map.get(&entry.source_index)
+        if entry.source_index < 0 {
+            continue;
+        }
+        let idx = entry.source_index as usize;
+        if let Some(path) = sid_map.get(&idx)
             && let Some(content) = source_cache.get(path)
         {
             let line = offset_to_line(content, entry.offset);
@@ -490,7 +382,7 @@ fn populate_source_map_lines_from_deployed<'a>(
 /// line's hit is used as fallback.
 fn collect_function_coverage(
     artifacts: &[&Artifact],
-    path_to_artifact: &HashMap<PathBuf, &Artifact>,
+    sid_maps: &HashMap<&ArtifactId, HashMap<usize, PathBuf>>,
     source_cache: &HashMap<PathBuf, String>,
     line_hits: &HashMap<PathBuf, HashMap<usize, u64>>,
     source_map_lines: &HashMap<PathBuf, HashSet<usize>>,
@@ -499,7 +391,9 @@ fn collect_function_coverage(
 
     for artifact in artifacts {
         let ast = artifact.ast();
-        let sid_map = build_source_id_map(artifact, path_to_artifact, source_cache);
+        let Some(sid_map) = sid_maps.get(artifact.id()) else {
+            continue;
+        };
 
         let mut collect = |func: &solc::ast::FunctionDefinition| {
             if func.body.is_none() {
@@ -600,14 +494,16 @@ fn collect_function_coverage(
 /// non-executable and must not appear in the coverage report.
 fn collect_contract_definition_lines(
     artifacts: &[&Artifact],
-    path_to_artifact: &HashMap<PathBuf, &Artifact>,
+    sid_maps: &HashMap<&ArtifactId, HashMap<usize, PathBuf>>,
     source_cache: &HashMap<PathBuf, String>,
 ) -> HashMap<PathBuf, HashSet<usize>> {
     let mut contract_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
 
     for artifact in artifacts {
         let ast = artifact.ast();
-        let sid_map = build_source_id_map(artifact, path_to_artifact, source_cache);
+        let Some(sid_map) = sid_maps.get(artifact.id()) else {
+            continue;
+        };
 
         for node in &ast.nodes {
             if let solc::ast::SourceUnitNode::ContractDefinition(contract) = node {
@@ -803,13 +699,19 @@ impl CoverageReporter {
         // Map: file path → set of line numbers that appear in source map
         let mut source_map_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
 
-        // Precompute source_id→path maps for each root artifact.
+        // Precompute source_id → path map for each root artifact by matching
+        // its (source_id, path) pair against compiler build-info files.
         let mut sid_maps: HashMap<&ArtifactId, HashMap<usize, PathBuf>> = HashMap::new();
         for root_id in &root_artifact_ids {
             if let Some(artifact) = path_to_artifact.get(&root_id.path) {
                 sid_maps.insert(
                     root_id,
-                    build_source_id_map(artifact, &path_to_artifact, &source_cache),
+                    BuildInfo::load_for_artifact(
+                        project_path,
+                        &artifact.ast().absolute_path,
+                        artifact.source_id(),
+                    )
+                    .unwrap_or_default(),
                 );
             }
         }
@@ -872,7 +774,11 @@ impl CoverageReporter {
                 let Some(entry) = pc_map.get(pc).copied().flatten() else {
                     continue;
                 };
-                let Some(path) = sid_map.get(&entry.source_index) else {
+                if entry.source_index < 0 {
+                    continue;
+                }
+                let idx = entry.source_index as usize;
+                let Some(path) = sid_map.get(&idx) else {
                     continue;
                 };
 
@@ -909,11 +815,8 @@ impl CoverageReporter {
         //   3. It is not empty (trimmed.is_empty()).
         //   4. It is not a contract/interface/library definition line.
         // -------------------------------------------------------------------
-        let contract_def_lines = collect_contract_definition_lines(
-            &resolved_artifact_refs,
-            &path_to_artifact,
-            &source_cache,
-        );
+        let contract_def_lines =
+            collect_contract_definition_lines(&resolved_artifact_refs, &sid_maps, &source_cache);
 
         let mut executable_line_hits: HashMap<PathBuf, HashMap<usize, u64>> = HashMap::new();
 
@@ -959,7 +862,7 @@ impl CoverageReporter {
         // -------------------------------------------------------------------
         let file_functions = collect_function_coverage(
             &resolved_artifact_refs,
-            &path_to_artifact,
+            &sid_maps,
             &source_cache,
             &line_hits,
             &source_map_lines,

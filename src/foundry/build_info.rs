@@ -13,10 +13,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
-
-use crate::foundry::artifact::ArtifactId;
 
 /// A single build-info file loaded from a Foundry project.
 ///
@@ -41,30 +39,33 @@ impl BuildInfo {
         Ok(info)
     }
 
-    /// Load the source index map for a specific artifact from a project's
-    /// `out/build-info` directory.
+    /// Find the build-info that produced this artifact and return its full
+    /// `source_id → path` map.
     ///
-    /// Foundry incremental builds create multiple build-info files, one per
-    /// compilation unit. Source IDs are only unique within a compilation unit,
-    /// so merging all build-info files globally can produce conflicts or stale
-    /// mappings for artifacts that were not rebuilt.
+    /// The artifact's `source_id` (from its JSON `id` field) is the numeric
+    /// ID the compiler assigned to its source file within its compilation
+    /// unit. A build-info is the correct one when it maps that same source ID
+    /// to the artifact's source file path. This ensures the returned map is
+    /// consistent with the source IDs in the artifact's bytecode source map,
+    /// even across incremental builds where the same file may appear with
+    /// different IDs in other compilation units.
     ///
-    /// This method finds the most recent build-info file whose
-    /// `source_id_to_path` maps the artifact's numeric source ID to the
-    /// artifact's source file path. This strong match ensures the build-info
-    /// is the one that produced the artifact (or a later recompilation of the
-    /// same unit), so its source IDs are consistent with the artifact's bytecode
-    /// source map.
-    pub fn load_source_index_for_artifact(
+    /// Build-info files are checked from most recent to oldest, so after an
+    /// incremental rebuild the latest matching compilation unit is used.
+    pub fn load_for_artifact(
         project_path: impl AsRef<Path>,
-        artifact_id: &ArtifactId,
+        artifact_path: impl AsRef<Path>,
         artifact_source_id: usize,
     ) -> Result<HashMap<usize, PathBuf>> {
+        let artifact_path = artifact_path.as_ref();
         let build_info_dir = project_path.as_ref().join("out").join("build-info");
 
-        if !build_info_dir.exists() {
-            return Ok(HashMap::new());
-        }
+        ensure!(
+            build_info_dir.exists(),
+            "build-info directory not found: {}. \
+             Run `forge build --ast --extra-output storageLayout` before loading coverage.",
+            build_info_dir.display()
+        );
 
         let mut files = Vec::new();
         for entry in fs::read_dir(&build_info_dir).with_context(|| {
@@ -84,14 +85,13 @@ impl BuildInfo {
             files.push((path, modified));
         }
 
-        // Most recent first -- the first build-info that maps the artifact's
-        // numeric source ID to its source file path is the correct one.
+        // Most recent first.
         files.sort_by(|a, b| b.1.cmp(&a.1));
 
+        let key = artifact_source_id.to_string();
         for (path, _) in files {
             let info = BuildInfo::from_json(&path)?;
-            let key = artifact_source_id.to_string();
-            if matches!(info.source_id_to_path.get(&key), Some(p) if p == &artifact_id.path) {
+            if matches!(info.source_id_to_path.get(&key), Some(p) if p == artifact_path) {
                 let mut map = HashMap::new();
                 for (k, v) in info.source_id_to_path {
                     let Ok(idx) = k.parse::<usize>() else {
@@ -106,7 +106,7 @@ impl BuildInfo {
         bail!(
             "no build-info file found for source path `{}` with source ID {}. \
              Run `forge clean && forge build --ast --extra-output storageLayout` before loading coverage.",
-            artifact_id.path.display(),
+            artifact_path.display(),
             artifact_source_id
         )
     }
@@ -114,6 +114,8 @@ impl BuildInfo {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use super::*;
 
     #[test]
@@ -135,5 +137,214 @@ mod tests {
             info.source_id_to_path.get("1"),
             Some(&PathBuf::from("src/Helper.sol"))
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // load_for_artifact tests
+    // -----------------------------------------------------------------------
+
+    fn write_build_info(dir: &Path, filename: &str, id_to_path: &[(&str, &str)]) {
+        let build_info_dir = dir.join("out").join("build-info");
+        fs::create_dir_all(&build_info_dir).unwrap();
+        let mut sources = String::new();
+        for (i, (id, path)) in id_to_path.iter().enumerate() {
+            if i > 0 {
+                sources.push_str(",\n");
+            }
+            sources.push_str(&format!("        \"{}\": \"{}\"", id, path));
+        }
+        let json = format!(
+            r#"{{
+        "id": "{}",
+        "language": "Solidity",
+        "source_id_to_path": {{
+{}
+        }}
+    }}"#,
+            filename, sources
+        );
+        let mut file = fs::File::create(build_info_dir.join(filename)).unwrap();
+        file.write_all(json.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn load_for_artifact_single_match() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_build_info(
+            tmp.path(),
+            "abc123.json",
+            &[("5", "src/RaptorFuzz.sol"), ("6", "src/Target.sol")],
+        );
+
+        let map = BuildInfo::load_for_artifact(tmp.path(), "src/RaptorFuzz.sol", 5).unwrap();
+        assert_eq!(map.get(&5).unwrap(), &PathBuf::from("src/RaptorFuzz.sol"));
+        assert_eq!(map.get(&6).unwrap(), &PathBuf::from("src/Target.sol"));
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn load_for_artifact_missing_build_info_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        // No out/build-info directory at all.
+        let err = BuildInfo::load_for_artifact(tmp.path(), "src/Foo.sol", 0).unwrap_err();
+        assert!(err.to_string().contains("build-info directory not found"));
+    }
+
+    #[test]
+    fn load_for_artifact_no_match_wrong_source_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_build_info(tmp.path(), "abc123.json", &[("0", "src/Counter.sol")]);
+
+        let err = BuildInfo::load_for_artifact(tmp.path(), "src/Counter.sol", 99).unwrap_err();
+        assert!(err.to_string().contains("no build-info file found"));
+        assert!(err.to_string().contains("source ID 99"));
+    }
+
+    #[test]
+    fn load_for_artifact_no_match_wrong_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_build_info(tmp.path(), "abc123.json", &[("0", "src/Counter.sol")]);
+
+        // Source ID 0 maps to Counter.sol, but we ask for Helper.sol at ID 0.
+        let err = BuildInfo::load_for_artifact(tmp.path(), "src/Helper.sol", 0).unwrap_err();
+        assert!(err.to_string().contains("no build-info file found"));
+    }
+
+    #[test]
+    fn load_for_artifact_incremental_unchanged_artifact() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // First compilation: RaptorFuzz at ID 5, Target at ID 6.
+        write_build_info(
+            tmp.path(),
+            "first.json",
+            &[
+                ("0", "src/Counter.sol"),
+                ("5", "src/RaptorFuzz.sol"),
+                ("6", "src/Target.sol"),
+            ],
+        );
+        // Sleep so the second file has a newer mtime.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Incremental: only Target changed, recompiled with RaptorFuzz at ID 0.
+        write_build_info(
+            tmp.path(),
+            "second.json",
+            &[("0", "src/RaptorFuzz.sol"), ("1", "src/Target.sol")],
+        );
+
+        // RaptorFuzz's artifact JSON was NOT updated, still has source_id 5.
+        // It should match the first build-info (where 5 → RaptorFuzz.sol).
+        let map = BuildInfo::load_for_artifact(tmp.path(), "src/RaptorFuzz.sol", 5).unwrap();
+        assert_eq!(map.get(&5).unwrap(), &PathBuf::from("src/RaptorFuzz.sol"));
+        assert_eq!(map.get(&6).unwrap(), &PathBuf::from("src/Target.sol"));
+        // Should have all 3 entries from the first build-info.
+        assert_eq!(map.len(), 3);
+    }
+
+    #[test]
+    fn load_for_artifact_incremental_recompiled_artifact() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // First compilation: Target at ID 6.
+        write_build_info(
+            tmp.path(),
+            "first.json",
+            &[
+                ("0", "src/Counter.sol"),
+                ("5", "src/RaptorFuzz.sol"),
+                ("6", "src/Target.sol"),
+            ],
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Incremental: Target changed, recompiled with ID 1.
+        write_build_info(
+            tmp.path(),
+            "second.json",
+            &[("0", "src/RaptorFuzz.sol"), ("1", "src/Target.sol")],
+        );
+
+        // Target's artifact JSON was updated, now has source_id 1.
+        // It should match the second (most recent) build-info.
+        let map = BuildInfo::load_for_artifact(tmp.path(), "src/Target.sol", 1).unwrap();
+        assert_eq!(map.get(&0).unwrap(), &PathBuf::from("src/RaptorFuzz.sol"));
+        assert_eq!(map.get(&1).unwrap(), &PathBuf::from("src/Target.sol"));
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn load_for_artifact_ignores_non_json_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let build_info_dir = tmp.path().join("out").join("build-info");
+        fs::create_dir_all(&build_info_dir).unwrap();
+
+        // Create a non-JSON file that should be ignored.
+        fs::write(build_info_dir.join("README.md"), "hello").unwrap();
+
+        write_build_info(tmp.path(), "real.json", &[("7", "src/MyContract.sol")]);
+
+        let map = BuildInfo::load_for_artifact(tmp.path(), "src/MyContract.sol", 7).unwrap();
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get(&7).unwrap(), &PathBuf::from("src/MyContract.sol"));
+    }
+
+    #[test]
+    fn load_for_artifact_empty_build_info_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("out").join("build-info")).unwrap();
+
+        let err = BuildInfo::load_for_artifact(tmp.path(), "src/Foo.sol", 0).unwrap_err();
+        assert!(err.to_string().contains("no build-info file found"));
+    }
+
+    #[test]
+    fn load_for_artifact_parse_errors_skipped() {
+        let tmp = tempfile::tempdir().unwrap();
+        let build_info_dir = tmp.path().join("out").join("build-info");
+        fs::create_dir_all(&build_info_dir).unwrap();
+
+        // Write a malformed JSON file.
+        fs::write(build_info_dir.join("bad.json"), "not json").unwrap();
+
+        write_build_info(tmp.path(), "good.json", &[("3", "src/Good.sol")]);
+
+        // Should skip the bad file and find the match in the good one.
+        let map = BuildInfo::load_for_artifact(tmp.path(), "src/Good.sol", 3).unwrap();
+        assert_eq!(map.get(&3).unwrap(), &PathBuf::from("src/Good.sol"));
+    }
+
+    #[test]
+    fn load_for_artifact_most_recent_matching_wins() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Same source file, same source ID, different compilation units.
+        write_build_info(
+            tmp.path(),
+            "old.json",
+            &[("3", "src/Shared.sol"), ("4", "src/OldOnly.sol")],
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        // Recompiled: same ID 3 → Shared.sol, but different companion files.
+        write_build_info(
+            tmp.path(),
+            "new.json",
+            &[("3", "src/Shared.sol"), ("5", "src/NewOnly.sol")],
+        );
+
+        // Both build-infos match (ID 3 → Shared.sol). The most recent wins.
+        let map = BuildInfo::load_for_artifact(tmp.path(), "src/Shared.sol", 3).unwrap();
+        assert_eq!(map.get(&3).unwrap(), &PathBuf::from("src/Shared.sol"));
+        assert!(
+            map.contains_key(&5),
+            "should come from the newer build-info"
+        );
+        assert!(
+            !map.contains_key(&4),
+            "should not come from the older build-info"
+        );
+        assert_eq!(map.len(), 2);
     }
 }

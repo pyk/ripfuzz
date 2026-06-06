@@ -43,19 +43,6 @@ def load_artifact(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-def find_artifacts(artifacts_dir: Path) -> list[Path]:
-    """Find all artifact JSON files under out/ (skipping build-info)."""
-    paths: list[Path] = []
-    for root, dirs, files in os.walk(artifacts_dir):
-        # Skip build-info directory.
-        if 'build-info' in dirs:
-            dirs.remove('build-info')
-        for fname in files:
-            if fname.endswith('.json'):
-                paths.append(Path(root) / fname)
-    return paths
-
-
 def resolve_artifact(
     artifacts_dir: Path,
     artifact_id: str,
@@ -86,89 +73,15 @@ def build_source_id_map(
     artifacts_dir: Path,
     artifact_data: dict,
 ) -> dict[int, str]:
-    """Build file-ID -> path map by scanning all artifacts for source info.
+    """Build file-ID -> path map from metadata.sources.
 
-    Mirrors raptor's SourceIdResolver: greedily match source IDs to candidate
-    files by checking that all source map offsets fall within the file's byte
-    length. Does not rely on build-info (which shifts during incremental
-    builds).
+    The file ID in a Solidity source map is the index into the alphabetically
+    sorted ``metadata.sources`` keys.  A file ID of ``-1`` means no source.
     """
-    id_map: dict[int, str] = {}
-
-    # Step 1: the artifact's own ID.
-    own_id = artifact_data.get('id')
-    ast = artifact_data.get('ast', {})
-    own_path = ast.get('absolutePath', '')
-    if own_id is not None and own_path:
-        id_map[own_id] = own_path
-
-    # Step 2: collect candidate paths from this artifact's metadata.sources.
     metadata = artifact_data.get('metadata', {})
     sources = metadata.get('sources', {})
-    candidates: set[str] = set(sources.keys())
-    if own_path:
-        candidates.add(own_path)
-
-    # Step 3: collect *all* source IDs used in *all* artifacts' source maps.
-    # Also track min and max offset per source ID. The max can be inflated by
-    # compiler-generated code (ABI decoders etc.) attributed to the imported
-    # file's ID. We use the minimum offset for file-size validation: if any
-    # entry for a given source ID fits within a candidate file, the ID likely
-    # belongs to that file.
-    used_ids: set[int] = set()
-    sid_min_offset: dict[int, int] = {}  # smallest s+l per source ID
-    sid_max_offset: dict[int, int] = {}  # largest s+l per source ID
-
-    all_artifacts = find_artifacts(artifacts_dir)
-    for art_path in all_artifacts:
-        try:
-            art = load_artifact(art_path)
-        except (json.JSONDecodeError, OSError):
-            continue
-        for sm_key in ['deployedBytecode', 'bytecode']:
-            sm_str = art.get(sm_key, {}).get('sourceMap', '')
-            for entry in parse_source_map(sm_str):
-                fid = entry.get('f')
-                if fid is None:
-                    continue
-                used_ids.add(fid)
-                s_off = entry.get('s', 0) or 0
-                s_len = entry.get('l', 0) or 0
-                total = s_off + s_len
-                if fid not in sid_min_offset or total < sid_min_offset[fid]:
-                    sid_min_offset[fid] = total
-                if fid not in sid_max_offset or total > sid_max_offset[fid]:
-                    sid_max_offset[fid] = total
-
-    # Step 4: read candidate files.
-    file_contents: dict[str, str] = {}
-    for path in candidates:
-        full = artifacts_dir.parent / path
-        try:
-            file_contents[path] = full.read_text()
-        except (OSError, UnicodeDecodeError):
-            pass
-
-    # Step 5: greedily assign unknown source IDs.
-    # Use the minimum offset range: if the smallest (s+l) for a source ID
-    # exceeds the file size, no entry fits. Otherwise, accept if exactly one
-    # candidate matches. A file can map to multiple source IDs across
-    # different compilation units, so we only exclude the artifact's own file
-    # (already known to belong to its own source_id).
-    unknown_ids = sorted(used_ids - id_map.keys())
-    for uid in unknown_ids:
-        min_off = sid_min_offset.get(uid, 0)
-        if min_off == 0:
-            continue
-        fits = [p for p in candidates
-                if p in file_contents and min_off <= len(file_contents[p])]
-        # Exclude only the artifact's own file; other files can match
-        # multiple source IDs from different compilation units.
-        available = [p for p in fits if p != own_path]
-        if len(available) == 1:
-            id_map[uid] = available[0]
-
-    return id_map
+    sorted_paths = sorted(sources.keys())
+    return dict(enumerate(sorted_paths))
 
 
 def get_content(src: str, offset: int, length: int, max_len: int = 50) -> str:

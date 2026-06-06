@@ -7,8 +7,8 @@ pub struct SourceMapEntry {
     pub offset: usize,
     /// Length of the source range in bytes.
     pub length: usize,
-    /// Index of the source file.
-    pub source_index: usize,
+    /// Index of the source file (`-1` means no source).
+    pub source_index: isize,
     /// Jump type (`i`, `o`, `-`).
     pub jump_type: char,
     /// Modifier depth.
@@ -77,6 +77,13 @@ mod tests {
         assert_eq!(entries[1].source_index, 6);
         assert_eq!(entries[1].jump_type, 'o');
         assert_eq!(entries[1].modifier_depth, 7);
+    }
+
+    #[test]
+    fn parse_no_source() {
+        let entries = parse_source_map("0:0:-1:-:0");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].source_index, -1);
     }
 
     #[test]

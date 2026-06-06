@@ -1,11 +1,5 @@
 TN:
 SF:src/RaptorFuzz.sol
-FN:8,_bound
-FN:38,bound
-FNDA:3,_bound
-FNDA:3,bound
-FNF:2
-FNH:2
 DA:6,0
 DA:8,3
 DA:12,3

@@ -12,10 +12,11 @@
 pub use artifact::{
     Artifact, ArtifactBytecode, ArtifactId, ContractArtifact, LinkReferences, StorageTypeInfo,
 };
-
+pub use build_info::BuildInfo;
 pub use build_options::BuildOptions;
 pub use project::Project;
 
 mod artifact;
+pub mod build_info;
 mod build_options;
 mod project;
