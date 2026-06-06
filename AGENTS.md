@@ -1,7 +1,7 @@
 # Raptor
 
 Raptor is a parallelized, coverage-guided, mutational Solidity smart contract
-fuzzer powered by LibAFL and revm.
+fuzzer built on top of revm.
 
 # Architecture & Conventions
 
