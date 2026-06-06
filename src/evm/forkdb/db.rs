@@ -15,6 +15,12 @@ use crate::evm::forkdb::response::Response;
 /// automatic batching. This struct only maps revm database operations to
 /// typed RPC requests. Bytecode is returned inline with `basic_ref` so revm
 /// never needs to call `code_by_hash_ref` during normal execution.
+///
+/// `basic_ref` always returns `None` so that revm's `CacheDB` uses
+/// `AccountInfo::default()` for addresses not already in cache. This avoids
+/// unnecessary RPC fetches during contract deployment (CREATE collision
+/// check, coinbase warming) while still allowing explicit account loading
+/// through other methods.
 #[derive(Clone, Debug)]
 pub struct ForkDB {
     backend: SharedBackend,
@@ -35,6 +41,7 @@ impl ForkDB {
     /// `AccountInfo`. The responses may arrive in any order; we match by
     /// variant rather than by index so that `db.rs` is decoupled from the
     /// backend's ordering guarantees.
+    #[cfg_attr(not(test), expect(dead_code))]
     fn parse_basic_responses(
         &self,
         responses: Vec<Response>,
@@ -107,28 +114,13 @@ impl ForkDB {
 impl DatabaseRef for ForkDB {
     type Error = Error;
 
-    fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        // Fetch balance, nonce, and code in a single atomic batch so the
-        // backend can send them as one JSON-RPC batch request.
-        let responses = self.backend.fetch_or_wait(&[
-            Request::GetBalance {
-                chain_id: self.chain_id,
-                address,
-                block: self.block_number,
-            },
-            Request::GetTransactionCount {
-                chain_id: self.chain_id,
-                address,
-                block: self.block_number,
-            },
-            Request::GetCode {
-                chain_id: self.chain_id,
-                address,
-                block: self.block_number,
-            },
-        ])?;
-
-        self.parse_basic_responses(responses)
+    fn basic_ref(&self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        // Return None so CacheDB uses AccountInfo::default() without ever
+        // making a remote RPC call. This avoids unnecessary fetches during
+        // contract deployment (CREATE collision checks, coinbase warming).
+        // Fork state is loaded explicitly through other methods rather than
+        // lazily through basic_ref.
+        Ok(None)
     }
 
     fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
@@ -198,6 +190,9 @@ mod tests {
     /// Regression: ForkDB must NOT sleep the fuzzer thread when the backend
     /// returns RpcTimeout. The backend is the sole retry layer; ForkDB should
     /// propagate the error immediately.
+    ///
+    /// Uses `block_hash_ref` because `basic_ref` intentionally returns `None`
+    /// without making RPC calls.
     #[test]
     fn forkdb_does_not_sleep_on_rpc_timeout() {
         #[derive(Debug)]
@@ -211,12 +206,13 @@ mod tests {
 
         let config = ForkDBConfig::new("mock://timeout")
             .batch_timeout_ms(0)
-            .retries(0);
+            .retries(0)
+            .batch_size(1);
         let backend = SharedBackend::new_with_transport(config, TimeoutTransport);
         let fork_db = ForkDB::new(backend, 1, 1);
 
         let start = std::time::Instant::now();
-        let result = fork_db.basic_ref(Address::ZERO);
+        let result = fork_db.block_hash_ref(1);
         let elapsed = start.elapsed();
 
         assert!(
@@ -232,6 +228,9 @@ mod tests {
     /// Regression: ForkDB must NOT sleep the fuzzer thread when the backend
     /// returns RateLimited. The backend is the sole retry layer; ForkDB should
     /// propagate the error immediately.
+    ///
+    /// Uses `block_hash_ref` because `basic_ref` intentionally returns `None`
+    /// without making RPC calls.
     #[test]
     fn forkdb_does_not_sleep_on_rate_limited() {
         #[derive(Debug)]
@@ -245,12 +244,13 @@ mod tests {
 
         let config = ForkDBConfig::new("mock://ratelimit")
             .batch_timeout_ms(0)
-            .retries(0);
+            .retries(0)
+            .batch_size(1);
         let backend = SharedBackend::new_with_transport(config, RateLimitTransport);
         let fork_db = ForkDB::new(backend, 1, 1);
 
         let start = std::time::Instant::now();
-        let result = fork_db.basic_ref(Address::ZERO);
+        let result = fork_db.block_hash_ref(1);
         let elapsed = start.elapsed();
 
         assert!(

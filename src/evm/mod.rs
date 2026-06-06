@@ -12,9 +12,10 @@
 //! 3. Return pure data structures for traces; never format or print them.
 
 pub use chain::ChainConfig;
+pub use chain::DEFAULT_DEPLOYER;
 pub use chain::{
-    Chain, DEFAULT_DEPLOYER, DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput,
-    ExecOutput, SetupInput, SetupOutput, Transaction,
+    Chain, DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput, ExecOutput,
+    SetupInput, SetupOutput, Transaction,
 };
 pub use cheatcode::CheatcodeConfig;
 pub use contract::Contract;
@@ -23,6 +24,7 @@ pub use coverage::{
     SharedCoverage,
 };
 pub use forkdb::ForkDBConfig;
+pub use forkdb::MockTransport;
 pub use result::TransactionResult;
 pub use trace::{
     CallFrame, CallFrameKind, StorageChange, StorageChangeInfo, StorageType, Trace, TraceContext,
@@ -34,7 +36,7 @@ mod cheatcode;
 mod contract;
 mod coverage;
 mod database;
-mod forkdb;
+pub mod forkdb;
 mod result;
 mod specs;
 mod trace;
