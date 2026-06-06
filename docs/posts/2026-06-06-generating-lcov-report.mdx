@@ -3,10 +3,10 @@ published: false
 date: 2026-06-06T00:00:00+00:00
 title: "How I built LCOV coverage reporting for raptor"
 description:
-    Raptor is a Solidity fuzzer. I needed a way to see which lines of a contract
-    were covered during a campaign so I could judge whether the fuzzer was doing
-    useful work. Here is how I built the coverage reporter, from matching
-    deployed bytecode to parsing source maps to walking the Solidity AST.
+    I needed a way to see which lines of a contract were covered during a
+    campaign so I could judge whether the fuzzer was doing useful work. Here is
+    how I built the coverage reporter, from matching deployed bytecode to
+    parsing source maps to walking the Solidity AST.
 topics:
     - rust
     - solidity
@@ -28,8 +28,7 @@ the standard format for line coverage. Building this took me through bytecode
 matching, source map parsing, AST traversal, and a few dead ends I did not
 expect.
 
-Here is how it works. To demonstrate line coverage, I will use these two
-contracts.
+To demonstrate line coverage, I will use these two contracts.
 
 `TargetContractBasic` inherits from `RaptorFuzz`. It exposes one external
 function, `addAndSub`, which chains together two internal calls:
@@ -146,11 +145,11 @@ this:
 }
 ```
 
-Three fields matter for coverage. The **deployed bytecode** is the hex string
-that lives on chain after deployment. The **source map** is a
-semicolon-separated string that maps each EVM instruction back to a source
-location. The **AST** is the compiler's parsed representation of the source
-file, with a source range for every node.
+Three fields matter for coverage. The `deployedBytecode.object` is the hex
+string that lives on chain after deployment. The `deployedBytecode.sourceMap` is
+a semicolon-separated string that maps each EVM instruction back to a source
+location. The `ast` is the compiler's parsed representation of the source file,
+with a source range for every node.
 
 Together, these three are enough to answer "which line got hit?" for any program
 counter the fuzzer records. No other tooling is needed. No source file
@@ -181,8 +180,7 @@ For example, this snippet from the deployed source map of `TargetContractBasic`:
 The entry `297:7` says "the instruction at this PC starts at byte offset 297 in
 the source file and spans 7 bytes." That range falls inside the `add` function
 body. When the fuzzer records a hit at that PC, the reporter translates it to
-"line 20 was executed." (I will cover how the fuzzer tracks PCs in the next
-section.)
+"line 20 was executed.".
 
 The source map uses integer file indices (`f`) rather than file paths. The
 artifact's `id` field (6 in this example) maps to `src/TargetContractBasic.sol`.
@@ -190,5 +188,121 @@ For imported files like `RaptorFuzz.sol`, the source maps use different indices
 that the reporter must resolve later. I will come back to that in the next
 section.
 
-With the artifact in hand, the next step is tracking which PCs the fuzzer
-actually hits during a campaign.
+## The program counter
+
+Before going further, lets talk about the program counter. The EVM is a stack
+machine. Its bytecode is a flat array of bytes where each byte is either an
+opcode (like `ADD` or `MSTORE`) or the operand data for a `PUSH` instruction.
+The **program counter (PC)** is simply the byte offset into that array. The EVM
+starts at PC 0, executes the opcode there, advances the PC past that opcode (and
+any `PUSH` data), and repeats.
+
+If I run:
+
+```sh
+jq -r '.deployedBytecode.object' out/TargetContractBasic.sol/TargetContractBasic.json | cast disassemble
+```
+
+on the deployed bytecode of `TargetContractBasic`, the first few instructions
+look like this:
+
+```sh
+00000000: PUSH1 0x80
+00000002: PUSH1 0x40
+00000004: MSTORE
+00000005: CALLVALUE
+00000006: DUP1
+00000007: ISZERO
+00000008: PUSH2 0x000f
+0000000b: JUMPI
+0000000c: PUSH0
+0000000d: PUSH0
+0000000e: REVERT
+...
+```
+
+`PUSH1` at PC 0 is one byte for the opcode (`0x60`) plus one byte of data
+(`0x80`), so the PC advances by 2. `MSTORE` at PC 4 is a single byte with no
+data, so it advances by 1. The PC after `MSTORE` is 5, and that is where
+`CALLVALUE` lives.
+
+The source map column is the bridge. The entry `104:730:6:-:0` on the first
+instruction means "this instruction comes from byte offset 104 in source file 6,
+spanning 730 bytes." Source file 6 is `src/TargetContractBasic.sol` (the
+artifact's `id` field is 6). The 730-byte range covers the entire contract
+definition. This is a broad entry -- it says the free memory pointer setup
+belongs to the contract as a whole.
+
+Most of the entries in the first 0x38 bytes are empty. That is the compiler's
+function dispatch boilerplate: compare the first four bytes of calldata against
+known function selectors (`0x19e9d629` for `addAndSub`, `0x4ab5cc82` for
+`latestValue`) and jump to the matching code. The compiler does not attribute
+the dispatch to any source line, so the source map entries are blank.
+
+After the dispatch, the real code begins. Here are the next few instructions,
+starting from where `addAndSub` picks up:
+
+```sh
+00000086: JUMPDEST
+00000087: PUSH0
+00000088: PUSH0
+00000089: PUSH2 0x0092
+0000008c: DUP5
+0000008d: DUP5
+0000008e: PUSH2 0x00af
+00000091: JUMP
+00000092: JUMPDEST
+00000093: SWAP1
+00000094: POP
+00000095: PUSH2 0x009e
+00000098: DUP2
+00000099: DUP5
+0000009a: PUSH2 0x00cb
+0000009d: JUMP
+...
+```
+
+`JUMPDEST` at PC 0x86 is the entry point for `addAndSub`. Looking at the source
+map entries for these PCs:
+
+| PC     | Opcode         | Source map |
+| ------ | -------------- | ---------- |
+| `0x86` | `JUMPDEST`     | `238:167`  |
+| `0x87` | `PUSH0`        | `297:7`    |
+| `0x88` | `PUSH0`        | `316:14`   |
+| `0x89` | `PUSH2 0x0092` | `333:9`    |
+| `0x8c` | `DUP5`         | `337:1`    |
+| `0x8d` | `DUP5`         | `340:1`    |
+| `0x8e` | `PUSH2 0x00af` | `333:3`    |
+| `0x91` | `JUMP`         | `333:3`    |
+| `0x92` | `JUMPDEST`     | `316:26`   |
+| `0x95` | `PUSH2 0x009e` | `361:14`   |
+| `0x98` | `DUP2`         | `365:6`    |
+| `0x99` | `DUP5`         | `373:1`    |
+| `0x9a` | `PUSH2 0x00cb` | `361:3`    |
+
+The source map entries tell the story. The entry `238:167` at PC 0x86 is a broad
+range covering the entire `addAndSub` function body. Three instructions later,
+PC 0x87 narrows to `297:7` -- a 7-byte range inside the `add` function. PC 0x8c
+(`DUP5`) maps to `337:1`, a single byte that corresponds to the expression
+`a, b` in the call `add(a, b)`. And `333:3` at PC 0x89 and 0x8e is the call
+expression itself.
+
+Notice the `PUSH2 0x00af` at PC 0x8e. That is the target address for the `add`
+function. The `JUMP` at PC 0x91 jumps there, executes the `add` body, and
+returns to PC 0x92. Then the same pattern repeats for `sub`: `PUSH2 0x00cb` at
+PC 0x9a jumps to the `sub` function body.
+
+The fuzzer watches every PC the EVM executes during a campaign. When `addAndSub`
+is called, the EVM steps through the instructions at PC 0x86, 0x87, 0x88, ...,
+jumping to the `add` body at PC 0xaf, returning to 0x92, then jumping to the
+`sub` body at PC 0xcb, and so on. Each of those PCs gets a hit count. The fuzzer
+stores these counts in a flat map: `contract_hash -> pc -> count`.
+
+After the campaign, the reporter takes that map, walks each PC with a non-zero
+count, and looks up its source map entry. If PC 0x87 has a hit count of 3, the
+reporter sees `297:7`, finds the Solidity statement at byte offset 297, and
+marks that line as executed 3 times.
+
+That is the core loop: **PC → source map entry → AST statement → line number →
+LCOV record**. The next three sections go through each step.
