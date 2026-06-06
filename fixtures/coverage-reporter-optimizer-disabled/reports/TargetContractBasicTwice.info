@@ -25,7 +25,6 @@ FNDA:2,sub
 FNDA:0,div
 FNF:5
 FNH:4
-DA:6,2
 DA:7,0
 DA:9,1
 DA:10,1
@@ -40,6 +39,6 @@ DA:24,2
 DA:25,2
 DA:26,2
 DA:30,0
-LF:15
-LH:13
+LF:14
+LH:12
 end_of_record

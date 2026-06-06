@@ -4,12 +4,11 @@ FN:9,increment
 FNDA:1,increment
 FNF:1
 FNH:1
-DA:6,2
 DA:7,1
 DA:9,1
 DA:10,1
-LF:4
-LH:4
+LF:3
+LH:3
 end_of_record
 TN:
 SF:src/MathLibLinked.sol
@@ -17,11 +16,10 @@ FN:5,add
 FNDA:2,add
 FNF:1
 FNH:1
-DA:4,1
 DA:5,2
 DA:6,1
-LF:3
-LH:3
+LF:2
+LH:2
 end_of_record
 TN:
 SF:src/RaptorFuzz.sol
@@ -56,7 +54,6 @@ FNDA:1,constructor
 FNDA:1,libLinkedCall
 FNF:2
 FNH:2
-DA:7,1
 DA:8,1
 DA:9,1
 DA:11,1
@@ -64,6 +61,6 @@ DA:12,1
 DA:15,1
 DA:16,1
 DA:17,1
-LF:8
-LH:8
+LF:7
+LH:7
 end_of_record

@@ -5,12 +5,11 @@ FNDA:1,increment
 FNF:1
 FNH:1
 DA:1,1
-DA:6,2
 DA:7,1
 DA:9,1
 DA:10,1
-LF:5
-LH:5
+LF:4
+LH:4
 end_of_record
 TN:
 SF:src/ICounter.sol
@@ -49,7 +48,6 @@ FNDA:1,constructor
 FNDA:1,interfaceCall
 FNF:2
 FNH:2
-DA:8,1
 DA:9,1
 DA:10,0
 DA:11,0
@@ -62,8 +60,8 @@ DA:20,1
 DA:23,1
 DA:24,1
 DA:25,1
-LF:13
-LH:11
+LF:12
+LH:10
 end_of_record
 TN:
 SF:src/Vm.sol
@@ -71,7 +69,6 @@ DA:1,1
 DA:4,1
 DA:6,1
 DA:7,1
-DA:8,1
 DA:9,1
 DA:10,1
 DA:11,1
@@ -95,6 +92,6 @@ DA:35,1
 DA:37,1
 DA:38,1
 DA:39,1
-LF:28
-LH:27
+LF:27
+LH:26
 end_of_record

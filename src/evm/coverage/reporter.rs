@@ -24,7 +24,8 @@
 //!    aggregate hit counts.
 //! 6. **Determine executable lines** from the source map: a line is
 //!    executable when at least one source map entry maps to it, the line
-//!    is not a close-bracket (`}`), and the line is not empty.
+//!    is not a close-bracket (`}`), the line is not empty, and the line is
+//!    not a contract/interface/library definition.
 //! 7. **Collect function coverage** from the AST of resolved artifacts.
 //! 8. **Assemble the final `lcov.info` report.**
 //!
@@ -575,6 +576,45 @@ fn collect_function_coverage(
 }
 
 // ---------------------------------------------------------------------------
+// Contract definition lines
+// ---------------------------------------------------------------------------
+
+/// Collect contract definition line numbers from the AST of resolved
+/// artifacts. Contract, interface, and library definition lines are
+/// non-executable and must not appear in the coverage report.
+fn collect_contract_definition_lines(
+    artifacts: &[&Artifact],
+    path_to_artifact: &HashMap<PathBuf, &Artifact>,
+    source_cache: &HashMap<PathBuf, String>,
+) -> HashMap<PathBuf, HashSet<usize>> {
+    let mut contract_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
+
+    for artifact in artifacts {
+        let ast = artifact.ast();
+        let sid_map = build_source_id_map(artifact, path_to_artifact, source_cache);
+
+        for node in &ast.nodes {
+            if let solc::ast::SourceUnitNode::ContractDefinition(contract) = node {
+                let Some(path) = sid_map.get(&contract.src.source_index) else {
+                    continue;
+                };
+                let Some(content) = source_cache.get(path) else {
+                    continue;
+                };
+                if content.is_empty() {
+                    continue;
+                }
+                let line = offset_to_line(content, contract.src.offset);
+                // checkrs: allow(clone_in_loops)
+                contract_lines.entry(path.clone()).or_default().insert(line);
+            }
+        }
+    }
+
+    contract_lines
+}
+
+// ---------------------------------------------------------------------------
 // Coverage reporter
 // ---------------------------------------------------------------------------
 
@@ -628,7 +668,8 @@ impl CoverageReporter {
     ///    line), and aggregate hit counts.
     /// 6. **Determine executable lines** from the source map: a line is
     ///    executable when at least one source map entry maps to it, the
-    ///    line is not a close-bracket (`}`), and the line is not empty.
+    ///    line is not a close-bracket (`}`), the line is not empty, and the
+    ///    line is not a contract/interface/library definition.
     /// 7. **Collect function coverage** from the AST of resolved artifacts.
     /// 8. **Assemble the final `lcov.info` report.**
     #[instrument(skip(self), level = "trace")]
@@ -850,7 +891,14 @@ impl CoverageReporter {
         //   1. It appears in source_map_lines (has a source map entry).
         //   2. It is not a close-bracket line (trimmed == "}").
         //   3. It is not empty (trimmed.is_empty()).
+        //   4. It is not a contract/interface/library definition line.
         // -------------------------------------------------------------------
+        let contract_def_lines = collect_contract_definition_lines(
+            &resolved_artifact_refs,
+            &path_to_artifact,
+            &source_cache,
+        );
+
         let mut executable_line_hits: HashMap<PathBuf, HashMap<usize, u64>> = HashMap::new();
 
         for path in &all_files {
@@ -858,13 +906,17 @@ impl CoverageReporter {
                 continue;
             };
             let sm_lines = source_map_lines.get(path);
+            let cd_lines = contract_def_lines.get(path);
 
             for (line_idx, line_text) in content.lines().enumerate() {
                 let line_num = line_idx + 1;
                 let trimmed = line_text.trim();
 
-                // Non-executable: close bracket or empty line.
-                if trimmed == "}" || trimmed.is_empty() {
+                // Non-executable: close bracket, empty line, or contract definition.
+                if trimmed == "}"
+                    || trimmed.is_empty()
+                    || cd_lines.map(|s| s.contains(&line_num)).unwrap_or(false)
+                {
                     continue;
                 }
 

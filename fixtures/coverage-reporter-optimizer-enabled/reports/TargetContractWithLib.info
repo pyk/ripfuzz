@@ -5,12 +5,11 @@ FNDA:1,increment
 FNF:1
 FNH:1
 DA:1,1
-DA:6,2
 DA:7,1
 DA:9,1
 DA:10,1
-LF:5
-LH:5
+LF:4
+LH:4
 end_of_record
 TN:
 SF:src/MathLib.sol
@@ -32,7 +31,6 @@ FNDA:0,bound
 FNF:2
 FNH:1
 DA:1,1
-DA:4,1
 DA:5,1
 DA:6,1
 DA:8,1
@@ -46,8 +44,8 @@ DA:25,1
 DA:26,1
 DA:27,1
 DA:38,0
-LF:15
-LH:11
+LF:14
+LH:10
 end_of_record
 TN:
 SF:src/TargetContractWithLib.sol
@@ -57,7 +55,6 @@ FNDA:1,constructor
 FNDA:1,libCall
 FNF:2
 FNH:2
-DA:7,1
 DA:8,0
 DA:9,0
 DA:11,1
@@ -65,6 +62,6 @@ DA:12,1
 DA:15,1
 DA:16,1
 DA:17,1
-LF:8
-LH:6
+LF:7
+LH:5
 end_of_record

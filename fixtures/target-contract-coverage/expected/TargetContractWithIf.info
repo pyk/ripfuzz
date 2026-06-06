@@ -25,7 +25,6 @@ FNDA:2,runIfElseWithNewline
 FNDA:1,runNestedIf
 FNF:5
 FNH:5
-DA:6,6
 DA:7,0
 DA:9,1
 DA:10,1
@@ -45,6 +44,6 @@ DA:38,1
 DA:39,1
 DA:40,1
 DA:43,0
-LF:20
-LH:18
+LF:19
+LH:17
 end_of_record
