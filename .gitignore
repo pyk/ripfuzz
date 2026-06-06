@@ -7,3 +7,6 @@ cache
 
 # Secrets
 .env
+
+# Scripts
+__pycache__
