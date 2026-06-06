@@ -472,9 +472,14 @@ fn collect_function_coverage(
             }
 
             // Tier 1: look up the function entry-PC raw count.
-            // Walk every matched bytecode whose artifact matches ours,
-            // scan the pc_map for the earliest PC within the function's
-            // source range, and use its raw hit count.
+            // Walk every matched bytecode, scan the pc_map for the earliest
+            // PC within the function's source range (correct source file +
+            // offset), and use its raw hit count.
+            //
+            // A function may be defined in an abstract contract whose bytecode
+            // lives in a derived concrete contract, so we resolve through the
+            // matched artifact's sid_map rather than requiring the artifact
+            // ids to be equal.
             //
             // Constructors only exist in initcode; runtime functions only
             // exist in deployed bytecode. Filter by is_initcode so that
@@ -491,27 +496,41 @@ fn collect_function_coverage(
                 else {
                     continue;
                 };
-                if matched_artifact.id() != artifact.id() {
-                    continue;
-                }
                 // Only match constructors against initcode, runtime
                 // functions against deployed bytecode.
                 if *is_initcode != target_initcode {
                     continue;
                 }
-                let Some(pc_map) = pc_map_cache.get(&(artifact.id(), *is_initcode)) else {
+                let Some(pc_map) = pc_map_cache.get(&(matched_artifact.id(), *is_initcode)) else {
+                    continue;
+                };
+                let Some(matched_sid_map) = sid_maps.get(matched_artifact.id()) else {
                     continue;
                 };
 
-                // Find the earliest PC whose sourcemap offset falls
-                // within the function's AST source range. For runtime
-                // functions this will be a JUMPDEST; for initcode
-                // (constructors) it will be the first instruction.
+                // Find the earliest PC whose source-map entry falls
+                // within the function's AST source range *and* whose
+                // resolved source file matches the function's source
+                // file. For runtime functions this will be a JUMPDEST;
+                // for initcode (constructors) it will be the first
+                // instruction.
                 let mut best_pc: Option<usize> = None;
                 for (pc, entry) in pc_map.iter().enumerate() {
                     let Some(e) = entry else {
                         continue;
                     };
+                    if e.source_index < 0 {
+                        continue;
+                    }
+                    // Only match entries from the same source file.
+                    // Source indices differ across compilation units
+                    // so we compare resolved paths.
+                    let Some(entry_path) = matched_sid_map.get(&(e.source_index as usize)) else {
+                        continue;
+                    };
+                    if entry_path != path {
+                        continue;
+                    }
                     if e.offset < func_src_start || e.offset >= func_src_end {
                         continue;
                     }
