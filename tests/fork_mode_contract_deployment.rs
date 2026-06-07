@@ -1,4 +1,4 @@
-//! Regression tests: fork mode contract creation.
+//! Regression tests: fork mode contract deployment.
 //!
 //! When chain fork mode is initialized, the Chain is aware of all
 //! addresses created inside the target contract and skips remote RPC
@@ -15,14 +15,19 @@ use serde_json::json;
 alloy_sol_types::sol! {
     interface BasicContract {
         function setValue(uint256 newValue) external;
+        function value() external view returns (uint256);
     }
 
     interface DeployChildInConstructor {
         function setChildValue(uint256 newValue) external;
+        function invariant_child_exists() external;
+        function child() external view returns (address);
     }
 
     interface DeployChildInSetup {
         function setChildValue(uint256 newValue) external;
+        function invariant_child_exists() external;
+        function child() external view returns (address);
     }
 
 
@@ -89,7 +94,7 @@ fn deploy_basic_contract() {
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
 
-    let project = Project::new("fixtures/fork-mode-contract-creation");
+    let project = Project::new("fixtures/fork-mode-contract-deployment");
     let artifacts = project.load_artifacts().unwrap();
     let artifact_id = ArtifactId::try_from("test/BasicContract.sol:BasicContract").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
@@ -103,9 +108,23 @@ fn deploy_basic_contract() {
     let set_value_calldata = Bytes::from(
         BasicContract::setValueCall::new((alloy_primitives::U256::from(7),)).abi_encode(),
     );
-    let tx = Transaction::new(target).calldata(set_value_calldata);
-    let exec_output = chain.exec(&[tx]).unwrap();
+    let value_calldata = Bytes::from(BasicContract::valueCall::new(()).abi_encode());
+    let txs = [
+        Transaction::new(target).calldata(set_value_calldata),
+        Transaction::new(target).calldata(value_calldata),
+    ];
+    let exec_output = chain.exec(&txs).unwrap();
     assert!(exec_output.results[0].success, "setValue call must succeed");
+    assert!(exec_output.results[1].success, "value call must succeed");
+    let stored = BasicContract::valueCall::abi_decode_returns(
+        &exec_output.results[1].output.clone().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        stored,
+        alloy_primitives::U256::from(7),
+        "stored value must be 7"
+    );
 
     assert_eq!(
         transport.total_calls(),
@@ -123,7 +142,7 @@ fn deploy_child_in_constructor() {
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
 
-    let project = Project::new("fixtures/fork-mode-contract-creation");
+    let project = Project::new("fixtures/fork-mode-contract-deployment");
     let artifacts = project.load_artifacts().unwrap();
     let artifact_id =
         ArtifactId::try_from("test/DeployChildInConstructor.sol:DeployChildInConstructor").unwrap();
@@ -139,11 +158,43 @@ fn deploy_child_in_constructor() {
         DeployChildInConstructor::setChildValueCall::new((alloy_primitives::U256::from(7),))
             .abi_encode(),
     );
-    let tx = Transaction::new(target).calldata(set_child_calldata);
-    let exec_output = chain.exec(&[tx]).unwrap();
+    let child_calldata = Bytes::from(DeployChildInConstructor::childCall::new(()).abi_encode());
+    let txs = [
+        Transaction::new(target).calldata(set_child_calldata),
+        Transaction::new(target).calldata(child_calldata),
+    ];
+    let exec_output = chain.exec(&txs).unwrap();
     assert!(
         exec_output.results[0].success,
         "setChildValue call must succeed"
+    );
+    assert!(exec_output.results[1].success, "child() call must succeed");
+    let child_addr = DeployChildInConstructor::childCall::abi_decode_returns(
+        &exec_output.results[1].output.clone().unwrap(),
+    )
+    .unwrap();
+    assert_ne!(
+        child_addr,
+        alloy_primitives::Address::ZERO,
+        "child must be non-zero address"
+    );
+
+    // Read back the child's value to confirm setChildValue took effect.
+    let value_calldata = Bytes::from(BasicContract::valueCall::new(()).abi_encode());
+    let value_tx = Transaction::new(child_addr).calldata(value_calldata);
+    let exec_output = chain.exec(&[value_tx]).unwrap();
+    assert!(
+        exec_output.results[0].success,
+        "child value() call must succeed"
+    );
+    let stored = BasicContract::valueCall::abi_decode_returns(
+        &exec_output.results[0].output.clone().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        stored,
+        alloy_primitives::U256::from(7),
+        "child stored value must be 7"
     );
 
     assert_eq!(
@@ -163,7 +214,7 @@ fn deploy_child_in_setup() {
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
 
-    let project = Project::new("fixtures/fork-mode-contract-creation");
+    let project = Project::new("fixtures/fork-mode-contract-deployment");
     let artifacts = project.load_artifacts().unwrap();
     let artifact_id =
         ArtifactId::try_from("test/DeployChildInSetup.sol:DeployChildInSetup").unwrap();
@@ -188,11 +239,43 @@ fn deploy_child_in_setup() {
     let set_child_calldata = Bytes::from(
         DeployChildInSetup::setChildValueCall::new((alloy_primitives::U256::from(7),)).abi_encode(),
     );
-    let tx = Transaction::new(target).calldata(set_child_calldata);
-    let exec_output = chain.exec(&[tx]).unwrap();
+    let child_calldata = Bytes::from(DeployChildInSetup::childCall::new(()).abi_encode());
+    let txs = [
+        Transaction::new(target).calldata(set_child_calldata),
+        Transaction::new(target).calldata(child_calldata),
+    ];
+    let exec_output = chain.exec(&txs).unwrap();
     assert!(
         exec_output.results[0].success,
         "setChildValue call must succeed"
+    );
+    assert!(exec_output.results[1].success, "child() call must succeed");
+    let child_addr = DeployChildInSetup::childCall::abi_decode_returns(
+        &exec_output.results[1].output.clone().unwrap(),
+    )
+    .unwrap();
+    assert_ne!(
+        child_addr,
+        alloy_primitives::Address::ZERO,
+        "child must be non-zero address"
+    );
+
+    // Read back the child's value to confirm setChildValue took effect.
+    let value_calldata = Bytes::from(BasicContract::valueCall::new(()).abi_encode());
+    let value_tx = Transaction::new(child_addr).calldata(value_calldata);
+    let exec_output = chain.exec(&[value_tx]).unwrap();
+    assert!(
+        exec_output.results[0].success,
+        "child value() call must succeed"
+    );
+    let stored = BasicContract::valueCall::abi_decode_returns(
+        &exec_output.results[0].output.clone().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        stored,
+        alloy_primitives::U256::from(7),
+        "child stored value must be 7"
     );
 
     assert_eq!(
@@ -212,7 +295,7 @@ fn deploy_child_in_target_function() {
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
 
-    let project = Project::new("fixtures/fork-mode-contract-creation");
+    let project = Project::new("fixtures/fork-mode-contract-deployment");
     let artifacts = project.load_artifacts().unwrap();
     let artifact_id =
         ArtifactId::try_from("test/DeployChildInTargetFunction.sol:DeployChildInTargetFunction")
