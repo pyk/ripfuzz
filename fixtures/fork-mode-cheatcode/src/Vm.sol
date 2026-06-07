@@ -8,4 +8,5 @@ interface Vm {
     function chainId(uint256) external;
     function addr(uint256) external pure returns (address);
     function deal(address, uint256) external;
+    function load(address, bytes32) external returns (bytes32);
 }
