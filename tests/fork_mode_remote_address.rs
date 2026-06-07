@@ -62,6 +62,12 @@ alloy_sol_types::sol! {
         function checkBalance() external;
         function invariant_checkBalance() external view;
     }
+
+    interface InteractWithWETH {
+        function setup() external;
+        function checkBalance() external;
+        function invariant_checkBalance() external view;
+    }
 }
 
 /// Regression test: deploying and interacting with a contract whose
@@ -166,5 +172,126 @@ fn remote_account_balance() {
         transport.total_calls(),
         3,
         "total calls must remain 3 after cached reads"
+    );
+}
+
+/// Regression test: interacting with mainnet WETH contract in fork mode must
+/// fetch the remote contract account and storage slots exactly once and cache
+/// the results for all subsequent reads across constructor, setup, target
+/// function, and invariant function.
+#[test]
+fn interact_with_weth() {
+    let transport = MockTransport::default();
+    let url = "mock://test";
+
+    mock_fork_setup(&transport, url, BLOCK_NUMBER, "0x1", block_json());
+
+    assert_eq!(
+        transport.total_calls(),
+        0,
+        "no calls before chain fork init"
+    );
+
+    let config = ForkDBConfig::new(url).block_number(BLOCK_NUMBER);
+    let mut chain =
+        Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
+
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "fork init must fetch chain_id and block"
+    );
+
+    // WETH mainnet contract account data at block 25_259_523.
+    let weth_payload = json!([
+        {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2","0x1816e03"]},
+        {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2","0x1816e03"]},
+        {"jsonrpc":"2.0","id":2,"method":"eth_getCode","params":["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2","0x1816e03"]}
+    ]);
+    let weth_code = include_str!("../fixtures/fork-mode-remote-address/bytecodes/weth.hex")
+        .trim()
+        .trim_end_matches('\n');
+    transport.mock_response(
+        url,
+        &weth_payload,
+        json!([
+            {"jsonrpc":"2.0","id":0,"result":"0x22a0323bb2bb269993626"},
+            {"jsonrpc":"2.0","id":1,"result":"0x1"},
+            {"jsonrpc":"2.0","id":2,"result": weth_code}
+        ]),
+    );
+
+    // WETH decimals() reads from storage slot 2 (returns 0x12 = 18).
+    let decimals_payload = json!([
+        {"jsonrpc":"2.0","id":0,"method":"eth_getStorageAt","params":["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2","0x2","0x1816e03"]}
+    ]);
+    transport.mock_response(
+        url,
+        &decimals_payload,
+        json!([{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000000000000000000012"}]),
+    );
+
+    // WETH balanceOf(vitalik) storage slot.
+    let balance_slot_payload = json!([
+        {"jsonrpc":"2.0","id":0,"method":"eth_getStorageAt","params":["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2","0x3a988d762a24303c37d08f1543db6143453b579691d5c20fed39629ff1334cca","0x1816e03"]}
+    ]);
+    transport.mock_response(
+        url,
+        &balance_slot_payload,
+        json!([{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000001449b4a27c274de6"}]),
+    );
+
+    let project = Project::new("fixtures/fork-mode-remote-address");
+    let artifacts = project.load_artifacts().unwrap();
+    let artifact_id = ArtifactId::try_from("test/InteractWithWETH.sol:InteractWithWETH").unwrap();
+    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+    let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+    assert!(deployment.result.success, "deployment must succeed");
+
+    // Deployment triggers WETH account fetch + decimals storage read
+    // (constructor calls weth.decimals() which does an SLOAD from slot 2).
+    assert_eq!(
+        transport.total_calls(),
+        4,
+        "4 total calls after deployment: chain_id, block, WETH account, decimals storage"
+    );
+
+    let target = deployment.address.unwrap();
+
+    // setup reads WETH balanceOf(vitalik) (balanceOf storage slot, not yet cached).
+    let setup_output = chain.setup(SetupInput::new(target)).unwrap();
+    assert!(setup_output.result.success, "setup must succeed");
+
+    // checkBalance and invariant_checkBalance (all cached, no new RPC).
+    let txs = vec![
+        Transaction::new(target).calldata(
+            InteractWithWETH::checkBalanceCall::new(())
+                .abi_encode()
+                .into(),
+        ),
+        Transaction::new(target).calldata(
+            InteractWithWETH::invariant_checkBalanceCall::new(())
+                .abi_encode()
+                .into(),
+        ),
+    ];
+
+    let exec_output = chain.exec(&txs).unwrap();
+    assert_eq!(exec_output.results.len(), 2);
+    assert!(
+        exec_output.results[0].success,
+        "checkBalance call must succeed"
+    );
+    assert!(
+        exec_output.results[1].success,
+        "invariant_checkBalance call must succeed"
+    );
+
+    // balanceOf storage read during setup adds 1 call; everything cached after that.
+    assert_eq!(
+        transport.total_calls(),
+        5,
+        "total calls: chain_id, block, WETH account, decimals storage, balanceOf storage"
     );
 }
