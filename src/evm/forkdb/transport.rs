@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
+use tracing::info;
 
 /// Trait for anything that can execute a JSON-RPC request.
 ///
@@ -18,6 +19,7 @@ pub trait Transport: Send + Sync + std::fmt::Debug {
 
 impl Transport for ureq::Agent {
     fn exec(&self, url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
+        info!("http request {payload}");
         let body = serde_json::to_vec(payload).context("serializing RPC payload")?;
         let mut response = self
             .post(url)
@@ -29,6 +31,7 @@ impl Transport for ureq::Agent {
             .read_to_string()
             .context("reading RPC response body")?;
         let value: serde_json::Value = serde_json::from_str(&text).context("json decode")?;
+        info!("http response {value}");
         Ok(value)
     }
 }

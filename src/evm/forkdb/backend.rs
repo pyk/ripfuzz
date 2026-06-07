@@ -84,7 +84,7 @@ use anyhow::Result;
 use papaya::HashMap as PapayaMap;
 use parking_lot::{Condvar, Mutex};
 use serde_json::Value;
-use tracing::instrument;
+
 use walkdir::WalkDir;
 
 use crate::evm::forkdb::config::ForkDBConfig;
@@ -170,7 +170,6 @@ impl SharedBackend {
     ///
     /// Requests are automatically batched, deduplicated, rate-limited,
     /// retried, and cached.
-    #[instrument(skip(self), fields(count = reqs.len()))]
     pub fn fetch_or_wait(&self, reqs: &[Request]) -> Result<Vec<Response>, Error> {
         if reqs.is_empty() {
             return Ok(Vec::new());
