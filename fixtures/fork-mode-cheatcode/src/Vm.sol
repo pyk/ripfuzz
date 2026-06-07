@@ -7,4 +7,5 @@ interface Vm {
     function roll(uint256) external;
     function chainId(uint256) external;
     function addr(uint256) external pure returns (address);
+    function deal(address, uint256) external;
 }

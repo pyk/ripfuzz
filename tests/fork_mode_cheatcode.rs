@@ -31,6 +31,14 @@ alloy_sol_types::sol! {
         function setup() external;
         function getBalance() external view returns (uint256);
     }
+
+    interface VmDeal {
+        function setup() external;
+        function dealLocalAddress() external;
+        function dealRemoteAddress() external;
+        function getLocalBalance() external view returns (uint256);
+        function getRemoteBalance() external view returns (uint256);
+    }
 }
 
 fn mock_fork_setup(
@@ -134,11 +142,107 @@ fn vm_warp() {
     assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
 }
 
-/// Integration test: `vm.addr` cheatcode must correctly derive a local
-/// address in fork mode. The derived address is local and its balance
-/// read must not trigger any RPC fetch.
+/// Integration test: `vm.deal` cheatcode must correctly set account
+/// balances in fork mode. The local address must not trigger any RPC
+/// fetch, while the remote address (vitalik.eth) requires a single
+/// batched account fetch.
 #[test]
-fn vm_addr() {
+fn vm_deal() {
+    let transport = MockTransport::default();
+    let url = "mock://test";
+
+    // Set up the vitalik account batch (balance + nonce + code) that
+    // the fork DB fetches when `dealRemoteAddress` touches vitalik.eth
+    // for the first time.
+    let vitalik_batch_payload = json!([
+        {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0xd8da6bf26964af9d7eed9e03e53415d37aa96045","0x1816e03"]},
+        {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":["0xd8da6bf26964af9d7eed9e03e53415d37aa96045","0x1816e03"]},
+        {"jsonrpc":"2.0","id":2,"method":"eth_getCode","params":["0xd8da6bf26964af9d7eed9e03e53415d37aa96045","0x1816e03"]}
+    ]);
+    transport.mock_response(
+        url,
+        &vitalik_batch_payload,
+        json!([
+            {"jsonrpc":"2.0","id":0,"result":"0x0"},
+            {"jsonrpc":"2.0","id":1,"result":"0x0"},
+            {"jsonrpc":"2.0","id":2,"result":"0x"}
+        ]),
+    );
+
+    let mut chain = fork_chain(&transport, url);
+
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "fork init must fetch chain_id and block"
+    );
+
+    let project = Project::new("fixtures/fork-mode-cheatcode");
+    let artifacts = project.load_artifacts().unwrap();
+    let artifact_id = ArtifactId::try_from("test/VmDeal.sol:VmDeal").unwrap();
+    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+    let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+    assert!(deployment.result.success, "deployment must succeed");
+    let target = deployment.address.unwrap();
+
+    let setup_result = chain.setup(SetupInput::new(target)).unwrap();
+    assert!(setup_result.result.success, "setup must succeed");
+
+    let deal_local_calldata = Bytes::from(VmDeal::dealLocalAddressCall::new(()).abi_encode());
+    let deal_remote_calldata = Bytes::from(VmDeal::dealRemoteAddressCall::new(()).abi_encode());
+    let get_local_calldata = Bytes::from(VmDeal::getLocalBalanceCall::new(()).abi_encode());
+    let get_remote_calldata = Bytes::from(VmDeal::getRemoteBalanceCall::new(()).abi_encode());
+
+    let txs = [
+        Transaction::new(target).calldata(deal_local_calldata),
+        Transaction::new(target).calldata(deal_remote_calldata),
+        Transaction::new(target).calldata(get_local_calldata),
+        Transaction::new(target).calldata(get_remote_calldata),
+    ];
+    let exec_output = chain.exec(&txs).unwrap();
+    assert!(
+        exec_output.results[0].success,
+        "dealLocalAddress must succeed"
+    );
+    assert!(
+        exec_output.results[1].success,
+        "dealRemoteAddress must succeed"
+    );
+    assert!(
+        exec_output.results[2].success,
+        "getLocalBalance must succeed"
+    );
+    assert!(
+        exec_output.results[3].success,
+        "getRemoteBalance must succeed"
+    );
+
+    let local_balance = VmDeal::getLocalBalanceCall::abi_decode_returns(
+        &exec_output.results[2].output.clone().unwrap(),
+    )
+    .unwrap();
+    let one_ether = alloy_primitives::U256::from(10_u128.pow(18));
+    assert_eq!(local_balance, one_ether, "local balance must be 1 ether");
+
+    let remote_balance = VmDeal::getRemoteBalanceCall::abi_decode_returns(
+        &exec_output.results[3].output.clone().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(remote_balance, one_ether, "remote balance must be 1 ether");
+
+    assert_eq!(
+        transport.total_calls(),
+        3,
+        "only 3 RPC calls: chain_id, block, and vitalik account batch"
+    );
+}
+
+/// Integration test: `vm.roll` cheatcode must correctly update
+/// `block.number` in fork mode. The deployed target contract is
+/// local and must not trigger any RPC fetch.
+#[test]
+fn vm_roll() {
     let transport = MockTransport::default();
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
@@ -151,32 +255,36 @@ fn vm_addr() {
 
     let project = Project::new("fixtures/fork-mode-cheatcode");
     let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/VmAddr.sol:VmAddr").unwrap();
+    let artifact_id = ArtifactId::try_from("test/VmRoll.sol:VmRoll").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
 
-    let setup_result = chain.setup(SetupInput::new(target)).unwrap();
-    assert!(setup_result.result.success, "setup must succeed");
+    let roll_value = alloy_primitives::U256::from(42);
+    let roll_calldata = Bytes::from(VmRoll::rollCall::new((roll_value,)).abi_encode());
+    let get_block_calldata = Bytes::from(VmRoll::getBlockNumberCall::new(()).abi_encode());
 
-    let get_balance_calldata = Bytes::from(VmAddr::getBalanceCall::new(()).abi_encode());
-    let txs = [Transaction::new(target).calldata(get_balance_calldata)];
-
+    let txs = [
+        Transaction::new(target).calldata(roll_calldata),
+        Transaction::new(target).calldata(get_block_calldata),
+    ];
     let exec_output = chain.exec(&txs).unwrap();
+    assert!(exec_output.results[0].success, "roll call must succeed");
     assert!(
-        exec_output.results[0].success,
-        "getBalance call must succeed"
+        exec_output.results[1].success,
+        "getBlockNumber call must succeed"
     );
 
-    let balance =
-        VmAddr::getBalanceCall::abi_decode_returns(&exec_output.results[0].output.clone().unwrap())
-            .unwrap();
+    let bn = VmRoll::getBlockNumberCall::abi_decode_returns(
+        &exec_output.results[1].output.clone().unwrap(),
+    )
+    .unwrap();
     assert_eq!(
-        balance,
-        alloy_primitives::U256::ZERO,
-        "derived actor balance must be zero"
+        bn,
+        alloy_primitives::U256::from(BLOCK_NUMBER + 42),
+        "block number must equal fork block number + roll value"
     );
 
     assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
@@ -237,11 +345,11 @@ fn vm_chain_id() {
     assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
 }
 
-/// Integration test: `vm.roll` cheatcode must correctly update
-/// `block.number` in fork mode. The deployed target contract is
-/// local and must not trigger any RPC fetch.
+/// Integration test: `vm.addr` cheatcode must correctly derive a local
+/// address in fork mode. The derived address is local and its balance
+/// read must not trigger any RPC fetch.
 #[test]
-fn vm_roll() {
+fn vm_addr() {
     let transport = MockTransport::default();
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
@@ -254,36 +362,32 @@ fn vm_roll() {
 
     let project = Project::new("fixtures/fork-mode-cheatcode");
     let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/VmRoll.sol:VmRoll").unwrap();
+    let artifact_id = ArtifactId::try_from("test/VmAddr.sol:VmAddr").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
 
-    let roll_value = alloy_primitives::U256::from(42);
-    let roll_calldata = Bytes::from(VmRoll::rollCall::new((roll_value,)).abi_encode());
-    let get_block_calldata = Bytes::from(VmRoll::getBlockNumberCall::new(()).abi_encode());
+    let setup_result = chain.setup(SetupInput::new(target)).unwrap();
+    assert!(setup_result.result.success, "setup must succeed");
 
-    let txs = [
-        Transaction::new(target).calldata(roll_calldata),
-        Transaction::new(target).calldata(get_block_calldata),
-    ];
+    let get_balance_calldata = Bytes::from(VmAddr::getBalanceCall::new(()).abi_encode());
+    let txs = [Transaction::new(target).calldata(get_balance_calldata)];
+
     let exec_output = chain.exec(&txs).unwrap();
-    assert!(exec_output.results[0].success, "roll call must succeed");
     assert!(
-        exec_output.results[1].success,
-        "getBlockNumber call must succeed"
+        exec_output.results[0].success,
+        "getBalance call must succeed"
     );
 
-    let bn = VmRoll::getBlockNumberCall::abi_decode_returns(
-        &exec_output.results[1].output.clone().unwrap(),
-    )
-    .unwrap();
+    let balance =
+        VmAddr::getBalanceCall::abi_decode_returns(&exec_output.results[0].output.clone().unwrap())
+            .unwrap();
     assert_eq!(
-        bn,
-        alloy_primitives::U256::from(BLOCK_NUMBER + 42),
-        "block number must equal fork block number + roll value"
+        balance,
+        alloy_primitives::U256::ZERO,
+        "derived actor balance must be zero"
     );
 
     assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
