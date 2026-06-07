@@ -16,6 +16,11 @@ alloy_sol_types::sol! {
         function warp(uint256 value) external;
         function getBlockTimestamp() external view returns (uint256);
     }
+
+    interface VmRoll {
+        function roll(uint256 value) external;
+        function getBlockNumber() external view returns (uint256);
+    }
 }
 
 fn mock_fork_setup(
@@ -114,6 +119,58 @@ fn vm_warp() {
         ts,
         alloy_primitives::U256::from(BLOCK_TIMESTAMP + 42),
         "block timestamp must equal fork timestamp + warp value"
+    );
+
+    assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
+}
+
+/// Integration test: `vm.roll` cheatcode must correctly update
+/// `block.number` in fork mode. The deployed target contract is
+/// local and must not trigger any RPC fetch.
+#[test]
+fn vm_roll() {
+    let transport = MockTransport::default();
+    let url = "mock://test";
+    let mut chain = fork_chain(&transport, url);
+
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "fork init must fetch chain_id and block"
+    );
+
+    let project = Project::new("fixtures/fork-mode-cheatcode");
+    let artifacts = project.load_artifacts().unwrap();
+    let artifact_id = ArtifactId::try_from("test/VmRoll.sol:VmRoll").unwrap();
+    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+    let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+    assert!(deployment.result.success, "deployment must succeed");
+    let target = deployment.address.unwrap();
+
+    let roll_value = alloy_primitives::U256::from(42);
+    let roll_calldata = Bytes::from(VmRoll::rollCall::new((roll_value,)).abi_encode());
+    let get_block_calldata = Bytes::from(VmRoll::getBlockNumberCall::new(()).abi_encode());
+
+    let txs = [
+        Transaction::new(target).calldata(roll_calldata),
+        Transaction::new(target).calldata(get_block_calldata),
+    ];
+    let exec_output = chain.exec(&txs).unwrap();
+    assert!(exec_output.results[0].success, "roll call must succeed");
+    assert!(
+        exec_output.results[1].success,
+        "getBlockNumber call must succeed"
+    );
+
+    let bn = VmRoll::getBlockNumberCall::abi_decode_returns(
+        &exec_output.results[1].output.clone().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        bn,
+        alloy_primitives::U256::from(BLOCK_NUMBER + 42),
+        "block number must equal fork block number + roll value"
     );
 
     assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
