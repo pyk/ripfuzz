@@ -15,7 +15,7 @@ use crate::evm::chain::{Chain, ChainConfig, DEFAULT_DEPLOYER};
 use crate::evm::cheatcode::*;
 use crate::evm::database::Database;
 use crate::evm::forkdb;
-use crate::evm::forkdb::{ForkDB, ForkDBConfig};
+use crate::evm::forkdb::{ForkDB, ForkDBConfig, SharedLocalAddressRegistry};
 use crate::evm::specs;
 
 impl Chain {
@@ -27,6 +27,7 @@ impl Chain {
     ) -> Result<Self> {
         let block_number = forkdb_config.block_number;
         let url_hash = forkdb::url_hash(&forkdb_config.url);
+        let local_registry = SharedLocalAddressRegistry::new();
         let backend = forkdb::SharedBackend::new_with_transport(forkdb_config, transport);
 
         // resolve chain_id so every subsequent cache key is scoped.
@@ -75,7 +76,12 @@ impl Chain {
         cfg_env.limit_contract_initcode_size = Some(usize::MAX);
         cfg_env.set_spec_and_mainnet_gas_params(spec_id);
 
-        let fork_db = ForkDB::new(backend.clone(), block_number, chain_id);
+        let fork_db = ForkDB::new(
+            backend.clone(),
+            local_registry.clone(),
+            block_number,
+            chain_id,
+        );
         let mut database = CacheDB::new(fork_db);
 
         // Pre-cache the fork block hash so the BLOCKHASH opcode does not
@@ -148,7 +154,7 @@ impl Chain {
         let cheatcode_state = ExecutionState::from_config(chain_config.cheatcode());
         Ok(Self {
             database: Some(Database::Fork(database)),
-            fork_backend: Some(backend),
+            local_registry,
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,

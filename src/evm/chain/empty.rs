@@ -14,6 +14,7 @@ use revm::{
 use crate::evm::chain::{Chain, ChainConfig, DEFAULT_DEPLOYER};
 use crate::evm::cheatcode::*;
 use crate::evm::database::{Database, EmptyDB};
+use crate::evm::forkdb::SharedLocalAddressRegistry;
 
 impl Default for Chain {
     fn default() -> Self {
@@ -78,7 +79,7 @@ impl Chain {
         let cheatcode_state = ExecutionState::from_config(config.cheatcode());
         Self {
             database: Some(Database::Empty(db)),
-            fork_backend: None,
+            local_registry: SharedLocalAddressRegistry::new(),
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,

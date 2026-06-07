@@ -3,6 +3,7 @@
 use alloy_primitives::{Address, B256, U256};
 use revm::{DatabaseRef, bytecode::Bytecode, primitives::KECCAK_EMPTY, state::AccountInfo};
 
+use crate::evm::forkdb::SharedLocalAddressRegistry;
 use crate::evm::forkdb::backend::SharedBackend;
 use crate::evm::forkdb::error::Error;
 use crate::evm::forkdb::request::Request;
@@ -10,21 +11,29 @@ use crate::evm::forkdb::response::Response;
 
 /// Remote backend that satisfies `DatabaseRef`.
 ///
-/// `basic_ref` checks [`SharedBackend::is_local`] before making RPC calls.
+/// `basic_ref` checks [`SharedLocalAddressRegistry::is_local`] before making
+/// RPC calls.
 /// Addresses created locally during EVM execution (tracked by
-/// [`super::LocalTracker`]) are skipped without a remote fetch, while
-/// genuine on-chain accounts (e.g. vitalik.eth) are fetched lazily.
+/// [`SharedLocalAddressRegistry`]) are skipped without a remote fetch,
+/// while genuine on-chain accounts (e.g. vitalik.eth) are fetched lazily.
 #[derive(Clone, Debug)]
 pub struct ForkDB {
     backend: SharedBackend,
+    local_registry: SharedLocalAddressRegistry,
     block_number: u64,
     chain_id: u64,
 }
 
 impl ForkDB {
-    pub fn new(backend: SharedBackend, block_number: u64, chain_id: u64) -> Self {
+    pub fn new(
+        backend: SharedBackend,
+        local_registry: SharedLocalAddressRegistry,
+        block_number: u64,
+        chain_id: u64,
+    ) -> Self {
         Self {
             backend,
+            local_registry,
             block_number,
             chain_id,
         }
@@ -112,7 +121,7 @@ impl DatabaseRef for ForkDB {
     type Error = Error;
 
     fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        if self.backend.is_local(address) {
+        if self.local_registry.is_local(address) {
             return Ok(None);
         }
         // Fetch balance, nonce, and code in a single atomic batch so the
@@ -217,7 +226,7 @@ mod tests {
             .retries(0)
             .batch_size(1);
         let backend = SharedBackend::new_with_transport(config, TimeoutTransport);
-        let fork_db = ForkDB::new(backend, 1, 1);
+        let fork_db = ForkDB::new(backend, SharedLocalAddressRegistry::new(), 1, 1);
 
         let start = std::time::Instant::now();
         let result = fork_db.block_hash_ref(1);
@@ -251,7 +260,7 @@ mod tests {
             .retries(0)
             .batch_size(1);
         let backend = SharedBackend::new_with_transport(config, RateLimitTransport);
-        let fork_db = ForkDB::new(backend, 1, 1);
+        let fork_db = ForkDB::new(backend, SharedLocalAddressRegistry::new(), 1, 1);
 
         let start = std::time::Instant::now();
         let result = fork_db.block_hash_ref(1);
@@ -274,7 +283,7 @@ mod tests {
         let transport = MockTransport::default();
         let config = ForkDBConfig::new("mock://test");
         let backend = SharedBackend::new_with_transport(config, transport);
-        let fork_db = ForkDB::new(backend, 1, 1);
+        let fork_db = ForkDB::new(backend, SharedLocalAddressRegistry::new(), 1, 1);
 
         let responses = vec![
             Response::TransactionCount(2),
@@ -335,7 +344,7 @@ mod tests {
 
         let config = ForkDBConfig::new(url).batch_timeout_ms(0).batch_size(1);
         let backend = SharedBackend::new_with_transport(config, transport);
-        let fork_db = ForkDB::new(backend, 1, 1);
+        let fork_db = ForkDB::new(backend, SharedLocalAddressRegistry::new(), 1, 1);
 
         let result = fork_db.block_hash_ref(1);
         assert!(
@@ -352,7 +361,7 @@ mod tests {
         let config = ForkDBConfig::new("mock://test");
         let backend = SharedBackend::new_with_transport(config, transport);
 
-        let fork_db = ForkDB::new(backend.clone(), 1, 1);
+        let fork_db = ForkDB::new(backend.clone(), SharedLocalAddressRegistry::new(), 1, 1);
         let _fork_db2 = fork_db.clone();
     }
 }

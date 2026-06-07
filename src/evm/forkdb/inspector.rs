@@ -2,10 +2,10 @@
 //!
 //! During CREATE / CREATE2 EVM operations, the [`LocalTracker`] inspector
 //! computes the `created_address` from the caller's current nonce and
-//! registers it with [`SharedBackend::mark_local`]. This happens *before*
-//! `journal.load_account(created_address)` inside the CREATE handler, so
-//! `ForkDB::basic_ref` sees the address as local and returns `None`
-//! without an RPC fetch.
+//! registers it with the shared [`SharedLocalAddressRegistry`]. This
+//! happens *before* `journal.load_account(created_address)` inside the
+//! CREATE handler, so `ForkDB::basic_ref` sees the address as local and
+//! returns `None` without an RPC fetch.
 
 use revm::{
     context_interface::ContextTr,
@@ -16,38 +16,36 @@ use revm::{
     },
 };
 
-use crate::evm::forkdb::SharedBackend;
+use crate::evm::forkdb::SharedLocalAddressRegistry;
 
 /// EVM inspector that tracks locally-created addresses for fork mode.
 ///
-/// When `backend` is `Some`, every CREATE/CREATE2 opcode's target address
-/// is computed from the caller's nonce (read from the journaled state)
-/// and marked as local via [`SharedBackend::mark_local`].
+/// Every CREATE/CREATE2 opcode's target address is computed from the
+/// caller's nonce (read from the journaled state) and marked as local
+/// via [`SharedLocalAddressRegistry::mark_local`].
 ///
-/// When `backend` is `None` (empty chain), the inspector is a no-op.
+/// Cloning is cheap (shares the same inner registry).
 #[derive(Debug, Clone)]
 pub struct LocalTracker {
-    backend: Option<SharedBackend>,
+    registry: SharedLocalAddressRegistry,
 }
 
 impl LocalTracker {
-    /// Create a new `LocalTracker`.
-    pub fn new(backend: Option<SharedBackend>) -> Self {
-        Self { backend }
+    /// Create a new `LocalTracker` that writes to the given registry.
+    pub fn new(registry: SharedLocalAddressRegistry) -> Self {
+        Self { registry }
     }
 
     /// Compute the address that `inputs.caller()` would create with its
     /// current nonce (as seen in the journal state), and mark it local.
     fn mark_from_inputs(&self, ctx: &impl JournalExt, inputs: &CreateInputs) {
-        if let Some(ref backend) = self.backend {
-            let state = ctx.evm_state();
-            let nonce = state
-                .get(&inputs.caller())
-                .map(|account| account.info.nonce)
-                .unwrap_or(0);
-            let created = inputs.created_address(nonce);
-            backend.mark_local(created);
-        }
+        let state = ctx.evm_state();
+        let nonce = state
+            .get(&inputs.caller())
+            .map(|account| account.info.nonce)
+            .unwrap_or(0);
+        let created = inputs.created_address(nonce);
+        self.registry.mark_local(created);
     }
 }
 

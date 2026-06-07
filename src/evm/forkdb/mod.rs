@@ -15,6 +15,7 @@ pub use config::ForkDBConfig;
 pub use db::ForkDB;
 pub use error::Error;
 pub use inspector::LocalTracker;
+pub use local_registry::SharedLocalAddressRegistry;
 pub use request::{Request, url_hash};
 pub use response::Response;
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -26,6 +27,7 @@ mod db;
 mod error;
 mod inspector;
 mod limiter;
+mod local_registry;
 mod request;
 mod response;
 mod transport;

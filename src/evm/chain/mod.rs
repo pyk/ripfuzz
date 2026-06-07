@@ -20,7 +20,7 @@ pub use exec::ExecOutput;
 pub use setup::{SetupInput, SetupOutput};
 pub use transaction::Transaction;
 
-use crate::evm::forkdb::{LocalTracker, SharedBackend};
+use crate::evm::forkdb::{LocalTracker, SharedLocalAddressRegistry};
 use crate::evm::{cheatcode, coverage, database, result, trace};
 
 mod config;
@@ -45,9 +45,10 @@ pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4
 #[derive(Clone, Debug)]
 pub struct Chain {
     database: Option<database::Database>,
-    /// Shared fork backend used by [`LocalTracker`] to mark locally-created
-    /// addresses so `basic_ref` skips RPC for them. `None` on empty chains.
-    fork_backend: Option<SharedBackend>,
+    /// Shared registry of locally-created addresses. Both the
+    /// [`LocalTracker`] and the cheatcode inspector write to this, and
+    /// the ForkDB backend reads from it to skip unnecessary RPC.
+    local_registry: SharedLocalAddressRegistry,
     cfg_env: CfgEnv,
     block_env: BlockEnv,
     deployer: Address,
@@ -262,9 +263,10 @@ impl Chain {
             (
                 (
                     trace::Inspector::new(),
-                    cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+                    cheatcode::Inspector::from_state(self.cheatcode_state.clone())
+                        .with_local_registry(self.local_registry.clone()),
                 ),
-                LocalTracker::new(self.fork_backend.clone()),
+                LocalTracker::new(self.local_registry.clone()),
             ),
             coverage::Inspector::new(),
         );
@@ -318,9 +320,10 @@ impl Chain {
             (
                 (
                     trace::Inspector::new(),
-                    cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
+                    cheatcode::Inspector::from_state(self.cheatcode_state.clone())
+                        .with_local_registry(self.local_registry.clone()),
                 ),
-                LocalTracker::new(self.fork_backend.clone()),
+                LocalTracker::new(self.local_registry.clone()),
             ),
             coverage::Inspector::new(),
         );
@@ -354,8 +357,9 @@ impl Chain {
     pub fn exec(&mut self, transactions: &[Transaction]) -> Result<ExecOutput> {
         let inspector = (
             (
-                cheatcode::Inspector::from_state(self.cheatcode_state.clone()),
-                LocalTracker::new(self.fork_backend.clone()),
+                cheatcode::Inspector::from_state(self.cheatcode_state.clone())
+                    .with_local_registry(self.local_registry.clone()),
+                LocalTracker::new(self.local_registry.clone()),
             ),
             (
                 if self.config.trace_enabled() {
@@ -427,7 +431,7 @@ impl Chain {
         ctx.block = self.block_env.clone();
         ctx.cfg = self.cfg_env.clone();
         let mut evm =
-            ctx.build_mainnet_with_inspector(LocalTracker::new(self.fork_backend.clone()));
+            ctx.build_mainnet_with_inspector(LocalTracker::new(self.local_registry.clone()));
         let result = evm
             .inspect_tx_commit(tx)
             .context("transact_commit failed")?;

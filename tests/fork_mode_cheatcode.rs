@@ -6,7 +6,7 @@
 use alloy_sol_types::SolCall;
 use raptor::{
     ArtifactId, Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, MockTransport, Project,
-    Transaction,
+    SetupInput, Transaction,
 };
 use revm::primitives::Bytes;
 use serde_json::json;
@@ -25,6 +25,11 @@ alloy_sol_types::sol! {
     interface VmChainId {
         function setChainId(uint256 value) external;
         function getChainId() external view returns (uint256);
+    }
+
+    interface VmAddr {
+        function setup() external;
+        function getBalance() external view returns (uint256);
     }
 }
 
@@ -124,6 +129,54 @@ fn vm_warp() {
         ts,
         alloy_primitives::U256::from(BLOCK_TIMESTAMP + 42),
         "block timestamp must equal fork timestamp + warp value"
+    );
+
+    assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
+}
+
+/// Integration test: `vm.addr` cheatcode must correctly derive a local
+/// address in fork mode. The derived address is local and its balance
+/// read must not trigger any RPC fetch.
+#[test]
+fn vm_addr() {
+    let transport = MockTransport::default();
+    let url = "mock://test";
+    let mut chain = fork_chain(&transport, url);
+
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "fork init must fetch chain_id and block"
+    );
+
+    let project = Project::new("fixtures/fork-mode-cheatcode");
+    let artifacts = project.load_artifacts().unwrap();
+    let artifact_id = ArtifactId::try_from("test/VmAddr.sol:VmAddr").unwrap();
+    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+    let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+    assert!(deployment.result.success, "deployment must succeed");
+    let target = deployment.address.unwrap();
+
+    let setup_result = chain.setup(SetupInput::new(target)).unwrap();
+    assert!(setup_result.result.success, "setup must succeed");
+
+    let get_balance_calldata = Bytes::from(VmAddr::getBalanceCall::new(()).abi_encode());
+    let txs = [Transaction::new(target).calldata(get_balance_calldata)];
+
+    let exec_output = chain.exec(&txs).unwrap();
+    assert!(
+        exec_output.results[0].success,
+        "getBalance call must succeed"
+    );
+
+    let balance =
+        VmAddr::getBalanceCall::abi_decode_returns(&exec_output.results[0].output.clone().unwrap())
+            .unwrap();
+    assert_eq!(
+        balance,
+        alloy_primitives::U256::ZERO,
+        "derived actor balance must be zero"
     );
 
     assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");

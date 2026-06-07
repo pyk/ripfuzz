@@ -18,6 +18,7 @@ use revm::{
 use crate::evm::cheatcode::calls;
 use crate::evm::cheatcode::calls::Vm::VmCalls;
 use crate::evm::cheatcode::{CheatcodeConfig, ExecutionState, VM_ADDRESS};
+use crate::evm::forkdb::SharedLocalAddressRegistry;
 
 /// Minimal trait to mutate `chain_id` on generic EVM contexts.
 pub trait CfgMut {
@@ -42,6 +43,9 @@ pub struct Inspector {
     pub state: ExecutionState,
     pub shared_labels: Option<Arc<RwLock<HashMap<Address, String>>>>,
     pub depth: u64,
+    /// Shared registry for marking locally-created addresses (e.g. from
+    /// `vm.addr`) so the ForkDB backend skips RPC for them.
+    pub local_registry: Option<SharedLocalAddressRegistry>,
 }
 
 impl Inspector {
@@ -51,6 +55,7 @@ impl Inspector {
             state: ExecutionState::from_config(&config),
             shared_labels: None,
             depth: 0,
+            local_registry: None,
         }
     }
 
@@ -59,7 +64,15 @@ impl Inspector {
             state,
             shared_labels: None,
             depth: 0,
+            local_registry: None,
         }
+    }
+
+    /// Set the shared local address registry so that `vm.addr` can mark
+    /// derived addresses as local.
+    pub fn with_local_registry(mut self, registry: SharedLocalAddressRegistry) -> Self {
+        self.local_registry = Some(registry);
+        self
     }
 
     fn with_default_config() -> Self {
@@ -237,12 +250,26 @@ impl<CTX: ContextTr<Block = BlockEnv, Tx = TxEnv> + ContextSetters + CfgMut>
 
         let call = VmCalls::abi_decode(&input).ok()?;
         let is_stop_prank = matches!(&call, VmCalls::stopPrank(_));
+        let is_addr = matches!(&call, VmCalls::addr(_));
         let mut outcome = calls::dispatch(call, ctx, &mut self.state);
         // Ensure return data is written to the caller's expected memory offset
         // so Solidity can read it from the returndata buffer.
         if let Some(ref mut o) = outcome {
             o.memory_offset = inputs.return_memory_offset.clone();
             o.result.gas = Gas::new(inputs.gas_limit);
+        }
+
+        // When `vm.addr` derives a new address, mark it as local so the
+        // ForkDB backend skips RPC for it. The address is returned as a
+        // 32-byte left-padded value in the return data.
+        if is_addr
+            && let Some(ref outcome) = outcome
+            && outcome.result.result == InstructionResult::Return
+            && outcome.result.output.len() >= 32
+            && let Some(ref registry) = self.local_registry
+        {
+            let addr = Address::from_slice(&outcome.result.output[12..32]);
+            registry.mark_local(addr);
         }
 
         let parent_depth = self.depth.saturating_sub(1);

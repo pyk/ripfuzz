@@ -6,4 +6,5 @@ interface Vm {
     function warp(uint256) external;
     function roll(uint256) external;
     function chainId(uint256) external;
+    function addr(uint256) external pure returns (address);
 }
