@@ -744,7 +744,6 @@ mod tests {
                 let req = Request::GetBlockByNumber {
                     chain_id: 1,
                     block: i as u64,
-                    full_tx: false,
                 };
                 barrier.wait();
                 let res = backend.fetch_or_wait(&[req]).unwrap();
@@ -1138,7 +1137,6 @@ mod tests {
                 let req = Request::GetBlockByNumber {
                     chain_id: 1,
                     block: 1,
-                    full_tx: false,
                 };
                 barrier.wait();
                 let res = backend.fetch_or_wait(&[req]).unwrap();

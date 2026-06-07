@@ -47,7 +47,6 @@ impl Chain {
             .fetch_or_wait(&[forkdb::Request::GetBlockByNumber {
                 chain_id,
                 block: block_number,
-                full_tx: false,
             }])
             .with_context(|| format!("fetching fork block {block_number}"))?;
         let block = responses

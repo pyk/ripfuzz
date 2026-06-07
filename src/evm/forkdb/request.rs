@@ -18,7 +18,6 @@ pub enum Request {
     GetBlockByNumber {
         chain_id: u64,
         block: u64,
-        full_tx: bool,
     },
     GetBalance {
         chain_id: u64,
@@ -60,8 +59,8 @@ impl Request {
     pub fn params(&self) -> Vec<serde_json::Value> {
         match self {
             Self::GetChainId { .. } => vec![],
-            Self::GetBlockByNumber { block, full_tx, .. } => {
-                vec![json!(format!("0x{block:x}")), json!(*full_tx)]
+            Self::GetBlockByNumber { block, .. } => {
+                vec![json!(format!("0x{block:x}")), json!(false)]
             }
             Self::GetBalance { address, block, .. } => {
                 vec![
@@ -101,11 +100,9 @@ impl Request {
         match self {
             Self::GetChainId { url_hash } => format!("eth_chainId/{url_hash:x}"),
             Self::GetBlockByNumber {
-                chain_id,
-                block,
-                full_tx,
+                chain_id, block, ..
             } => {
-                format!("eth_getBlockByNumber/{chain_id}/{block}/{}", *full_tx as u8)
+                format!("eth_getBlockByNumber/{chain_id}/{block}")
             }
             Self::GetBalance {
                 chain_id,
@@ -167,23 +164,15 @@ mod tests {
     }
 
     #[test]
-    fn get_block_by_number_cache_key_includes_full_tx() {
-        let block = 1_234_567u64;
-        let req_false = Request::GetBlockByNumber {
+    fn get_block_by_number_cache_key_format() {
+        let req = Request::GetBlockByNumber {
             chain_id: 1,
-            block,
-            full_tx: false,
+            block: 25_259_067,
         };
-        let req_true = Request::GetBlockByNumber {
-            chain_id: 1,
-            block,
-            full_tx: true,
-        };
-        let key_false = req_false.cache_key();
-        let key_true = req_true.cache_key();
-        assert_ne!(
-            key_false, key_true,
-            "cache keys must differ when full_tx differs (got {key_false})"
+        let key = req.cache_key();
+        assert_eq!(
+            key, "eth_getBlockByNumber/1/25259067",
+            "cache key must use block number as filename, not a subdirectory"
         );
     }
 }

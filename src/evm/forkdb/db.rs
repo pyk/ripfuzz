@@ -181,7 +181,6 @@ impl DatabaseRef for ForkDB {
         let mut responses = self.backend.fetch_or_wait(&[Request::GetBlockByNumber {
             chain_id: self.chain_id,
             block: number,
-            full_tx: false,
         }])?;
         let response = responses.pop().ok_or_else(|| Error::UnexpectedResponse {
             message: "expected one response for GetBlockByNumber".into(),
