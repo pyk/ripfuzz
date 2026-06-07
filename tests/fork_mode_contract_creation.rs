@@ -17,6 +17,10 @@ alloy_sol_types::sol! {
         function setValue(uint256 newValue) external;
     }
 
+    interface DeployChildInConstructor {
+        function setChildValue(uint256 newValue) external;
+    }
+
     interface MarketTarget {
         function touchMarket() external;
     }
@@ -103,19 +107,43 @@ fn deploy_basic_contract() {
     );
 }
 
+/// Regression test: deploying a child contract inside a constructor must
+/// not trigger an RPC fetch for the child's address. Interacting with the
+/// deployed contract (calling into the child) must also not trigger any RPC.
 #[test]
-fn fork_mode_deploy_factory_contract_no_rpc_fetch() {
+fn deploy_child_in_constructor() {
     let transport = MockTransport::default();
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
 
     let project = Project::new("fixtures/fork-mode-contract-creation");
     let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/FactoryContract.sol:FactoryContract").unwrap();
+    let artifact_id =
+        ArtifactId::try_from("test/DeployChildInConstructor.sol:DeployChildInConstructor").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
-    assert!(deployment.result.success, "factory deployment must succeed");
+    assert!(deployment.result.success, "deployment must succeed");
+    let target = deployment.address.unwrap();
+
+    let baseline = transport.total_calls();
+
+    let set_child_calldata = Bytes::from(
+        DeployChildInConstructor::setChildValueCall::new((alloy_primitives::U256::from(7),))
+            .abi_encode(),
+    );
+    let tx = Transaction::new(target).calldata(set_child_calldata);
+    let exec_output = chain.exec(&[tx]).unwrap();
+    assert!(
+        exec_output.results[0].success,
+        "setChildValue call must succeed"
+    );
+
+    assert_eq!(
+        transport.total_calls(),
+        baseline,
+        "no RPC calls after deployment"
+    );
 }
 
 #[test]
