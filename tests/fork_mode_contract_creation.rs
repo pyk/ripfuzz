@@ -24,6 +24,13 @@ alloy_sol_types::sol! {
     interface DeployChildInSetup {
         function setChildValue(uint256 newValue) external;
     }
+
+
+    interface DeployChildInTargetFunction {
+        function createMarket() external;
+        function checkMarket() external;
+    }
+
 }
 
 fn mock_fork_setup(
@@ -195,16 +202,24 @@ fn deploy_child_in_setup() {
     );
 }
 
+/// Regression test: deploying a child contract inside a target function
+/// must not trigger an RPC fetch for the child's address. Interacting
+/// with the created child in a subsequent target function must also not
+/// trigger any RPC.
 #[test]
-fn fork_mode_deploy_and_setup_factory_no_rpc_fetch() {
+fn deploy_child_in_target_function() {
     let transport = MockTransport::default();
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
 
     let project = Project::new("fixtures/fork-mode-contract-creation");
     let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/SetupFactory.sol:SetupFactory").unwrap();
+    let artifact_id =
+        ArtifactId::try_from("test/DeployChildInTargetFunction.sol:DeployChildInTargetFunction")
+            .unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+    let baseline = transport.total_calls();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
@@ -213,10 +228,34 @@ fn fork_mode_deploy_and_setup_factory_no_rpc_fetch() {
     let setup_fn = contract
         .setup_function
         .as_ref()
-        .expect("SetupFactory must have setup()");
+        .expect("DeployChildInTargetFunction must have setup()");
     let setup_data = Bytes::from(setup_fn.selector().as_slice().to_vec());
     let setup_result = chain
         .setup(SetupInput::new(target).calldata(setup_data))
         .unwrap();
     assert!(setup_result.result.success, "setup must succeed");
+
+    let create_market_calldata =
+        Bytes::from(DeployChildInTargetFunction::createMarketCall::new(()).abi_encode());
+    let check_market_calldata =
+        Bytes::from(DeployChildInTargetFunction::checkMarketCall::new(()).abi_encode());
+    let txs = [
+        Transaction::new(target).calldata(create_market_calldata),
+        Transaction::new(target).calldata(check_market_calldata),
+    ];
+    let exec_output = chain.exec(&txs).unwrap();
+    assert!(
+        exec_output.results[0].success,
+        "createMarket call must succeed"
+    );
+    assert!(
+        exec_output.results[1].success,
+        "checkMarket call must succeed"
+    );
+
+    assert_eq!(
+        transport.total_calls(),
+        baseline,
+        "no RPC calls after setup"
+    );
 }
