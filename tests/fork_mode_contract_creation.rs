@@ -87,11 +87,11 @@ fn deploy_basic_contract() {
     let artifact_id = ArtifactId::try_from("test/BasicContract.sol:BasicContract").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
+    let baseline = transport.total_calls();
+
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
-
-    let baseline = transport.total_calls();
 
     let set_value_calldata = Bytes::from(
         BasicContract::setValueCall::new((alloy_primitives::U256::from(7),)).abi_encode(),
@@ -122,11 +122,11 @@ fn deploy_child_in_constructor() {
         ArtifactId::try_from("test/DeployChildInConstructor.sol:DeployChildInConstructor").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
+    let baseline = transport.total_calls();
+
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
-
-    let baseline = transport.total_calls();
 
     let set_child_calldata = Bytes::from(
         DeployChildInConstructor::setChildValueCall::new((alloy_primitives::U256::from(7),))
@@ -162,6 +162,8 @@ fn deploy_child_in_setup() {
         ArtifactId::try_from("test/DeployChildInSetup.sol:DeployChildInSetup").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
+    let baseline = transport.total_calls();
+
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
@@ -175,8 +177,6 @@ fn deploy_child_in_setup() {
         .setup(SetupInput::new(target).calldata(setup_data))
         .unwrap();
     assert!(setup_result.result.success, "setup must succeed");
-
-    let baseline = transport.total_calls();
 
     let set_child_calldata = Bytes::from(
         DeployChildInSetup::setChildValueCall::new((alloy_primitives::U256::from(7),)).abi_encode(),
