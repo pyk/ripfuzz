@@ -1,4 +1,4 @@
-//! Regression test: fork mode account interaction.
+//! Regression test: fork mode remote address.
 //!
 //! When chain fork mode is initialized, a target contract whose constructor
 //! reads on-chain state (e.g. vitalik.eth balance) must receive real fork
@@ -87,7 +87,7 @@ fn fork_mode_constructor_reads_vitalik_balance() {
     let mut chain =
         Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
 
-    let project = Project::new("fixtures/fork-mode-account-interaction");
+    let project = Project::new("fixtures/fork-mode-remote-address");
     let artifacts = project.load_artifacts().unwrap();
     let artifact_id = ArtifactId::try_from("test/VitalikBalance.sol:VitalikBalance").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
