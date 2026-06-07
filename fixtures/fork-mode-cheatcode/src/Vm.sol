@@ -9,4 +9,5 @@ interface Vm {
     function addr(uint256) external pure returns (address);
     function deal(address, uint256) external;
     function load(address, bytes32) external returns (bytes32);
+    function store(address, bytes32, bytes32) external;
 }

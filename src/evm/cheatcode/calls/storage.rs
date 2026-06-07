@@ -8,13 +8,17 @@ use revm::{
 };
 
 use crate::evm::cheatcode::outcome;
+use crate::evm::database::DatabaseExt;
 
 pub fn store<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
     ctx: &mut CTX,
     addr: Address,
     slot: [u8; 32],
     value: [u8; 32],
-) -> Option<revm::interpreter::CallOutcome> {
+) -> Option<revm::interpreter::CallOutcome>
+where
+    CTX::Db: DatabaseExt,
+{
     if ctx.journal().precompile_addresses().contains(&addr) {
         return Some(outcome::revert("store: cannot write to precompile"));
     }
@@ -22,8 +26,18 @@ pub fn store<CTX: ContextTr + ContextSetters<Block = BlockEnv>>(
         .load_account(addr)
         .map_err(|_| "account load failed")
         .ok()?;
+    // Pre-populate the database cache with a zero value for this slot
+    // so that the subsequent sstore does not trigger an eth_getStorageAt
+    // fetch from the fork DB. vm.store is a blind write -- we don't
+    // care about the original value.
+    let slot_u256 = U256::from_be_bytes(slot);
+    let value_u256 = U256::from_be_bytes(value);
+    // Ignore errors -- if pre-population fails the sstore will handle it.
+    let _ = ctx
+        .db_mut()
+        .insert_account_storage(addr, slot_u256, U256::ZERO);
     ctx.journal_mut()
-        .sstore(addr, U256::from_be_bytes(slot), U256::from_be_bytes(value))
+        .sstore(addr, slot_u256, value_u256)
         .map_err(|e| format!("failed to store storage slot: {e:?}"))
         .ok()?;
     Some(outcome::success())

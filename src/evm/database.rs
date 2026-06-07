@@ -11,6 +11,46 @@ use revm::{
 use crate::evm::forkdb;
 use crate::evm::forkdb::ForkDB;
 
+/// Extension trait for databases that can pre-populate storage slots
+/// without hitting the underlying network backend.
+pub trait DatabaseExt {
+    type Error;
+    fn insert_account_storage(
+        &mut self,
+        address: Address,
+        slot: U256,
+        value: U256,
+    ) -> Result<(), Self::Error>;
+}
+
+impl DatabaseExt for Database {
+    type Error = DatabaseError;
+
+    fn insert_account_storage(
+        &mut self,
+        address: Address,
+        slot: U256,
+        value: U256,
+    ) -> Result<(), Self::Error> {
+        Database::insert_account_storage(self, address, slot, value)
+    }
+}
+
+/// No-op implementation for the empty (non-fork) database used in tests.
+impl DatabaseExt for revm::database::EmptyDBTyped<std::convert::Infallible> {
+    type Error = std::convert::Infallible;
+
+    fn insert_account_storage(
+        &mut self,
+        _address: Address,
+        _slot: U256,
+        _value: U256,
+    ) -> Result<(), Self::Error> {
+        // Empty chain has no remote backend -- nothing to pre-cache.
+        Ok(())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // EmptyDB
 // ---------------------------------------------------------------------------
@@ -106,6 +146,26 @@ impl Database {
         match self {
             Self::Empty(db) => db.insert_account_info(address, info),
             Self::Fork(db) => db.insert_account_info(address, info),
+        }
+    }
+
+    /// Pre-populate a storage slot in the cache without triggering a fork DB
+    /// fetch. This is used by the `vm.store` cheatcode to avoid an
+    /// unnecessary `eth_getStorageAt` call when writing a value the caller
+    /// intends to overwrite.
+    pub fn insert_account_storage(
+        &mut self,
+        address: Address,
+        slot: U256,
+        value: U256,
+    ) -> Result<(), DatabaseError> {
+        match self {
+            Self::Empty(db) => db
+                .insert_account_storage(address, slot, value)
+                .map_err(|e| match e {}),
+            Self::Fork(db) => db
+                .insert_account_storage(address, slot, value)
+                .map_err(DatabaseError::from),
         }
     }
 }

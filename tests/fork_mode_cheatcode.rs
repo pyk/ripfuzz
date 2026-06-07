@@ -45,6 +45,12 @@ alloy_sol_types::sol! {
         function loadLocalContract() external;
         function loadRemoteContract() external;
     }
+
+    interface VmStore {
+        function setup() external;
+        function storeLocalContract() external;
+        function storeRemoteContract() external;
+    }
 }
 
 fn mock_fork_setup(
@@ -479,5 +485,79 @@ fn vm_load() {
         transport.total_calls(),
         4,
         "4 RPC calls: chain_id, block, WETH account batch, WETH storage fetch"
+    );
+}
+
+/// Integration test: `vm.store` cheatcode must correctly write storage
+/// to local and remote contracts in fork mode. The local contract
+/// write must not trigger any RPC fetch, while the remote (WETH) write
+/// must trigger only the basic account fetch (no storage fetch).
+#[test]
+fn vm_store() {
+    let transport = MockTransport::default();
+    let url = "mock://test";
+
+    // WETH mainnet contract at block 25_259_523: account batch
+    // (balance + nonce + code). No storage fetch needed because
+    // vm.store writes directly — it never reads from the fork DB.
+    let weth_account_payload = json!([
+        {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2","0x1816e03"]},
+        {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2","0x1816e03"]},
+        {"jsonrpc":"2.0","id":2,"method":"eth_getCode","params":["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2","0x1816e03"]}
+    ]);
+    let weth_code = include_str!("../fixtures/fork-mode-remote-address/bytecodes/weth.hex")
+        .trim()
+        .trim_end_matches('\n');
+    transport.mock_response(
+        url,
+        &weth_account_payload,
+        json!([
+            {"jsonrpc":"2.0","id":0,"result":"0x22a0323bb2bb269993626"},
+            {"jsonrpc":"2.0","id":1,"result":"0x1"},
+            {"jsonrpc":"2.0","id":2,"result": weth_code}
+        ]),
+    );
+
+    let mut chain = fork_chain(&transport, url);
+
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "fork init must fetch chain_id and block"
+    );
+
+    let project = Project::new("fixtures/fork-mode-cheatcode");
+    let artifacts = project.load_artifacts().unwrap();
+    let artifact_id = ArtifactId::try_from("test/VmStore.sol:VmStore").unwrap();
+    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+    let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+    assert!(deployment.result.success, "deployment must succeed");
+    let target = deployment.address.unwrap();
+
+    let setup_result = chain.setup(SetupInput::new(target)).unwrap();
+    assert!(setup_result.result.success, "setup must succeed");
+
+    let store_local_calldata = Bytes::from(VmStore::storeLocalContractCall::new(()).abi_encode());
+    let store_remote_calldata = Bytes::from(VmStore::storeRemoteContractCall::new(()).abi_encode());
+
+    let txs = [
+        Transaction::new(target).calldata(store_local_calldata),
+        Transaction::new(target).calldata(store_remote_calldata),
+    ];
+    let exec_output = chain.exec(&txs).unwrap();
+    assert!(
+        exec_output.results[0].success,
+        "storeLocalContract must succeed"
+    );
+    assert!(
+        exec_output.results[1].success,
+        "storeRemoteContract must succeed"
+    );
+
+    assert_eq!(
+        transport.total_calls(),
+        3,
+        "3 RPC calls: chain_id, block, WETH account batch (no storage fetch)"
     );
 }

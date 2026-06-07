@@ -10,6 +10,7 @@ use Vm::VmCalls;
 
 use crate::evm::cheatcode::inspector::CfgMut;
 use crate::evm::cheatcode::state::ExecutionState;
+use crate::evm::database::DatabaseExt;
 
 pub mod addr;
 pub mod chain_id;
@@ -90,6 +91,7 @@ pub fn dispatch<CTX>(
 ) -> Option<CallOutcome>
 where
     CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut,
+    CTX::Db: DatabaseExt,
 {
     match call {
         // Block

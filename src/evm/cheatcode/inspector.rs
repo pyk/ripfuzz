@@ -18,6 +18,7 @@ use revm::{
 use crate::evm::cheatcode::calls;
 use crate::evm::cheatcode::calls::Vm::VmCalls;
 use crate::evm::cheatcode::{CheatcodeConfig, ExecutionState, VM_ADDRESS};
+use crate::evm::database::DatabaseExt;
 use crate::evm::forkdb::SharedLocalAddressRegistry;
 
 /// Minimal trait to mutate `chain_id` on generic EVM contexts.
@@ -224,6 +225,8 @@ impl Default for Inspector {
 
 impl<CTX: ContextTr<Block = BlockEnv, Tx = TxEnv> + ContextSetters + CfgMut>
     revm::inspector::Inspector<CTX, EthInterpreter> for Inspector
+where
+    CTX::Db: DatabaseExt,
 {
     fn initialize_interp(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
     }
