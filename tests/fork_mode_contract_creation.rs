@@ -7,12 +7,16 @@
 use alloy_sol_types::SolCall;
 use raptor::{
     ArtifactId, Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, MockTransport, Project,
-    SetupInput,
+    SetupInput, Transaction,
 };
 use revm::primitives::Bytes;
 use serde_json::json;
 
 alloy_sol_types::sol! {
+    interface BasicContract {
+        function setValue(uint256 newValue) external;
+    }
+
     interface MarketTarget {
         function touchMarket() external;
     }
@@ -65,8 +69,11 @@ fn fork_chain(transport: &MockTransport, url: &str) -> Chain {
     Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap()
 }
 
+/// Regression test: basic contract deployment must not trigger an RPC
+/// fetch for the newly created address. Interacting with the deployed
+/// contract via `exec` must also not trigger any RPC.
 #[test]
-fn fork_mode_deploy_basic_contract_no_rpc_fetch() {
+fn deploy_basic_contract() {
     let transport = MockTransport::default();
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
@@ -78,6 +85,22 @@ fn fork_mode_deploy_basic_contract_no_rpc_fetch() {
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
+    let target = deployment.address.unwrap();
+
+    let baseline = transport.total_calls();
+
+    let set_value_calldata = Bytes::from(
+        BasicContract::setValueCall::new((alloy_primitives::U256::from(7),)).abi_encode(),
+    );
+    let tx = Transaction::new(target).calldata(set_value_calldata);
+    let exec_output = chain.exec(&[tx]).unwrap();
+    assert!(exec_output.results[0].success, "setValue call must succeed");
+
+    assert_eq!(
+        transport.total_calls(),
+        baseline,
+        "no RPC calls after deployment"
+    );
 }
 
 #[test]

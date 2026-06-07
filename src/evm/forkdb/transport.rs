@@ -61,6 +61,12 @@ impl MockTransport {
         let guard = self.call_count.lock();
         guard.get(&(url.into(), payload_json)).copied().unwrap_or(0)
     }
+
+    /// Return the total number of calls across all requests.
+    pub fn total_calls(&self) -> usize {
+        let guard = self.call_count.lock();
+        guard.values().sum()
+    }
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
