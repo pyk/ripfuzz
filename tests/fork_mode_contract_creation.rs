@@ -21,8 +21,8 @@ alloy_sol_types::sol! {
         function setChildValue(uint256 newValue) external;
     }
 
-    interface MarketTarget {
-        function touchMarket() external;
+    interface DeployChildInSetup {
+        function setChildValue(uint256 newValue) external;
     }
 }
 
@@ -146,6 +146,55 @@ fn deploy_child_in_constructor() {
     );
 }
 
+/// Regression test: deploying a child contract inside a setup function
+/// must not trigger an RPC fetch for the child's address. Interacting
+/// with the deployed contract (calling into the child) must also not
+/// trigger any RPC.
+#[test]
+fn deploy_child_in_setup() {
+    let transport = MockTransport::default();
+    let url = "mock://test";
+    let mut chain = fork_chain(&transport, url);
+
+    let project = Project::new("fixtures/fork-mode-contract-creation");
+    let artifacts = project.load_artifacts().unwrap();
+    let artifact_id =
+        ArtifactId::try_from("test/DeployChildInSetup.sol:DeployChildInSetup").unwrap();
+    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+    let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+    assert!(deployment.result.success, "deployment must succeed");
+    let target = deployment.address.unwrap();
+
+    let setup_fn = contract
+        .setup_function
+        .as_ref()
+        .expect("DeployChildInSetup must have setup()");
+    let setup_data = Bytes::from(setup_fn.selector().as_slice().to_vec());
+    let setup_result = chain
+        .setup(SetupInput::new(target).calldata(setup_data))
+        .unwrap();
+    assert!(setup_result.result.success, "setup must succeed");
+
+    let baseline = transport.total_calls();
+
+    let set_child_calldata = Bytes::from(
+        DeployChildInSetup::setChildValueCall::new((alloy_primitives::U256::from(7),)).abi_encode(),
+    );
+    let tx = Transaction::new(target).calldata(set_child_calldata);
+    let exec_output = chain.exec(&[tx]).unwrap();
+    assert!(
+        exec_output.results[0].success,
+        "setChildValue call must succeed"
+    );
+
+    assert_eq!(
+        transport.total_calls(),
+        baseline,
+        "no RPC calls after setup and deployment"
+    );
+}
+
 #[test]
 fn fork_mode_deploy_and_setup_factory_no_rpc_fetch() {
     let transport = MockTransport::default();
@@ -170,41 +219,4 @@ fn fork_mode_deploy_and_setup_factory_no_rpc_fetch() {
         .setup(SetupInput::new(target).calldata(setup_data))
         .unwrap();
     assert!(setup_result.result.success, "setup must succeed");
-}
-
-#[test]
-fn fork_mode_deploy_setup_call_no_rpc_fetch() {
-    let transport = MockTransport::default();
-    let url = "mock://test";
-    let mut chain = fork_chain(&transport, url);
-
-    let project = Project::new("fixtures/fork-mode-contract-creation");
-    let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/MarketTarget.sol:MarketTarget").unwrap();
-    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
-
-    let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
-    assert!(deployment.result.success, "deploy must succeed");
-    let target = deployment.address.unwrap();
-
-    let setup_fn = contract
-        .setup_function
-        .as_ref()
-        .expect("MarketTarget must have setup()");
-    let setup_data = Bytes::from(setup_fn.selector().as_slice().to_vec());
-    let setup_result = chain
-        .setup(SetupInput::new(target).calldata(setup_data))
-        .unwrap();
-    assert!(setup_result.result.success, "setup must succeed");
-
-    let call_data = Bytes::from(MarketTarget::touchMarketCall::new(()).abi_encode());
-    let call_result = chain
-        .call(
-            chain.deployer(),
-            target,
-            alloy_primitives::U256::ZERO,
-            call_data,
-        )
-        .unwrap();
-    assert!(call_result.success, "touchMarket call must succeed");
 }
