@@ -21,6 +21,11 @@ alloy_sol_types::sol! {
         function roll(uint256 value) external;
         function getBlockNumber() external view returns (uint256);
     }
+
+    interface VmChainId {
+        function setChainId(uint256 value) external;
+        function getChainId() external view returns (uint256);
+    }
 }
 
 fn mock_fork_setup(
@@ -119,6 +124,61 @@ fn vm_warp() {
         ts,
         alloy_primitives::U256::from(BLOCK_TIMESTAMP + 42),
         "block timestamp must equal fork timestamp + warp value"
+    );
+
+    assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
+}
+
+/// Integration test: `vm.chainId` cheatcode must correctly update
+/// `block.chainid` in fork mode. The deployed target contract is
+/// local and must not trigger any RPC fetch.
+#[test]
+fn vm_chain_id() {
+    let transport = MockTransport::default();
+    let url = "mock://test";
+    let mut chain = fork_chain(&transport, url);
+
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "fork init must fetch chain_id and block"
+    );
+
+    let project = Project::new("fixtures/fork-mode-cheatcode");
+    let artifacts = project.load_artifacts().unwrap();
+    let artifact_id = ArtifactId::try_from("test/VmChainId.sol:VmChainId").unwrap();
+    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+    let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+    assert!(deployment.result.success, "deployment must succeed");
+    let target = deployment.address.unwrap();
+
+    let chain_id_value = alloy_primitives::U256::from(1337);
+    let set_chain_id_calldata =
+        Bytes::from(VmChainId::setChainIdCall::new((chain_id_value,)).abi_encode());
+    let get_chain_id_calldata = Bytes::from(VmChainId::getChainIdCall::new(()).abi_encode());
+
+    let txs = [
+        Transaction::new(target).calldata(set_chain_id_calldata),
+        Transaction::new(target).calldata(get_chain_id_calldata),
+    ];
+    let exec_output = chain.exec(&txs).unwrap();
+    assert!(
+        exec_output.results[0].success,
+        "setChainId call must succeed"
+    );
+    assert!(
+        exec_output.results[1].success,
+        "getChainId call must succeed"
+    );
+
+    let id = VmChainId::getChainIdCall::abi_decode_returns(
+        &exec_output.results[1].output.clone().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        id, chain_id_value,
+        "chain ID must equal the value set by vm.chainId"
     );
 
     assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");

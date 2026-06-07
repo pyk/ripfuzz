@@ -387,6 +387,7 @@ impl Chain {
                 data: tx.calldata.clone(),
                 gas_limit: tx.gas_limit,
                 value: tx.value,
+                chain_id: Some(evm.ctx.cfg.chain_id),
                 ..Default::default()
             };
             let result = evm
