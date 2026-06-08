@@ -25,7 +25,8 @@
 //!    global `batch_state` mutex, adds its missing requests to the pending set
 //!    (deduplicated by `cache_key`), and either:
 //!    * becomes the **fetcher** when `batch_size` is reached or
-//!      `batch_timeout` has elapsed since the last fetch; or
+//!      `batch_timeout` has elapsed since the first request entered the
+//!      pending queue; or
 //!    * releases the mutex and blocks on a `Condvar` while waiting for the
 //!      fetcher to finish.
 //!
@@ -122,7 +123,13 @@ struct SharedBackendInner {
 #[derive(Debug)]
 struct BatchState {
     pending: Vec<Request>,
-    last_fetch: Instant,
+    /// When the current batch started accumulating.
+    ///
+    /// Set to `Some(Instant::now())` when the first request is added after
+    /// pending was empty, and cleared to `None` when the batch is drained
+    /// for a fetch. The batch fires when `pending.len() >= batch_size` or
+    /// this timestamp is older than `batch_timeout`.
+    batch_start: Option<Instant>,
 }
 
 impl SharedBackend {
@@ -150,7 +157,7 @@ impl SharedBackend {
             global_cache,
             batch_state: Mutex::new(BatchState {
                 pending: Vec::new(),
-                last_fetch: Instant::now(),
+                batch_start: None,
             }),
             batch_condvar: Condvar::new(),
             batch_size: config.batch_size,
@@ -227,19 +234,32 @@ impl SharedBackend {
                 .filter(|req| map.get(&req.cache_key()).is_none())
                 .cloned()
                 .collect();
+
+            let was_empty = state.pending.is_empty();
             state.pending.extend(new_pending_requests);
 
             // 2. Deduplicate pending by cache_key, preserving order.
             let mut seen = HashSet::new();
             state.pending.retain(|req| seen.insert(req.cache_key()));
 
-            // 3. Decide: fetch or wait.
-            let should_fetch = state.pending.len() >= self.inner.batch_size
-                || state.last_fetch.elapsed() >= self.inner.batch_timeout;
+            // 3. If pending just went from empty to non-empty, start the
+            //    batch collection timer.
+            if was_empty && !state.pending.is_empty() {
+                state.batch_start = Some(Instant::now());
+            }
+
+            // 4. Decide: fetch or wait. The batch fires when enough
+            //    requests are pending or the batch has been collecting for
+            //    longer than `batch_timeout`.
+            let time_exceeded = match state.batch_start {
+                Some(start) => start.elapsed() >= self.inner.batch_timeout,
+                None => false,
+            };
+            let should_fetch = state.pending.len() >= self.inner.batch_size || time_exceeded;
 
             if should_fetch {
                 let batch: Vec<Request> = state.pending.drain(..).collect();
-                state.last_fetch = Instant::now();
+                state.batch_start = None;
 
                 match self.execute_batch(batch) {
                     Ok(successes) => {
@@ -269,14 +289,14 @@ impl SharedBackend {
                 }
             }
 
-            // 4. Wait for a fetcher to finish or for the timeout to expire.
-            let remaining = self
-                .inner
-                .batch_timeout
-                .saturating_sub(state.last_fetch.elapsed());
+            // 5. Wait for a fetcher to finish or for the timeout to expire.
+            let remaining = match state.batch_start {
+                Some(start) => self.inner.batch_timeout.saturating_sub(start.elapsed()),
+                None => self.inner.batch_timeout,
+            };
             self.inner.batch_condvar.wait_for(&mut state, remaining);
 
-            // 5. After waking, check cache before deciding again.
+            // 6. After waking, check cache before deciding again.
             if let Some(results) = self.try_fast_path(reqs)? {
                 return Ok(results);
             }
@@ -1020,6 +1040,133 @@ mod tests {
             batch_item_count.load(Ordering::SeqCst),
             16,
             "exactly 16 unique batch items should be sent to the transport"
+        );
+    }
+
+    /// Regression: backend creation and first `fetch_or_wait` call can be far
+    /// apart in time (seconds, not milliseconds). The batch timer must start
+    /// when the first request enters the pending queue, not when the backend
+    /// was constructed. Otherwise the very first batch fires immediately with
+    /// a single item, and no subsequent batching occurs.
+    ///
+    /// 8 parallel threads each submit 1 unique `GetStorageAt` request after
+    /// the backend has been sitting idle for 200 ms. With batch_size = 8 and
+    /// batch_timeout = 50 ms, the backend must issue exactly 1 HTTP POST
+    /// containing all 8 requests, not 8 individual calls.
+    #[test]
+    fn regression_batch_timer_starts_on_first_request_not_construction() {
+        #[derive(Debug)]
+        struct CountingStorageTransport {
+            call_count: Arc<AtomicUsize>,
+            batch_item_count: Arc<AtomicUsize>,
+        }
+
+        impl Default for CountingStorageTransport {
+            fn default() -> Self {
+                Self {
+                    call_count: Arc::new(AtomicUsize::new(0)),
+                    batch_item_count: Arc::new(AtomicUsize::new(0)),
+                }
+            }
+        }
+
+        impl Transport for CountingStorageTransport {
+            fn exec(&self, _url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+
+                let requests = payload
+                    .as_array()
+                    .expect("expected JSON array batch payload");
+                self.batch_item_count
+                    .fetch_add(requests.len(), Ordering::SeqCst);
+
+                let responses: Vec<serde_json::Value> = requests
+                    .iter()
+                    .map(|req| {
+                        let id = req
+                            .get("id")
+                            .and_then(|v| v.as_u64())
+                            .expect("missing id in batch request")
+                            as usize;
+
+                        let slot = req
+                            .get("params")
+                            .and_then(|p| p.as_array())
+                            .and_then(|a| a.get(1))
+                            .and_then(|v| v.as_str())
+                            .expect("missing slot param");
+
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": slot,
+                        })
+                    })
+                    .collect();
+
+                Ok(json!(responses))
+            }
+        }
+
+        let transport = CountingStorageTransport::default();
+        let call_count = transport.call_count.clone();
+        let batch_item_count = transport.batch_item_count.clone();
+
+        let thread_count = 8;
+        let config = ForkDBConfig::new("mock://test")
+            .batch_size(thread_count)
+            .batch_timeout_ms(50);
+        let backend = SharedBackend::new_with_transport(config, transport);
+
+        // Simulate the real-world scenario where the backend is constructed
+        // long before the first RPC call (e.g. during project compilation,
+        // deployment, setup).
+        std::thread::sleep(Duration::from_millis(200));
+
+        let barrier = Arc::new(std::sync::Barrier::new(thread_count));
+        let mut handles = Vec::with_capacity(thread_count);
+
+        let address = address!("0x0000000000000000000000000000000000000001");
+        let block = 1_u64;
+        let chain_id = 1_u64;
+
+        for i in 0..thread_count {
+            let backend = backend.clone();
+            let barrier = barrier.clone();
+            let handle = std::thread::spawn(move || {
+                let slot = U256::from(i);
+                let req = Request::GetStorageAt {
+                    chain_id,
+                    address,
+                    slot,
+                    block,
+                };
+                barrier.wait();
+                let res = backend.fetch_or_wait(&[req]).unwrap();
+                assert_eq!(res.len(), 1);
+                match &res[0] {
+                    Response::StorageAt(value) => {
+                        assert_eq!(*value, U256::from(i));
+                    }
+                    other => panic!("expected StorageAt, got {:?}", other),
+                }
+            });
+            handles.push(handle);
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "only 1 HTTP POST should be performed even when backend was idle for 200 ms before requests"
+        );
+        assert_eq!(
+            batch_item_count.load(Ordering::SeqCst),
+            8,
+            "all 8 requests must be in a single batch"
         );
     }
 
