@@ -93,13 +93,11 @@ pub struct Args {
     pub max_calls: usize,
 
     /// Random seed for reproducibility.
-    #[arg(
-        long = "seed",
-        default_value = "0",
-        value_name = "N",
-        help_heading = "Fuzzing Parameters"
-    )]
-    pub seed: u64,
+    ///
+    /// When not provided, a random seed is generated and printed at campaign
+    /// start so the run can be reproduced later.
+    #[arg(long = "seed", value_name = "N", help_heading = "Fuzzing Parameters")]
+    pub seed: Option<u64>,
 
     // Shrinker
     /// Maximum number of shrink runs across all shrinker threads.
@@ -302,6 +300,19 @@ pub fn run(args: Args) -> Result<()> {
     let mut console = Console::new();
     console.set_disabled(args.disable_log);
     console.print(format!("starting raptor v{}", env!("CARGO_PKG_VERSION")))?;
+
+    // Resolve the campaign seed early so it can be logged before any work.
+    let campaign_seed = match args.seed {
+        Some(s) => {
+            console.print_line(format!("seed: {s} (user-provided)"))?;
+            s
+        }
+        None => {
+            let s = fastrand::Rng::new().u64(0..=u64::MAX);
+            console.print_line(format!("seed: {s}"))?;
+            s
+        }
+    };
 
     // Resolve project path
     let project_path = args.project_path.map(Ok).unwrap_or_else(env::current_dir)?;
@@ -625,7 +636,7 @@ pub fn run(args: Args) -> Result<()> {
         } else {
             base_runs
         };
-        let seed = args.seed.wrapping_add(fuzzer_id as u64);
+        let seed = campaign_seed.wrapping_add(fuzzer_id as u64);
         // checkrs: allow(clone_in_loops)
         let mut config = initial_config.clone();
         config.max_runs = local_max_runs;
@@ -789,8 +800,7 @@ pub fn run(args: Args) -> Result<()> {
         } else {
             base_shrink_runs
         };
-        let seed = args
-            .seed
+        let seed = campaign_seed
             .wrapping_add(shrinker_id as u64)
             .wrapping_add(1000);
         // checkrs: allow(clone_in_loops)
@@ -1029,7 +1039,7 @@ mod tests {
             max_runs: 10000,
             timeout_secs: None,
             max_calls: 32,
-            seed: 0,
+            seed: Some(0),
             corpus_dir: Some(corpus_dir),
             log_level: tracing::Level::INFO,
             disable_log: true,
