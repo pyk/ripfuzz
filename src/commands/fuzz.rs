@@ -308,7 +308,7 @@ pub fn run(args: Args) -> Result<()> {
             s
         }
         None => {
-            let s = fastrand::Rng::new().u64(0..=u64::MAX);
+            let s = fastrand::Rng::new().u64(1..=100_000);
             console.print_line(format!("seed: {s}"))?;
             s
         }
