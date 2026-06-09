@@ -217,7 +217,8 @@ impl StorageType {
 ///
 /// Tracks `keccak256(key || base_slot)` results observed during execution
 /// so that hashed mapping slots can be resolved back to human-readable
-/// `mapping[key]` labels.
+/// `mapping[key]` labels. Also tracks 32-byte `keccak256` results for
+/// dynamic array data area starts.
 #[derive(Clone, Debug, Default)]
 pub struct MappingSlots {
     /// slot -> parent slot
@@ -226,6 +227,9 @@ pub struct MappingSlots {
     keys: HashMap<alloy_primitives::B256, alloy_primitives::B256>,
     /// keccak256 result -> (key, parent)
     seen_sha3: HashMap<alloy_primitives::B256, (alloy_primitives::B256, alloy_primitives::B256)>,
+    /// keccak256 results from 32-byte inputs, representing dynamic array
+    /// data area starts. Maps: data_start -> parent slot (where length is).
+    array_starts: HashMap<alloy_primitives::B256, alloy_primitives::B256>,
 }
 
 impl MappingSlots {
@@ -237,6 +241,17 @@ impl MappingSlots {
         parent: alloy_primitives::B256,
     ) {
         self.seen_sha3.insert(result, (key, parent));
+    }
+
+    /// Record a dynamic array data area start: `keccak256(parent_slot)`
+    /// where `parent_slot` is the storage slot holding the array length.
+    /// This is called for 32-byte KECCAK256 inputs.
+    pub fn record_array_start(
+        &mut self,
+        result: alloy_primitives::B256,
+        parent: alloy_primitives::B256,
+    ) {
+        self.array_starts.insert(result, parent);
     }
 
     /// Try to register a mapping slot. Returns `true` if the slot was
@@ -313,6 +328,31 @@ impl MappingSlots {
             current = *parent;
         }
         None
+    }
+
+    /// Return the parent slot (where the length is stored) for a recorded
+    /// dynamic array data area start, or `None` if unknown.
+    pub fn array_start_parent(
+        &self,
+        slot: alloy_primitives::B256,
+    ) -> Option<alloy_primitives::B256> {
+        self.array_starts.get(&slot).copied()
+    }
+
+    /// Iterate over all recorded array data starts.
+    pub fn array_start_entries(
+        &self,
+    ) -> impl Iterator<Item = (&alloy_primitives::B256, &alloy_primitives::B256)> {
+        self.array_starts.iter()
+    }
+
+    /// Return `true` if `slot` is a known keccak256 result with a non-zero
+    /// key (i.e. a mapping slot rather than a dynamic-array data start).
+    pub fn is_mapping_result(&self, slot: &alloy_primitives::B256) -> bool {
+        self.seen_sha3
+            .get(slot)
+            .map(|(k, _)| !k.is_zero())
+            .unwrap_or(false)
     }
 }
 

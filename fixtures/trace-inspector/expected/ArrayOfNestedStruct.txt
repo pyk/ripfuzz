@@ -1,4 +1,4 @@
-[214761] → new ArrayOfNestedStruct@0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2
+[300268] → new ArrayOfNestedStruct@0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2
     ├─  call context:
     │   @ msg.sender: RaptorDeployer [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]
     │   @ msg.value: 0
@@ -10,4 +10,6 @@
     │   @ entries[0].data.b: 0 -> 2
     │   @ entries[0].data.c: 0 -> 3
     │   @ entries[0].extra: 0x00 -> 0xcafebabe00000000000000000000000000000000000000000000000000000008
+    │   @ entries[0].items: 0 -> 1
+    │   @ entries[0].items[0]: 0 -> 42
     └─ ← [revert] nested struct in array

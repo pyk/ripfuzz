@@ -488,6 +488,86 @@ impl TraceContext {
                     }
                 }
             }
+
+            // Dynamic array element nested inside a struct field of a
+            // top-level array (e.g. `offers[0].offer.market.collateralParams[0]`).
+            // These data areas are computed via keccak256(length_slot) with
+            // 32-byte input and recorded in array_starts.
+            for (data_start, parent_slot) in mapping_slots.array_start_entries() {
+                // Skip data starts whose parent is a mapping-slot result
+                // (those are already handled by the mapping dynamic-array
+                // paths above).
+                if mapping_slots.is_mapping_result(parent_slot) {
+                    continue;
+                }
+                let data_start_u256 = U256::from_be_bytes(data_start.0);
+                if *slot < data_start_u256 {
+                    continue;
+                }
+                let offset = slot - data_start_u256;
+                let Ok(offset_usize) = usize::try_from(offset) else {
+                    continue;
+                };
+                let parent_u256 = U256::from_be_bytes(parent_slot.0);
+                // Find which array element the parent slot belongs to.
+                let Some(arrays) = self.array_info.get(contract_name) else {
+                    continue;
+                };
+                let mut array_match: Option<(&ArrayInfo, U256)> = None;
+                for array in arrays {
+                    if parent_u256 >= array.start_slot {
+                        let rel = parent_u256 - array.start_slot;
+                        let idx = rel / U256::from(array.element_slots);
+                        let in_bounds = match array.len {
+                            Some(len) => match usize::try_from(idx) {
+                                Ok(i) => i < len,
+                                Err(_) => false,
+                            },
+                            None => {
+                                let i = u64::try_from(idx).unwrap_or(u64::MAX);
+                                i < 10_000_000
+                            }
+                        };
+                        if !in_bounds {
+                            continue;
+                        }
+                        if array_match
+                            .as_ref()
+                            .map(|(a, _)| array.start_slot > a.start_slot)
+                            .unwrap_or(true)
+                        {
+                            array_match = Some((array, idx));
+                        }
+                    }
+                }
+                let Some((array, elem_idx)) = array_match else {
+                    continue;
+                };
+                let field_offset_rel =
+                    (parent_u256 - array.start_slot) % U256::from(array.element_slots);
+                let field_off = u64::try_from(field_offset_rel).unwrap_or(0) as usize;
+                let Some(fields) = &array.struct_fields else {
+                    continue;
+                };
+                let Some(dyn_array_field) = fields.iter().find(|f| f.slot_offset == field_off)
+                else {
+                    continue;
+                };
+                if !matches!(dyn_array_field.ty, StorageType::Array { len: None, .. }) {
+                    continue;
+                }
+                let StorageType::Array { element, len: None } = &dyn_array_field.ty else {
+                    continue;
+                };
+                let element_slots = element.slot_size().div_ceil(32);
+                let index = offset_usize / element_slots;
+                if index >= 10_000_000 {
+                    continue;
+                }
+                let name = format!("{}[{}]", array.name, elem_idx);
+                let label = format!("{}.{}", name, dyn_array_field.name);
+                return Some(format!("{}[{}]", label, index));
+            }
         }
         None
     }
@@ -675,6 +755,79 @@ impl TraceContext {
                         break;
                     }
                 }
+            }
+
+            // Dynamic array element nested inside a struct field of a
+            // top-level array.
+            for (data_start, parent_slot) in mapping_slots.array_start_entries() {
+                // Skip data starts whose parent is a mapping slot.
+                if mapping_slots.is_mapping_result(parent_slot) {
+                    continue;
+                }
+                let data_start_u256 = U256::from_be_bytes(data_start.0);
+                if *slot < data_start_u256 {
+                    continue;
+                }
+                let offset = slot - data_start_u256;
+                let Ok(offset_usize) = usize::try_from(offset) else {
+                    continue;
+                };
+                let parent_u256 = U256::from_be_bytes(parent_slot.0);
+                let Some(arrays) = self.array_info.get(contract_name) else {
+                    continue;
+                };
+                let mut array_match: Option<(&ArrayInfo, U256)> = None;
+                for array in arrays {
+                    if parent_u256 >= array.start_slot {
+                        let rel = parent_u256 - array.start_slot;
+                        let idx = rel / U256::from(array.element_slots);
+                        let in_bounds = match array.len {
+                            Some(len) => match usize::try_from(idx) {
+                                Ok(i) => i < len,
+                                Err(_) => false,
+                            },
+                            None => {
+                                let i = u64::try_from(idx).unwrap_or(u64::MAX);
+                                i < 10_000_000
+                            }
+                        };
+                        if !in_bounds {
+                            continue;
+                        }
+                        if array_match
+                            .as_ref()
+                            .map(|(a, _)| array.start_slot > a.start_slot)
+                            .unwrap_or(true)
+                        {
+                            array_match = Some((array, idx));
+                        }
+                    }
+                }
+                let Some((array, _elem_idx)) = array_match else {
+                    continue;
+                };
+                let field_offset_rel =
+                    (parent_u256 - array.start_slot) % U256::from(array.element_slots);
+                let field_off = u64::try_from(field_offset_rel).unwrap_or(0) as usize;
+                let Some(fields) = &array.struct_fields else {
+                    continue;
+                };
+                let Some(dyn_array_field) = fields.iter().find(|f| f.slot_offset == field_off)
+                else {
+                    continue;
+                };
+                if !matches!(dyn_array_field.ty, StorageType::Array { len: None, .. }) {
+                    continue;
+                }
+                let StorageType::Array { element, len: None } = &dyn_array_field.ty else {
+                    continue;
+                };
+                let element_slots = element.slot_size().div_ceil(32);
+                let index = offset_usize / element_slots;
+                if index >= 10_000_000 {
+                    continue;
+                }
+                return Some(element.as_ref());
             }
         }
         None

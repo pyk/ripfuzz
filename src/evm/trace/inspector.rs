@@ -48,20 +48,32 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
                 let Ok(size) = interp.stack.peek(1) else {
                     return;
                 };
-                if size != U256::from(0x40) {
-                    return;
+                if size == U256::from(0x40) {
+                    let Ok(offset) = interp.stack.peek(0) else {
+                        return;
+                    };
+                    let data = interp.memory.slice_len(offset.saturating_to(), 0x40);
+                    let key = B256::from_slice(&data[..0x20]);
+                    let parent = B256::from_slice(&data[0x20..]);
+                    let result = keccak256(&*data);
+                    self.mapping_slots
+                        .entry(address)
+                        .or_default()
+                        .record_sha3(result, key, parent);
+                } else if size == U256::from(0x20) {
+                    // Record 32-byte KECCAK256 as potential dynamic-array
+                    // data area starts (e.g. keccak256(length_slot)).
+                    let Ok(offset) = interp.stack.peek(0) else {
+                        return;
+                    };
+                    let data = interp.memory.slice_len(offset.saturating_to(), 0x20);
+                    let parent = B256::from_slice(&data[..0x20]);
+                    let result = keccak256(&*data);
+                    self.mapping_slots
+                        .entry(address)
+                        .or_default()
+                        .record_array_start(result, parent);
                 }
-                let Ok(offset) = interp.stack.peek(0) else {
-                    return;
-                };
-                let data = interp.memory.slice_len(offset.saturating_to(), 0x40);
-                let key = B256::from_slice(&data[..0x20]);
-                let parent = B256::from_slice(&data[0x20..]);
-                let result = keccak256(&*data);
-                self.mapping_slots
-                    .entry(address)
-                    .or_default()
-                    .record_sha3(result, key, parent);
             }
             SSTORE => {
                 let stack = interp.stack.data();
