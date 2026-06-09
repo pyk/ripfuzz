@@ -48,6 +48,7 @@ pub struct Fuzzer {
     caller: Address,
     invariant_functions: Vec<Function>,
     max_runs: u64,
+    gas_limit: u64,
     timeout: Option<Duration>,
     fail_on_revert: bool,
     rng: fastrand::Rng,
@@ -66,6 +67,7 @@ impl Fuzzer {
             caller: config.caller,
             invariant_functions: config.invariant_functions,
             max_runs: config.max_runs,
+            gas_limit: config.gas_limit,
             timeout: config.timeout,
             fail_on_revert: config.fail_on_revert,
             rng: fastrand::Rng::with_seed(config.seed),
@@ -126,6 +128,7 @@ impl Fuzzer {
                 .iter()
                 .chain(invariant_calls.iter())
                 .map(|call| call.into_transaction(self.target_address))
+                .map(|tx| tx.gas_limit(self.gas_limit))
                 .collect();
             let calls_count = transactions.len();
 

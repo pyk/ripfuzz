@@ -59,6 +59,15 @@ pub struct Args {
     pub deployer_address: Address,
 
     // Campaign Limits
+    /// Gas limit for each fuzzer-generated transaction.
+    #[arg(
+        long = "gas-limit",
+        default_value = "12500000",
+        value_name = "GAS",
+        help_heading = "Campaign Limits"
+    )]
+    pub gas_limit: u64,
+
     /// Number of parallel fuzzer threads to spawn.
     #[arg(short = 'w', long = "threads", default_value_t = Args::default_threads(), value_parser = Args::parse_threads, value_name = "N", help_heading = "Campaign Limits")]
     pub threads: usize,
@@ -626,6 +635,7 @@ pub fn run(args: Args) -> Result<()> {
         .shutdown_signal(shutdown_signal.clone())
         .invariant_functions(target_contract.invariant_functions.clone())
         .caller(args.deployer_address)
+        .gas_limit(args.gas_limit)
         .timeout(timeout)
         .fail_on_revert(args.fail_on_revert);
 
@@ -1038,6 +1048,7 @@ mod tests {
             threads: 1,
             max_runs: 10000,
             timeout_secs: None,
+            gas_limit: 12_500_000,
             max_calls: 32,
             seed: Some(0),
             corpus_dir: Some(corpus_dir),

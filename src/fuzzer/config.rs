@@ -26,6 +26,7 @@ pub struct FuzzerConfig {
     pub caller: Address,
     pub invariant_functions: Vec<Function>,
     pub max_runs: u64,
+    pub gas_limit: u64,
     pub timeout: Option<Duration>,
     pub fail_on_revert: bool,
 }
@@ -44,6 +45,7 @@ impl FuzzerConfig {
             caller: evm::DEFAULT_DEPLOYER,
             invariant_functions: Vec::new(),
             max_runs: 0,
+            gas_limit: 12_500_000,
             timeout: None,
             fail_on_revert: false,
         }
@@ -106,6 +108,12 @@ impl FuzzerConfig {
     /// Set the maximum number of runs.
     pub fn max_runs(mut self, value: u64) -> Self {
         self.max_runs = value;
+        self
+    }
+
+    /// Set the gas limit for each fuzzer-generated transaction.
+    pub fn gas_limit(mut self, value: u64) -> Self {
+        self.gas_limit = value;
         self
     }
 
