@@ -1294,12 +1294,62 @@ fn element_byte_slots(types: &HashMap<String, StorageTypeInfo>, array_type_name:
 /// Parse struct field layout for a struct type, or for the base element type
 /// of an array.
 ///
+/// Nested struct members are recursively flattened so that every sub-field
+/// appears in the returned list with a dot-separated name
+/// (e.g. `data.a`) and an absolute `slot_offset` relative to the top-level
+/// struct. This allows [`resolve_storage_name`] to match any field offset
+/// without needing to recurse at lookup time.
+///
 /// Returns `None` if the type is not a struct or if member info is
 /// unavailable.
 fn parse_struct_fields(
     types: &HashMap<String, StorageTypeInfo>,
     type_name: &str,
 ) -> Option<Vec<StructField>> {
+    fn collect_fields(
+        types: &HashMap<String, StorageTypeInfo>,
+        info: &StorageTypeInfo,
+        prefix: &str,
+        base_offset: usize,
+    ) -> Option<Vec<StructField>> {
+        if info.members.is_empty() {
+            return Some(Vec::new());
+        }
+        let mut fields = Vec::new();
+        for member in &info.members {
+            let slot_offset = member.slot.parse::<usize>().ok()?;
+            let ty = StorageType::parse(&member.type_name)?;
+            let bytes = types
+                .get(&member.type_name)
+                .and_then(|t| t.number_of_bytes.parse::<usize>().ok())
+                .unwrap_or(32);
+            let abs_offset = base_offset + slot_offset;
+            let name = if prefix.is_empty() {
+                // checkrs: allow(clone_in_loops)
+                member.label.clone()
+            } else {
+                format!("{}.{}", prefix, member.label)
+            };
+            // If the member is itself a struct, recursively flatten its
+            // sub-fields so that offsets beyond the struct's base slot can
+            // be matched to human-readable names.
+            if ty == StorageType::Struct
+                && let Some(nested_info) = types.get(&member.type_name)
+                && let Some(sub_fields) = collect_fields(types, nested_info, &name, abs_offset)
+            {
+                fields.extend(sub_fields);
+            } else {
+                fields.push(StructField {
+                    name,
+                    slot_offset: abs_offset,
+                    ty,
+                    bytes,
+                });
+            }
+        }
+        Some(fields)
+    }
+
     let info = types.get(type_name)?;
     // For array types, look up the base element type; for struct types use
     // the type itself.
@@ -1311,23 +1361,7 @@ fn parse_struct_fields(
     if struct_type.members.is_empty() {
         return None;
     }
-    let mut fields = Vec::new();
-    for member in &struct_type.members {
-        let slot_offset = member.slot.parse::<usize>().ok()?;
-        let ty = StorageType::parse(&member.type_name)?;
-        let bytes = types
-            .get(&member.type_name)
-            .and_then(|t| t.number_of_bytes.parse::<usize>().ok())
-            .unwrap_or(32);
-        fields.push(StructField {
-            // checkrs: allow(clone_in_loops)
-            name: member.label.clone(),
-            slot_offset,
-            ty,
-            bytes,
-        });
-    }
-    Some(fields)
+    collect_fields(types, struct_type, "", 0)
 }
 
 /// Collect all link-reference positions from a [`LinkReferences`] map.

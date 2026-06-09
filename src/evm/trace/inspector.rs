@@ -594,6 +594,38 @@ mod tests {
         );
     }
 
+    /// Regression test: storage changes to a dynamic array of structs that
+    /// contain nested struct fields must be decoded to human-readable labels
+    /// (e.g. `entries[0].data.b`) instead of raw keccak hashes.
+    #[test]
+    fn array_of_nested_struct_trace() {
+        let contract = load_fixture("src/ArrayOfNestedStruct.sol:ArrayOfNestedStruct");
+
+        let mut chain = Chain::empty(ChainConfig::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(
+            !deployment.result.success,
+            "deployment must fail when constructor reverts"
+        );
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+
+        let root = &deployment.trace.roots[0];
+        let project = Project::new("fixtures/trace-inspector");
+        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let deploy_address = root.address.unwrap();
+        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+
+        let formatted = format!("{}", deployment.trace.display_with(&ctx));
+        let expected =
+            fs::read_to_string("fixtures/trace-inspector/expected/ArrayOfNestedStruct.txt")
+                .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "trace output must match expected"
+        );
+    }
+
     #[test]
     fn return_value_types_trace() {
         let outer = load_fixture("src/ReturnValueTypesTrace.sol:ReturnValueTypesTrace");
