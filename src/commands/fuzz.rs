@@ -95,7 +95,7 @@ pub struct Args {
     #[arg(
         short = 'c',
         long = "max-calls",
-        default_value = "32",
+        default_value = "100",
         value_name = "N",
         help_heading = "Fuzzing Parameters"
     )]
@@ -308,17 +308,21 @@ impl ForkModeArgs {
 pub fn run(args: Args) -> Result<()> {
     let mut console = Console::new();
     console.set_disabled(args.disable_log);
-    console.print(format!("starting raptor v{}", env!("CARGO_PKG_VERSION")))?;
-
     // Resolve the campaign seed early so it can be logged before any work.
     let campaign_seed = match args.seed {
         Some(s) => {
-            console.print_line(format!("seed: {s} (user-provided)"))?;
+            console.print(format!(
+                "starting raptor v{} (seed: {s}, user-provided)",
+                env!("CARGO_PKG_VERSION")
+            ))?;
             s
         }
         None => {
             let s = fastrand::Rng::new().u64(1..=100_000);
-            console.print_line(format!("seed: {s}"))?;
+            console.print(format!(
+                "starting raptor v{} (seed: {s})",
+                env!("CARGO_PKG_VERSION")
+            ))?;
             s
         }
     };

@@ -37,7 +37,7 @@ impl CorpusConfig {
         Self {
             corpus_dir: corpus_dir.as_ref().to_path_buf(),
             target_functions: Vec::new(),
-            max_calls_length: 32,
+            max_calls_length: 100,
             literals: ExtractedLiterals::default(),
         }
     }
