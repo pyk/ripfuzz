@@ -438,7 +438,7 @@ pub fn run(args: Args) -> Result<()> {
     console.update("spawned test chain")?;
     console.end()?;
     console.print_line(format!(
-        "    chain id        : {}\n    evm version     : {}\n    block number    : #{}\n    block timestamp : {}",
+        "    chain id        : {}\n    evm version     : {}\n    block number    : {}\n    block timestamp : {}",
         chain.cfg_env().chain_id,
         chain.cfg_env().spec.to_string().to_lowercase(),
         chain.block_env().number,

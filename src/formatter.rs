@@ -54,6 +54,27 @@ pub fn giga_gas(n: u64) -> String {
     format!("{:.2} G", n as f64 / 1_000_000_000.0)
 }
 
+/// Format a duration (in seconds) as a human-readable string.
+///
+/// - Less than 1 minute: `{secs:.2}s` (e.g. `30.50s`)
+/// - 1 minute or more:  `{xm}{ys}` (e.g. `8m30s`)
+/// - 1 hour or more:    `{xh}{xm}{ys}` (e.g. `1h5m30s`)
+pub fn duration(secs: f64) -> String {
+    if secs < 60.0 {
+        format!("{secs:.2}s")
+    } else {
+        let total_secs = secs as u64;
+        let hours = total_secs / 3600;
+        let mins = (total_secs % 3600) / 60;
+        let secs_remainder = total_secs % 60;
+        if hours > 0 {
+            format!("{hours}h{mins}m{secs_remainder}s")
+        } else {
+            format!("{mins}m{secs_remainder}s")
+        }
+    }
+}
+
 /// Context for formatting fuzzing campaign statistics.
 pub struct CampaignStats<'a> {
     shared_coverage: &'a SharedCoverage,
@@ -97,10 +118,10 @@ impl<'a> CampaignStats<'a> {
         };
 
         let mut output = format!(
-            "\n    ⊕ global stats\n    total runs   : {}\n    total calls  : {}\n    elapsed time : {:.2}s\n\n    ⊕ throughput\n    call/s : {}\n    gas/s  : {}",
+            "\n    ⊕ global stats\n    total runs   : {}\n    total calls  : {}\n    elapsed time : {}\n\n    ⊕ throughput\n    call/s : {}\n    gas/s  : {}",
             num(snapshot.runs),
             num(snapshot.calls),
-            elapsed_secs,
+            duration(elapsed_secs),
             num(calls_per_sec),
             giga_gas(gas_per_sec),
         );

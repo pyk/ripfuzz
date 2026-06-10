@@ -260,7 +260,8 @@ impl<W: Write> Console<W> {
             let prefix = self.start_prefix();
             write!(
                 self.output,
-                "{prefix} {message} {DIM}[{elapsed_secs:.1}s]{RESET}"
+                "{prefix} {message} {DIM}[{}]{RESET}",
+                crate::formatter::duration(elapsed_secs),
             )?;
         }
         Ok(())
