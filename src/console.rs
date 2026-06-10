@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 use tracing::{error, info};
 
+use crate::formatter;
+
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
 const DIM: &str = "\x1b[2m";
@@ -187,7 +189,11 @@ impl<W: Write> Console<W> {
         }
 
         let prefix = self.success_prefix();
-        writeln!(self.output, "{prefix} {message} in {seconds:.2}s")
+        writeln!(
+            self.output,
+            "{prefix} {message} in {}",
+            formatter::duration(seconds),
+        )
     }
 
     /// Print a progress line to stderr.
@@ -261,7 +267,7 @@ impl<W: Write> Console<W> {
             write!(
                 self.output,
                 "{prefix} {message} {DIM}[{}]{RESET}",
-                crate::formatter::duration(elapsed_secs),
+                formatter::duration(elapsed_secs),
             )?;
         }
         Ok(())
@@ -282,14 +288,15 @@ impl<W: Write> Console<W> {
         };
         let elapsed = self.elapsed.take().unwrap_or_else(|| start.elapsed());
         let seconds = elapsed.as_secs_f64();
-        info!("{message} in {seconds:.2}s");
+        let duration = formatter::duration(seconds);
+        info!("{message} in {duration}");
 
         if self.is_terminal {
             write!(self.output, "{REPLACE_LINE}")?;
         }
 
         let prefix = self.success_prefix();
-        writeln!(self.output, "{prefix} {message} in {seconds:.2}s")
+        writeln!(self.output, "{prefix} {message} in {duration}")
     }
 
     /// Replace the line printed by the matching [`Self::begin`] call with a
