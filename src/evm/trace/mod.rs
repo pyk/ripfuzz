@@ -443,7 +443,16 @@ pub struct TraceDisplay<'a> {
 
 impl<'a> fmt::Display for TraceDisplay<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for root in &self.trace.roots {
+        for (i, root) in self.trace.roots.iter().enumerate() {
+            if i > 0 {
+                writeln!(f)?;
+            }
+            // Call header with counter and revert indicator.
+            if root.success {
+                writeln!(f, "--- Call #{} ---", i + 1)?;
+            } else {
+                writeln!(f, "--- Call #{} [REVERT] ---", i + 1)?;
+            }
             self.write_frame(f, root, &[], true)?;
         }
 

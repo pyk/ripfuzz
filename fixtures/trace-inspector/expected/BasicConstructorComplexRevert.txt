@@ -1,3 +1,4 @@
+--- Call #1 [REVERT] ---
 [8580115] → new BasicConstructorComplexRevert@0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63
     ├─  call context:
     │   @ msg.sender: RaptorDeployer [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]
