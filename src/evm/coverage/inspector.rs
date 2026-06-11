@@ -266,6 +266,10 @@ mod tests {
         interface CoverageInitcodeFactory {
             function createChild(uint256 x) external;
         }
+
+        interface CoverageSkip {
+            function skipOrWork(uint256 x) external returns (uint256);
+        }
     }
 
     fn load_coverage_fixture(id: &str) -> Contract {
@@ -402,9 +406,9 @@ mod tests {
     }
 
     /// A second call sequence that executes a loop body more times than before
-    /// must be recorded as a deeper execution (AFL bucket crossing).
+    /// must not produce new coverage under binary edge tracking.
     #[test]
-    fn coverage_deeper_execution() {
+    fn coverage_deeper_execution_not_interesting() {
         let contract = load_coverage_fixture("src/CoverageLoop.sol:CoverageLoop");
         let (mut chain, target) = deploy_and_setup(&contract);
 
@@ -415,17 +419,21 @@ mod tests {
         ))];
         let exec1 = chain.exec(&txs1).unwrap();
         let coverage1 = exec1.coverage.expect("coverage must be present");
-        global.merge(&coverage1);
+        let update1 = global.merge(&coverage1);
+        assert!(
+            update1.is_interesting(),
+            "first execution should be interesting (new edges)"
+        );
 
         let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageLoop::loopNCall::new((U256::from(3),)).abi_encode(),
         ))];
         let exec2 = chain.exec(&txs2).unwrap();
         let coverage2 = exec2.coverage.expect("coverage must be present");
-        let update = global.merge(&coverage2);
+        let update2 = global.merge(&coverage2);
         assert!(
-            update.new_features > 0,
-            "deeper execution should be detected"
+            !update2.is_interesting(),
+            "repeated execution of the same path should not be interesting without AFL bucketing"
         );
     }
 
@@ -498,6 +506,43 @@ mod tests {
         assert!(
             !update2.is_interesting(),
             "identical second run should not be interesting"
+        );
+    }
+
+    /// A function that returns early (skip) must not be marked as interesting
+    /// when called a second time with different args that hit the same skip path.
+    #[test]
+    fn coverage_skip_not_interesting_twice() {
+        let contract = load_coverage_fixture("src/CoverageSkip.sol:CoverageSkip");
+        let (mut chain, target) = deploy_and_setup(&contract);
+
+        let global = SharedCoverage::new();
+
+        // First call: skip path (x > 100). Should be interesting (new edges).
+        let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageSkip::skipOrWorkCall::new((U256::from(200),)).abi_encode(),
+        ))];
+        let exec1 = chain.exec(&txs1).unwrap();
+        assert!(exec1.results[0].success, "first call should succeed");
+        let coverage1 = exec1.coverage.expect("coverage must be present");
+        let update1 = global.merge(&coverage1);
+        assert!(
+            update1.is_interesting(),
+            "first skip call should be interesting (new edges)"
+        );
+
+        // Second call: same skip path with different args (x = 300).
+        // Should NOT be interesting under binary edge coverage.
+        let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
+            CoverageSkip::skipOrWorkCall::new((U256::from(300),)).abi_encode(),
+        ))];
+        let exec2 = chain.exec(&txs2).unwrap();
+        assert!(exec2.results[0].success, "second call should succeed");
+        let coverage2 = exec2.coverage.expect("coverage must be present");
+        let update2 = global.merge(&coverage2);
+        assert!(
+            !update2.is_interesting(),
+            "second skip call with same code path should not be interesting"
         );
     }
 

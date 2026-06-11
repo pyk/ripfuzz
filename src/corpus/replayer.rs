@@ -123,11 +123,9 @@ impl CorpusReplayer {
                     total,
                     item_id = %item.id(),
                     new_edges = update.new_edges,
-                    new_features = update.new_features,
                     new_depths = update.new_depths,
                     new_reverts = update.new_reverts,
                     new_jump_edges = update.new_jump_edges,
-                    new_jump_features = update.new_jump_features,
                     hit_count = shared_coverage.hit_count(),
                     "corpus item replayed"
                 );

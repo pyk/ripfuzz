@@ -9,30 +9,13 @@ use papaya::HashMap;
 use crate::evm::coverage::edge::DEPTH_TRACKED_PCS;
 use crate::evm::coverage::exec::ExecutionCoverage;
 
-/// AFL-style hitcount bucket for a raw hit count.
-fn afl_bucket(raw: u8) -> u8 {
-    match raw {
-        0 => 0,
-        1 => 1,
-        2 => 2,
-        3 => 4,
-        4..=7 => 8,
-        8..=15 => 16,
-        16..=31 => 32,
-        32..=127 => 64,
-        _ => 128,
-    }
-}
-
 /// Result of merging a local coverage map into the global map.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CoverageUpdate {
     pub new_edges: usize,
-    pub new_features: usize,
     pub new_depths: usize,
     pub new_reverts: usize,
     pub new_jump_edges: usize,
-    pub new_jump_features: usize,
 }
 
 /// Coverage data for a single contract in the shared global map.
@@ -102,8 +85,6 @@ pub struct SharedCoverage {
 pub struct SharedCoverageInner {
     contracts: HashMap<B256, ContractCoverage>,
     bytecodes: HashMap<B256, Vec<u8>>,
-    features: AtomicU64,
-    jump_features: AtomicU64,
 }
 
 impl SharedCoverage {
@@ -113,8 +94,6 @@ impl SharedCoverage {
             inner: Arc::new(SharedCoverageInner {
                 contracts: HashMap::new(),
                 bytecodes: HashMap::new(),
-                features: AtomicU64::new(0),
-                jump_features: AtomicU64::new(0),
             }),
         }
     }
@@ -143,16 +122,10 @@ impl SharedCoverage {
             // Merge edges: only iterate over PCs that were actually hit.
             for &pc in &local_contract.hit_pcs {
                 let local_raw = local_contract.edges[pc];
-                let local_bucket = afl_bucket(local_raw);
-                let prev = global.edges[pc].fetch_max(local_bucket, Ordering::Relaxed);
+                let prev = global.edges[pc].fetch_max(1, Ordering::Relaxed);
                 global.raw_edges[pc].fetch_add(local_raw as u64, Ordering::Relaxed);
-                if !is_initcode {
-                    if prev == 0 {
-                        update.new_edges += 1;
-                    } else if local_bucket > afl_bucket(prev) {
-                        update.new_features += 1;
-                        self.inner.features.fetch_add(1, Ordering::Relaxed);
-                    }
+                if !is_initcode && prev == 0 {
+                    update.new_edges += 1;
                 }
             }
 
@@ -188,16 +161,10 @@ impl SharedCoverage {
                 if local_raw == 0 {
                     continue;
                 }
-                let local_bucket = afl_bucket(local_raw);
                 let entry = jump_guard.get_or_insert_with(marker, || AtomicU8::new(0));
-                let prev = entry.fetch_max(local_bucket, Ordering::Relaxed);
-                if !is_initcode {
-                    if prev == 0 {
-                        update.new_jump_edges += 1;
-                    } else if local_bucket > afl_bucket(prev) {
-                        update.new_jump_features += 1;
-                        self.inner.jump_features.fetch_add(1, Ordering::Relaxed);
-                    }
+                let prev = entry.fetch_max(1, Ordering::Relaxed);
+                if !is_initcode && prev == 0 {
+                    update.new_jump_edges += 1;
                 }
             }
         }
@@ -295,16 +262,6 @@ impl SharedCoverage {
             .filter(|(_, c)| !c.is_initcode)
             .map(|(_, c)| c.jump_edges.len())
             .sum()
-    }
-
-    /// Total number of edge bucket increases (features) across all contracts.
-    pub fn feature_count(&self) -> u64 {
-        self.inner.features.load(Ordering::Relaxed)
-    }
-
-    /// Total number of jump edge bucket increases (features) across all contracts.
-    pub fn jump_feature_count(&self) -> u64 {
-        self.inner.jump_features.load(Ordering::Relaxed)
     }
 
     /// Return the raw edge counts for a contract, if it exists.
@@ -412,12 +369,7 @@ pub struct RawEdgeCounts {
 impl CoverageUpdate {
     /// Whether this update represents interesting new coverage.
     pub fn is_interesting(&self) -> bool {
-        self.new_edges > 0
-            || self.new_features > 0
-            || self.new_depths > 0
-            || self.new_reverts > 0
-            || self.new_jump_edges > 0
-            || self.new_jump_features > 0
+        self.new_edges > 0 || self.new_depths > 0 || self.new_reverts > 0 || self.new_jump_edges > 0
     }
 }
 
@@ -485,11 +437,9 @@ mod tests {
             for handle in handles {
                 let update = handle.join().unwrap();
                 total.new_edges += update.new_edges;
-                total.new_features += update.new_features;
                 total.new_depths += update.new_depths;
                 total.new_reverts += update.new_reverts;
                 total.new_jump_edges += update.new_jump_edges;
-                total.new_jump_features += update.new_jump_features;
                 if update.is_interesting() {
                     interesting_count += 1;
                 }
@@ -570,11 +520,9 @@ mod tests {
             for handle in handles {
                 let update = handle.join().unwrap();
                 total.new_edges += update.new_edges;
-                total.new_features += update.new_features;
                 total.new_depths += update.new_depths;
                 total.new_reverts += update.new_reverts;
                 total.new_jump_edges += update.new_jump_edges;
-                total.new_jump_features += update.new_jump_features;
             }
 
             // 16 unique signals for each type, each discovered exactly once.

@@ -127,14 +127,12 @@ impl<'a> CampaignStats<'a> {
         );
 
         output.push_str(&format!(
-            "\n\n    ⊕ coverage stats\n    unique contracts : {}\n    total edges      : {} / {}\n    total depths     : {}\n    total reverts    : {}\n    total jumps      : {} / {}\n    total corpus     : {}",
+            "\n\n    ⊕ coverage stats\n    unique contracts : {}\n    total edges      : {}\n    total depths     : {}\n    total reverts    : {}\n    total jumps      : {}\n    total corpus     : {}",
             num(self.shared_coverage.contract_count() as u64),
             num(self.shared_coverage.edge_count() as u64),
-            num(self.shared_coverage.feature_count()),
             num(self.shared_coverage.depth_count() as u64),
             num(self.shared_coverage.revert_count() as u64),
             num(self.shared_coverage.jump_count() as u64),
-            num(self.shared_coverage.jump_feature_count()),
             num(self.corpus.stats().item_count as u64),
         ));
 

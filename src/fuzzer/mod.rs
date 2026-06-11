@@ -144,11 +144,9 @@ impl Fuzzer {
                 runs = runs,
                 item_id = %item.id(),
                 new_edges = coverage_update.new_edges,
-                new_features = coverage_update.new_features,
                 new_depths = coverage_update.new_depths,
                 new_reverts = coverage_update.new_reverts,
                 new_jump_edges = coverage_update.new_jump_edges,
-                new_jump_features = coverage_update.new_jump_features,
                 hit_count = self.shared_coverage.hit_count(),
                 interesting,
                 "coverage merge"
