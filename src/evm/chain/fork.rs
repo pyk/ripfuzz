@@ -680,4 +680,58 @@ mod tests {
             "deployment must succeed on forked chain even when the real block has a limited gas limit"
         );
     }
+
+    /// Regression: Chain::fork must set the chain_id on deployment transactions
+    /// so that revm's `tx_chain_id_check` (enabled by default) does not reject
+    /// the transaction with "invalid chain ID". This is especially important for
+    /// non-mainnet chains like Base (chain_id 8453).
+    #[test]
+    fn chain_fork_deployment_sets_chain_id_on_tx() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+
+        // Use Base mainnet chain_id (8453 = 0x2105) to reproduce the original bug.
+        mock_fork_setup(
+            &transport,
+            url,
+            9_000_000,
+            "0x2105",
+            json!({
+                "number":"0x895440",
+                "timestamp":"0x665fd100",
+                "miner":"0x0000000000000000000000000000000000000000",
+                "gasLimit":"0xffffffffffffffff",
+                "baseFeePerGas":"0x0",
+                "difficulty":"0x0",
+                "mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+                "excessBlobGas":"0x0",
+                "hash":"0x0000000000000000000000000000000000000000000000000000000000000000"
+            }),
+        );
+
+        let config = ForkDBConfig::new(url).block_number(9_000_000);
+        let mut chain =
+            Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
+
+        // Verify the chain is recognized as Base (non-mainnet chain_id).
+        assert_eq!(
+            chain.cfg_env().chain_id,
+            8453,
+            "fork must use the real chain_id (8453)"
+        );
+
+        // Deploy a simple contract. Before the fix, this would fail with
+        // "invalid chain ID" because the deployment TxEnv was missing chain_id.
+        let project = Project::new("fixtures/target-contract-deployment");
+        let artifacts = project.load_artifacts().unwrap();
+        let artifact_id =
+            ArtifactId::try_from("test/EmptyChainNoSetup.sol:EmptyChainNoSetup").unwrap();
+        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(
+            deployment.result.success,
+            "deployment must succeed on forked chain with non-mainnet chain_id (chain_id 8453)"
+        );
+    }
 }

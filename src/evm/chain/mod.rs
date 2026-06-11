@@ -276,6 +276,7 @@ impl Chain {
             data: initcode,
             gas_limit,
             value,
+            chain_id: Some(self.cfg_env.chain_id),
             ..Default::default()
         };
         let (
