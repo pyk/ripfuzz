@@ -55,15 +55,15 @@ contract CounterTarget {
     // ------------------------------------------------------------------------
     // 3. INVARIANT FUNCTIONS
     // ------------------------------------------------------------------------
-    // Functions with the `invariant_` prefix, no arguments, and declared `pure`
-    // or `view`. Raptor appends these to the end of every function call
-    // sequence. If any reverts with an `assert` panic, raptor reports a bug.
+    // Functions with the `invariant_` prefix and no arguments. Raptor appends
+    // these to the end of every function call sequence. If any reverts with
+    // an `assert` panic, raptor reports a bug.
 
-    function invariant_count_never_negative() external view {
+    function invariant_count_never_negative() external {
         assert(count >= 0);
     }
 
-    function invariant_count_stays_small() external view {
+    function invariant_count_stays_small() external {
         assert(count < 1000);
     }
 }
@@ -165,15 +165,18 @@ Example: `invariant_balancePositive`, `invariant_noReentrancy`
 A valid invariant function **must** have this signature shape:
 
 ```solidity
-function invariant_<name>() external view
+function invariant_<name>() external
 ```
 
 Requirements:
 
 - Name starts with `invariant_`
 - Takes **no arguments**
-- Is `view` or `pure` (read-only)
 - Return type is optional and ignored
+
+Invariant functions need not be declared `view` or `pure`. Emitting events for
+debugging is allowed. Raptor runs invariants on cloned state and discards the
+clone afterward, so any storage writes are naturally isolated.
 
 ### Semantics
 
@@ -190,11 +193,11 @@ Requirements:
 ### Example invariants
 
 ```solidity
-function invariant_solvency() external view {
+function invariant_solvency() external {
     assert(token.balanceOf(address(pool)) >= pool.totalDeposits());
 }
 
-function invariant_userCantBorrowMoreThanDeposited() external view {
+function invariant_userCantBorrowMoreThanDeposited() external {
     assert(pool.totalBorrows() <= pool.totalDeposits());
 }
 ```
@@ -264,7 +267,7 @@ contract VaultTarget {
         totalDeposits -= amount;
     }
 
-    function invariant_total_within_limit() external view {
+    function invariant_total_within_limit() external {
         assert(totalDeposits <= MAX_DEPOSIT);
     }
 }

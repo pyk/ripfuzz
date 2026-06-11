@@ -60,13 +60,13 @@ impl Contract {
                 continue;
             }
 
-            if func.name.starts_with("invariant_")
-                && matches!(
-                    func.state_mutability,
-                    StateMutability::Pure | StateMutability::View
-                )
-                && func.inputs.is_empty()
-            {
+            if func.name.starts_with("invariant_") {
+                ensure!(
+                    func.inputs.is_empty(),
+                    "invariant function `{}` must have no arguments, but has {}",
+                    func.name,
+                    func.inputs.len()
+                );
                 invariant_functions.push(func);
                 continue;
             }
@@ -263,15 +263,12 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn invariant_with_args_is_not_invariant() {
-        let contract =
-            load_fixture("src/InvalidInvariantWithArgs.sol:InvalidInvariantWithArgs").unwrap();
-        assert!(contract.invariant_functions.is_empty());
+    fn invariant_with_args_fails() {
+        let err =
+            load_fixture("src/InvalidInvariantWithArgs.sol:InvalidInvariantWithArgs").unwrap_err();
         assert!(
-            contract
-                .target_functions
-                .iter()
-                .any(|f| f.name == "invariant_check")
+            err.to_string()
+                .contains("invariant function `invariant_check` must have no arguments")
         );
     }
 
@@ -296,13 +293,11 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn invariant_non_view_is_not_invariant() {
-        let contract =
-            load_fixture("src/InvalidInvariantNonView.sol:InvalidInvariantNonView").unwrap();
-        assert!(contract.invariant_functions.is_empty());
+    fn invariant_non_view_is_accepted() {
+        let contract = load_fixture("src/ValidInvariantNonView.sol:ValidInvariantNonView").unwrap();
         assert!(
             contract
-                .target_functions
+                .invariant_functions
                 .iter()
                 .any(|f| f.name == "invariant_check")
         );
