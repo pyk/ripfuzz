@@ -310,6 +310,7 @@ impl Chain {
             data,
             gas_limit: u64::MAX,
             value,
+            chain_id: Some(self.cfg_env.chain_id),
             ..Default::default()
         };
         self.transact(tx)
@@ -334,6 +335,7 @@ impl Chain {
             data: opts.calldata,
             gas_limit: opts.gas_limit,
             value: opts.value,
+            chain_id: Some(self.cfg_env.chain_id),
             ..Default::default()
         };
         let (

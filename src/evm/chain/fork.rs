@@ -172,7 +172,7 @@ mod tests {
     use serde_json::json;
 
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput};
+    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput, SetupInput};
     use crate::evm::cheatcode::VM_ADDRESS;
     use crate::evm::forkdb::{ForkDBConfig, MockTransport};
     use crate::foundry::{ArtifactId, Project};
@@ -681,10 +681,10 @@ mod tests {
         );
     }
 
-    /// Regression: Chain::fork must set the chain_id on deployment transactions
-    /// so that revm's `tx_chain_id_check` (enabled by default) does not reject
-    /// the transaction with "invalid chain ID". This is especially important for
-    /// non-mainnet chains like Base (chain_id 8453).
+    /// Regression: Chain::fork must set the chain_id on all transactions
+    /// (deploy, call, setup) so that revm's `tx_chain_id_check` (enabled by
+    /// default) does not reject the transaction with "invalid chain ID". This is
+    /// especially important for non-mainnet chains like Base (chain_id 8453).
     #[test]
     fn chain_fork_deployment_sets_chain_id_on_tx() {
         let transport = MockTransport::default();
@@ -720,8 +720,7 @@ mod tests {
             "fork must use the real chain_id (8453)"
         );
 
-        // Deploy a simple contract. Before the fix, this would fail with
-        // "invalid chain ID" because the deployment TxEnv was missing chain_id.
+        // --- Deploy: verify deployment sets chain_id on the TxEnv ---
         let project = Project::new("fixtures/target-contract-deployment");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id =
@@ -731,7 +730,26 @@ mod tests {
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(
             deployment.result.success,
-            "deployment must succeed on forked chain with non-mainnet chain_id (chain_id 8453)"
+            "deployment must succeed on forked chain with non-mainnet chain_id (8453)"
+        );
+
+        // --- Setup: verify setup sets chain_id on the TxEnv ---
+        let setup_artifact_id =
+            ArtifactId::try_from("test/EmptyChainCheatcodeInSetup.sol:EmptyChainCheatcodeInSetup")
+                .unwrap();
+        let setup_contract = Contract::try_get(&artifacts, &setup_artifact_id).unwrap();
+        let setup_deployment = chain
+            .deploy(DeployInput::new(&setup_contract.initcode))
+            .unwrap();
+        assert!(
+            setup_deployment.result.success,
+            "deployment of setup fixture must succeed"
+        );
+        let target = setup_deployment.address.unwrap();
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
+        assert!(
+            setup.result.success,
+            "setup must succeed on forked chain with non-mainnet chain_id (8453)"
         );
     }
 }
