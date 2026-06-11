@@ -269,19 +269,17 @@ mechanism that rewards entries that consistently produce new finds.
 
 **From Foundry:**
 
-- Use **AFL-style hitcount bucketing**. A sequence that hits the same edge 16
-  times instead of 2 times may exercise different state-dependent paths.
 - Use **favorability tracking**. Reward corpus items that consistently produce
   new coverage when mutated. This guides mutation selection toward productive
   parents.
-- Use **right-sized per-contract maps** sized to each bytecode's length,
-  rather than a single fixed 65,536-byte buffer. This eliminates PC collision
-  across contracts and enables source-level reporting.
+- Use **right-sized per-contract maps** sized to each bytecode's length, rather
+  than a single fixed 65,536-byte buffer. This eliminates PC collision across
+  contracts and enables source-level reporting.
 
 ### Proposed Coverage Map for Raptor
 
-Coverage is stored **per-contract**, keyed by bytecode hash, so that every
-hit can be mapped back to source code. Each contract gets a right-sized map:
+Coverage is stored **per-contract**, keyed by bytecode hash, so that every hit
+can be mapped back to source code. Each contract gets a right-sized map:
 
 ```rust
 /// Global coverage state, stored in the Corpus.
@@ -292,8 +290,8 @@ pub struct CoverageMap {
 
 /// Coverage data for a single contract.
 pub struct ContractCoverage {
-    /// Per-PC hitcount buckets. Length equals bytecode length.
-    /// Each byte is an AFL bucket (0, 1, 2, 4, 8, 16, 32, 64, 128).
+    /// Per-PC covered/uncovered flags. Length equals bytecode length.
+    /// Each byte is 0 (uncovered) or 1 (covered).
     edges: Vec<u8>,
 
     /// Per-PC call-depth bitset. Each u64 is a bitset of depths at which this PC was hit.
@@ -309,30 +307,30 @@ pub struct ContractCoverage {
 
 This is a **hybrid**:
 
-- The **edges** array gives us Foundry-style AFL bucket coverage for all PCs,
-  sized exactly to the contract's bytecode length.
+- The **edges** array gives us binary PC coverage for all PCs, sized exactly to
+  the contract's bytecode length.
 - The **depths** array gives us Echidna-style call-depth sensitivity for the
   most frequently executed PCs (first 1,024). This captures reentrancy depth
   without exploding memory.
-- The **reverts** array gives us Medusa-style revert tracking. Only the final
-  PC of a reverted call is marked, not every PC executed during that call.
+- The **reverts** array gives us Medusa-style revert tracking. Only the final PC
+  of a reverted call is marked, not every PC executed during that call.
 
 ### "Interesting" Decision
 
 A sequence is interesting if any of these are true:
 
-1. **New edge** — a PC was hit for the first time (bucket went from 0 to >0).
-2. **New feature** — a PC's bucket increased to a higher AFL level.
-3. **New depth** — a PC (in the first 1,024) was hit at a call depth never
+1. **New edge** — a PC was hit for the first time (went from 0 to 1).
+2. **New depth** — a PC (in the first 1,024) was hit at a call depth never
    before seen for that PC.
-4. **New revert** — a PC was hit in a reverted call for the first time.
+3. **New revert** — a PC was hit in a reverted call for the first time.
+4. **New jump edge** — a branch direction was taken for the first time.
 
 ```rust
 pub struct CoverageUpdate {
     pub new_edges: usize,
-    pub new_features: usize,
     pub new_depths: usize,
     pub new_reverts: usize,
+    pub new_jump_edges: usize,
 }
 
 impl CoverageMap {
@@ -342,9 +340,9 @@ impl CoverageMap {
 
     pub fn is_interesting(&self, update: &CoverageUpdate) -> bool {
         update.new_edges > 0
-            || update.new_features > 0
             || update.new_depths > 0
             || update.new_reverts > 0
+            || update.new_jump_edges > 0
     }
 }
 ```
@@ -407,14 +405,14 @@ sequence, the worker calls `corpus.merge(&local)` which returns a
 | Branch direction | Yes    | No      | No      | Yes (via edges)   |
 | Call depth       | No     | Yes     | No      | Yes (limited)     |
 | Revert tracking  | Yes    | Yes     | No      | Yes               |
-| Hitcount buckets | No     | No      | Yes     | Yes               |
+| Hitcount buckets | No     | No      | Yes     | No                |
 | Favorability     | No     | No      | Yes     | Yes               |
 | Fixed memory     | No     | No      | Yes     | Yes               |
 | Fast merge       | No     | No      | Yes     | Yes               |
 
-Raptor's combined approach captures **more dimensions of execution behavior**
-without the unbounded memory growth of Medusa/Echidna's sparse maps. The
-right-sized per-contract maps mean:
+Raptor's combined approach captures **multiple dimensions of execution
+behavior** without the unbounded memory growth of Medusa/Echidna's sparse maps.
+The right-sized per-contract maps mean:
 
 - No dynamic allocation during merge.
 - O(n) merge where n = bytecode length (fast).
