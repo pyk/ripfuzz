@@ -358,7 +358,7 @@ impl Artifact {
     }
 
     /// Load a build artifact from a JSON file on disk.
-    #[instrument(err, fields(path = %path.as_ref().display()))]
+    #[instrument(err, level = "debug", fields(path = %path.as_ref().display()))]
     pub fn from_json(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         debug!(path = %path.display(), "loading build artifact");
@@ -369,7 +369,7 @@ impl Artifact {
     }
 
     /// Load a build artifact from a JSON string.
-    #[instrument(err, skip(content))]
+    #[instrument(err, level = "debug", skip(content))]
     pub fn from_json_str(content: &str) -> Result<Self> {
         let json: ArtifactJson = serde_json::from_str(content)?;
 
