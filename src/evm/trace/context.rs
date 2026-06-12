@@ -1156,8 +1156,34 @@ impl TraceContext {
                     if error.selector().as_slice() == sel.as_slice() {
                         if error.inputs.is_empty() {
                             return format!("{}()", error.name);
-                        } else {
+                        }
+                        let types: Vec<DynSolType> = error
+                            .inputs
+                            .iter()
+                            .filter_map(|p| DynSolType::parse(&p.selector_type()).ok())
+                            .collect();
+                        if types.is_empty() {
                             return format!("{}(...)", error.name);
+                        }
+                        let tuple = DynSolType::Tuple(types);
+                        match tuple.abi_decode_params(&data[4..]) {
+                            Ok(DynSolValue::Tuple(values)) => {
+                                return format!(
+                                    "{}({})",
+                                    error.name,
+                                    format_abi_args(&values, &error.inputs, &self.labels)
+                                );
+                            }
+                            Ok(other) => {
+                                return format!(
+                                    "{}({})",
+                                    error.name,
+                                    format_abi_args(&[other], &error.inputs, &self.labels)
+                                );
+                            }
+                            Err(_) => {
+                                return format!("{}(...)", error.name);
+                            }
                         }
                     }
                 }

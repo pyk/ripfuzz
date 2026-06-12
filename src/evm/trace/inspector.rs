@@ -308,6 +308,12 @@ mod tests {
                 expected_file: "fixtures/trace-inspector/expected/PanicResourceError.txt",
                 with_abi: true,
             },
+            TestCase {
+                artifact_id: "src/CustomErrorWithArgsRevert.sol:CustomErrorWithArgsRevert",
+                label: "CustomErrorWithArgsRevert",
+                expected_file: "fixtures/trace-inspector/expected/CustomErrorWithArgsRevert.txt",
+                with_abi: true,
+            },
         ];
 
         for case in &cases {
