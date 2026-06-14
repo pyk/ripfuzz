@@ -13,28 +13,28 @@ use raptor::{
 use revm::primitives::{Address, Bytes};
 
 alloy_sol_types::sol! {
-    interface TargetContractBasic {
+    interface HandlerContractBasic {
         function addAndSub(uint256 a, uint256 b) external returns (uint256);
     }
 
-    interface TargetContractWithLoop {
+    interface HandlerContractWithLoop {
         function runLoop(uint256 count) external;
         function runNestedLoop(uint256 outer, uint256 inner) external;
     }
 
-    interface TargetContractWithLib {
+    interface HandlerContractWithLib {
         function libCall(uint256 amount) external returns (uint256);
     }
 
-    interface TargetContractWithLibLinked {
+    interface HandlerContractWithLibLinked {
         function libLinkedCall(uint256 amount) external returns (uint256);
     }
 
-    interface TargetContractWithInterface {
+    interface HandlerContractWithInterface {
         function interfaceCall(uint256 amount) external returns (uint256);
     }
 
-    interface TargetContractWithIf {
+    interface HandlerContractWithIf {
         function runIf(bool condition) external;
         function runIfElse(bool condition) external;
         function runIfElseWithNewline(bool condition) external;
@@ -114,17 +114,17 @@ const PROJECT_PATH: &str = "fixtures/coverage-reporter-optimizer-disabled";
 /// Regression test: with optimizer disabled, coverage report must
 /// correctly report hit counts of 1 for lines executed once.
 #[test]
-fn target_contract_basic_call_once() {
+fn handler_contract_basic_call_once() {
     let contract = load_coverage_fixture(
         PROJECT_PATH,
-        "src/TargetContractBasic.sol:TargetContractBasic",
+        "src/HandlerContractBasic.sol:HandlerContractBasic",
     );
     let mut deployed = deploy_and_setup(PROJECT_PATH, &contract);
 
     let txs =
         vec![
             Transaction::new(deployed.address).calldata(Bytes::from(
-                TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+                HandlerContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
                     .abi_encode(),
             )),
         ];
@@ -138,7 +138,7 @@ fn target_contract_basic_call_once() {
     let formatted = format!("{report}");
 
     let expected_file =
-        "fixtures/coverage-reporter-optimizer-disabled/reports/TargetContractBasicOnce.info";
+        "fixtures/coverage-reporter-optimizer-disabled/reports/HandlerContractBasicOnce.info";
     let expected = fs::read_to_string(expected_file)
         .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
     assert_eq!(
@@ -151,20 +151,20 @@ fn target_contract_basic_call_once() {
 /// Regression test: with optimizer disabled, coverage report must
 /// correctly report hit counts of 2 for lines executed twice.
 #[test]
-fn target_contract_basic_call_twice() {
+fn handler_contract_basic_call_twice() {
     let contract = load_coverage_fixture(
         PROJECT_PATH,
-        "src/TargetContractBasic.sol:TargetContractBasic",
+        "src/HandlerContractBasic.sol:HandlerContractBasic",
     );
     let mut deployed = deploy_and_setup(PROJECT_PATH, &contract);
 
     let txs = vec![
         Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
+            HandlerContractBasic::addAndSubCall::new((U256::from(123), U256::from(123)))
                 .abi_encode(),
         )),
         Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContractBasic::addAndSubCall::new((U256::from(456), U256::from(456)))
+            HandlerContractBasic::addAndSubCall::new((U256::from(456), U256::from(456)))
                 .abi_encode(),
         )),
     ];
@@ -178,7 +178,7 @@ fn target_contract_basic_call_twice() {
     let formatted = format!("{report}");
 
     let expected_file =
-        "fixtures/coverage-reporter-optimizer-disabled/reports/TargetContractBasicTwice.info";
+        "fixtures/coverage-reporter-optimizer-disabled/reports/HandlerContractBasicTwice.info";
     let expected = fs::read_to_string(expected_file)
         .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
     assert_eq!(
@@ -191,19 +191,19 @@ fn target_contract_basic_call_twice() {
 /// Regression test: with optimizer disabled, coverage report must
 /// correctly report loop execution coverage.
 #[test]
-fn target_contract_with_loop() {
+fn handler_contract_with_loop() {
     let contract = load_coverage_fixture(
         PROJECT_PATH,
-        "src/TargetContractWithLoop.sol:TargetContractWithLoop",
+        "src/HandlerContractWithLoop.sol:HandlerContractWithLoop",
     );
     let mut deployed = deploy_and_setup(PROJECT_PATH, &contract);
 
     let txs = vec![
         Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContractWithLoop::runLoopCall::new((U256::from(3),)).abi_encode(),
+            HandlerContractWithLoop::runLoopCall::new((U256::from(3),)).abi_encode(),
         )),
         Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContractWithLoop::runNestedLoopCall::new((U256::from(2), U256::from(2)))
+            HandlerContractWithLoop::runNestedLoopCall::new((U256::from(2), U256::from(2)))
                 .abi_encode(),
         )),
     ];
@@ -217,7 +217,7 @@ fn target_contract_with_loop() {
     let formatted = format!("{report}");
 
     let expected_file =
-        "fixtures/coverage-reporter-optimizer-disabled/reports/TargetContractWithLoop.info";
+        "fixtures/coverage-reporter-optimizer-disabled/reports/HandlerContractWithLoop.info";
     let expected = fs::read_to_string(expected_file)
         .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
     assert_eq!(
@@ -230,15 +230,15 @@ fn target_contract_with_loop() {
 /// Regression test: with optimizer disabled, coverage report must correctly
 /// report internal library call coverage.
 #[test]
-fn target_contract_with_lib() {
+fn handler_contract_with_lib() {
     let contract = load_coverage_fixture(
         PROJECT_PATH,
-        "src/TargetContractWithLib.sol:TargetContractWithLib",
+        "src/HandlerContractWithLib.sol:HandlerContractWithLib",
     );
     let mut deployed = deploy_and_setup(PROJECT_PATH, &contract);
 
     let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-        TargetContractWithLib::libCallCall::new((U256::from(123),)).abi_encode(),
+        HandlerContractWithLib::libCallCall::new((U256::from(123),)).abi_encode(),
     ))];
     let exec = deployed.chain.exec(&txs).unwrap();
     let coverage = exec.coverage.expect("coverage must be present");
@@ -250,7 +250,7 @@ fn target_contract_with_lib() {
     let formatted = format!("{report}");
 
     let expected_file =
-        "fixtures/coverage-reporter-optimizer-disabled/reports/TargetContractWithLib.info";
+        "fixtures/coverage-reporter-optimizer-disabled/reports/HandlerContractWithLib.info";
     let expected = fs::read_to_string(expected_file)
         .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
     assert_eq!(
@@ -263,15 +263,15 @@ fn target_contract_with_lib() {
 /// Regression test: with optimizer disabled, coverage report must correctly
 /// report linked library call coverage.
 #[test]
-fn target_contract_with_lib_linked() {
+fn handler_contract_with_lib_linked() {
     let contract = load_coverage_fixture(
         PROJECT_PATH,
-        "src/TargetContractWithLibLinked.sol:TargetContractWithLibLinked",
+        "src/HandlerContractWithLibLinked.sol:HandlerContractWithLibLinked",
     );
     let mut deployed = deploy_and_setup(PROJECT_PATH, &contract);
 
     let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-        TargetContractWithLibLinked::libLinkedCallCall::new((U256::from(123),)).abi_encode(),
+        HandlerContractWithLibLinked::libLinkedCallCall::new((U256::from(123),)).abi_encode(),
     ))];
     let exec = deployed.chain.exec(&txs).unwrap();
     let coverage = exec.coverage.expect("coverage must be present");
@@ -283,7 +283,7 @@ fn target_contract_with_lib_linked() {
     let formatted = format!("{report}");
 
     let expected_file =
-        "fixtures/coverage-reporter-optimizer-disabled/reports/TargetContractWithLibLinked.info";
+        "fixtures/coverage-reporter-optimizer-disabled/reports/HandlerContractWithLibLinked.info";
     let expected = fs::read_to_string(expected_file)
         .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
     assert_eq!(
@@ -297,15 +297,15 @@ fn target_contract_with_lib_linked() {
 /// reported correctly even when the caller interacts with it through an
 /// interface.
 #[test]
-fn target_contract_with_interface() {
+fn handler_contract_with_interface() {
     let contract = load_coverage_fixture(
         PROJECT_PATH,
-        "src/TargetContractWithInterface.sol:TargetContractWithInterface",
+        "src/HandlerContractWithInterface.sol:HandlerContractWithInterface",
     );
     let mut deployed = deploy_and_setup(PROJECT_PATH, &contract);
 
     let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-        TargetContractWithInterface::interfaceCallCall::new((U256::from(123),)).abi_encode(),
+        HandlerContractWithInterface::interfaceCallCall::new((U256::from(123),)).abi_encode(),
     ))];
     let exec = deployed.chain.exec(&txs).unwrap();
     let coverage = exec.coverage.expect("coverage must be present");
@@ -317,7 +317,7 @@ fn target_contract_with_interface() {
     let formatted = format!("{report}");
 
     let expected_file =
-        "fixtures/coverage-reporter-optimizer-disabled/reports/TargetContractWithInterface.info";
+        "fixtures/coverage-reporter-optimizer-disabled/reports/HandlerContractWithInterface.info";
     let expected = fs::read_to_string(expected_file)
         .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
     assert_eq!(
@@ -331,31 +331,31 @@ fn target_contract_with_interface() {
 /// if-statement close brackets and empty lines between if-else branches
 /// must be handled correctly.
 #[test]
-fn target_contract_with_if() {
+fn handler_contract_with_if() {
     let contract = load_coverage_fixture(
         PROJECT_PATH,
-        "src/TargetContractWithIf.sol:TargetContractWithIf",
+        "src/HandlerContractWithIf.sol:HandlerContractWithIf",
     );
     let mut deployed = deploy_and_setup(PROJECT_PATH, &contract);
 
     let txs = vec![
         Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContractWithIf::runIfCall::new((true,)).abi_encode(),
+            HandlerContractWithIf::runIfCall::new((true,)).abi_encode(),
         )),
         Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContractWithIf::runIfElseCall::new((true,)).abi_encode(),
+            HandlerContractWithIf::runIfElseCall::new((true,)).abi_encode(),
         )),
         Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContractWithIf::runIfElseCall::new((false,)).abi_encode(),
+            HandlerContractWithIf::runIfElseCall::new((false,)).abi_encode(),
         )),
         Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContractWithIf::runIfElseWithNewlineCall::new((true,)).abi_encode(),
+            HandlerContractWithIf::runIfElseWithNewlineCall::new((true,)).abi_encode(),
         )),
         Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContractWithIf::runIfElseWithNewlineCall::new((false,)).abi_encode(),
+            HandlerContractWithIf::runIfElseWithNewlineCall::new((false,)).abi_encode(),
         )),
         Transaction::new(deployed.address).calldata(Bytes::from(
-            TargetContractWithIf::runNestedIfCall::new((true, true)).abi_encode(),
+            HandlerContractWithIf::runNestedIfCall::new((true, true)).abi_encode(),
         )),
     ];
     let exec = deployed.chain.exec(&txs).unwrap();
@@ -368,7 +368,7 @@ fn target_contract_with_if() {
     let formatted = format!("{report}");
 
     let expected_file =
-        "fixtures/coverage-reporter-optimizer-disabled/reports/TargetContractWithIf.info";
+        "fixtures/coverage-reporter-optimizer-disabled/reports/HandlerContractWithIf.info";
     let expected = fs::read_to_string(expected_file)
         .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
     assert_eq!(

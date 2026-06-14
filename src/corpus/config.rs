@@ -18,7 +18,7 @@ use crate::corpus::extractor::ExtractedLiterals;
 /// let functions = vec![];
 /// let literals = ExtractedLiterals::default();
 /// let config = CorpusConfig::new(corpus_dir)
-///     .target_functions(functions)
+///     .handler_functions(functions)
 ///     .max_calls(32)
 ///     .literals(literals);
 /// let corpus = SharedCorpus::new(config);
@@ -26,7 +26,7 @@ use crate::corpus::extractor::ExtractedLiterals;
 #[derive(Debug, Clone)]
 pub struct CorpusConfig {
     pub corpus_dir: PathBuf,
-    pub target_functions: Vec<alloy_json_abi::Function>,
+    pub handler_functions: Vec<alloy_json_abi::Function>,
     pub max_calls_length: usize,
     pub literals: ExtractedLiterals,
 }
@@ -36,15 +36,15 @@ impl CorpusConfig {
     pub fn new(corpus_dir: impl AsRef<Path>) -> Self {
         Self {
             corpus_dir: corpus_dir.as_ref().to_path_buf(),
-            target_functions: Vec::new(),
+            handler_functions: Vec::new(),
             max_calls_length: 100,
             literals: ExtractedLiterals::default(),
         }
     }
 
-    /// Set the target functions used for corpus generation and mutation.
-    pub fn target_functions(mut self, functions: Vec<alloy_json_abi::Function>) -> Self {
-        self.target_functions = functions;
+    /// Set the handler functions used for corpus generation and mutation.
+    pub fn handler_functions(mut self, functions: Vec<alloy_json_abi::Function>) -> Self {
+        self.handler_functions = functions;
         self
     }
 

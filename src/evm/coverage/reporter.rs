@@ -1127,40 +1127,40 @@ mod tests {
             function branch(bool take) external;
         }
 
-        interface TargetContractWithInterface {
+        interface HandlerContractWithInterface {
             function interfaceCall(uint256 amount) external returns (uint256);
         }
 
-        interface TargetContractWithLibLinked {
+        interface HandlerContractWithLibLinked {
             function libLinkedCall(uint256 amount) external returns (uint256);
         }
 
-        interface TargetContractWithLib {
+        interface HandlerContractWithLib {
             function libCall(uint256 amount) external returns (uint256);
         }
 
-        interface TargetContractBasic {
+        interface HandlerContractBasic {
             function addAndSub(uint256 a, uint256 b) external returns (uint256);
         }
 
-        interface TargetContractWithLoop {
+        interface HandlerContractWithLoop {
             function runLoop(uint256 count) external;
             function runNestedLoop(uint256 outer, uint256 inner) external;
         }
 
-        interface TargetContractWithIf {
+        interface HandlerContractWithIf {
             function runIf(bool condition) external;
             function runIfElse(bool condition) external;
             function runIfElseWithNewline(bool condition) external;
             function runNestedIf(bool a, bool b) external;
         }
 
-        interface EmptyTargetFunction {
-            function dummyTargetFunction() external;
+        interface EmptyHandlerFunction {
+            function dummyHandlerFunction() external;
         }
 
-        interface InheritedTarget {
-            function inheritedTargetFunction() external;
+        interface InheritedHandler {
+            function inheritedHandlerFunction() external;
         }
 
         interface CoverageInactiveUser {
@@ -1233,8 +1233,8 @@ mod tests {
     }
 
     fn project_path() -> PathBuf {
-        fs::canonicalize("fixtures/target-contract-coverage")
-            .unwrap_or_else(|_| PathBuf::from("fixtures/target-contract-coverage"))
+        fs::canonicalize("fixtures/handler-contract-coverage")
+            .unwrap_or_else(|_| PathBuf::from("fixtures/handler-contract-coverage"))
     }
 
     /// Regression test: build artifacts that include interfaces (which have
@@ -1242,10 +1242,10 @@ mod tests {
     #[test]
     fn coverage_report_build_with_interface_artifact() {
         let contract = load_coverage_fixture(
-            "fixtures/target-contract-coverage",
+            "fixtures/handler-contract-coverage",
             "src/CoverageBranch.sol:CoverageBranch",
         );
-        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             CoverageBranch::branchCall::new((false,)).abi_encode(),
@@ -1254,7 +1254,7 @@ mod tests {
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let project = foundry::Project::new("fixtures/handler-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
 
@@ -1267,47 +1267,48 @@ mod tests {
     /// Regression test: coverage report for if-statement close brackets and
     /// empty lines between if-else branches must be handled correctly.
     #[test]
-    fn target_contract_with_if() {
+    fn handler_contract_with_if() {
         let contract = load_coverage_fixture(
-            "fixtures/target-contract-coverage",
-            "src/TargetContractWithIf.sol:TargetContractWithIf",
+            "fixtures/handler-contract-coverage",
+            "src/HandlerContractWithIf.sol:HandlerContractWithIf",
         );
-        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
 
         let txs = vec![
             Transaction::new(deployed.address).calldata(Bytes::from(
-                TargetContractWithIf::runIfCall::new((true,)).abi_encode(),
+                HandlerContractWithIf::runIfCall::new((true,)).abi_encode(),
             )),
             Transaction::new(deployed.address).calldata(Bytes::from(
-                TargetContractWithIf::runIfElseCall::new((true,)).abi_encode(),
+                HandlerContractWithIf::runIfElseCall::new((true,)).abi_encode(),
             )),
             Transaction::new(deployed.address).calldata(Bytes::from(
-                TargetContractWithIf::runIfElseCall::new((false,)).abi_encode(),
+                HandlerContractWithIf::runIfElseCall::new((false,)).abi_encode(),
             )),
             Transaction::new(deployed.address).calldata(Bytes::from(
-                TargetContractWithIf::runIfElseWithNewlineCall::new((true,)).abi_encode(),
+                HandlerContractWithIf::runIfElseWithNewlineCall::new((true,)).abi_encode(),
             )),
             Transaction::new(deployed.address).calldata(Bytes::from(
-                TargetContractWithIf::runIfElseWithNewlineCall::new((false,)).abi_encode(),
+                HandlerContractWithIf::runIfElseWithNewlineCall::new((false,)).abi_encode(),
             )),
             Transaction::new(deployed.address).calldata(Bytes::from(
-                TargetContractWithIf::runNestedIfCall::new((true, true)).abi_encode(),
+                HandlerContractWithIf::runNestedIfCall::new((true, true)).abi_encode(),
             )),
         ];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let project = foundry::Project::new("fixtures/handler-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
-        let expected_file = "fixtures/target-contract-coverage/expected/TargetContractWithIf.info";
+        let expected_file =
+            "fixtures/handler-contract-coverage/expected/HandlerContractWithIf.info";
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         let expected = expected.replace(
-            "fixtures/target-contract-coverage",
+            "fixtures/handler-contract-coverage",
             &project_path().to_string_lossy(),
         );
         assert_eq!(
@@ -1318,23 +1319,23 @@ mod tests {
     }
 
     /// Regression test: coverage report generation must not crash and must
-    /// produce non-empty output even when the target function body is empty.
+    /// produce non-empty output even when the handler function body is empty.
     #[test]
-    fn coverage_report_empty_target_function() {
+    fn coverage_report_empty_handler_function() {
         let contract = load_coverage_fixture(
-            "fixtures/target-contract-coverage",
-            "src/EmptyTargetFunction.sol:EmptyTargetFunction",
+            "fixtures/handler-contract-coverage",
+            "src/EmptyHandlerFunction.sol:EmptyHandlerFunction",
         );
-        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            EmptyTargetFunction::dummyTargetFunctionCall::new(()).abi_encode(),
+            EmptyHandlerFunction::dummyHandlerFunctionCall::new(()).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let project = foundry::Project::new("fixtures/handler-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
 
@@ -1354,25 +1355,25 @@ mod tests {
     #[test]
     fn coverage_report_inherited_target_function() {
         let contract = load_coverage_fixture(
-            "fixtures/target-contract-coverage",
-            "src/InheritedTarget.sol:InheritedTarget",
+            "fixtures/handler-contract-coverage",
+            "src/InheritedHandler.sol:InheritedHandler",
         );
-        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            InheritedTarget::inheritedTargetFunctionCall::new(()).abi_encode(),
+            InheritedHandler::inheritedHandlerFunctionCall::new(()).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let project = foundry::Project::new("fixtures/handler-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
 
         assert!(
             !report.files.is_empty(),
-            "coverage report must be generated for a target function inherited from a base contract"
+            "coverage report must be generated for a handler function inherited from a base contract"
         );
     }
 
@@ -1383,10 +1384,10 @@ mod tests {
     #[test]
     fn coverage_report_function_start_line_without_source_map() {
         let contract = load_coverage_fixture(
-            "fixtures/target-contract-coverage",
+            "fixtures/handler-contract-coverage",
             "src/UnusedLibraryUser.sol:UnusedLibraryUser",
         );
-        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             hex::decode("771602f7").unwrap(), // useAdd(uint256,uint256)
@@ -1395,7 +1396,7 @@ mod tests {
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let project = foundry::Project::new("fixtures/handler-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
 
@@ -1423,7 +1424,7 @@ mod tests {
     /// the file's actual line count.
     #[test]
     fn coverage_report_trailing_newline_no_out_of_range() {
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let project = foundry::Project::new("fixtures/handler-contract-coverage");
         let mut artifacts: Vec<Artifact> =
             project.load_artifacts().unwrap().into_values().collect();
 
@@ -1441,7 +1442,7 @@ mod tests {
         // Inject a fake source map entry pointing to the end of the file to
         // simulate a compiler-generated entry that sits past the final newline.
         let source_path =
-            PathBuf::from("fixtures/target-contract-coverage/src/CoverageTrailingNewline.sol");
+            PathBuf::from("fixtures/handler-contract-coverage/src/CoverageTrailingNewline.sol");
         let content = fs::read_to_string(&source_path).unwrap();
         let file_len = content.len();
 
@@ -1488,7 +1489,7 @@ mod tests {
     #[test]
     fn coverage_report_immutable_contract_matched() {
         let contract = load_coverage_fixture(
-            "fixtures/target-contract-coverage",
+            "fixtures/handler-contract-coverage",
             "src/CoverageImmutable.sol:CoverageImmutable",
         );
         let config = ChainConfig::default().coverage(true);
@@ -1509,7 +1510,7 @@ mod tests {
         let coverage = exec.coverage.expect("coverage must be present");
         global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let project = foundry::Project::new("fixtures/handler-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&global, &artifacts);
 
@@ -1544,10 +1545,10 @@ mod tests {
     #[test]
     fn coverage_report_inactive_artifact_no_executable_lines() {
         let contract = load_coverage_fixture(
-            "fixtures/target-contract-coverage",
+            "fixtures/handler-contract-coverage",
             "src/CoverageInactiveUser.sol:CoverageInactiveUser",
         );
-        let mut deployed = deploy_and_setup("fixtures/target-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             CoverageInactiveUser::callUsedCall::new(()).abi_encode(),
@@ -1556,7 +1557,7 @@ mod tests {
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let project = foundry::Project::new("fixtures/handler-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
 

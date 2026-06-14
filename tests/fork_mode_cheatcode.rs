@@ -103,7 +103,7 @@ fn fork_chain(transport: &MockTransport, url: &str) -> Chain {
 }
 
 /// Integration test: `vm.warp` cheatcode must correctly update
-/// `block.timestamp` in fork mode. The deployed target contract is
+/// `block.timestamp` in fork mode. The deployed handler contract is
 /// local and must not trigger any RPC fetch.
 #[test]
 fn vm_warp() {
@@ -155,7 +155,7 @@ fn vm_warp() {
 }
 
 /// Integration test: `vm.roll` cheatcode must correctly update
-/// `block.number` in fork mode. The deployed target contract is
+/// `block.number` in fork mode. The deployed handler contract is
 /// local and must not trigger any RPC fetch.
 #[test]
 fn vm_roll() {
@@ -207,7 +207,7 @@ fn vm_roll() {
 }
 
 /// Integration test: `vm.chainId` cheatcode must correctly update
-/// `block.chainid` in fork mode. The deployed target contract is
+/// `block.chainid` in fork mode. The deployed handler contract is
 /// local and must not trigger any RPC fetch.
 #[test]
 fn vm_chain_id() {

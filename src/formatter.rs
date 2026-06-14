@@ -79,7 +79,7 @@ pub fn duration(secs: f64) -> String {
 pub struct CampaignStats<'a> {
     shared_coverage: &'a SharedCoverage,
     corpus: &'a SharedCorpus,
-    target_functions: &'a [alloy_json_abi::Function],
+    handler_functions: &'a [alloy_json_abi::Function],
     invariant_functions: &'a [alloy_json_abi::Function],
 }
 
@@ -88,13 +88,13 @@ impl<'a> CampaignStats<'a> {
     pub fn new(
         shared_coverage: &'a SharedCoverage,
         corpus: &'a SharedCorpus,
-        target_functions: &'a [alloy_json_abi::Function],
+        handler_functions: &'a [alloy_json_abi::Function],
         invariant_functions: &'a [alloy_json_abi::Function],
     ) -> Self {
         Self {
             shared_coverage,
             corpus,
-            target_functions,
+            handler_functions,
             invariant_functions,
         }
     }
@@ -136,18 +136,18 @@ impl<'a> CampaignStats<'a> {
             num(self.corpus.stats().item_count as u64),
         ));
 
-        if !self.target_functions.is_empty() {
+        if !self.handler_functions.is_empty() {
             output.push_str(&format!(
-                "\n\n    ⊕ target functions ({})",
-                self.target_functions.len()
+                "\n\n    ⊕ handler functions ({})",
+                self.handler_functions.len()
             ));
             let target_labels: Vec<String> = self
-                .target_functions
+                .handler_functions
                 .iter()
                 .map(|f| f.name.to_string())
                 .collect();
             let target_width = target_labels.iter().map(|l| l.len()).max().unwrap_or(0);
-            for (func, label) in self.target_functions.iter().zip(target_labels.iter()) {
+            for (func, label) in self.handler_functions.iter().zip(target_labels.iter()) {
                 let sig = func.signature();
                 let metrics = function_metrics
                     .iter()

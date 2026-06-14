@@ -60,7 +60,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface ParseTarget {
+        interface ParseHandler {
             function setup() external;
             function actionReParseAll() external;
             function actionParseSequence() external;
@@ -84,14 +84,14 @@ mod tests {
     const EXPECTED_ADDR: Address = address!("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF");
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/ParseTarget.sol:ParseTarget");
+        let contract = load_fixture("src/ParseHandler.sol:ParseHandler");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -260,7 +260,7 @@ mod tests {
     fn setup_parsed_values_match_expected() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            ParseTarget::invariant_allParsedMatchCall::new(()).abi_encode(),
+            ParseHandler::invariant_allParsedMatchCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -279,10 +279,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                ParseTarget::actionReParseAllCall::new(()).abi_encode(),
+                ParseHandler::actionReParseAllCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ParseTarget::invariant_allParsedMatchCall::new(()).abi_encode(),
+                ParseHandler::invariant_allParsedMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -306,10 +306,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                ParseTarget::actionParseDifferentUintCall::new(()).abi_encode(),
+                ParseHandler::actionParseDifferentUintCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ParseTarget::invariant_allParsedMatchCall::new(()).abi_encode(),
+                ParseHandler::invariant_allParsedMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -333,13 +333,13 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                ParseTarget::actionParseSequenceCall::new(()).abi_encode(),
+                ParseHandler::actionParseSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ParseTarget::getStoredUintCall::new(()).abi_encode(),
+                ParseHandler::getStoredUintCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ParseTarget::invariant_allParsedMatchCall::new(()).abi_encode(),
+                ParseHandler::invariant_allParsedMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -350,7 +350,7 @@ mod tests {
             "actionParseSequence must succeed"
         );
         assert!(execution.results[1].success, "getStoredUint must succeed");
-        let stored = ParseTarget::getStoredUintCall::abi_decode_returns(
+        let stored = ParseHandler::getStoredUintCall::abi_decode_returns(
             &execution.results[1].output.clone().unwrap(),
         )
         .unwrap();
@@ -369,16 +369,16 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                ParseTarget::actionRevertInvalidBoolCall::new(()).abi_encode(),
+                ParseHandler::actionRevertInvalidBoolCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ParseTarget::actionRevertInvalidAddressCall::new(()).abi_encode(),
+                ParseHandler::actionRevertInvalidAddressCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ParseTarget::actionRevertInvalidUintCall::new(()).abi_encode(),
+                ParseHandler::actionRevertInvalidUintCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ParseTarget::actionRevertInvalidBytes32Call::new(()).abi_encode(),
+                ParseHandler::actionRevertInvalidBytes32Call::new(()).abi_encode(),
             )),
         ];
 
@@ -398,7 +398,7 @@ mod tests {
         let (chain, target) = deploy_and_setup();
         let mut cloned = chain.clone();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            ParseTarget::invariant_allParsedMatchCall::new(()).abi_encode(),
+            ParseHandler::invariant_allParsedMatchCall::new(()).abi_encode(),
         ))];
 
         let execution = cloned.exec(&txs).unwrap();

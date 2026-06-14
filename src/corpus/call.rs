@@ -12,7 +12,7 @@ use crate::evm;
 /// A single call in a sequence.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Call {
-    /// Target function definition (name, input types, state mutability).
+    /// Handler function definition (name, input types, state mutability).
     pub function: Function,
     /// Concrete argument values. Always a [`DynSolValue::Tuple`] whose
     /// elements match `function.inputs` in order.

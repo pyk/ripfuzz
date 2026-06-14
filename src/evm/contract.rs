@@ -1,4 +1,4 @@
-//! Target contract definition and validation.
+//! Handler contract definition and validation.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail, ensure};
 use crate::evm::DeployLibraryInput;
 use crate::foundry::{Artifact, ArtifactId, ContractArtifact};
 
-/// A validated target contract ready for fuzzing.
+/// A validated handler contract ready for fuzzing.
 ///
 /// Created from a Foundry [`Artifact`] (or `&Artifact`) by validating that it
 /// represents a concrete contract and extracting the functions the fuzzer will
@@ -21,14 +21,14 @@ pub struct Contract {
     /// Full contract ABI (includes all functions).
     pub abi: JsonAbi,
     /// Functions the fuzzer will call to mutate state.
-    pub target_functions: Vec<Function>,
+    pub handler_functions: Vec<Function>,
     /// Invariant functions checked after every call sequence.
     pub invariant_functions: Vec<Function>,
     /// Optional setup function called once after deployment.
     pub setup_function: Option<Function>,
     /// Hex-encoded initcode used to deploy the contract.
     pub initcode: String,
-    /// Linked libraries that must be deployed before the target contract.
+    /// Linked libraries that must be deployed before the handler contract.
     pub libraries: Vec<DeployLibraryInput>,
 }
 
@@ -43,14 +43,14 @@ impl Contract {
         for (name, funcs) in &contract.abi.functions {
             ensure!(
                 funcs.len() <= 1,
-                "target contract must not have duplicate function names: `{}`",
+                "handler contract must not have duplicate function names: `{}`",
                 name
             );
         }
 
         let all_functions: Vec<Function> = contract.abi.functions().cloned().collect();
 
-        let mut target_functions = Vec::new();
+        let mut handler_functions = Vec::new();
         let mut invariant_functions = Vec::new();
         let mut setup_function = None;
 
@@ -71,13 +71,13 @@ impl Contract {
                 continue;
             }
 
-            target_functions.push(func);
+            handler_functions.push(func);
         }
 
         if let Some(constructor) = &contract.abi.constructor {
             ensure!(
                 constructor.inputs.is_empty(),
-                "target contract constructor must not have arguments"
+                "handler contract constructor must not have arguments"
             );
         }
 
@@ -96,14 +96,14 @@ impl Contract {
         }
 
         ensure!(
-            !target_functions.is_empty(),
-            "target contract must have at least one target function"
+            !handler_functions.is_empty(),
+            "handler contract must have at least one handler function"
         );
 
         Ok(Self {
             artifact_id,
             abi: contract.abi.clone(),
-            target_functions,
+            handler_functions,
             invariant_functions,
             setup_function,
             initcode,
@@ -151,7 +151,7 @@ impl Contract {
         Ok(libraries)
     }
 
-    /// Load a target contract from the build artifacts and prepare its library
+    /// Load a handler contract from the build artifacts and prepare its library
     /// dependencies.
     ///
     /// `artifact_id` must be a concrete contract (not an interface, library, or
@@ -207,40 +207,40 @@ mod tests {
     // -----------------------------------------------------------------------
 
     fn load_fixture(contract_id: &str) -> Result<Contract> {
-        let project = Project::new("fixtures/target-contract-validation");
+        let project = Project::new("fixtures/handler-contract-validation");
         let artifacts = project.load_artifacts()?;
         let id = ArtifactId::try_from(contract_id)?;
         Contract::try_get(&artifacts, &id)
     }
 
     // -----------------------------------------------------------------------
-    // 1. Valid target contract should have >0 target functions
+    // 1. Valid handler contract should have >0 handler functions
     // -----------------------------------------------------------------------
 
     #[test]
-    fn valid_target_has_target_functions() {
-        let contract = load_fixture("src/ValidTarget.sol:ValidTarget").unwrap();
-        assert!(!contract.target_functions.is_empty());
+    fn valid_handler_has_handler_functions() {
+        let contract = load_fixture("src/ValidHandler.sol:ValidHandler").unwrap();
+        assert!(!contract.handler_functions.is_empty());
         assert!(
             contract
-                .target_functions
+                .handler_functions
                 .iter()
                 .any(|f| f.name == "doSomething")
         );
     }
 
     // -----------------------------------------------------------------------
-    // 2. Valid target contract can have 0 or more invariant functions
+    // 2. Valid handler contract can have 0 or more invariant functions
     // -----------------------------------------------------------------------
 
     #[test]
-    fn valid_target_can_have_zero_invariants() {
+    fn valid_handler_can_have_zero_invariants() {
         let contract = load_fixture("src/ValidNoInvariant.sol:ValidNoInvariant").unwrap();
         assert!(contract.invariant_functions.is_empty());
     }
 
     #[test]
-    fn valid_target_can_have_multiple_invariants() {
+    fn valid_handler_can_have_multiple_invariants() {
         let contract =
             load_fixture("src/ValidMultipleInvariants.sol:ValidMultipleInvariants").unwrap();
         assert_eq!(contract.invariant_functions.len(), 2);
@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn public_invariant_is_classified_as_invariant() {
-        let contract = load_fixture("src/ValidTarget.sol:ValidTarget").unwrap();
+        let contract = load_fixture("src/ValidHandler.sol:ValidHandler").unwrap();
         assert!(
             contract
                 .invariant_functions
@@ -378,11 +378,11 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn no_targets_fails() {
-        let err = load_fixture("src/InvalidNoTargets.sol:InvalidNoTargets").unwrap_err();
+    fn no_handlers_fails() {
+        let err = load_fixture("src/InvalidNoHandlers.sol:InvalidNoHandlers").unwrap_err();
         assert!(
             err.to_string()
-                .contains("target contract must have at least one target function")
+                .contains("handler contract must have at least one handler function")
         );
     }
 
@@ -396,7 +396,7 @@ mod tests {
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("target contract must not have duplicate function names")
+                .contains("handler contract must not have duplicate function names")
         );
     }
 }

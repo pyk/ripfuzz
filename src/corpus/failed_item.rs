@@ -13,7 +13,7 @@ use crate::corpus::{Call, CorpusConfig, ExtractedLiterals, Item};
 #[derive(Debug)]
 struct SharedFailedCorpusItemInner {
     current: RwLock<Item>,
-    target_functions: Vec<alloy_json_abi::Function>,
+    handler_functions: Vec<alloy_json_abi::Function>,
     literals: ExtractedLiterals,
 }
 
@@ -33,7 +33,7 @@ impl SharedFailedCorpusItem {
         Self {
             inner: Arc::new(SharedFailedCorpusItemInner {
                 current: RwLock::new(item),
-                target_functions: config.target_functions,
+                handler_functions: config.handler_functions,
                 literals: config.literals,
             }),
         }
@@ -143,7 +143,7 @@ impl SharedFailedCorpusItem {
     }
 
     fn generate_call(&self, rng: &mut fastrand::Rng) -> Call {
-        let functions = &self.inner.target_functions;
+        let functions = &self.inner.handler_functions;
         if functions.is_empty() {
             return Call::default();
         }

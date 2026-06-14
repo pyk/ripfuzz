@@ -55,7 +55,7 @@ impl ShrinkerConfig {
         self
     }
 
-    /// Set the target contract address.
+    /// Set the handler contract address.
     pub fn target_address(mut self, value: Address) -> Self {
         self.target_address = value;
         self

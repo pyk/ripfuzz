@@ -28,7 +28,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface GetCodeTarget {
+        interface GetCodeHandler {
             function setup() external;
             function actionGetCode() external;
             function actionMutateGetCode() external;
@@ -44,7 +44,7 @@ mod tests {
     const COUNTER_ARTIFACT_ID: &str = "src/Counter.sol:Counter";
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
@@ -54,7 +54,7 @@ mod tests {
     /// by full artifact id (`src/Counter.sol:Counter`).
     fn load_compiled_contracts() -> HashMap<String, Bytes> {
         let mut map = HashMap::new();
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
 
         for (id, artifact) in &artifacts {
@@ -72,8 +72,8 @@ mod tests {
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/GetCodeTarget.sol:GetCodeTarget");
-        let config = ChainConfig::new("fixtures/target-contract-with-cheatcodes")
+        let contract = load_fixture("src/GetCodeHandler.sol:GetCodeHandler");
+        let config = ChainConfig::new("fixtures/handler-contract-with-cheatcodes")
             .with_compiled_contracts(load_compiled_contracts());
         let mut chain = Chain::new(config).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -134,10 +134,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::getDeployedValueCall::new(()).abi_encode(),
+                GetCodeHandler::getDeployedValueCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
+                GetCodeHandler::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
 
@@ -147,7 +147,7 @@ mod tests {
             execution.results[0].success,
             "getDeployedValue must return the deployed value"
         );
-        let stored: U256 = GetCodeTarget::getDeployedValueCall::abi_decode_returns(
+        let stored: U256 = GetCodeHandler::getDeployedValueCall::abi_decode_returns(
             &execution.results[0].output.clone().unwrap(),
         )
         .unwrap();
@@ -165,10 +165,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::actionGetCodeCall::new(()).abi_encode(),
+                GetCodeHandler::actionGetCodeCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
+                GetCodeHandler::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
 
@@ -189,10 +189,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::actionGetCodeSequenceCall::new(()).abi_encode(),
+                GetCodeHandler::actionGetCodeSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
+                GetCodeHandler::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
 
@@ -203,7 +203,7 @@ mod tests {
             "actionGetCodeSequence must succeed"
         );
         let output = execution.results[0].output.clone().unwrap();
-        let ret = GetCodeTarget::actionGetCodeSequenceCall::abi_decode_returns(&output).unwrap();
+        let ret = GetCodeHandler::actionGetCodeSequenceCall::abi_decode_returns(&output).unwrap();
         assert_eq!(ret.first, EXPECTED_VALUE, "first getCode must read 42");
         assert_eq!(ret.second, U256::from(100), "second getCode must read 100");
         assert_eq!(ret.third, EXPECTED_VALUE, "third getCode must read 42");
@@ -220,13 +220,13 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::actionMutateGetCodeCall::new(()).abi_encode(),
+                GetCodeHandler::actionMutateGetCodeCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::actionGetCodeCall::new(()).abi_encode(),
+                GetCodeHandler::actionGetCodeCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
+                GetCodeHandler::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
 
@@ -252,10 +252,10 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::actionGetCodeCall::new(()).abi_encode(),
+                GetCodeHandler::actionGetCodeCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
+                GetCodeHandler::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
 
@@ -279,19 +279,19 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::actionGetCodeCall::new(()).abi_encode(),
+                GetCodeHandler::actionGetCodeCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::actionMutateGetCodeCall::new(()).abi_encode(),
+                GetCodeHandler::actionMutateGetCodeCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::actionGetCodeCall::new(()).abi_encode(),
+                GetCodeHandler::actionGetCodeCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::actionGetCodeSequenceCall::new(()).abi_encode(),
+                GetCodeHandler::actionGetCodeSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                GetCodeTarget::invariant_getCodeCall::new(()).abi_encode(),
+                GetCodeHandler::invariant_getCodeCall::new(()).abi_encode(),
             )),
         ];
 

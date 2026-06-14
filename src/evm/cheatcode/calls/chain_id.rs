@@ -28,7 +28,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface ChainIdTarget {
+        interface ChainIdHandler {
             function setup() external;
             function invariant_chainId() external view;
             function actionRestoreChainId() external;
@@ -38,14 +38,14 @@ mod tests {
     }
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/ChainIdTarget.sol:ChainIdTarget");
+        let contract = load_fixture("src/ChainIdHandler.sol:ChainIdHandler");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -64,7 +64,7 @@ mod tests {
     fn chain_id_set_in_setup_matches_expected() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            ChainIdTarget::invariant_chainIdCall::new(()).abi_encode(),
+            ChainIdHandler::invariant_chainIdCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -83,10 +83,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::actionRestoreChainIdCall::new(()).abi_encode(),
+                ChainIdHandler::actionRestoreChainIdCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::invariant_chainIdCall::new(()).abi_encode(),
+                ChainIdHandler::invariant_chainIdCall::new(()).abi_encode(),
             )),
         ];
 
@@ -110,10 +110,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::actionChainIdSequenceCall::new(()).abi_encode(),
+                ChainIdHandler::actionChainIdSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::invariant_chainIdCall::new(()).abi_encode(),
+                ChainIdHandler::invariant_chainIdCall::new(()).abi_encode(),
             )),
         ];
 
@@ -137,13 +137,13 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::actionMutateChainIdCall::new(()).abi_encode(),
+                ChainIdHandler::actionMutateChainIdCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::actionRestoreChainIdCall::new(()).abi_encode(),
+                ChainIdHandler::actionRestoreChainIdCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::invariant_chainIdCall::new(()).abi_encode(),
+                ChainIdHandler::invariant_chainIdCall::new(()).abi_encode(),
             )),
         ];
 
@@ -172,10 +172,10 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::actionRestoreChainIdCall::new(()).abi_encode(),
+                ChainIdHandler::actionRestoreChainIdCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::invariant_chainIdCall::new(()).abi_encode(),
+                ChainIdHandler::invariant_chainIdCall::new(()).abi_encode(),
             )),
         ];
 
@@ -200,19 +200,19 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::actionRestoreChainIdCall::new(()).abi_encode(),
+                ChainIdHandler::actionRestoreChainIdCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::actionMutateChainIdCall::new(()).abi_encode(),
+                ChainIdHandler::actionMutateChainIdCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::actionRestoreChainIdCall::new(()).abi_encode(),
+                ChainIdHandler::actionRestoreChainIdCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::actionChainIdSequenceCall::new(()).abi_encode(),
+                ChainIdHandler::actionChainIdSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                ChainIdTarget::invariant_chainIdCall::new(()).abi_encode(),
+                ChainIdHandler::invariant_chainIdCall::new(()).abi_encode(),
             )),
         ];
 

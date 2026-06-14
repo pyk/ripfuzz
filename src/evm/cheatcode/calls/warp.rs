@@ -31,7 +31,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface WarpTarget {
+        interface WarpHandler {
             function setup() external;
             function getBlockTimestamp() external view returns (uint256);
             function actionWarp() external;
@@ -43,14 +43,14 @@ mod tests {
     const EXPECTED: U256 = U256::from_limbs([1_234_567_890, 0, 0, 0]);
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/WarpTarget.sol:WarpTarget");
+        let contract = load_fixture("src/WarpHandler.sol:WarpHandler");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -115,7 +115,7 @@ mod tests {
     fn setup_warp_persists_into_exec() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            WarpTarget::getBlockTimestampCall::new(()).abi_encode(),
+            WarpHandler::getBlockTimestampCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -124,7 +124,7 @@ mod tests {
             execution.results[0].success,
             "getBlockTimestamp must succeed after setup"
         );
-        let value = WarpTarget::getBlockTimestampCall::abi_decode_returns(
+        let value = WarpHandler::getBlockTimestampCall::abi_decode_returns(
             &execution.results[0].output.clone().unwrap(),
         )
         .unwrap();
@@ -142,10 +142,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::actionWarpCall::new(()).abi_encode(),
+                WarpHandler::actionWarpCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::invariant_warpCall::new(()).abi_encode(),
+                WarpHandler::invariant_warpCall::new(()).abi_encode(),
             )),
         ];
 
@@ -166,10 +166,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::actionMutateCall::new(()).abi_encode(),
+                WarpHandler::actionMutateCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::invariant_warpCall::new(()).abi_encode(),
+                WarpHandler::invariant_warpCall::new(()).abi_encode(),
             )),
         ];
 
@@ -191,10 +191,10 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::actionWarpCall::new(()).abi_encode(),
+                WarpHandler::actionWarpCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::invariant_warpCall::new(()).abi_encode(),
+                WarpHandler::invariant_warpCall::new(()).abi_encode(),
             )),
         ];
 
@@ -218,10 +218,10 @@ mod tests {
 
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::actionWarpCall::new(()).abi_encode(),
+                WarpHandler::actionWarpCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::invariant_warpCall::new(()).abi_encode(),
+                WarpHandler::invariant_warpCall::new(()).abi_encode(),
             )),
         ];
         let execution = chain.exec(&txs).unwrap();

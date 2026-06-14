@@ -10,17 +10,15 @@ interface IWETH {
 /// and caches remote contract account data. The contract interacts with the
 /// mainnet WETH contract (0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2) in
 /// four different execution paths -- constructor (decimals), setup
-/// (balanceOf), target function (balanceOf), and invariant (balanceOf) -- to
+/// (balanceOf), handler function (balanceOf), and invariant (balanceOf) -- to
 /// confirm that cached account and storage data is consistent and that no
 /// redundant RPC calls occur after the initial fetches.
 contract InteractWithWETH {
     /// Mainnet WETH at block 25_259_523.
-    IWETH internal constant WETH =
-        IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    IWETH internal constant WETH = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     /// vitalik.eth address.
-    address internal constant VITALIK =
-        0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045;
+    address internal constant VITALIK = 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045;
 
     /// vitalik.eth WETH balance at block 25_259_523.
     uint256 internal constant EXPECTED = 1_461_898_164_019_088_870;

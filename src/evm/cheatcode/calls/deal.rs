@@ -38,7 +38,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface DealTarget {
+        interface DealHandler {
             function setup() external;
             function invariant_deal() external view;
             function actionRestoreDeal() external;
@@ -48,14 +48,14 @@ mod tests {
     }
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/DealTarget.sol:DealTarget");
+        let contract = load_fixture("src/DealHandler.sol:DealHandler");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -74,7 +74,7 @@ mod tests {
     fn deal_set_in_setup_matches_expected() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            DealTarget::invariant_dealCall::new(()).abi_encode(),
+            DealHandler::invariant_dealCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -93,10 +93,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::actionRestoreDealCall::new(()).abi_encode(),
+                DealHandler::actionRestoreDealCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::invariant_dealCall::new(()).abi_encode(),
+                DealHandler::invariant_dealCall::new(()).abi_encode(),
             )),
         ];
 
@@ -120,10 +120,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::actionDealSequenceCall::new(()).abi_encode(),
+                DealHandler::actionDealSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::invariant_dealCall::new(()).abi_encode(),
+                DealHandler::invariant_dealCall::new(()).abi_encode(),
             )),
         ];
 
@@ -147,13 +147,13 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::actionMutateDealCall::new(()).abi_encode(),
+                DealHandler::actionMutateDealCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::actionRestoreDealCall::new(()).abi_encode(),
+                DealHandler::actionRestoreDealCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::invariant_dealCall::new(()).abi_encode(),
+                DealHandler::invariant_dealCall::new(()).abi_encode(),
             )),
         ];
 
@@ -182,10 +182,10 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::actionRestoreDealCall::new(()).abi_encode(),
+                DealHandler::actionRestoreDealCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::invariant_dealCall::new(()).abi_encode(),
+                DealHandler::invariant_dealCall::new(()).abi_encode(),
             )),
         ];
 
@@ -210,19 +210,19 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::actionRestoreDealCall::new(()).abi_encode(),
+                DealHandler::actionRestoreDealCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::actionMutateDealCall::new(()).abi_encode(),
+                DealHandler::actionMutateDealCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::actionRestoreDealCall::new(()).abi_encode(),
+                DealHandler::actionRestoreDealCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::actionDealSequenceCall::new(()).abi_encode(),
+                DealHandler::actionDealSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                DealTarget::invariant_dealCall::new(()).abi_encode(),
+                DealHandler::invariant_dealCall::new(()).abi_encode(),
             )),
         ];
 

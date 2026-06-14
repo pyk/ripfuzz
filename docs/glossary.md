@@ -6,17 +6,17 @@ Consistent vocabulary for raptor users and contributors.
 
 ### Fuzzing Campaign
 
-A single invocation of `raptor fuzz`. A campaign initializes the **target
+A single invocation of `raptor fuzz`. A campaign initializes the **handler
 contract**, builds seed inputs, and orchestrates one or more **fuzzers** that
 generate sequences of **function calls**, execute them against a cloned contract
 state, and check that all **properties** still hold. If a **failed assertion**
 is found, the campaign spawns one or more **shrinkers** to minimize the failing
 sequence before reporting the result. Also called a "fuzz run" or "test run".
 
-### Target Contract
+### Handler Contract
 
 The Solidity file you pass to `raptor fuzz` (e.g.
-`./test/CounterTarget.sol:CounterTarget`). It is the contract raptor compiles,
+`./test/CounterHandler.sol:CounterHandler`). It is the contract raptor compiles,
 deploys, and exercises.
 
 ### Invariant Function
@@ -48,12 +48,12 @@ function-level invariants. For example, the `xy = k` constant product formula
 must always hold for a Uniswap pool, or the total deposited amount in a lending
 protocol must never exceed `MAX_DEPOSIT_AMOUNT`.
 
-### Target Function
+### Handler Function
 
-Any external or public function in the target contract that is _not_ a setup or
+Any external or public function in the handler contract that is _not_ a setup or
 invariant function. Raptor calls these with randomly-generated arguments to
 mutate contract state. A single fuzz input is a **sequence of function calls**.
-Synonyms: **function call**, **handler function** (Foundry).
+Synonyms: **function call**, **target function** (Foundry, Echidna).
 
 ### Setup Function
 
@@ -70,16 +70,15 @@ campaign manager. By default raptor spawns one fuzzer per available CPU core.
 ### Campaign Result
 
 The aggregated output of a fuzzing campaign, including the total number of
-iterations executed across all fuzzers and any failed assertions (assert
-panics) discovered.
+iterations executed across all fuzzers and any failed assertions (assert panics)
+discovered.
 
 ### Failed Assertion
 
-A failure recorded when any call (target function or invariant) reverts with a
-Solidity `assert` panic (`Panic(0x01)`). The fuzzer treats a failed assertion
-as a bug and adds it to the set of objectives. Reverts caused by `require` or
-other reasons do not produce a failed assertion. Synonyms: **objective**,
-**bug**.
+A failure recorded when any call (handler function or invariant) reverts with a
+Solidity `assert` panic (`Panic(0x01)`). The fuzzer treats a failed assertion as
+a bug and adds it to the set of objectives. Reverts caused by `require` or other
+reasons do not produce a failed assertion. Synonyms: **objective**, **bug**.
 
 ### Shrinker
 
@@ -163,9 +162,9 @@ coverage for speed.
 
 ## Correspondence with Other Fuzzers
 
-| Raptor          | Foundry (invariant) | Medusa        | Echidna       |
-| --------------- | ------------------- | ------------- | ------------- |
-| Target          | Handler             | Target        | Target        |
-| `invariant_`    | `invariant_`        | `property_`   | `echidna_`    |
-| Target Function | Handler function    | Function call | Function call |
-| Campaign        | Test run            | Fuzzing run   | Test run      |
+| Raptor           | Foundry (invariant) | Medusa        | Echidna       |
+| ---------------- | ------------------- | ------------- | ------------- |
+| Handler Contract | Handler             | Target        | Target        |
+| `invariant_`     | `invariant_`        | `property_`   | `echidna_`    |
+| Handler Function | Handler function    | Function call | Function call |
+| Campaign         | Test run            | Fuzzing run   | Test run      |

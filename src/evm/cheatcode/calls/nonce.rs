@@ -60,7 +60,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface NonceTarget {
+        interface NonceHandler {
             function setup() external;
             function actionBumpNonce() external;
             function actionBumpNonceByTwo() external;
@@ -76,14 +76,14 @@ mod tests {
     const BASELINE: U256 = U256::from_limbs([42, 0, 0, 0]);
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/NonceTarget.sol:NonceTarget");
+        let contract = load_fixture("src/NonceHandler.sol:NonceHandler");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -165,7 +165,7 @@ mod tests {
     fn nonce_set_in_setup_matches_expected() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+            NonceHandler::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -183,13 +183,13 @@ mod tests {
     fn nonce_persists_from_setup_into_exec() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            NonceTarget::getNonceDirectCall::new(()).abi_encode(),
+            NonceHandler::getNonceDirectCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(execution.results[0].success, "getNonceDirect must succeed");
-        let ret = NonceTarget::getNonceDirectCall::abi_decode_returns(
+        let ret = NonceHandler::getNonceDirectCall::abi_decode_returns(
             &execution.results[0].output.clone().unwrap(),
         )
         .unwrap();
@@ -207,13 +207,13 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::actionBumpNonceCall::new(()).abi_encode(),
+                NonceHandler::actionBumpNonceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::getStoredNonceCall::new(()).abi_encode(),
+                NonceHandler::getStoredNonceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+                NonceHandler::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
             )),
         ];
 
@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(execution.results.len(), 3);
         assert!(execution.results[0].success, "actionBumpNonce must succeed");
         assert!(execution.results[1].success, "getStoredNonce must succeed");
-        let stored: U256 = NonceTarget::getStoredNonceCall::abi_decode_returns(
+        let stored: U256 = NonceHandler::getStoredNonceCall::abi_decode_returns(
             &execution.results[1].output.clone().unwrap(),
         )
         .unwrap();
@@ -243,23 +243,23 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::actionBumpNonceCall::new(()).abi_encode(),
+                NonceHandler::actionBumpNonceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::actionBumpNonceByTwoCall::new(()).abi_encode(),
+                NonceHandler::actionBumpNonceByTwoCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::getStoredNonceCall::new(()).abi_encode(),
+                NonceHandler::getStoredNonceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+                NonceHandler::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
             )),
         ];
 
         let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 4);
         assert!(execution.results[2].success, "getStoredNonce must succeed");
-        let stored: U256 = NonceTarget::getStoredNonceCall::abi_decode_returns(
+        let stored: U256 = NonceHandler::getStoredNonceCall::abi_decode_returns(
             &execution.results[2].output.clone().unwrap(),
         )
         .unwrap();
@@ -282,13 +282,13 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::actionOverwriteSequenceCall::new(()).abi_encode(),
+                NonceHandler::actionOverwriteSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::getStoredNonceCall::new(()).abi_encode(),
+                NonceHandler::getStoredNonceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+                NonceHandler::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
             )),
         ];
 
@@ -298,7 +298,7 @@ mod tests {
             execution.results[0].success,
             "actionOverwriteSequence must succeed"
         );
-        let stored: U256 = NonceTarget::getStoredNonceCall::abi_decode_returns(
+        let stored: U256 = NonceHandler::getStoredNonceCall::abi_decode_returns(
             &execution.results[1].output.clone().unwrap(),
         )
         .unwrap();
@@ -318,7 +318,7 @@ mod tests {
     fn revert_low_nonce_in_action_reverts() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            NonceTarget::actionRevertLowNonceCall::new(()).abi_encode(),
+            NonceHandler::actionRevertLowNonceCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -338,13 +338,13 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::actionBumpNonceCall::new(()).abi_encode(),
+                NonceHandler::actionBumpNonceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::actionBumpNonceByTwoCall::new(()).abi_encode(),
+                NonceHandler::actionBumpNonceByTwoCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+                NonceHandler::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
             )),
         ];
 
@@ -372,16 +372,16 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::actionBumpNonceCall::new(()).abi_encode(),
+                NonceHandler::actionBumpNonceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::actionBumpNonceByTwoCall::new(()).abi_encode(),
+                NonceHandler::actionBumpNonceByTwoCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::actionOverwriteSequenceCall::new(()).abi_encode(),
+                NonceHandler::actionOverwriteSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                NonceTarget::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
+                NonceHandler::invariant_nonceAtLeastBaselineCall::new(()).abi_encode(),
             )),
         ];
 

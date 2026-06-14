@@ -150,12 +150,12 @@ impl Chain {
 
     /// Deploy a contract and return the full [`DeployOutput`] result.
     ///
-    /// A [`cheatcode::Inspector`] is included so that target contracts can call
+    /// A [`cheatcode::Inspector`] is included so that handler contracts can call
     /// raptor cheatcodes (e.g. `vm.warp`) during constructor execution.
     ///
     /// If `opts.libraries` is non-empty, the linked libraries are deployed first
     /// (recursively, in dependency order), their addresses are collected, and the
-    /// target contract initcode is linked before deployment.
+    /// handler contract initcode is linked before deployment.
     pub fn deploy(&mut self, opts: DeployInput) -> Result<DeployOutput> {
         let library_addrs = self.deploy_libraries(opts.libraries, opts.caller)?;
 
@@ -484,7 +484,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface WarpTarget {
+        interface WarpHandler {
             function getBlockTimestamp() external view returns (uint256);
             function setup() external;
             function actionWarp() external;
@@ -495,9 +495,9 @@ mod tests {
     const EXPECTED_TIMESTAMP: U256 = U256::from_limbs([1_234_567_890, 0, 0, 0]);
 
     fn load_warp_fixture() -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
-        let artifact_id = foundry::ArtifactId::try_from("src/WarpTarget.sol:WarpTarget").unwrap();
+        let artifact_id = foundry::ArtifactId::try_from("src/WarpHandler.sol:WarpHandler").unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
@@ -525,10 +525,10 @@ mod tests {
         // Second transaction: invariant checks that block.timestamp matches.
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::actionWarpCall::new(()).abi_encode(),
+                WarpHandler::actionWarpCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::invariant_warpCall::new(()).abi_encode(),
+                WarpHandler::invariant_warpCall::new(()).abi_encode(),
             )),
         ];
 
@@ -548,10 +548,10 @@ mod tests {
 
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::actionWarpCall::new(()).abi_encode(),
+                WarpHandler::actionWarpCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                WarpTarget::getBlockTimestampCall::new(()).abi_encode(),
+                WarpHandler::getBlockTimestampCall::new(()).abi_encode(),
             )),
         ];
 
@@ -572,7 +572,7 @@ mod tests {
         let (mut chain, target) = deploy_and_setup_warp(ChainConfig::default().trace(true));
 
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            WarpTarget::actionWarpCall::new(()).abi_encode(),
+            WarpHandler::actionWarpCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -593,7 +593,7 @@ mod tests {
 
         // Mutate original chain.
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            WarpTarget::actionWarpCall::new(()).abi_encode(),
+            WarpHandler::actionWarpCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -602,11 +602,11 @@ mod tests {
         // Clone and run a view call on the clone.
         let mut cloned = chain.clone();
         let view_txs = vec![Transaction::new(target).calldata(Bytes::from(
-            WarpTarget::getBlockTimestampCall::new(()).abi_encode(),
+            WarpHandler::getBlockTimestampCall::new(()).abi_encode(),
         ))];
         let view_execution = cloned.exec(&view_txs).unwrap();
         assert!(view_execution.results[0].success);
-        let ts = WarpTarget::getBlockTimestampCall::abi_decode_returns(
+        let ts = WarpHandler::getBlockTimestampCall::abi_decode_returns(
             &view_execution.results[0].output.clone().unwrap(),
         )
         .unwrap();

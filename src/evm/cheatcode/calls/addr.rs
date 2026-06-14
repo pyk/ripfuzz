@@ -40,7 +40,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface AddrTarget {
+        interface AddrHandler {
             function setup() external;
             function invariant_actorsMatch() external view;
             function actionRefreshAdmin() external;
@@ -54,7 +54,7 @@ mod tests {
     }
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
@@ -62,7 +62,7 @@ mod tests {
 
     /// Deploy the fixture and run its `setup` function.
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/AddrTarget.sol:AddrTarget");
+        let contract = load_fixture("src/AddrHandler.sol:AddrHandler");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -80,7 +80,7 @@ mod tests {
     fn actors_derived_in_setup_match_well_known() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
+            AddrHandler::invariant_actorsMatchCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -99,10 +99,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::actionRefreshAdminCall::new(()).abi_encode(),
+                AddrHandler::actionRefreshAdminCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
+                AddrHandler::invariant_actorsMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -126,10 +126,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::actionRefreshAllCall::new(()).abi_encode(),
+                AddrHandler::actionRefreshAllCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
+                AddrHandler::invariant_actorsMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -153,10 +153,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::actionRefreshInterleavedCall::new(()).abi_encode(),
+                AddrHandler::actionRefreshInterleavedCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
+                AddrHandler::invariant_actorsMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -177,7 +177,7 @@ mod tests {
     fn invalid_key_zero_reverts() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            AddrTarget::actionInvalidZeroCall::new(()).abi_encode(),
+            AddrHandler::actionInvalidZeroCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -193,7 +193,7 @@ mod tests {
     fn invalid_key_order_reverts() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            AddrTarget::actionInvalidOrderCall::new(()).abi_encode(),
+            AddrHandler::actionInvalidOrderCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -213,10 +213,10 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::actionRefreshAllCall::new(()).abi_encode(),
+                AddrHandler::actionRefreshAllCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
+                AddrHandler::invariant_actorsMatchCall::new(()).abi_encode(),
             )),
         ];
         let execution = cloned.exec(&txs).unwrap();
@@ -240,19 +240,19 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::actionRefreshAdminCall::new(()).abi_encode(),
+                AddrHandler::actionRefreshAdminCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::actionRefreshVoterCall::new(()).abi_encode(),
+                AddrHandler::actionRefreshVoterCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::actionRefreshProposerCall::new(()).abi_encode(),
+                AddrHandler::actionRefreshProposerCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::actionRefreshAllCall::new(()).abi_encode(),
+                AddrHandler::actionRefreshAllCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                AddrTarget::invariant_actorsMatchCall::new(()).abi_encode(),
+                AddrHandler::invariant_actorsMatchCall::new(()).abi_encode(),
             )),
         ];
 

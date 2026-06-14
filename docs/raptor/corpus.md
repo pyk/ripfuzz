@@ -262,7 +262,7 @@ Replay logic:
 
 1. **Load** each JSON file with `CallSequenceInput::from_file`.
 2. **Bind** every action (resolve against the current ABI):
-    - Look up `selector` in the target contract ABI.
+    - Look up `selector` in the handler contract ABI.
     - If `method_signature` is present, verify it hashes to the same selector.
     - If the signature no longer exists, the action is **unresolvable**.
 3. **Execute** the full sequence on a cloned EVM with coverage collection.
@@ -282,8 +282,8 @@ main mutation loop.
 ### 5.3 Crash Replay Verification
 
 Crash sequences from `crashes/` are also replayed during initialization,
-following the same load → bind → execute flow as coverage sequences. The goal
-is to verify that old reproducers still trigger the property failure.
+following the same load → bind → execute flow as coverage sequences. The goal is
+to verify that old reproducers still trigger the property failure.
 
 - **Still crashing** — the sequence is kept in the `OnDiskCorpus`.
 - **No longer crashing** (bug was fixed, or ABI changed so the sequence is
@@ -402,35 +402,32 @@ mutation selection.
 ### 8.2 Corpus Clean (`raptor corpus clean`)
 
 An explicit validation pass for ABI drift, modeled on Medusa's
-`CleanInvalidSequences`. When contracts are refactored or recompiled, old
-corpus files may contain stale selectors or signatures. This command scans the
-corpus, validates every file, and deletes the ones that can no longer execute.
+`CleanInvalidSequences`. When contracts are refactored or recompiled, old corpus
+files may contain stale selectors or signatures. This command scans the corpus,
+validates every file, and deletes the ones that can no longer execute.
 
 Command behavior:
 
 1. Create a fresh EVM runner from the current target artifact.
 2. Scan every file in `coverage/` and `crashes/`.
-3. For each file:
-    a. Load the JSON sequence.
-    b. **Bind** each action — resolve `method_signature` against the current ABI.
-       If the signature is unknown, or the selector no longer matches, the
-       sequence is flagged invalid.
-    c. **Execute** the full sequence on a cloned EVM state.
-       If execution errors (revert, out of gas, panic), the sequence is flagged
-       invalid.
-    d. Revert the EVM to the base state before testing the next file.
+3. For each file: a. Load the JSON sequence. b. **Bind** each action — resolve
+   `method_signature` against the current ABI. If the signature is unknown, or
+   the selector no longer matches, the sequence is flagged invalid. c.
+   **Execute** the full sequence on a cloned EVM state. If execution errors
+   (revert, out of gas, panic), the sequence is flagged invalid. d. Revert the
+   EVM to the base state before testing the next file.
 4. **Delete** every invalid file from disk.
 5. Report statistics:
-   ```
-   Total sequences:  150
-   Valid sequences:    142
-   Invalid sequences:  8
-   ```
+    ```
+    Total sequences:  150
+    Valid sequences:    142
+    Invalid sequences:  8
+    ```
 
-Unlike the soft skip during pre-fuzzing replay (Section 5.2), `corpus clean`
-is a **hard purge** — invalid files are permanently removed. This is run
-explicitly by the user after refactoring contracts or before committing the
-corpus to version control.
+Unlike the soft skip during pre-fuzzing replay (Section 5.2), `corpus clean` is
+a **hard purge** — invalid files are permanently removed. This is run explicitly
+by the user after refactoring contracts or before committing the corpus to
+version control.
 
 ### 8.3 Favored Entry Tracking (Future)
 
@@ -511,7 +508,7 @@ pretty_meta = true
 1. Implement pre-fuzzing replay: scan `coverage/` files, distribute across
    workers, validate ABI, warm up coverage maps.
 2. Add ABI resolution at load time (`method_signature` → selector lookup).
-3. Add stale-sequence detection: skip files where the target contract no longer
+3. Add stale-sequence detection: skip files where the handler contract no longer
    contains the method.
 
 ### Phase 3 — Maintenance CLI

@@ -37,7 +37,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface LabelTarget {
+        interface LabelHandler {
             function setup() external;
             function actionRelabelAdmin() external;
             function actionRestoreLabels() external;
@@ -53,14 +53,14 @@ mod tests {
     const ADMIN_LABEL: &str = "admin";
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/LabelTarget.sol:LabelTarget");
+        let contract = load_fixture("src/LabelHandler.sol:LabelHandler");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -177,7 +177,7 @@ mod tests {
     fn labels_set_in_setup_match_expected() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            LabelTarget::invariant_labelsMatchCall::new(()).abi_encode(),
+            LabelHandler::invariant_labelsMatchCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -195,10 +195,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::actionRelabelAdminCall::new(()).abi_encode(),
+                LabelHandler::actionRelabelAdminCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::invariant_labelsMatchCall::new(()).abi_encode(),
+                LabelHandler::invariant_labelsMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -221,16 +221,16 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::actionRelabelAdminCall::new(()).abi_encode(),
+                LabelHandler::actionRelabelAdminCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::actionRelabelUserCall::new(()).abi_encode(),
+                LabelHandler::actionRelabelUserCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::actionRestoreLabelsCall::new(()).abi_encode(),
+                LabelHandler::actionRestoreLabelsCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::invariant_labelsMatchCall::new(()).abi_encode(),
+                LabelHandler::invariant_labelsMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -262,10 +262,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::actionOverwriteAdminCall::new(()).abi_encode(),
+                LabelHandler::actionOverwriteAdminCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::invariant_labelsMatchCall::new(()).abi_encode(),
+                LabelHandler::invariant_labelsMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -290,13 +290,13 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::actionRelabelAdminCall::new(()).abi_encode(),
+                LabelHandler::actionRelabelAdminCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::actionRestoreLabelsCall::new(()).abi_encode(),
+                LabelHandler::actionRestoreLabelsCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::invariant_labelsMatchCall::new(()).abi_encode(),
+                LabelHandler::invariant_labelsMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -323,7 +323,7 @@ mod tests {
     fn label_persists_from_setup_into_exec() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            LabelTarget::getAdminLabelDirectCall::new(()).abi_encode(),
+            LabelHandler::getAdminLabelDirectCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -332,7 +332,7 @@ mod tests {
             execution.results[0].success,
             "getAdminLabelDirect must succeed"
         );
-        let ret = LabelTarget::getAdminLabelDirectCall::abi_decode_returns(
+        let ret = LabelHandler::getAdminLabelDirectCall::abi_decode_returns(
             &execution.results[0].output.clone().unwrap(),
         )
         .unwrap();
@@ -350,19 +350,19 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::actionRelabelAdminCall::new(()).abi_encode(),
+                LabelHandler::actionRelabelAdminCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::actionRelabelUserCall::new(()).abi_encode(),
+                LabelHandler::actionRelabelUserCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::actionRestoreLabelsCall::new(()).abi_encode(),
+                LabelHandler::actionRestoreLabelsCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::actionOverwriteAdminCall::new(()).abi_encode(),
+                LabelHandler::actionOverwriteAdminCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                LabelTarget::invariant_labelsMatchCall::new(()).abi_encode(),
+                LabelHandler::invariant_labelsMatchCall::new(()).abi_encode(),
             )),
         ];
 

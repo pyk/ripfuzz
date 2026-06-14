@@ -1,9 +1,9 @@
 //! Regression test: fork mode remote address.
 //!
-//! When chain fork mode is initialized, a target contract that reads on-chain
+//! When chain fork mode is initialized, a handler contract that reads on-chain
 //! state (e.g. vitalik.eth balance) must receive real fork data via the normal
 //! ForkDB lazy-fetch path and cache the result so that subsequent reads across
-//! constructor, setup, target function, and invariant function do not trigger
+//! constructor, setup, handler function, and invariant function do not trigger
 //! additional RPC calls.
 
 use alloy_sol_types::SolCall;
@@ -71,7 +71,7 @@ alloy_sol_types::sol! {
 }
 
 /// Regression test: deploying and interacting with a contract whose
-/// constructor, setup, target function, and invariant function all read
+/// constructor, setup, handler function, and invariant function all read
 /// vitalik.eth balance must fetch the remote account exactly once and
 /// cache the result for all subsequent reads.
 #[test]
@@ -142,7 +142,7 @@ fn remote_account_balance() {
     let setup_output = chain.setup(SetupInput::new(target)).unwrap();
     assert!(setup_output.result.success, "setup must succeed");
 
-    // checkBalance target function and invariant_checkBalance invocation.
+    // checkBalance handler function and invariant_checkBalance invocation.
     let txs = vec![
         Transaction::new(target).calldata(
             RemoteAccountBalance::checkBalanceCall::new(())

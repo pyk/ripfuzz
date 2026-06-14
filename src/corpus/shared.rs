@@ -63,7 +63,7 @@ impl SharedCorpusItems {
 struct SharedCorpusInner {
     pub corpus_dir: PathBuf,
     pub items: RwLock<SharedCorpusItems>,
-    pub target_functions: Vec<alloy_json_abi::Function>,
+    pub handler_functions: Vec<alloy_json_abi::Function>,
     pub max_calls_length: usize,
     pub literals: ExtractedLiterals,
 }
@@ -74,8 +74,8 @@ impl std::fmt::Debug for SharedCorpusInner {
         f.debug_struct("SharedCorpusInner")
             .field("items", &format_args!("[{len} items]"))
             .field(
-                "target_functions",
-                &format_args!("[{} functions]", self.target_functions.len()),
+                "handler_functions",
+                &format_args!("[{} functions]", self.handler_functions.len()),
             )
             .finish()
     }
@@ -114,7 +114,7 @@ impl SharedCorpus {
                 ids: HashSet::new(),
                 vec: Vec::new(),
             }),
-            target_functions: config.target_functions,
+            handler_functions: config.handler_functions,
             max_calls_length: config.max_calls_length,
             literals: config.literals,
         });
@@ -123,7 +123,7 @@ impl SharedCorpus {
     }
 
     /// Load corpus items from the storage directory and validate them
-    /// against the target functions.
+    /// against the handler functions.
     ///
     /// Valid items are added to the pending queue. Invalid or unparsable
     /// items are counted in the returned [`CorpusStats`] but are not stored.
@@ -158,7 +158,7 @@ impl SharedCorpus {
                 };
                 let all_valid = item.calls.iter().all(|call| {
                     self.inner
-                        .target_functions
+                        .handler_functions
                         .iter()
                         .any(|f| f.signature() == call.function.signature())
                 });
@@ -253,9 +253,9 @@ impl SharedCorpus {
         rng.f32() < 0.30
     }
 
-    /// Generate a single random call for the target contract.
+    /// Generate a single random call for the handler contract.
     fn generate_call(&self, rng: &mut fastrand::Rng) -> Call {
-        let functions = &self.inner.target_functions;
+        let functions = &self.inner.handler_functions;
         if functions.is_empty() {
             return Call::default();
         }
@@ -481,7 +481,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![],
+            handler_functions: vec![],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -490,7 +490,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);
@@ -560,7 +560,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![func_a, func_b],
+            handler_functions: vec![func_a, func_b],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -569,7 +569,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(8)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);
@@ -612,7 +612,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![func],
+            handler_functions: vec![func],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -621,7 +621,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);
@@ -676,7 +676,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![],
+            handler_functions: vec![],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -685,7 +685,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);
@@ -703,7 +703,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![],
+            handler_functions: vec![],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -712,7 +712,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(4)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);
@@ -752,7 +752,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![func],
+            handler_functions: vec![func],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -762,7 +762,7 @@ mod tests {
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let max_calls = 64;
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(max_calls)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);
@@ -839,7 +839,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![func],
+            handler_functions: vec![func],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -848,7 +848,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);
@@ -919,7 +919,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![func],
+            handler_functions: vec![func],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -928,7 +928,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);
@@ -1000,7 +1000,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![func_a, func_b],
+            handler_functions: vec![func_a, func_b],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -1009,7 +1009,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);
@@ -1080,7 +1080,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![func],
+            handler_functions: vec![func],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -1089,7 +1089,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);
@@ -1162,7 +1162,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![func_pay.clone(), func_nonpay.clone()],
+            handler_functions: vec![func_pay.clone(), func_nonpay.clone()],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -1171,7 +1171,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);
@@ -1252,7 +1252,7 @@ mod tests {
                 name: "Test".into(),
             },
             abi: alloy_json_abi::JsonAbi::default(),
-            target_functions: vec![func_pay.clone(), func_a, func_b],
+            handler_functions: vec![func_pay.clone(), func_a, func_b],
             invariant_functions: vec![],
             setup_function: None,
             libraries: Vec::new(),
@@ -1261,7 +1261,7 @@ mod tests {
 
         let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
         let corpus_config = CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(64)
             .literals(ExtractedLiterals::default());
         let corpus = SharedCorpus::new(corpus_config);

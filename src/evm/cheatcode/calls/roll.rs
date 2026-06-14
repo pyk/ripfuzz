@@ -32,7 +32,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface RollTarget {
+        interface RollHandler {
             function setup() external;
             function actionRestoreCanonical() external;
             function actionMutateValue() external;
@@ -47,14 +47,14 @@ mod tests {
     const CANONICAL: U256 = U256::from_limbs([42, 0, 0, 0]);
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/RollTarget.sol:RollTarget");
+        let contract = load_fixture("src/RollHandler.sol:RollHandler");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -115,7 +115,7 @@ mod tests {
     fn setup_roll_persists_into_exec() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+            RollHandler::invariant_blockNumberMatchCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -133,13 +133,13 @@ mod tests {
     fn block_number_preserved_after_deployment_and_setup() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            RollTarget::getBlockNumberCall::new(()).abi_encode(),
+            RollHandler::getBlockNumberCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(execution.results[0].success, "getBlockNumber must succeed");
-        let value = RollTarget::getBlockNumberCall::abi_decode_returns(
+        let value = RollHandler::getBlockNumberCall::abi_decode_returns(
             &execution.results[0].output.clone().unwrap(),
         )
         .unwrap();
@@ -157,10 +157,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                RollTarget::actionReadBlockNumberCall::new(()).abi_encode(),
+                RollHandler::actionReadBlockNumberCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+                RollHandler::invariant_blockNumberMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -184,10 +184,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                RollTarget::actionRestoreCanonicalCall::new(()).abi_encode(),
+                RollHandler::actionRestoreCanonicalCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+                RollHandler::invariant_blockNumberMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -211,10 +211,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                RollTarget::actionMutateValueCall::new(()).abi_encode(),
+                RollHandler::actionMutateValueCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+                RollHandler::invariant_blockNumberMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -238,10 +238,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                RollTarget::actionSequenceCall::new(()).abi_encode(),
+                RollHandler::actionSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+                RollHandler::invariant_blockNumberMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -262,7 +262,7 @@ mod tests {
         let (chain, target) = deploy_and_setup();
         let mut cloned = chain.clone();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            RollTarget::invariant_blockNumberMatchCall::new(()).abi_encode(),
+            RollHandler::invariant_blockNumberMatchCall::new(()).abi_encode(),
         ))];
 
         let execution = cloned.exec(&txs).unwrap();

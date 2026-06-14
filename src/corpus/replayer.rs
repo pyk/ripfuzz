@@ -158,7 +158,7 @@ mod tests {
     }
 
     fn load_coverage_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let project = foundry::Project::new("fixtures/handler-contract-coverage");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
@@ -199,7 +199,7 @@ mod tests {
         let corpus_dir = std::env::temp_dir().join("raptor_test_corpus");
         let _ = fs::remove_dir_all(&corpus_dir);
         let corpus_config = corpus::CorpusConfig::new(corpus_dir)
-            .target_functions(contract.target_functions.clone())
+            .handler_functions(contract.handler_functions.clone())
             .max_calls(10);
         let corpus = SharedCorpus::new(corpus_config);
         corpus.add_item(item.clone()).unwrap();

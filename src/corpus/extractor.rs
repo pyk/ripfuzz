@@ -496,7 +496,7 @@ mod tests {
     use crate::foundry;
 
     fn load_fixture() -> HashMap<ArtifactId, Artifact> {
-        let project = foundry::Project::new("fixtures/target-contract-with-literals");
+        let project = foundry::Project::new("fixtures/handler-contract-with-literals");
         let artifacts = project.load_artifacts().unwrap();
         artifacts.into_iter().map(|(k, v)| (k, v)).collect()
     }

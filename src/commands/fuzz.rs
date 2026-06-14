@@ -30,7 +30,7 @@ use crate::shrinker::{Shrinker, ShrinkerConfig};
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Target contract identifier (e.g. ./test/Contract.sol:Contract).
+    /// Handler contract identifier (e.g. ./test/Contract.sol:Contract).
     #[arg(value_name = "TARGET")]
     pub target: ArtifactId,
 
@@ -44,11 +44,11 @@ pub struct Args {
     )]
     pub project_path: Option<PathBuf>,
 
-    /// Wei to send during target contract deployment.
+    /// Wei to send during handler contract deployment.
     #[arg(long = "deploy-value", default_value = "0", value_parser = Args::parse_balance, value_name = "WEI", help_heading = "Project & Deployment")]
     pub deploy_value: U256,
 
-    /// Account address used to deploy the target contract.
+    /// Account address used to deploy the handler contract.
     #[arg(
         long = "deployer",
         default_value_t = crate::evm::DEFAULT_DEPLOYER,
@@ -175,7 +175,7 @@ pub struct Args {
     /// Additional Foundry projects whose build artifacts are loaded for
     /// coverage and trace resolution.
     ///
-    /// Useful in fork mode when the target contract interacts with external
+    /// Useful in fork mode when the handler contract interacts
     /// contracts compiled in separate projects. Each path must point to a
     /// Foundry project root that contains an `out/` directory with compiled
     /// artifacts (run `forge build --ast --extra-output storageLayout` there
@@ -422,20 +422,20 @@ pub fn run(args: Args) -> Result<()> {
         }
     }
 
-    // Load target contract and prepare library dependencies.
-    console.begin(format!("loading target contract {} ...", args.target.name))?;
-    let target_contract = match Contract::try_get(&build_artifacts, &args.target) {
+    // Load handler contract and prepare library dependencies.
+    console.begin(format!("loading handler contract {} ...", args.target.name))?;
+    let handler_contract = match Contract::try_get(&build_artifacts, &args.target) {
         Ok(c) => c,
         Err(e) => {
             console.end_fail(format!(
-                "loading target contract {} failed",
+                "loading handler contract {} failed",
                 args.target.name
             ))?;
             console.print_line(format!("{e:#}"))?;
             return Err(e);
         }
     };
-    console.update(format!("loaded {} as target contract", args.target.name))?;
+    console.update(format!("loaded {} as handler contract", args.target.name))?;
     console.end()?;
 
     // TODO(pyk): Create InitcodeRegistry
@@ -489,13 +489,13 @@ pub fn run(args: Args) -> Result<()> {
         chain.block_env().timestamp,
     ))?;
 
-    // Deploy target contract
-    let contract_name = &target_contract.artifact_id.name;
+    // Deploy handler contract
+    let contract_name = &handler_contract.artifact_id.name;
     console.begin(format!("deploying {contract_name}..."))?;
-    let mut deploy_opts = DeployInput::new(&target_contract.initcode)
+    let mut deploy_opts = DeployInput::new(&handler_contract.initcode)
         .caller(args.deployer_address)
         .value(args.deploy_value);
-    let libraries = target_contract.libraries.clone();
+    let libraries = handler_contract.libraries.clone();
     for lib in libraries {
         deploy_opts = deploy_opts.add_library(lib);
     }
@@ -518,7 +518,7 @@ pub fn run(args: Args) -> Result<()> {
         fs::write(&trace_file, format!("{trace}"))?;
         console.end_fail(format!("failed to deploy {contract_name}"))?;
         console.print_line(format!("    trace: {}", trace_file.display()))?;
-        return Err(anyhow::anyhow!("target contract deployment failed"));
+        return Err(anyhow::anyhow!("handler contract deployment failed"));
     }
     let deployed_address = deployment
         .address
@@ -546,7 +546,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Run setup if present
     let mut setup_coverage = None;
-    if let Some(ref setup) = target_contract.setup_function {
+    if let Some(ref setup) = handler_contract.setup_function {
         console.begin("calling setup")?;
         let setup_output = match chain.setup(
             SetupInput::new(deployed_address)
@@ -588,9 +588,9 @@ pub fn run(args: Args) -> Result<()> {
     let base_corpus_dir = args
         .corpus_dir
         .unwrap_or_else(|| project_path.join("raptor").join("corpus"));
-    let corpus_dir = SharedCorpus::dir_for(&base_corpus_dir, &target_contract.artifact_id);
+    let corpus_dir = SharedCorpus::dir_for(&base_corpus_dir, &handler_contract.artifact_id);
     let corpus_config = CorpusConfig::new(corpus_dir)
-        .target_functions(target_contract.target_functions.clone())
+        .handler_functions(handler_contract.handler_functions.clone())
         .max_calls(args.max_calls)
         .literals(literals.clone());
     let corpus = SharedCorpus::new(corpus_config);
@@ -630,7 +630,7 @@ pub fn run(args: Args) -> Result<()> {
             .shared_corpus(corpus.clone())
             .chain(chain.clone())
             .deployed_address(deployed_address)
-            .invariant_functions(target_contract.invariant_functions.clone())
+            .invariant_functions(handler_contract.invariant_functions.clone())
             .caller(args.deployer_address)
             .replay()
         {
@@ -656,10 +656,10 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     // Initialize shared metrics across all fuzzer threads.
-    let all_function_signatures: Vec<String> = target_contract
-        .target_functions
+    let all_function_signatures: Vec<String> = handler_contract
+        .handler_functions
         .iter()
-        .chain(target_contract.invariant_functions.iter())
+        .chain(handler_contract.invariant_functions.iter())
         .map(|f| f.signature())
         .collect();
     let shared_metrics = SharedMetrics::new(all_function_signatures.clone());
@@ -681,7 +681,7 @@ pub fn run(args: Args) -> Result<()> {
         .shared_coverage(shared_coverage.clone())
         .shared_metrics(shared_metrics.clone())
         .shutdown_signal(shutdown_signal.clone())
-        .invariant_functions(target_contract.invariant_functions.clone())
+        .invariant_functions(handler_contract.invariant_functions.clone())
         .caller(args.deployer_address)
         .gas_limit(args.gas_limit)
         .timeout(timeout)
@@ -705,7 +705,7 @@ pub fn run(args: Args) -> Result<()> {
         handles.push((fuzzer_id, handle));
     }
 
-    let contract_name = &target_contract.artifact_id.name;
+    let contract_name = &handler_contract.artifact_id.name;
     console.begin(format!(
         "fuzzing {contract_name} with {fuzzers} threads ..."
     ))?;
@@ -716,8 +716,8 @@ pub fn run(args: Args) -> Result<()> {
     let stats_ctx = formatter::CampaignStats::new(
         &shared_coverage,
         &corpus,
-        &target_contract.target_functions,
-        &target_contract.invariant_functions,
+        &handler_contract.handler_functions,
+        &handler_contract.invariant_functions,
     );
     let mut snapshot = shared_metrics.aggregate();
     let mut function_metrics = shared_metrics.function_metrics();
@@ -769,7 +769,7 @@ pub fn run(args: Args) -> Result<()> {
             &project,
             &campaign_id,
             &shared_coverage,
-            &target_contract,
+            &handler_contract,
             artifacts,
         ) {
             Ok(files) => {
@@ -813,7 +813,7 @@ pub fn run(args: Args) -> Result<()> {
     // Combine the smallest failing item with invariants so the shrinker
     // operates on a single corpus item and never appends invariants.
     let mut combined_calls = smallest_failure.item.calls.clone();
-    let invariant_calls: Vec<Call> = target_contract
+    let invariant_calls: Vec<Call> = handler_contract
         .invariant_functions
         .iter()
         // checkrs: allow(clone_in_iterator)
@@ -827,17 +827,17 @@ pub fn run(args: Args) -> Result<()> {
     combined_calls.extend(invariant_calls);
     let combined_item = Item::from(combined_calls);
 
-    // Include both target and invariant functions so the shrinker can
+    // Include both handler and invariant functions so the shrinker can
     // generate replacement calls for any position in the sequence.
-    let all_functions: Vec<alloy_json_abi::Function> = target_contract
-        .target_functions
+    let all_functions: Vec<alloy_json_abi::Function> = handler_contract
+        .handler_functions
         .iter()
-        .chain(target_contract.invariant_functions.iter())
+        .chain(handler_contract.invariant_functions.iter())
         .cloned()
         .collect();
 
     let failed_corpus_config = CorpusConfig::new(PathBuf::new())
-        .target_functions(all_functions)
+        .handler_functions(all_functions)
         .max_calls(args.max_calls)
         .literals(literals);
     let shared_failed_item = SharedFailedCorpusItem::new(combined_item, failed_corpus_config);
@@ -985,7 +985,7 @@ pub fn run(args: Args) -> Result<()> {
         &project,
         &campaign_id,
         &shared_coverage,
-        &target_contract,
+        &handler_contract,
         artifacts,
     ) {
         Ok(files) => {
@@ -1010,7 +1010,7 @@ fn write_coverage_report(
     project: &Project,
     campaign_id: &str,
     shared_coverage: &SharedCoverage,
-    _target_contract: &Contract,
+    _handler_contract: &Contract,
     artifacts: Vec<Artifact>,
 ) -> Result<Vec<(PathBuf, f64)>> {
     let reporter = CoverageReporter::new()

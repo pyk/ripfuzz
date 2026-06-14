@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.28;
 
-contract PayableConstructorTarget {
+contract PayableConstructorHandler {
     uint256 public received;
 
     constructor() payable {

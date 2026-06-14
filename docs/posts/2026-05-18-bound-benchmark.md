@@ -127,7 +127,7 @@ library BoundUtils {
 }
 ```
 
-The two target contracts are mirror images of each other. Here is the cheatcode
+The two handler contracts are mirror images of each other. Here is the cheatcode
 version:
 
 ```solidity
@@ -395,8 +395,8 @@ Most people assume `vm.bound` works like a precompile: the EVM executes a `CALL`
 opcode, pushes a new frame, copies calldata into memory, and jumps into the
 precompile logic. That would indeed be expensive. But raptor does not do that.
 
-Raptor implements cheatcodes via **revm's `Inspector::call` hook**. When the
-target contract calls `vm.bound`, revm starts to set up the sub-frame, then the
+Raptor implements cheatcodes via **revm's `Inspector::call`** hook. When the
+handler contract calls `vm.bound`, revm starts to set up the sub-frame, then
 inspector intercepts it **before the nested interpreter even starts**. The
 inspector decodes the selector, runs the bound algorithm as native Rust,
 constructs a synthetic `CallOutcome`, and hands it back. The child frame is

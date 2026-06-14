@@ -273,7 +273,7 @@ mod tests {
     }
 
     fn load_coverage_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-coverage");
+        let project = foundry::Project::new("fixtures/handler-contract-coverage");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()

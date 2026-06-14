@@ -131,7 +131,7 @@ mod tests {
     use crate::shrinker::{Shrinker, ShrinkerConfig};
 
     fn load_contract(id: &str) -> Contract {
-        let project = Project::new("fixtures/target-contract-with-invariants");
+        let project = Project::new("fixtures/handler-contract-with-invariants");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
@@ -175,7 +175,7 @@ mod tests {
         item: Item,
         max_runs: u64,
     ) -> Item {
-        let corpus_config = CorpusConfig::new("").target_functions(all_functions);
+        let corpus_config = CorpusConfig::new("").handler_functions(all_functions);
         let shared_failed_item = SharedFailedCorpusItem::new(item, corpus_config);
 
         let shrinker_config = ShrinkerConfig::new()
@@ -199,19 +199,19 @@ mod tests {
         let (chain, target) = deploy_and_setup(&contract);
 
         let one = contract
-            .target_functions
+            .handler_functions
             .iter()
             .find(|f| f.name == "one")
             .unwrap()
             .clone();
         let two = contract
-            .target_functions
+            .handler_functions
             .iter()
             .find(|f| f.name == "two")
             .unwrap()
             .clone();
         let three = contract
-            .target_functions
+            .handler_functions
             .iter()
             .find(|f| f.name == "three")
             .unwrap()
@@ -225,7 +225,7 @@ mod tests {
             .map(|f| make_call(f.clone(), caller))
             .collect();
 
-        // Combine target calls with invariants into one item for the shrinker.
+        // Combine handler calls with invariants into one item for the shrinker.
         let mut calls = vec![
             make_call(one, caller),
             make_call(two.clone(), caller),
@@ -245,7 +245,7 @@ mod tests {
         );
 
         let all_functions: Vec<alloy_json_abi::Function> = contract
-            .target_functions
+            .handler_functions
             .iter()
             .chain(contract.invariant_functions.iter())
             .cloned()
@@ -276,7 +276,7 @@ mod tests {
         let (chain, target) = deploy_and_setup(&contract);
 
         let advance = contract
-            .target_functions
+            .handler_functions
             .iter()
             .find(|f| f.name == "advance")
             .unwrap()
@@ -290,7 +290,7 @@ mod tests {
             .map(|f| make_call(f.clone(), caller))
             .collect();
 
-        // Combine target calls with invariants into one item for the shrinker.
+        // Combine handler calls with invariants into one item for the shrinker.
         let mut calls = vec![
             make_call(advance.clone(), caller),
             make_call(advance.clone(), caller),
@@ -310,7 +310,7 @@ mod tests {
         );
 
         let all_functions: Vec<alloy_json_abi::Function> = contract
-            .target_functions
+            .handler_functions
             .iter()
             .chain(contract.invariant_functions.iter())
             .cloned()

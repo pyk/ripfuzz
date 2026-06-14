@@ -137,7 +137,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface PrankTarget {
+        interface PrankHandler {
             function setup() external;
             function actionNestedCall() external;
             function actionOverwriteStart() external;
@@ -156,7 +156,7 @@ mod tests {
     }
 
     alloy_sol_types::sol! {
-        interface PrankLeakTarget {
+        interface PrankLeakHandler {
             function setup() external;
             function action() external;
             function invariant() external view;
@@ -170,14 +170,14 @@ mod tests {
     const ACTOR_1: Address = address!("0x2000000000000000000000000000000000000002");
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/target-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/PrankTarget.sol:PrankTarget");
+        let contract = load_fixture("src/PrankHandler.sol:PrankHandler");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -190,7 +190,7 @@ mod tests {
     }
 
     fn deploy_and_setup_leak() -> (Chain, Address) {
-        let contract = load_fixture("src/PrankLeakTarget.sol:PrankLeakTarget");
+        let contract = load_fixture("src/PrankLeakHandler.sol:PrankLeakHandler");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -325,7 +325,7 @@ mod tests {
     fn setup_persists_start_prank_into_exec() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            PrankTarget::invariant_senderIsAdminCall::new(()).abi_encode(),
+            PrankHandler::invariant_senderIsAdminCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -344,10 +344,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::actionNestedCallCall::new(()).abi_encode(),
+                PrankHandler::actionNestedCallCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::invariant_senderIsAdminCall::new(()).abi_encode(),
+                PrankHandler::invariant_senderIsAdminCall::new(()).abi_encode(),
             )),
         ];
 
@@ -371,10 +371,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::actionOverwriteStartCall::new(()).abi_encode(),
+                PrankHandler::actionOverwriteStartCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::invariant_senderIsUserCall::new(()).abi_encode(),
+                PrankHandler::invariant_senderIsUserCall::new(()).abi_encode(),
             )),
         ];
 
@@ -397,10 +397,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::actionStopPrankCall::new(()).abi_encode(),
+                PrankHandler::actionStopPrankCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::invariant_senderIsTargetCall::new(()).abi_encode(),
+                PrankHandler::invariant_senderIsTargetCall::new(()).abi_encode(),
             )),
         ];
 
@@ -421,16 +421,16 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::actionStopPrankCall::new(()).abi_encode(),
+                PrankHandler::actionStopPrankCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::invariant_senderIsTargetCall::new(()).abi_encode(),
+                PrankHandler::invariant_senderIsTargetCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::actionRestoreAdminCall::new(()).abi_encode(),
+                PrankHandler::actionRestoreAdminCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::invariant_senderIsAdminCall::new(()).abi_encode(),
+                PrankHandler::invariant_senderIsAdminCall::new(()).abi_encode(),
             )),
         ];
 
@@ -459,16 +459,16 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::actionUseActorCall::new((U256::from(1),)).abi_encode(),
+                PrankHandler::actionUseActorCall::new((U256::from(1),)).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::getLastSenderCall::new(()).abi_encode(),
+                PrankHandler::getLastSenderCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::actionNestedCallCall::new(()).abi_encode(),
+                PrankHandler::actionNestedCallCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::invariant_senderIsTargetCall::new(()).abi_encode(),
+                PrankHandler::invariant_senderIsTargetCall::new(()).abi_encode(),
             )),
         ];
 
@@ -476,7 +476,7 @@ mod tests {
         assert_eq!(execution.results.len(), 4);
         assert!(execution.results[0].success, "actionUseActor must succeed");
         assert!(execution.results[1].success, "getLastSender must succeed");
-        let sender = PrankTarget::getLastSenderCall::abi_decode_returns(
+        let sender = PrankHandler::getLastSenderCall::abi_decode_returns(
             &execution.results[1].output.clone().unwrap(),
         )
         .unwrap();
@@ -498,13 +498,13 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::actionRevertDoublePrankCall::new(()).abi_encode(),
+                PrankHandler::actionRevertDoublePrankCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::actionRevertDoubleStartCall::new(()).abi_encode(),
+                PrankHandler::actionRevertDoubleStartCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::actionRevertPrankOverStartCall::new(()).abi_encode(),
+                PrankHandler::actionRevertPrankOverStartCall::new(()).abi_encode(),
             )),
         ];
 
@@ -530,10 +530,10 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::actionNestedCallCall::new(()).abi_encode(),
+                PrankHandler::actionNestedCallCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankTarget::invariant_senderIsAdminCall::new(()).abi_encode(),
+                PrankHandler::invariant_senderIsAdminCall::new(()).abi_encode(),
             )),
         ];
 
@@ -556,10 +556,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup_leak();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrankLeakTarget::actionCall::new(()).abi_encode(),
+                PrankLeakHandler::actionCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrankLeakTarget::invariantCall::new(()).abi_encode(),
+                PrankLeakHandler::invariantCall::new(()).abi_encode(),
             )),
         ];
 

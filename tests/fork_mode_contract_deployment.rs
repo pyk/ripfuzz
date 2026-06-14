@@ -1,7 +1,7 @@
 //! Regression tests: fork mode contract deployment.
 //!
 //! When chain fork mode is initialized, the Chain is aware of all
-//! addresses created inside the target contract and skips remote RPC
+//! addresses created inside the handler contract and skips remote RPC
 //! fetches for them. Only genuine on-chain accounts trigger RPC.
 
 use alloy_sol_types::SolCall;
@@ -31,7 +31,7 @@ alloy_sol_types::sol! {
     }
 
 
-    interface DeployChildInTargetFunction {
+    interface DeployChildInHandlerFunction {
         function createMarket() external;
         function checkMarket() external;
     }
@@ -285,12 +285,12 @@ fn deploy_child_in_setup() {
     );
 }
 
-/// Regression test: deploying a child contract inside a target function
+/// Regression test: deploying a child contract inside a handler function
 /// must not trigger an RPC fetch for the child's address. Interacting
-/// with the created child in a subsequent target function must also not
+/// with the created child in a subsequent handler function must also not
 /// trigger any RPC.
 #[test]
-fn deploy_child_in_target_function() {
+fn deploy_child_in_handler_function() {
     let transport = MockTransport::default();
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
@@ -298,7 +298,7 @@ fn deploy_child_in_target_function() {
     let project = Project::new("fixtures/fork-mode-contract-deployment");
     let artifacts = project.load_artifacts().unwrap();
     let artifact_id =
-        ArtifactId::try_from("test/DeployChildInTargetFunction.sol:DeployChildInTargetFunction")
+        ArtifactId::try_from("test/DeployChildInHandlerFunction.sol:DeployChildInHandlerFunction")
             .unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
@@ -311,7 +311,7 @@ fn deploy_child_in_target_function() {
     let setup_fn = contract
         .setup_function
         .as_ref()
-        .expect("DeployChildInTargetFunction must have setup()");
+        .expect("DeployChildInHandlerFunction must have setup()");
     let setup_data = Bytes::from(setup_fn.selector().as_slice().to_vec());
     let setup_result = chain
         .setup(SetupInput::new(target).calldata(setup_data))
@@ -319,9 +319,9 @@ fn deploy_child_in_target_function() {
     assert!(setup_result.result.success, "setup must succeed");
 
     let create_market_calldata =
-        Bytes::from(DeployChildInTargetFunction::createMarketCall::new(()).abi_encode());
+        Bytes::from(DeployChildInHandlerFunction::createMarketCall::new(()).abi_encode());
     let check_market_calldata =
-        Bytes::from(DeployChildInTargetFunction::checkMarketCall::new(()).abi_encode());
+        Bytes::from(DeployChildInHandlerFunction::checkMarketCall::new(()).abi_encode());
     let txs = [
         Transaction::new(target).calldata(create_market_calldata),
         Transaction::new(target).calldata(check_market_calldata),

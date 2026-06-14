@@ -21,7 +21,7 @@ impl FailedAssertion {
     pub fn format(&self, contract: &evm::Contract) -> String {
         let mut selector_map = HashMap::new();
         for func in contract
-            .target_functions
+            .handler_functions
             .iter()
             .chain(contract.invariant_functions.iter())
         {
