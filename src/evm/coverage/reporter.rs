@@ -75,7 +75,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use alloy_primitives::{B256, keccak256};
 use tracing::instrument;
@@ -626,6 +626,10 @@ fn collect_contract_definition_lines(
 pub struct CoverageReporter {
     artifacts: Vec<Artifact>,
     shared_coverage: SharedCoverage,
+    /// The project path to use as the base for resolving source files.
+    /// External project paths are made relative to this directory so that
+    /// lcov `SF:` entries resolve correctly for tools like `genhtml`.
+    base_project_path: Option<PathBuf>,
 }
 
 impl Default for CoverageReporter {
@@ -640,6 +644,7 @@ impl CoverageReporter {
         Self {
             artifacts: Vec::new(),
             shared_coverage: SharedCoverage::new(),
+            base_project_path: None,
         }
     }
 
@@ -653,6 +658,40 @@ impl CoverageReporter {
     pub fn shared_coverage(mut self, coverage: SharedCoverage) -> Self {
         self.shared_coverage = coverage;
         self
+    }
+
+    /// Set the base project path for source file resolution.
+    ///
+    /// Paths from external projects (artifacts whose `project_path` differs
+    /// from this base) are prefixed with their relative path so that lcov
+    /// `SF:` entries resolve correctly from this directory.
+    pub fn base_project_path(mut self, path: impl AsRef<Path>) -> Self {
+        let p = path.as_ref();
+        self.base_project_path = Some(p.canonicalize().unwrap_or_else(|_| p.to_path_buf()));
+        self
+    }
+
+    /// Qualify a source file path for external projects.
+    ///
+    /// If the artifact's project path differs from the base project path,
+    /// the path is prefixed so it resolves relative to the base directory.
+    fn qualify_path(
+        artifact_canon: &Path,
+        base_canon: &Path,
+        artifact_proj: &Path,
+        source_path: &Path, // checkrs: allow(path_param_types)
+    ) -> PathBuf {
+        if artifact_canon == base_canon || artifact_proj.as_os_str().is_empty() {
+            return source_path.to_path_buf();
+        }
+        // Compute prefix: if the artifact project path starts with the
+        // base, use the suffix. Otherwise fall back to its directory name.
+        let prefix: PathBuf = if let Ok(rel) = artifact_canon.strip_prefix(base_canon) {
+            rel.to_path_buf()
+        } else {
+            PathBuf::from(artifact_proj.file_name().unwrap_or_default())
+        };
+        prefix.join(source_path)
     }
 
     /// Build the coverage report.
@@ -706,13 +745,34 @@ impl CoverageReporter {
         }
         tracing::trace!(root_artifact_count = root_artifact_ids.len());
 
+        // Pre-compute canonical project paths once so that qualify_path
+        // below never calls canonicalize() inside a loop (deterministic).
+        // checkrs: allow(clone_in_iterator)
+        let base_canon: Option<PathBuf> = self
+            .base_project_path
+            .as_ref()
+            .map(|b| b.canonicalize().unwrap_or_else(|_| b.clone())); // checkrs: allow(clone_in_iterator)
+        let mut artifact_canon_paths: HashMap<&ArtifactId, PathBuf> = HashMap::new();
+        // checkrs: allow(clone_in_iterator)
+        for artifact in &self.artifacts {
+            let canon = artifact
+                .project_path()
+                .canonicalize()
+                .unwrap_or_else(|_| artifact.project_path().to_path_buf());
+            artifact_canon_paths.insert(artifact.id(), canon);
+        }
+
         // -------------------------------------------------------------------
         // Step 3: Resolve source files recursively from metadata.sources.
         //
-        // root_to_files: Map[Root Artifact Id → Set[File]]
+        // Also builds a path_map from project-relative paths to qualified
+        // paths (prefixed with the external project directory when the
+        // artifact lives in a different project).
         // -------------------------------------------------------------------
         let mut all_files: HashSet<PathBuf> = HashSet::new();
         let mut resolved_artifact_ids: HashSet<&ArtifactId> = HashSet::new();
+        // Map project-relative source path → lcov-qualified path.
+        let mut path_map: HashMap<PathBuf, PathBuf> = HashMap::new();
 
         for root_id in &root_artifact_ids {
             let Some(root_artifact) = path_to_artifact.get(&root_id.path) else {
@@ -731,6 +791,16 @@ impl CoverageReporter {
                 if let Some(sources) = current.metadata_sources() {
                     for path_str in sources.keys() {
                         let path = PathBuf::from(path_str);
+                        let qualified = if let (Some(base), Some(artifact_canon)) =
+                            (base_canon.as_ref(), artifact_canon_paths.get(current.id()))
+                        {
+                            Self::qualify_path(artifact_canon, base, current.project_path(), &path)
+                        } else {
+                            // checkrs: allow(clone_in_loops)
+                            path.clone()
+                        };
+                        // checkrs: allow(clone_in_loops)
+                        path_map.insert(path.clone(), qualified);
                         // checkrs: allow(clone_in_loops)
                         all_files.insert(path.clone());
                         if let Some(child) = path_to_artifact.get(&path) {
@@ -739,7 +809,18 @@ impl CoverageReporter {
                     }
                 } else {
                     // checkrs: allow(clone_in_loops)
-                    all_files.insert(current.ast().absolute_path.clone());
+                    let abs = current.ast().absolute_path.clone();
+                    let qualified = if let (Some(base), Some(artifact_canon)) =
+                        (base_canon.as_ref(), artifact_canon_paths.get(current.id()))
+                    {
+                        Self::qualify_path(artifact_canon, base, current.project_path(), &abs)
+                    } else {
+                        // checkrs: allow(clone_in_loops)
+                        abs.clone()
+                    };
+                    // checkrs: allow(clone_in_loops)
+                    path_map.insert(abs, qualified);
+                    all_files.insert(current.ast().absolute_path.clone()); // checkrs: allow(clone_in_loops)
                 }
             }
         }
@@ -756,22 +837,37 @@ impl CoverageReporter {
 
         // -------------------------------------------------------------------
         // Step 4: Pre-read source files and build caches.
+        //
+        // Collect the unique project paths from all resolved artifacts so
+        // that source files from external projects (loaded via
+        // --external-project) can be found alongside the main project.
         // -------------------------------------------------------------------
-        let project_path = resolved_artifact_refs
-            .first()
-            .map(|a| a.project_path())
-            .unwrap_or_else(|| {
-                self.artifacts
-                    .first()
-                    .map(|a| a.project_path())
-                    .unwrap_or_else(|| std::path::Path::new(""))
-            });
+        let project_paths: Vec<&std::path::Path> = {
+            let mut seen = HashSet::new();
+            let mut paths = Vec::new();
+            for artifact in &resolved_artifact_refs {
+                let pp = artifact.project_path();
+                if seen.insert(pp) {
+                    paths.push(pp);
+                }
+            }
+            for artifact in &self.artifacts {
+                let pp = artifact.project_path();
+                if seen.insert(pp) {
+                    paths.push(pp);
+                }
+            }
+            paths
+        };
         let mut source_cache: HashMap<PathBuf, String> = HashMap::new();
         for path in &all_files {
-            let full = project_path.join(path);
-            if let Ok(content) = fs::read_to_string(&full) {
-                // checkrs: allow(clone_in_loops)
-                source_cache.insert(path.clone(), content);
+            for proj_path in &project_paths {
+                let full = proj_path.join(path);
+                if let Ok(content) = fs::read_to_string(&full) {
+                    // checkrs: allow(clone_in_loops)
+                    source_cache.insert(path.clone(), content);
+                    break;
+                }
             }
         }
 
@@ -792,13 +888,15 @@ impl CoverageReporter {
 
         // Precompute source_id → path map for each root artifact by matching
         // its (source_id, path) pair against compiler build-info files.
+        // Each artifact uses its own project_path so that external projects'
+        // build-info directories are searched alongside the main project's.
         let mut sid_maps: HashMap<&ArtifactId, HashMap<usize, PathBuf>> = HashMap::new();
         for root_id in &root_artifact_ids {
             if let Some(artifact) = path_to_artifact.get(&root_id.path) {
                 sid_maps.insert(
                     root_id,
                     BuildInfo::load_for_artifact(
-                        project_path,
+                        artifact.project_path(),
                         &artifact.ast().absolute_path,
                         artifact.source_id(),
                     )
@@ -994,7 +1092,7 @@ impl CoverageReporter {
                 continue;
             }
             files.push(FileCoverage {
-                path,
+                path: path_map.get(&path).cloned().unwrap_or(path),
                 line_hits,
                 functions,
             });

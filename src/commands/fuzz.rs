@@ -171,6 +171,25 @@ pub struct Args {
     /// Treat any transaction revert as a failed assertion.
     #[arg(long = "fail-on-revert", help_heading = "Fuzzing Parameters")]
     pub fail_on_revert: bool,
+
+    /// Additional Foundry projects whose build artifacts are loaded for
+    /// coverage and trace resolution.
+    ///
+    /// Useful in fork mode when the target contract interacts with external
+    /// contracts compiled in separate projects. Each path must point to a
+    /// Foundry project root that contains an `out/` directory with compiled
+    /// artifacts (run `forge build --ast --extra-output storageLayout` there
+    /// first).
+    ///
+    /// Artifacts from these projects are merged into the coverage reporter so
+    /// that on-chain bytecodes executed during fork mode can be matched back
+    /// to their source maps and source files.
+    #[arg(
+        long = "external-project",
+        value_name = "PATH",
+        help_heading = "Project & Deployment"
+    )]
+    pub external_projects: Vec<PathBuf>,
 }
 
 impl Args {
@@ -377,6 +396,31 @@ pub fn run(args: Args) -> Result<()> {
         formatter::num(build_artifacts.len() as u64)
     ))?;
     console.end()?;
+
+    // Load external project artifacts for coverage and trace resolution.
+    let mut external_artifacts = Vec::new();
+    for ext_path in &args.external_projects {
+        let ext_project = Project::new(ext_path);
+        match ext_project.load_artifacts() {
+            Ok(artifacts) => {
+                console.print_line(format!(
+                    "    loaded {} artifacts from external project {}",
+                    formatter::num(artifacts.len() as u64),
+                    ext_path.display()
+                ))?;
+                for (_, mut artifact) in artifacts {
+                    artifact.set_project_path(ext_path);
+                    external_artifacts.push(artifact);
+                }
+            }
+            Err(e) => {
+                console.print_line(format!(
+                    "    warning: failed to load artifacts from {}: {e:#}",
+                    ext_path.display()
+                ))?;
+            }
+        }
+    }
 
     // Load target contract and prepare library dependencies.
     console.begin(format!("loading target contract {} ...", args.target.name))?;
@@ -715,7 +759,8 @@ pub fn run(args: Args) -> Result<()> {
         console.print_line(stats)?;
         console.new_line()?;
 
-        let artifacts: Vec<Artifact> = project.load_artifacts()?.into_values().collect();
+        let mut artifacts: Vec<Artifact> = build_artifacts.values().cloned().collect();
+        artifacts.extend(external_artifacts.clone());
         let n = artifacts.len();
         console.begin(format!(
             "generating coverage reports for {n} build artifacts ..."
@@ -930,7 +975,8 @@ pub fn run(args: Args) -> Result<()> {
         console.end()?;
     }
 
-    let artifacts: Vec<Artifact> = project.load_artifacts()?.into_values().collect();
+    let mut artifacts: Vec<Artifact> = build_artifacts.values().cloned().collect();
+    artifacts.extend(external_artifacts.clone());
     let n = artifacts.len();
     console.begin(format!(
         "generating coverage reports for {n} build artifacts ..."
@@ -969,7 +1015,8 @@ fn write_coverage_report(
 ) -> Result<Vec<(PathBuf, f64)>> {
     let reporter = CoverageReporter::new()
         .build_artifacts(artifacts)
-        .shared_coverage(shared_coverage.clone());
+        .shared_coverage(shared_coverage.clone())
+        .base_project_path(&project.path);
 
     let report = reporter.build();
 
@@ -1062,6 +1109,7 @@ mod tests {
             ffi: false,
             force: false,
             fail_on_revert: false,
+            external_projects: Vec::new(),
             shrink_runs: 1,
             shrink_timeout_secs: None,
             shrink_threads: None,
