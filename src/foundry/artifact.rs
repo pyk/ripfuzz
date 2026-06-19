@@ -115,6 +115,8 @@ pub struct ContractArtifact {
     pub sources: Option<HashMap<String, serde_json::Value>>,
     /// Compiler optimizer settings, if present in the artifact metadata.
     pub optimizer: Option<Optimizer>,
+    /// Method identifiers: full signature → 4-byte selector hex.
+    pub method_identifiers: HashMap<String, String>,
 }
 
 impl ContractArtifact {
@@ -139,6 +141,8 @@ pub struct InterfaceArtifact {
     pub sources: Option<HashMap<String, serde_json::Value>>,
     /// Compiler optimizer settings, if present in the artifact metadata.
     pub optimizer: Option<Optimizer>,
+    /// Method identifiers: full signature → 4-byte selector hex.
+    pub method_identifiers: HashMap<String, String>,
 }
 
 /// A library artifact.
@@ -158,6 +162,8 @@ pub struct LibraryArtifact {
     pub sources: Option<HashMap<String, serde_json::Value>>,
     /// Compiler optimizer settings, if present in the artifact metadata.
     pub optimizer: Option<Optimizer>,
+    /// Method identifiers: full signature → 4-byte selector hex.
+    pub method_identifiers: HashMap<String, String>,
 }
 
 /// An abstract contract artifact.
@@ -174,6 +180,8 @@ pub struct AbstractArtifact {
     pub sources: Option<HashMap<String, serde_json::Value>>,
     /// Compiler optimizer settings, if present in the artifact metadata.
     pub optimizer: Option<Optimizer>,
+    /// Method identifiers: full signature → 4-byte selector hex.
+    pub method_identifiers: HashMap<String, String>,
 }
 
 /// A single storage slot entry from the Solidity `storageLayout` output.
@@ -236,6 +244,11 @@ struct ArtifactJson {
     storage_layout: Option<StorageLayout>,
     #[serde(default)]
     id: usize,
+    /// Method identifiers for library internal functions.
+    /// Maps full Solidity signatures (e.g. `executeSupply(...)`) to
+    /// 4-byte hex selectors (e.g. `"66656e4e"`).
+    #[serde(default, rename = "methodIdentifiers")]
+    method_identifiers: HashMap<String, String>,
 }
 
 /// A single link reference location within bytecode.
@@ -396,6 +409,7 @@ impl Artifact {
                     source_id,
                     sources,
                     optimizer,
+                    method_identifiers: json.method_identifiers,
                 })
             }
             solc::ast::ContractKind::Contract => Self::Abstract(AbstractArtifact {
@@ -406,6 +420,7 @@ impl Artifact {
                 source_id,
                 sources,
                 optimizer,
+                method_identifiers: json.method_identifiers,
             }),
             solc::ast::ContractKind::Interface => Self::Interface(InterfaceArtifact {
                 id,
@@ -415,6 +430,7 @@ impl Artifact {
                 source_id,
                 sources,
                 optimizer,
+                method_identifiers: json.method_identifiers,
             }),
             solc::ast::ContractKind::Library => Self::Library(LibraryArtifact {
                 id,
@@ -427,6 +443,7 @@ impl Artifact {
                 source_id,
                 sources,
                 optimizer,
+                method_identifiers: json.method_identifiers,
             }),
         })
     }
@@ -557,6 +574,18 @@ impl Artifact {
             Self::Interface(a) => a.optimizer.as_ref(),
             Self::Library(a) => a.optimizer.as_ref(),
             Self::Abstract(a) => a.optimizer.as_ref(),
+        }
+    }
+
+    /// Method identifiers: full Solidity signature → 4-byte selector hex.
+    /// Primarily used for library internal function selectors that are not
+    /// included in the ABI.
+    pub fn method_identifiers(&self) -> &HashMap<String, String> {
+        match self {
+            Self::Contract(a) => &a.method_identifiers,
+            Self::Interface(a) => &a.method_identifiers,
+            Self::Library(a) => &a.method_identifiers,
+            Self::Abstract(a) => &a.method_identifiers,
         }
     }
 }

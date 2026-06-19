@@ -88,6 +88,10 @@ pub struct TraceContext {
     abis: Vec<JsonAbi>,
     bytecode_entries: Vec<BytecodeEntry>,
     initcode_entries: Vec<BytecodeEntry>,
+    /// Maps 4-byte function selector -> full Solidity function signature
+    /// for library internal functions that are not included in the ABI.
+    /// E.g. `0x66656e4e` → `"executeSupply(mapping(address => DataTypes.ReserveData) storage, ...)"`
+    method_selectors: HashMap<[u8; 4], String>,
     /// Maps contract name -> (slot -> list of packed variables).
     storage_names: HashMap<String, HashMap<U256, Vec<StorageEntry>>>,
     /// Maps contract name -> list of arrays for element-slot resolution.
@@ -106,6 +110,7 @@ impl Default for TraceContext {
             abis: Vec::new(),
             bytecode_entries: Vec::new(),
             initcode_entries: Vec::new(),
+            method_selectors: HashMap::new(),
             storage_names: HashMap::new(),
             array_info: HashMap::new(),
             mapping_info: HashMap::new(),
@@ -170,6 +175,22 @@ impl TraceContext {
                 ctx.array_info.insert(artifact.name().into(), arrays);
                 ctx.mapping_info.insert(artifact.name().into(), mappings);
             }
+
+            // Collect method identifiers for library internal functions
+            // that are not present in the ABI.
+            for (sig, selector_hex) in artifact.method_identifiers() {
+                if let Ok(selector_bytes) = hex::decode(selector_hex)
+                    && selector_bytes.len() == 4
+                {
+                    let mut key = [0u8; 4];
+                    key.copy_from_slice(&selector_bytes);
+                    // checkrs: allow(clone_in_loops)
+                    ctx.method_selectors
+                        .entry(key)
+                        .or_insert_with(|| sig.to_string());
+                }
+            }
+
             ctx.abis.push(artifact.into_abi());
         }
         ctx.bytecode_entries = bytecode_entries;
@@ -922,9 +943,125 @@ impl TraceContext {
                 return (Some(func.name.as_str()), args);
             }
         }
+        // Check library method identifiers (not in ABIs).
+        if let Some(sig) = self.method_selectors.get(&sel) {
+            let (name, args) = decode_library_call(sig, data);
+            return (Some(name), args);
+        }
         (None, "...".into())
     }
+}
 
+/// Parse a Solidity function signature (from `methodIdentifiers`) and
+/// decode the calldata arguments.
+///
+/// Library internal functions use storage pointers and complex types
+/// that aren't in the ABI. This maps them to simplified ABI types for
+/// best-effort decoding.
+fn decode_library_call<'a>(sig: &'a str, data: &Bytes) -> (&'a str, String) {
+    let name = sig.split('(').next().unwrap_or(sig);
+    let args_str = if data.len() <= 4 {
+        String::new()
+    } else if let Some(params_str) = sig.strip_prefix(&format!("{name}("))
+        && let Some(params_str) = params_str.strip_suffix(')')
+    {
+        let param_types = split_sig_params(params_str);
+        let dyn_types: Vec<DynSolType> = param_types
+            .iter()
+            .map(|t| library_param_to_dyn_sol_type(t))
+            .collect();
+        if dyn_types.is_empty() {
+            String::new()
+        } else {
+            let tuple = DynSolType::Tuple(dyn_types);
+            match tuple.abi_decode_params(&data[4..]) {
+                Ok(DynSolValue::Tuple(values)) => {
+                    let labels = HashMap::new();
+                    values
+                        .iter()
+                        .map(|v| format_value(v, &labels))
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                }
+                Ok(other) => format_value(&other, &HashMap::new()),
+                Err(_) => "...".into(),
+            }
+        }
+    } else {
+        "...".into()
+    };
+    (name, args_str)
+}
+
+/// Split a Solidity function parameter string by top-level commas,
+/// respecting nested angle brackets and parentheses.
+fn split_sig_params(params: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut depth = 0;
+    let mut start = 0;
+    for (i, c) in params.char_indices() {
+        match c {
+            '<' | '(' => depth += 1,
+            '>' | ')' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(params[start..i].trim().to_string());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let last = params[start..].trim();
+    if !last.is_empty() {
+        out.push(last.to_string());
+    }
+    out
+}
+
+/// Map a Solidity parameter type string to a [`DynSolType`] for ABI decoding.
+///
+/// Storage pointers (`mapping`, `struct`) and contract types are mapped to
+/// `Uint(256)` or `Address` respectively, since the actual ABI encoding for
+/// library internal calls uses plain values for these.
+fn library_param_to_dyn_sol_type(ty: &str) -> DynSolType {
+    // Strip storage/memory/calldata location.
+    let ty = ty.trim();
+    let ty = ty.strip_suffix(" storage").unwrap_or(ty);
+    let ty = ty.strip_suffix(" memory").unwrap_or(ty);
+    let ty = ty.strip_suffix(" calldata").unwrap_or(ty);
+    let ty = ty.trim();
+
+    // Contract types like `contract IPool` → address
+    if ty.starts_with("contract ") {
+        return DynSolType::Address;
+    }
+
+    // Simple types that DynSolType can parse directly.
+    if let Ok(dyn_ty) = DynSolType::parse(ty) {
+        return dyn_ty;
+    }
+
+    // Struct references (e.g. `DataTypes.ExecuteSupplyParams`) -- try as tuple.
+    if let Some(first) = ty.chars().next()
+        && first.is_uppercase()
+    {
+        return DynSolType::Bytes;
+    }
+
+    // Enums -- try as uint.
+    if ty.starts_with("enum ") {
+        return DynSolType::Uint(8);
+    }
+
+    // Mapping types -- passed as uint256 (storage slot).
+    if ty.starts_with("mapping(") {
+        return DynSolType::Uint(256);
+    }
+
+    // Fallback: assume bytes.
+    DynSolType::Bytes
+}
+
+impl TraceContext {
     /// Decode a function return value using the registered ABIs.
     ///
     /// Returns a formatted string of decoded return values if the function

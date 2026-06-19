@@ -5,7 +5,6 @@ import {Vm} from "./Vm.sol";
 
 interface IERC20 {
     function approve(address spender, uint256 amount) external returns (bool);
-    function balanceOf(address account) external view returns (uint256);
 }
 
 interface IPool {
@@ -23,11 +22,8 @@ contract SupplyUSDC {
     address constant POOL = 0xA238Dd80C259a72e81d7e4664a9801593F98d1c5;
 
     /// @notice Supply USDC to the Aave V3 pool.
-    ///
-    /// Sets the handler's USDC balance via `vm.store`, approves the pool,
-    /// and calls `pool.supply`.
     function supply() external {
-        uint256 amount = 1000 * 1e6; // 1000 USDC (6 decimals)
+        uint256 amount = 10 * 1e6; // 10 USDC (6 decimals)
 
         // Label the handler contract for readable trace output.
         vm.label(address(this), "SupplyUSDC");
