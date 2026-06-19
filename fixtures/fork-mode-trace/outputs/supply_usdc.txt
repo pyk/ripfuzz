@@ -16,7 +16,7 @@
     ├─ [33841] USDC::approve(AaveV3Pool: [0xA238Dd80C259a72e81d7e4664a9801593F98d1c5], 10000000)
     │   ├─  call context changes:
     │   │   @ msg.sender: SupplyUSDC [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   ├─ [26673] USDC::approve(AaveV3Pool: [0xA238Dd80C259a72e81d7e4664a9801593F98d1c5], 10000000)
+    │   ├─ [26673] 0x2Ce6311ddAE708829bc0784C967b7d77D19FD779::approve(AaveV3Pool: [0xA238Dd80C259a72e81d7e4664a9801593F98d1c5], 10000000) [delegatecall]
     │   │   ├─ emit Approval(owner: SupplyUSDC: [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2], spender: AaveV3Pool: [0xA238Dd80C259a72e81d7e4664a9801593F98d1c5], value: 10000000)
     │   │   ├─  storage changes:
     │   │   │   @ 51656129858806553466852283868984340779451077585474830144725678464166779147743: 0 -> 10000000
@@ -25,12 +25,12 @@
     ├─ [36993] AaveV3Pool::supply(USDC: [0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913], 10000000, SupplyUSDC: [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2], 0)
     │   ├─  call context changes:
     │   │   @ msg.sender: SupplyUSDC [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   ├─ [31869] AaveV3Pool::supply(USDC: [0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913], 10000000, SupplyUSDC: [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2], 0)
-    │   │   ├─ [25412] AaveV3Pool::executeSupply(52)
+    │   ├─ [31869] PoolInstance::supply(USDC: [0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913], 10000000, SupplyUSDC: [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2], 0) [delegatecall]
+    │   │   ├─ [25412] 0x584C7d8c4cb05304FE5Ac7fbc97f20A10Fb07564::executeSupply(52) [delegatecall]
     │   │   │   ├─ [7475] aUSDC::scaledTotalSupply() [staticcall]
     │   │   │   │   ├─  call context changes:
     │   │   │   │   │   @ msg.sender: AaveV3Pool [0xA238Dd80C259a72e81d7e4664a9801593F98d1c5]
-    │   │   │   │   ├─ [2373] aUSDC::scaledTotalSupply()
+    │   │   │   │   ├─ [2373] ATokenInstance::scaledTotalSupply() [delegatecall]
     │   │   │   │   │   └─ ← [return] 124112054530918
     │   │   │   │   └─ ← [return] 124112054530918
     │   │   │   └─ ← [revert] panic: arithmetic overflow/underflow

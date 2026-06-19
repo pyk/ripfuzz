@@ -499,14 +499,22 @@ impl<'a> TraceDisplay<'a> {
         }
 
         // Write the frame line
-        let label = frame.address.map(|addr| {
-            self.labels
-                .get(&addr)
-                .map(|s| s.as_str())
-                .or_else(|| self.ctx.get_label(&addr))
-                .map(|s| s.into())
-                .unwrap_or_else(|| addr.to_checksum(None))
-        });
+        let label = {
+            // For delegatecall/callcode the executing code belongs to
+            // code_address (the implementation), not address (the proxy).
+            let resolve_addr = match (&frame.code_address, &frame.address) {
+                (Some(ca), Some(a)) if ca != a => Some(ca),
+                _ => frame.address.as_ref(),
+            };
+            resolve_addr.map(|addr| {
+                self.labels
+                    .get(addr)
+                    .map(|s| s.as_str())
+                    .or_else(|| self.ctx.get_label(addr))
+                    .map(|s| s.into())
+                    .unwrap_or_else(|| addr.to_checksum(None))
+            })
+        };
 
         if matches!(frame.kind, CallFrameKind::Create) {
             let label = self
@@ -535,6 +543,8 @@ impl<'a> TraceDisplay<'a> {
             let func_name = func_name.unwrap_or(&selector);
             let scheme_suffix = match frame.kind {
                 CallFrameKind::Call(CallScheme::StaticCall) => " [staticcall]",
+                CallFrameKind::Call(CallScheme::DelegateCall) => " [delegatecall]",
+                CallFrameKind::Call(CallScheme::CallCode) => " [callcode]",
                 _ => "",
             };
             writeln!(
@@ -800,7 +810,11 @@ pub enum CallFrameKind {
 pub struct CallFrame {
     pub depth: usize,
     pub kind: CallFrameKind,
+    /// The execution context address (e.g. the proxy for a delegatecall).
     pub address: Option<Address>,
+    /// The address whose code is executing.
+    /// Differs from `address` for delegatecall / callcode (proxy patterns).
+    pub code_address: Option<Address>,
     pub caller: Address,
     pub value: U256,
     pub timestamp: U256,
