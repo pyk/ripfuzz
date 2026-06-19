@@ -789,6 +789,7 @@ impl CoverageReporter {
                 if let Some(sources) = current.metadata_sources() {
                     for path_str in sources.keys() {
                         let path = PathBuf::from(path_str);
+                        let maybe_child = path_to_artifact.get(&path).copied();
                         let qualified = if let (Some(base), Some(artifact_canon)) =
                             (base_canon.as_ref(), artifact_canon_paths.get(current.id()))
                         {
@@ -799,9 +800,8 @@ impl CoverageReporter {
                         };
                         // checkrs: allow(clone_in_loops)
                         path_map.insert(path.clone(), qualified);
-                        // checkrs: allow(clone_in_loops)
-                        all_files.insert(path.clone());
-                        if let Some(child) = path_to_artifact.get(&path) {
+                        all_files.insert(path);
+                        if let Some(child) = maybe_child {
                             queue.push(child);
                         }
                     }
