@@ -133,11 +133,10 @@ impl Fuzzer {
             let calls_count = transactions.len();
 
             // Execute transactions
-            let exec = fresh_chain.exec(&transactions)?;
+            let mut exec = fresh_chain.exec(&transactions)?;
 
             // Update shared coverage and shared corpus
-            // checkrs: allow(clone_in_loops)
-            let coverage = exec.coverage.clone().context("coverage expected")?;
+            let coverage = exec.coverage.take().context("coverage expected")?;
             let coverage_update = self.shared_coverage.merge(&coverage);
             let interesting = coverage_update.is_interesting();
             debug!(
@@ -151,13 +150,7 @@ impl Fuzzer {
                 interesting,
                 "coverage merge"
             );
-            if interesting {
-                // checkrs: allow(clone_in_loops)
-                let item_to_add = item.clone();
-                self.shared_corpus
-                    .add_item(item_to_add)
-                    .context("failed to add corpus item")?;
-            }
+            let has_failure = exec.has_failure(self.fail_on_revert);
 
             let gas_sum = exec.results.iter().map(|r| r.gas_used).sum::<u64>();
 
@@ -180,15 +173,27 @@ impl Fuzzer {
             self.shared_metrics.record(calls_count as u64, gas_sum);
             runs += 1;
 
-            // Check for failed assertions or reverts
-            if exec.has_failure(self.fail_on_revert) {
-                self.shutdown_signal.store(true, Ordering::Relaxed);
-                // checkrs: allow(clone_in_loops)
-                let failure_item = item.clone();
-                local_failures.push(FailedAssertion {
-                    transactions,
-                    item: failure_item,
-                });
+            // Dispatch item: move into corpus / failures, cloning only when
+            // both conditions are true.
+            match (interesting, has_failure) {
+                (true, true) => {
+                    self.shared_corpus
+                        // checkrs: allow(clone_in_loops)
+                        .add_item(item.clone())
+                        .context("failed to add corpus item")?;
+                    self.shutdown_signal.store(true, Ordering::Relaxed);
+                    local_failures.push(FailedAssertion { transactions, item });
+                }
+                (true, false) => {
+                    self.shared_corpus
+                        .add_item(item)
+                        .context("failed to add corpus item")?;
+                }
+                (false, true) => {
+                    self.shutdown_signal.store(true, Ordering::Relaxed);
+                    local_failures.push(FailedAssertion { transactions, item });
+                }
+                (false, false) => {}
             }
         }
 
