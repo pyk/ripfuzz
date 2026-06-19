@@ -14,5 +14,7 @@ bytecode_hash = "none"
 optimizer = true
 optimizer_runs = 200
 libraries = ["lib/aave-v3-origin-private/src/contracts/instances/L2PoolInstance.sol:BorrowLogic:0x52da0ce88202d1542543598d1e1e27f0d344726a", "lib/aave-v3-origin-private/src/contracts/instances/L2PoolInstance.sol:FlashLoanLogic:0x6d414cd0d5eaf8c43200ac0c325a7e2ad83b8be6", "lib/aave-v3-origin-private/src/contracts/instances/L2PoolInstance.sol:LiquidationLogic:0x96d5686812e33ab509eccdb38c89d15607b2a413", "lib/aave-v3-origin-private/src/contracts/instances/L2PoolInstance.sol:PoolLogic:0xd70593841c57cbaa04957cc3eace95708e48853b", "lib/aave-v3-origin-private/src/contracts/instances/L2PoolInstance.sol:SupplyLogic:0x584c7d8c4cb05304fe5ac7fbc97f20a10fb07564"]
+extra_output = ["storageLayout", "metadata"]
+ast = true
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

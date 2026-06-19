@@ -14,5 +14,7 @@ bytecode_hash = "none"
 optimizer = true
 optimizer_runs = 200
 libraries = []
+extra_output = ["storageLayout", "metadata"]
+ast = true
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
