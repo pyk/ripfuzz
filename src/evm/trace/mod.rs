@@ -453,7 +453,7 @@ impl<'a> fmt::Display for TraceDisplay<'a> {
             } else {
                 writeln!(f, "--- Call #{} [REVERT] ---", i + 1)?;
             }
-            self.write_frame(f, root, &[], true)?;
+            self.write_frame(f, root, None, &[], true)?;
         }
 
         let mut logs = Vec::new();
@@ -477,6 +477,7 @@ impl<'a> TraceDisplay<'a> {
         &self,
         f: &mut fmt::Formatter<'_>,
         frame: &CallFrame,
+        parent: Option<&CallFrame>,
         has_next: &[bool],
         is_last: bool,
     ) -> fmt::Result {
@@ -547,7 +548,7 @@ impl<'a> TraceDisplay<'a> {
         let mut child_has_next = has_next.to_vec();
         child_has_next.push(!is_last);
 
-        // Write call context as pseudo-children
+        // Build prefixes for call context / call context changes
         let mut meta_prefix = String::new();
         for h in &child_has_next {
             if *h {
@@ -557,7 +558,6 @@ impl<'a> TraceDisplay<'a> {
             }
         }
         meta_prefix.push_str("├─ ");
-        writeln!(f, "{meta_prefix} call context:")?;
 
         let mut meta_detail_prefix = String::new();
         for h in &child_has_next {
@@ -569,25 +569,67 @@ impl<'a> TraceDisplay<'a> {
         }
         meta_detail_prefix.push_str("│   ");
 
-        let caller_label = self
-            .labels
-            .get(&frame.caller)
-            .map(|s| s.as_str())
-            .or_else(|| self.ctx.get_label(&frame.caller))
-            .map(|s| format!("{s} [{}]", frame.caller.to_checksum(None)))
-            .unwrap_or_else(|| frame.caller.to_checksum(None));
-        writeln!(f, "{meta_detail_prefix}@ msg.sender: {caller_label}")?;
-        writeln!(f, "{meta_detail_prefix}@ msg.value: {}", frame.value)?;
-        writeln!(
-            f,
-            "{meta_detail_prefix}@ block.timestamp: {}",
-            frame.timestamp
-        )?;
-        writeln!(f, "{meta_detail_prefix}@ block.number: {}", frame.number)?;
+        // Compute which fields differ from the parent (if any).
+        match parent {
+            None => {
+                // Root frame: show full call context.
+                writeln!(f, "{meta_prefix} call context:")?;
+                let caller_label = self
+                    .labels
+                    .get(&frame.caller)
+                    .map(|s| s.as_str())
+                    .or_else(|| self.ctx.get_label(&frame.caller))
+                    .map(|s| format!("{s} [{}]", frame.caller.to_checksum(None)))
+                    .unwrap_or_else(|| frame.caller.to_checksum(None));
+                writeln!(f, "{meta_detail_prefix}@ msg.sender: {caller_label}")?;
+                writeln!(f, "{meta_detail_prefix}@ msg.value: {}", frame.value)?;
+                writeln!(
+                    f,
+                    "{meta_detail_prefix}@ block.timestamp: {}",
+                    frame.timestamp
+                )?;
+                writeln!(f, "{meta_detail_prefix}@ block.number: {}", frame.number)?;
+            }
+            Some(parent_frame) => {
+                // Child frame: only show fields that differ from the parent.
+                let sender_diff = frame.caller != parent_frame.caller;
+                let value_diff = frame.value != parent_frame.value;
+                let timestamp_diff = frame.timestamp != parent_frame.timestamp;
+                let number_diff = frame.number != parent_frame.number;
+                let any_diff = sender_diff || value_diff || timestamp_diff || number_diff;
+
+                if any_diff {
+                    writeln!(f, "{meta_prefix} call context changes:")?;
+                    if sender_diff {
+                        let caller_label = self
+                            .labels
+                            .get(&frame.caller)
+                            .map(|s| s.as_str())
+                            .or_else(|| self.ctx.get_label(&frame.caller))
+                            .map(|s| format!("{s} [{}]", frame.caller.to_checksum(None)))
+                            .unwrap_or_else(|| frame.caller.to_checksum(None));
+                        writeln!(f, "{meta_detail_prefix}@ msg.sender: {caller_label}")?;
+                    }
+                    if value_diff {
+                        writeln!(f, "{meta_detail_prefix}@ msg.value: {}", frame.value)?;
+                    }
+                    if timestamp_diff {
+                        writeln!(
+                            f,
+                            "{meta_detail_prefix}@ block.timestamp: {}",
+                            frame.timestamp
+                        )?;
+                    }
+                    if number_diff {
+                        writeln!(f, "{meta_detail_prefix}@ block.number: {}", frame.number)?;
+                    }
+                }
+            }
+        }
 
         // Write children
         for child in &frame.children {
-            self.write_frame(f, child, &child_has_next, false)?;
+            self.write_frame(f, child, Some(frame), &child_has_next, false)?;
         }
 
         // Write logs as pseudo-children

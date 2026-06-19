@@ -6,94 +6,55 @@
     │   @ block.timestamp: 1438269988
     │   @ block.number: 1
     ├─ [3028779] → new ReturnValueTypes@0xB70839f72cA9d90009FE83f9D6D7497bE0bD57b0
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] 2579 bytes of code
     ├─ [339] ReturnValueTypes::returnBool() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] true
     ├─ [443] ReturnValueTypes::returnUint256() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] 42
     ├─ [354] ReturnValueTypes::returnInt256() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] -42
     ├─ [380] ReturnValueTypes::returnAddress() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] RaptorDeployer: [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]
     ├─ [355] ReturnValueTypes::returnBytes32() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] 0xdeadbeef00000000000000000000000000000000000000000000000000000000
     ├─ [726] ReturnValueTypes::returnString() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] "hello"
     ├─ [725] ReturnValueTypes::returnBytes() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] 0xcafebabe
     ├─ [701] ReturnValueTypes::returnStruct() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] Point({ x: 1, y: 2 })
     ├─ [1771] ReturnValueTypes::returnArray() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] [1, 2, 3]
     ├─ [1489] ReturnValueTypes::returnFixedArray() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] [10, 20, 30]
     ├─ [859] ReturnValueTypes::returnMultiple() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] 100, "world"
     ├─ [1285] ReturnValueTypes::returnNestedStruct() [staticcall]
-    │   ├─  call context:
+    │   ├─  call context changes:
     │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   │   @ msg.value: 0
-    │   │   @ block.timestamp: 1438269988
-    │   │   @ block.number: 1
     │   └─ ← [return] Line({ start: Point({ x: 1, y: 2 }), end: Point({ x: 3, y: 4 }) })
     └─ ← [revert] return value types trace
