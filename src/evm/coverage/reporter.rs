@@ -747,11 +747,9 @@ impl CoverageReporter {
 
         // Pre-compute canonical project paths once so that qualify_path
         // below never calls canonicalize() inside a loop (deterministic).
-        // checkrs: allow(clone_in_iterator)
         let base_canon: Option<PathBuf> = self
             .base_project_path
-            .as_ref()
-            .map(|b| b.canonicalize().unwrap_or_else(|_| b.clone())); // checkrs: allow(clone_in_iterator)
+            .map(|b| b.canonicalize().unwrap_or(b));
         let mut artifact_canon_paths: HashMap<&ArtifactId, PathBuf> = HashMap::new();
         // checkrs: allow(clone_in_iterator)
         for artifact in &self.artifacts {
