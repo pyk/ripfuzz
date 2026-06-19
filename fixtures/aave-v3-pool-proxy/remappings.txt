@@ -1,0 +1,14 @@
+forge-std/=lib/forge-std/src/
+src/core/=src/core/
+aave-address-book/=lib/aave-address-book/src/
+aave-collector-unification/=lib/aave-collector-unification/
+aave-helpers/=lib/aave-helpers/src/
+aave-v3-core/=src/core/
+aave-v3-periphery/=src/periphery/
+ds-test/=lib/forge-std/lib/ds-test/src/
+governance-crosschain-bridges/=lib/aave-helpers/lib/governance-crosschain-bridges/
+protocol-v2/=lib/aave-collector-unification/lib/protocol-v2/
+solidity-utils/=lib/solidity-utils/src/
+lib/aave-address-book:@aave/core-v3/=lib/aave-address-book/lib/aave-v3-core/
+lib/aave-address-book:@aave/periphery-v3/=lib/aave-address-book/lib/aave-v3-periphery/
+lib/aave-collector-unification:@aave/core-v2/=lib/aave-collector-unification/lib/protocol-v2/

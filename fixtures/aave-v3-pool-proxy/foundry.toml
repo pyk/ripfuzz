@@ -1,0 +1,17 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+auto_detect_remappings = false
+chain_id = 8453
+auto_detect_solc = false
+solc_version = "0.8.19"
+evm_version = "paris"
+cbor_metadata = true
+use_literal_content = false
+bytecode_hash = "ipfs"
+optimizer = true
+optimizer_runs = 200
+libraries = ["src/core/contracts/protocol/libraries/logic/BorrowLogic.sol:BorrowLogic:0x93f15Bc70e06a8a9769706d3E3407bB2679feb0a", "src/core/contracts/protocol/libraries/logic/BridgeLogic.sol:BridgeLogic:0x5Cf0a52Db44F7cceBdc506452144AAb1b39B224C", "src/core/contracts/protocol/libraries/logic/ConfiguratorLogic.sol:ConfiguratorLogic:0xFFe9e2A60B9f424604167B0D0Dc7E6867A0BEAc9", "src/core/contracts/protocol/libraries/logic/EModeLogic.sol:EModeLogic:0x88BFFee6046Ed01Ee3ADDf17295c48a669668763", "src/core/contracts/protocol/libraries/logic/FlashLoanLogic.sol:FlashLoanLogic:0xa70361E42C1c2404CF2b1F638c0d73d5d82184a5", "src/core/contracts/protocol/libraries/logic/LiquidationLogic.sol:LiquidationLogic:0xDcBE95c7dcFB2846742F953822806524CD2A3D91", "src/core/contracts/protocol/libraries/logic/PoolLogic.sol:PoolLogic:0xc38E7d1B9AE1b0B5e1D6169141f0DA2D67Ee8f1A", "src/core/contracts/protocol/libraries/logic/SupplyLogic.sol:SupplyLogic:0xe0aa976c54520c0dBAe5b71C9ed43e0C84cE6c61"]
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
