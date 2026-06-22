@@ -11,11 +11,10 @@ use std::path::PathBuf;
 use alloy_primitives::Address;
 use alloy_sol_types::SolCall;
 use raptor::{
-    Artifact, ArtifactId, Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, MockTransport,
-    Project, TraceContext, Transaction,
+    Artifact, ArtifactId, Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, Project,
+    TraceContext, Transaction,
 };
 use revm::primitives::Bytes;
-use serde_json::json;
 
 // ---------------------------------------------------------------------------
 // Fork mode constants (Base mainnet)
@@ -24,44 +23,11 @@ use serde_json::json;
 /// Block number used for fork mode.
 const BLOCK_NUMBER: u64 = 47_531_700;
 
-/// Live RPC URL for populating the fork cache.
+/// RPC URL used as the cache key namespace for fork DB responses.
 const LIVE_RPC_URL: &str = "https://base-rpc.publicnode.com";
 
 /// Cache directory for fork DB responses.
 const CACHE_DIR: &str = "fixtures/fork-mode-trace/rpc";
-
-fn block_json() -> serde_json::Value {
-    json!({
-        "number": "0x2d546b4",
-        "timestamp": "0x6a34ea4b",
-        "hash": "0x0133fd6ac4a984e9641549d15439d9fec92b3ef8720da58d37bc7aa7b7bc14bc",
-        "miner": "0x4200000000000000000000000000000000000011",
-        "gasLimit": "0x17d78400",
-        "baseFeePerGas": "0x4c4b40",
-        "difficulty": "0x0",
-        "mixHash": "0xb848fb237cee32613f8e5dfe85b4247f4ad8444d5b534c96a5cff3f47387987d",
-        "excessBlobGas": "0x0"
-    })
-}
-
-fn mock_fork_setup(transport: &MockTransport, url: &str) {
-    let chain_id_payload = json!([
-        {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
-    ]);
-    let block_payload = json!([
-        {"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":[format!("0x{BLOCK_NUMBER:x}"), false]}
-    ]);
-    transport.mock_response(
-        url,
-        &chain_id_payload,
-        json!([{"jsonrpc":"2.0","id":0,"result":"0x2105"}]),
-    );
-    transport.mock_response(
-        url,
-        &block_payload,
-        json!([{"jsonrpc":"2.0","id":0,"result":block_json()}]),
-    );
-}
 
 // ---------------------------------------------------------------------------
 // On-chain addresses
@@ -132,13 +98,8 @@ fn build_trace_context(handler_address: Address) -> TraceContext {
 // ---------------------------------------------------------------------------
 
 /// Integration test: supply USDC to the Aave V3 pool on Base using
-/// fork mode with an on-disk response cache.  The cache must be
-/// populated before running this test — see the `populate_fork_cache`
-/// test below or run:
-///
-/// ```sh
-/// cargo test --test fork_mode_trace populate_fork_cache -- --nocapture --ignored
-/// ```
+/// fork mode with an on-disk response cache.  The cache is committed
+/// to the repository so no live RPC is needed.
 ///
 /// The handler contract is a local deployment; external projects
 /// (Pool Proxy + Implementation + aUSDC) provide ABIs and labels so
@@ -150,49 +111,15 @@ fn supply_usdc_to_aave_v3_pool() {
     let cache_path = PathBuf::from(CACHE_DIR);
     assert!(
         cache_path.exists(),
-        "fork cache not found at {} — run `cargo test --test fork_mode_trace populate_fork_cache -- --ignored` first",
+        "fork cache not found at {}",
         cache_path.display(),
     );
 
-    let transport = MockTransport::default();
-    let url = "mock://test";
-
-    mock_fork_setup(&transport, url);
-
-    let config = ForkDBConfig::new(url)
-        .block_number(BLOCK_NUMBER)
-        .cache_dir(CACHE_DIR);
-    let mut chain = Chain::fork_with_transport(
-        ChainConfig::default().trace(true),
-        config,
-        transport.clone(),
-    )
-    .unwrap();
-
-    run_supply_test(&mut chain);
-}
-
-/// Populate the fork-mode disk cache by running the supply flow against
-/// the live Base RPC.  This test is `#[ignore]` by default; run it
-/// explicitly when you need to refresh the cached on-chain data.
-#[test]
-#[ignore]
-fn populate_fork_cache() {
     let config = ForkDBConfig::new(LIVE_RPC_URL)
         .block_number(BLOCK_NUMBER)
         .cache_dir(CACHE_DIR);
-    let mut chain = Chain::fork_with_transport(
-        ChainConfig::default().trace(true),
-        config,
-        ureq::Agent::new_with_defaults(),
-    )
-    .unwrap();
+    let mut chain = Chain::new(ChainConfig::default().trace(true).fork(config)).unwrap();
 
-    run_supply_test(&mut chain);
-}
-
-/// Shared test body: deploy handler, execute supply, format trace.
-fn run_supply_test(chain: &mut Chain) {
     // 1. Deploy handler contract
     let handler_project = Project::new("fixtures/fork-mode-trace");
     let handler_artifacts = handler_project.load_artifacts().unwrap();
