@@ -133,10 +133,10 @@
     │   ├─  call context changes:
     │   │   @ msg.sender: BasicConstructorComplexRevert [0x9e5aD3669316a49C9039ed97e39803F90ff1Ed63]
     │   │   @ msg.value: 0
-    │   ├─ [910] 0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2::add(10, 20) [delegatecall]
+    │   ├─ [910] MathLib::add(10, 20) [delegatecall]
     │   │   └─ ← [return] 30
     │   └─ ← [return] 30
-    ├─ [910] 0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2::add(10, 20) [delegatecall]
+    ├─ [910] MathLib::add(10, 20) [delegatecall]
     │   └─ ← [return] 30
     ├─ [1559] Counter::selfCall(50)
     │   ├─  call context changes:

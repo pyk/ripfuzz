@@ -108,11 +108,23 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
 
     fn call(&mut self, _context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         let input = inputs.input.bytes_local(_context.local());
+        let (_hash, bytecode) = &inputs.known_bytecode;
+        let code_bytes: Option<Bytes> = if bytecode.is_empty() {
+            None
+        } else {
+            let raw = bytecode.original_bytes();
+            if raw.is_empty() {
+                None
+            } else {
+                Some(Bytes::from(raw.to_vec()))
+            }
+        };
         self.stack.push(CallFrame {
             depth: self.stack.len(),
             kind: CallFrameKind::Call(inputs.scheme),
             address: Some(inputs.target_address),
             code_address: Some(inputs.bytecode_address),
+            code_bytes,
             caller: inputs.caller,
             value: inputs.value.get(),
             timestamp: _context.block().timestamp(),
@@ -134,6 +146,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             kind: CallFrameKind::Call(CallScheme::Call),
             address: None,
             code_address: None,
+            code_bytes: None,
             caller: Address::ZERO,
             value: U256::ZERO,
             timestamp: U256::ZERO,
@@ -164,6 +177,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             kind: CallFrameKind::Create,
             address: None,
             code_address: None,
+            code_bytes: None,
             caller: inputs.caller(),
             value: inputs.value(),
             timestamp: _context.block().timestamp(),
@@ -190,6 +204,7 @@ impl<CTX: revm::context_interface::ContextTr> RevmInspector<CTX> for Inspector {
             kind: CallFrameKind::Create,
             address: None,
             code_address: None,
+            code_bytes: None,
             caller: Address::ZERO,
             value: U256::ZERO,
             timestamp: U256::ZERO,

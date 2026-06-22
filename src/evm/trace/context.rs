@@ -11,6 +11,9 @@ use alloy_primitives::{B256, FixedBytes, U256, b256, keccak256};
 use alloy_sol_types::SolError;
 use anyhow::Result;
 use revm::primitives::{Address, Bytes};
+use solc::ast::{
+    ContractDefinitionNode, ElementaryType, FunctionDefinition, SourceUnitNode, StorageLocation,
+};
 
 use crate::evm::chain::DEFAULT_DEPLOYER;
 use crate::evm::cheatcode::VM_ADDRESS;
@@ -88,10 +91,12 @@ pub struct TraceContext {
     abis: Vec<JsonAbi>,
     bytecode_entries: Vec<BytecodeEntry>,
     initcode_entries: Vec<BytecodeEntry>,
-    /// Maps 4-byte function selector -> full Solidity function signature
-    /// for library internal functions that are not included in the ABI.
-    /// E.g. `0x66656e4e` → `"executeSupply(mapping(address => DataTypes.ReserveData) storage, ...)"`
-    method_selectors: HashMap<[u8; 4], String>,
+    /// Maps 4-byte function selector → [`FunctionDefinition`] from the AST.
+    /// Used to decode library internal calls with proper struct resolution.
+    ast_functions: HashMap<[u8; 4], FunctionDefinition>,
+    /// Maps AST node ID → struct member fields for resolving
+    /// [`solc::ast::UserDefinedTypeName`] references.
+    struct_field_index: HashMap<i64, Vec<solc::ast::VariableDeclaration>>,
     /// Maps contract name -> (slot -> list of packed variables).
     storage_names: HashMap<String, HashMap<U256, Vec<StorageEntry>>>,
     /// Maps contract name -> list of arrays for element-slot resolution.
@@ -110,7 +115,8 @@ impl Default for TraceContext {
             abis: Vec::new(),
             bytecode_entries: Vec::new(),
             initcode_entries: Vec::new(),
-            method_selectors: HashMap::new(),
+            ast_functions: HashMap::new(),
+            struct_field_index: HashMap::new(),
             storage_names: HashMap::new(),
             array_info: HashMap::new(),
             mapping_info: HashMap::new(),
@@ -136,15 +142,27 @@ impl TraceContext {
         let mut bytecode_entries = Vec::new();
         let mut initcode_entries = Vec::new();
         for artifact in artifacts.into_values() {
+            // Index struct definitions from the AST (for library call decoding).
+            collect_struct_defs(artifact.ast(), &mut ctx.struct_field_index);
+            // Index external/public functions by their 4-byte selector.
+            collect_ast_functions(artifact.ast(), &mut ctx.ast_functions);
+
             let bytecode = artifact.deployed_bytecode();
+            let is_library = matches!(&artifact, Artifact::Library(_));
             let code =
                 bytecode.map(|b| parse_bytecode_with_placeholders(&b.object, &b.link_references));
             if let Some(code) = code
                 && !code.is_empty()
             {
-                let positions = bytecode
+                let mut positions = bytecode
                     .map(|b| collect_link_positions(&b.link_references))
                     .unwrap_or_default();
+                // Libraries embed their own address at position 1 (PUSH20).
+                // Zero it out so that the same library deployed at different
+                // addresses matches the artifact bytecode.
+                if is_library && code.first() == Some(&0x73) {
+                    positions.push((1, 20));
+                }
                 let mut masked = code;
                 zero_out_positions(&mut masked, &positions);
                 bytecode_entries.push(BytecodeEntry {
@@ -174,21 +192,6 @@ impl TraceContext {
                 ctx.storage_names.insert(artifact.name().into(), names);
                 ctx.array_info.insert(artifact.name().into(), arrays);
                 ctx.mapping_info.insert(artifact.name().into(), mappings);
-            }
-
-            // Collect method identifiers for library internal functions
-            // that are not present in the ABI.
-            for (sig, selector_hex) in artifact.method_identifiers() {
-                if let Ok(selector_bytes) = hex::decode(selector_hex)
-                    && selector_bytes.len() == 4
-                {
-                    let mut key = [0u8; 4];
-                    key.copy_from_slice(&selector_bytes);
-                    // checkrs: allow(clone_in_loops)
-                    ctx.method_selectors
-                        .entry(key)
-                        .or_insert_with(|| sig.to_string());
-                }
             }
 
             ctx.abis.push(artifact.into_abi());
@@ -267,6 +270,17 @@ impl TraceContext {
             }
         }
         None
+    }
+
+    /// Look up a contract name by the keccak-256 hash of its runtime bytecode.
+    ///
+    /// This is a cheaper alternative to [`resolve_by_bytecode`] when the
+    /// full bytecode has already been hashed (e.g. during trace collection).
+    pub fn resolve_by_code_hash(&self, hash: &B256) -> Option<&str> {
+        self.bytecode_entries
+            .iter()
+            .find(|entry| &entry.base_hash == hash)
+            .map(|entry| entry.name.as_str())
     }
 
     /// Look up the human-readable name for a storage slot in a contract.
@@ -943,37 +957,171 @@ impl TraceContext {
                 return (Some(func.name.as_str()), args);
             }
         }
-        // Check library method identifiers (not in ABIs).
-        if let Some(sig) = self.method_selectors.get(&sel) {
-            let (name, args) = decode_library_call(sig, data);
+        // Check AST for library/external functions not in ABIs.
+        if let Some(func) = self.ast_functions.get(&sel) {
+            let (name, args) = decode_ast_call(func, data, &self.struct_field_index);
             return (Some(name), args);
         }
         (None, "...".into())
     }
 }
 
-/// Parse a Solidity function signature (from `methodIdentifiers`) and
-/// decode the calldata arguments.
+// ---------------------------------------------------------------------------
+// AST index building
+// ---------------------------------------------------------------------------
+
+/// Walk a [`solc::ast::SourceUnit`] tree to collect all public/external
+/// [`FunctionDefinition`]s keyed by their 4-byte selector.
+fn collect_ast_functions(
+    ast: &solc::ast::SourceUnit,
+    out: &mut HashMap<[u8; 4], FunctionDefinition>,
+) {
+    for node in &ast.nodes {
+        if let SourceUnitNode::ContractDefinition(def) = node {
+            collect_contract_functions(def, out);
+        }
+    }
+}
+
+fn collect_contract_functions(
+    def: &solc::ast::ContractDefinition,
+    out: &mut HashMap<[u8; 4], FunctionDefinition>,
+) {
+    for node in &def.nodes {
+        if let ContractDefinitionNode::FunctionDefinition(func) = node
+            && let Some(ref selector_str) = func.function_selector
+        {
+            let selector_str = selector_str.strip_prefix("0x").unwrap_or(selector_str);
+            if let Ok(selector_bytes) = hex::decode(selector_str)
+                && selector_bytes.len() == 4
+            {
+                let mut key = [0u8; 4];
+                key.copy_from_slice(&selector_bytes);
+                // checkrs: allow(clone_in_loops)
+                out.entry(key).or_insert_with(|| func.clone());
+            }
+        }
+    }
+}
+
+/// Walk a [`solc::ast::SourceUnit`] tree to collect all struct member fields
+/// keyed by AST node ID.
+fn collect_struct_defs(
+    ast: &solc::ast::SourceUnit,
+    out: &mut HashMap<i64, Vec<solc::ast::VariableDeclaration>>,
+) {
+    for node in &ast.nodes {
+        if let SourceUnitNode::ContractDefinition(def) = node {
+            collect_contract_structs(def, out);
+        }
+    }
+}
+
+fn collect_contract_structs(
+    def: &solc::ast::ContractDefinition,
+    out: &mut HashMap<i64, Vec<solc::ast::VariableDeclaration>>,
+) {
+    for node in &def.nodes {
+        if let ContractDefinitionNode::StructDefinition(s) = node {
+            // checkrs: allow(clone_in_loops)
+            out.entry(s.id).or_insert_with(|| s.members.clone());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AST type → DynSolType conversion
+// ---------------------------------------------------------------------------
+
+/// Convert an AST type name to a [`DynSolType`] for ABI decoding.
 ///
-/// Library internal functions use storage pointers and complex types
-/// that aren't in the ABI. This maps them to simplified ABI types for
-/// best-effort decoding.
-fn decode_library_call<'a>(sig: &'a str, data: &Bytes) -> (&'a str, String) {
-    let name = sig.split('(').next().unwrap_or(sig);
+/// * `storage_location` indicates whether the parameter is `storage`,
+///   `memory`, or `calldata`. Storage pointers are encoded as `uint256`
+///   (the storage slot); memory/calldata structs are decoded as tuples.
+/// * `struct_index` maps AST node IDs to struct member definitions
+///   for resolving [`solc::ast::UserDefinedTypeName`] references.
+fn ast_type_to_dyn_sol_type(
+    ty: &solc::ast::TypeName,
+    storage_location: &StorageLocation,
+    struct_index: &HashMap<i64, Vec<solc::ast::VariableDeclaration>>,
+) -> DynSolType {
+    let is_storage = matches!(storage_location, StorageLocation::Storage);
+    match ty {
+        solc::ast::TypeName::ElementaryTypeName(elem) => elementary_to_dyn_sol_type(&elem.name),
+        solc::ast::TypeName::Mapping(_) => DynSolType::Uint(256),
+        solc::ast::TypeName::UserDefinedTypeName(udt) => {
+            if is_storage {
+                DynSolType::Uint(256)
+            } else if let Some(ref_id) = udt.referenced_declaration
+                && let Some(fields) = struct_index.get(&ref_id)
+            {
+                let field_types: Vec<DynSolType> = fields
+                    .iter()
+                    .map(|v| {
+                        ast_type_to_dyn_sol_type(&v.type_name, &v.storage_location, struct_index)
+                    })
+                    .collect();
+                DynSolType::Tuple(field_types)
+            } else {
+                DynSolType::Bytes
+            }
+        }
+        solc::ast::TypeName::ArrayTypeName(arr) => {
+            if is_storage {
+                DynSolType::Uint(256)
+            } else if let Some(_length) = &arr.length {
+                // Fixed-size arrays: fallback to bytes (extracting the
+                // literal length from the AST expression is complex).
+                DynSolType::Bytes
+            } else {
+                // Dynamic arrays: use array type with inner element type.
+                let inner =
+                    ast_type_to_dyn_sol_type(&arr.base_type, storage_location, struct_index);
+                DynSolType::Array(Box::new(inner))
+            }
+        }
+        solc::ast::TypeName::FunctionTypeName(_) => DynSolType::Bytes,
+    }
+}
+
+/// Map a Solidity [`ElementaryType`] to a [`DynSolType`].
+fn elementary_to_dyn_sol_type(ty: &ElementaryType) -> DynSolType {
+    match ty {
+        ElementaryType::Uint(bits) => DynSolType::Uint(*bits as usize),
+        ElementaryType::Int(bits) => DynSolType::Int(*bits as usize),
+        ElementaryType::Address | ElementaryType::Payable => DynSolType::Address,
+        ElementaryType::Bool => DynSolType::Bool,
+        ElementaryType::String => DynSolType::String,
+        ElementaryType::Bytes => DynSolType::Bytes,
+        ElementaryType::FixedBytes(size) => DynSolType::FixedBytes(*size as usize),
+        ElementaryType::Ufixed(_, _) | ElementaryType::Fixed(_, _) => DynSolType::Uint(256),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AST-based library call decoding
+// ---------------------------------------------------------------------------
+
+/// Decode a library call using the AST [`FunctionDefinition`] and struct index.
+fn decode_ast_call<'a>(
+    func: &'a FunctionDefinition,
+    data: &Bytes,
+    struct_index: &HashMap<i64, Vec<solc::ast::VariableDeclaration>>,
+) -> (&'a str, String) {
+    let name = func.name.as_str();
     let args_str = if data.len() <= 4 {
         String::new()
-    } else if let Some(params_str) = sig.strip_prefix(&format!("{name}("))
-        && let Some(params_str) = params_str.strip_suffix(')')
-    {
-        let param_types = split_sig_params(params_str);
-        let dyn_types: Vec<DynSolType> = param_types
+    } else {
+        let types: Vec<DynSolType> = func
+            .parameters
+            .parameters
             .iter()
-            .map(|t| library_param_to_dyn_sol_type(t))
+            .map(|p| ast_type_to_dyn_sol_type(&p.type_name, &p.storage_location, struct_index))
             .collect();
-        if dyn_types.is_empty() {
+        if types.is_empty() {
             String::new()
         } else {
-            let tuple = DynSolType::Tuple(dyn_types);
+            let tuple = DynSolType::Tuple(types);
             match tuple.abi_decode_params(&data[4..]) {
                 Ok(DynSolValue::Tuple(values)) => {
                     let labels = HashMap::new();
@@ -987,78 +1135,8 @@ fn decode_library_call<'a>(sig: &'a str, data: &Bytes) -> (&'a str, String) {
                 Err(_) => "...".into(),
             }
         }
-    } else {
-        "...".into()
     };
     (name, args_str)
-}
-
-/// Split a Solidity function parameter string by top-level commas,
-/// respecting nested angle brackets and parentheses.
-fn split_sig_params(params: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut depth = 0;
-    let mut start = 0;
-    for (i, c) in params.char_indices() {
-        match c {
-            '<' | '(' => depth += 1,
-            '>' | ')' => depth -= 1,
-            ',' if depth == 0 => {
-                out.push(params[start..i].trim().to_string());
-                start = i + 1;
-            }
-            _ => {}
-        }
-    }
-    let last = params[start..].trim();
-    if !last.is_empty() {
-        out.push(last.to_string());
-    }
-    out
-}
-
-/// Map a Solidity parameter type string to a [`DynSolType`] for ABI decoding.
-///
-/// Storage pointers (`mapping`, `struct`) and contract types are mapped to
-/// `Uint(256)` or `Address` respectively, since the actual ABI encoding for
-/// library internal calls uses plain values for these.
-fn library_param_to_dyn_sol_type(ty: &str) -> DynSolType {
-    // Strip storage/memory/calldata location.
-    let ty = ty.trim();
-    let ty = ty.strip_suffix(" storage").unwrap_or(ty);
-    let ty = ty.strip_suffix(" memory").unwrap_or(ty);
-    let ty = ty.strip_suffix(" calldata").unwrap_or(ty);
-    let ty = ty.trim();
-
-    // Contract types like `contract IPool` → address
-    if ty.starts_with("contract ") {
-        return DynSolType::Address;
-    }
-
-    // Simple types that DynSolType can parse directly.
-    if let Ok(dyn_ty) = DynSolType::parse(ty) {
-        return dyn_ty;
-    }
-
-    // Struct references (e.g. `DataTypes.ExecuteSupplyParams`) -- try as tuple.
-    if let Some(first) = ty.chars().next()
-        && first.is_uppercase()
-    {
-        return DynSolType::Bytes;
-    }
-
-    // Enums -- try as uint.
-    if ty.starts_with("enum ") {
-        return DynSolType::Uint(8);
-    }
-
-    // Mapping types -- passed as uint256 (storage slot).
-    if ty.starts_with("mapping(") {
-        return DynSolType::Uint(256);
-    }
-
-    // Fallback: assume bytes.
-    DynSolType::Bytes
 }
 
 impl TraceContext {

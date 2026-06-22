@@ -26,7 +26,7 @@
     │   ├─  call context changes:
     │   │   @ msg.sender: SupplyUSDC [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
     │   ├─ [31869] PoolInstance::supply(USDC: [0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913], 10000000, SupplyUSDC: [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2], 0) [delegatecall]
-    │   │   ├─ [25412] 0x584C7d8c4cb05304FE5Ac7fbc97f20A10Fb07564::executeSupply(52) [delegatecall]
+    │   │   ├─ [25412] SupplyLogic::executeSupply(52, 55, 34555458943905423168802781696102009883705135072112246056992439518301105623903, (0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2, 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913, 0x86AB1C62A8bf868E1b3E1ab87d587Aba6fbCbDC5, 10000000, 0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2, 0, 0)) [delegatecall]
     │   │   │   ├─ [7475] aUSDC::scaledTotalSupply() [staticcall]
     │   │   │   │   ├─  call context changes:
     │   │   │   │   │   @ msg.sender: AaveV3Pool [0xA238Dd80C259a72e81d7e4664a9801593F98d1c5]

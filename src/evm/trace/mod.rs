@@ -383,6 +383,7 @@ impl Trace {
         for root in &self.roots {
             Self::collect_create_labels(root, ctx, &mut labels);
             Self::collect_vm_labels(root, &mut labels);
+            Self::collect_code_hash_labels(root, ctx, &mut labels);
         }
         TraceDisplay {
             trace: self,
@@ -429,6 +430,28 @@ impl Trace {
         }
         for child in &frame.children {
             Self::collect_create_labels(child, ctx, labels);
+        }
+    }
+
+    /// Label addresses from bytecode stored in call frames.
+    ///
+    /// Libraries called via delegatecall have their bytecode stored
+    /// in [`CallFrame::code_bytes`]. This pass resolves those bytecodes
+    /// against the artifact index so that library names appear in traces.
+    fn collect_code_hash_labels(
+        frame: &CallFrame,
+        ctx: &TraceContext,
+        labels: &mut HashMap<Address, String>,
+    ) {
+        if let (Some(addr), Some(code_bytes)) = (frame.code_address, frame.code_bytes.as_ref())
+            && !labels.contains_key(&addr)
+            && ctx.get_label(&addr).is_none()
+            && let Some(name) = ctx.resolve_by_bytecode(code_bytes)
+        {
+            labels.insert(addr, name.into());
+        }
+        for child in &frame.children {
+            Self::collect_code_hash_labels(child, ctx, labels);
         }
     }
 }
@@ -815,6 +838,9 @@ pub struct CallFrame {
     /// The address whose code is executing.
     /// Differs from `address` for delegatecall / callcode (proxy patterns).
     pub code_address: Option<Address>,
+    /// Raw bytecode at `code_address`, captured for contract-name resolution.
+    /// Used to resolve library names when the address is not labelled.
+    pub code_bytes: Option<Bytes>,
     pub caller: Address,
     pub value: U256,
     pub timestamp: U256,
