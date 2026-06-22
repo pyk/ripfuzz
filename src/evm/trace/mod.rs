@@ -719,13 +719,32 @@ impl<'a> TraceDisplay<'a> {
                         .map(|s| s.as_str())
                         .or_else(|| self.ctx.get_label(&addr))
                 });
+                // Resolve the artifact name for storage layout lookup.
+                // Walk the frame hierarchy: delegatecall through libraries
+                // means the executing bytecode may not match the
+                // storage-owning contract.
+                let storage_contract_name = {
+                    let mut name = frame
+                        .code_bytes
+                        .as_ref()
+                        .and_then(|b| self.ctx.resolve_by_bytecode(b))
+                        .filter(|n| self.ctx.has_storage(n));
+                    if name.is_none() {
+                        name = parent
+                            .and_then(|p| p.code_bytes.as_ref())
+                            .and_then(|b| self.ctx.resolve_by_bytecode(b))
+                            .filter(|n| self.ctx.has_storage(n));
+                    }
+                    name
+                };
                 let mapping_slots = frame
                     .address
                     .and_then(|addr| self.trace.mapping_slots.get(&addr));
-                let packed_changes = label
-                    .map(|l| {
+                let packed_changes = storage_contract_name
+                    .or(label)
+                    .map(|n| {
                         self.ctx.resolve_storage_changes(
-                            l,
+                            n,
                             &change.slot,
                             change.old_value,
                             change.new_value,
@@ -735,14 +754,15 @@ impl<'a> TraceDisplay<'a> {
                     .unwrap_or_default();
 
                 if packed_changes.is_empty() {
-                    let (name, ty) = label
-                        .and_then(|l| {
+                    let (name, ty) = storage_contract_name
+                        .or(label)
+                        .and_then(|n| {
                             let name =
                                 self.ctx
-                                    .resolve_storage_name(l, &change.slot, mapping_slots)?;
+                                    .resolve_storage_name(n, &change.slot, mapping_slots)?;
                             let ty = self
                                 .ctx
-                                .resolve_storage_type(l, &change.slot, mapping_slots);
+                                .resolve_storage_type(n, &change.slot, mapping_slots);
                             Some((name, ty))
                         })
                         .unwrap_or_else(|| (format!("{}", change.slot), None));

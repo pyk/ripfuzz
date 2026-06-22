@@ -21,7 +21,7 @@ use revm::primitives::Bytes;
 // ---------------------------------------------------------------------------
 
 /// Block number used for fork mode.
-const BLOCK_NUMBER: u64 = 47_531_700;
+const BLOCK_NUMBER: u64 = 47_664_508;
 
 /// RPC URL used as the cache key namespace for fork DB responses.
 const LIVE_RPC_URL: &str = "https://base-rpc.publicnode.com";
@@ -142,9 +142,13 @@ fn supply_usdc_to_aave_v3_pool() {
     let trace = exec_output.trace.as_ref().expect("trace must be present");
     let formatted = format!("{}", trace.display_with(&ctx));
 
-    // Write the formatted trace to the output file for review.
-    let output_path = "fixtures/fork-mode-trace/outputs/supply_usdc.txt";
-    std::fs::write(output_path, &formatted).unwrap();
-
-    assert!(!formatted.is_empty(), "trace output must not be empty");
+    // Compare trace output against the golden file.
+    let expected_path = "fixtures/fork-mode-trace/expected/supply_usdc.txt";
+    let expected = std::fs::read_to_string(expected_path)
+        .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+    assert_eq!(
+        formatted.trim(),
+        expected.trim(),
+        "trace output must match expected"
+    );
 }

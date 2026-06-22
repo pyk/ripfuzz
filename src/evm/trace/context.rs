@@ -287,6 +287,14 @@ impl TraceContext {
     ///
     /// The `contract_name` is the label or name that was registered for the
     /// contract address (e.g. via bytecode matching or explicit `with_label`).
+    ///
+    /// Returns `true` if the named contract has any storage layout registered.
+    pub fn has_storage(&self, contract_name: &str) -> bool {
+        self.storage_names.contains_key(contract_name)
+            || self.mapping_info.contains_key(contract_name)
+    }
+
+    /// Look up the human-readable name for a storage slot in a contract.
     pub fn resolve_storage_name(
         &self,
         contract_name: &str,
