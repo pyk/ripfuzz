@@ -594,8 +594,6 @@ impl Type {
 }
 ```
 
-* * *
-
 ### Step 2
 
 Ask:
@@ -612,8 +610,6 @@ struct Builder;
 
 Create a new type and module.
 
-* * *
-
 ### Step 3
 
 Ask:
@@ -628,8 +624,6 @@ decode_hex(...)
 ```
 
 Use a free function.
-
-* * *
 
 ### Step 4
 
@@ -647,8 +641,6 @@ LinkOptions
 
 Introduce an options type.
 
-* * *
-
 ### Step 5
 
 Ask:
@@ -665,8 +657,6 @@ Builder
 
 Introduce an operation type.
 
-* * *
-
 ### Step 6
 
 Ask:
@@ -674,8 +664,6 @@ Ask:
 > Would removing `self` change very little about the function?
 
 If yes, it probably should not be a method.
-
-* * *
 
 ## Public API Litmus Test
 

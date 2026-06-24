@@ -7,12 +7,13 @@ built on top of revm.
 
 You must treat the following documentation as authoritative when modifying raptor:
 
-- [Handler Contract](docs/handler-contract.md) — You must understand these conventions
+- [Project Guidelines](docs/project-guidelines.md): You must follow the project
+  guidelines.
+- [Handler Contract](docs/handler-contract.md): You must understand these conventions
   because raptor's contract parser, ABI classifier, and fuzzer core are built around
   them.
-- [Glossary](docs/glossary.md) — You must use the canonical terms defined here
-  (campaign, handler contract, property, action, setup) when writing code or
-  documentation.
+- [Glossary](docs/glossary.md): You must use the canonical terms defined here (campaign,
+  handler contract, property, action, setup) when writing code or documentation.
 
 # Cargo Docs
 
