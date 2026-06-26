@@ -889,11 +889,8 @@ impl TraceContext {
         _mapping_slots: Option<&MappingSlots>,
     ) -> Vec<StorageChangeInfo<'_>> {
         let mut changes = Vec::new();
-        // checkrs: allow(nested_if_let)
-        if let Some(entries) = self
-            .storage_names
-            .get(contract_name)
-            .and_then(|map| map.get(slot))
+        if let Some(map) = self.storage_names.get(contract_name)
+            && let Some(entries) = map.get(slot)
         {
             for entry in entries {
                 let old_extracted = if entry.offset == 0 && entry.bytes >= 32 {
@@ -1574,57 +1571,57 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
             bytes,
         });
 
-        // Build array metadata for element-slot resolution.
-        // checkrs: allow(nested_if_let)
-        if let StorageType::Array {
-            element,
-            len: array_len,
-        } = &ty
-        {
-            let start_slot = if array_len.is_some() {
-                // Fixed array: elements start at the base slot.
-                slot
-            } else {
-                // Dynamic array: elements start at keccak256(base_slot).
-                let mut base_bytes = [0u8; 32];
-                base_bytes.copy_from_slice(&slot.to_be_bytes::<32>());
-                U256::from_be_bytes(keccak256(base_bytes).0)
-            };
+        // Build array and mapping metadata.
+        match &ty {
+            StorageType::Array {
+                element,
+                len: array_len,
+            } => {
+                let start_slot = if array_len.is_some() {
+                    // Fixed array: elements start at the base slot.
+                    slot
+                } else {
+                    // Dynamic array: elements start at keccak256(base_slot).
+                    let mut base_bytes = [0u8; 32];
+                    base_bytes.copy_from_slice(&slot.to_be_bytes::<32>());
+                    U256::from_be_bytes(keccak256(base_bytes).0)
+                };
 
-            let element_slots = element_byte_slots(&layout.types, &entry.type_name);
-            let struct_fields = parse_struct_fields(&layout.types, &entry.type_name);
-            arrays.push(ArrayInfo {
-                // checkrs: allow(clone_in_loops)
-                name: entry.label.clone(),
-                // checkrs: allow(clone_in_loops)
-                element_type: *element.clone(),
-                element_slots,
-                start_slot,
-                len: *array_len,
-                struct_fields,
-            });
-        }
-
-        // Build mapping metadata for hashed-slot resolution.
-        if let StorageType::Mapping = &ty
-            && let Some(type_info) = layout.types.get(&entry.type_name)
-            && type_info.encoding == "mapping"
-        {
-            let key_types = resolve_mapping_key_types(&layout.types, &entry.type_name);
-            let value_type = resolve_mapping_value_type(&layout.types, &entry.type_name);
-            let value_storage_type =
-                StorageType::parse(&value_type).unwrap_or(StorageType::Mapping);
-            let value_struct_fields = parse_struct_fields(&layout.types, &value_type);
-            let value_element_slots = element_byte_slots(&layout.types, &value_type);
-            mappings.push(MappingInfo {
-                // checkrs: allow(clone_in_loops)
-                name: entry.label.clone(),
-                base_slot: slot,
-                key_types,
-                value_storage_type,
-                value_struct_fields,
-                value_element_slots,
-            });
+                let element_slots = element_byte_slots(&layout.types, &entry.type_name);
+                let struct_fields = parse_struct_fields(&layout.types, &entry.type_name);
+                arrays.push(ArrayInfo {
+                    // checkrs: allow(clone_in_loops)
+                    name: entry.label.clone(),
+                    // checkrs: allow(clone_in_loops)
+                    element_type: *element.clone(),
+                    element_slots,
+                    start_slot,
+                    len: *array_len,
+                    struct_fields,
+                });
+            }
+            StorageType::Mapping => {
+                if let Some(type_info) = layout.types.get(&entry.type_name)
+                    && type_info.encoding == "mapping"
+                {
+                    let key_types = resolve_mapping_key_types(&layout.types, &entry.type_name);
+                    let value_type = resolve_mapping_value_type(&layout.types, &entry.type_name);
+                    let value_storage_type =
+                        StorageType::parse(&value_type).unwrap_or(StorageType::Mapping);
+                    let value_struct_fields = parse_struct_fields(&layout.types, &value_type);
+                    let value_element_slots = element_byte_slots(&layout.types, &value_type);
+                    mappings.push(MappingInfo {
+                        // checkrs: allow(clone_in_loops)
+                        name: entry.label.clone(),
+                        base_slot: slot,
+                        key_types,
+                        value_storage_type,
+                        value_struct_fields,
+                        value_element_slots,
+                    });
+                }
+            }
+            _ => {}
         }
     }
     arrays.sort_by(|a, b| b.start_slot.cmp(&a.start_slot));
