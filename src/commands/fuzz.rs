@@ -307,7 +307,7 @@ impl Default for ForkModeArgs {
 impl ForkModeArgs {
     /// Build a [`ForkDBConfig`](crate::evm::ForkDBConfig) from CLI arguments.
     pub fn build_fork_config(&self, project_path: impl AsRef<Path>) -> Result<ForkDBConfig> {
-        let cache_dir = project_path.as_ref().join("raptor").join("cache");
+        let cache_dir = raptor_dir(project_path).join("cache");
         let block = self
             .rpc_block
             .context("--rpc-block is required with --rpc-url")?;
@@ -321,6 +321,11 @@ impl ForkModeArgs {
             .block_number(block);
         Ok(config)
     }
+}
+
+/// Returns the raptor data directory for the given project path.
+fn raptor_dir(project_path: impl AsRef<Path>) -> PathBuf {
+    project_path.as_ref().join(".raptor")
 }
 
 #[instrument(skip(args), fields(target = ?args.target, threads = args.threads, max_runs = args.max_runs))]
@@ -359,8 +364,7 @@ pub fn run(args: Args) -> Result<()> {
     let campaign_id = format!("{date}-{hour}-{uuid_prefix}");
 
     if !args.disable_log {
-        let log_file = project_path
-            .join("raptor")
+        let log_file = raptor_dir(&project_path)
             .join("campaigns")
             .join(&campaign_id)
             .join("fuzz.log");
@@ -508,8 +512,7 @@ pub fn run(args: Args) -> Result<()> {
         for (addr, label) in chain.labels() {
             ctx = ctx.with_label(*addr, label);
         }
-        let trace_dir = project_path
-            .join("raptor")
+        let trace_dir = raptor_dir(&project_path)
             .join("campaigns")
             .join(&campaign_id);
         fs::create_dir_all(&trace_dir)?;
@@ -566,8 +569,7 @@ pub fn run(args: Args) -> Result<()> {
             for (addr, label) in chain.labels() {
                 ctx = ctx.with_label(*addr, label);
             }
-            let trace_dir = project_path
-                .join("raptor")
+            let trace_dir = raptor_dir(&project_path)
                 .join("campaigns")
                 .join(&campaign_id);
             fs::create_dir_all(&trace_dir)?;
@@ -587,7 +589,7 @@ pub fn run(args: Args) -> Result<()> {
     let literals = ExtractedLiterals::from_artifacts(&build_artifacts);
     let base_corpus_dir = args
         .corpus_dir
-        .unwrap_or_else(|| project_path.join("raptor").join("corpus"));
+        .unwrap_or_else(|| raptor_dir(&project_path).join("corpus"));
     let corpus_dir = SharedCorpus::dir_for(&base_corpus_dir, &handler_contract.artifact_id);
     let corpus_config = CorpusConfig::new(corpus_dir)
         .handler_functions(handler_contract.handler_functions.clone())
@@ -1020,9 +1022,7 @@ fn write_coverage_report(
 
     let report = reporter.build();
 
-    let coverage_dir = project
-        .path
-        .join("raptor")
+    let coverage_dir = raptor_dir(&project.path)
         .join("campaigns")
         .join(campaign_id)
         .join("coverage");
@@ -1054,9 +1054,7 @@ fn write_trace_to_file(
     for (addr, label) in chain.labels() {
         ctx = ctx.with_label(*addr, label);
     }
-    let trace_dir = project_path
-        .as_ref()
-        .join("raptor")
+    let trace_dir = raptor_dir(&project_path)
         .join("campaigns")
         .join(campaign_id);
     fs::create_dir_all(&trace_dir)?;
