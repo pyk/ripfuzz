@@ -679,10 +679,10 @@ impl CoverageReporter {
         artifact_canon: &Path,
         base_canon: &Path,
         artifact_proj: &Path,
-        source_path: &Path, // checkrs: allow(path_param_types)
+        source_path: impl AsRef<Path>,
     ) -> PathBuf {
         if artifact_canon == base_canon || artifact_proj.as_os_str().is_empty() {
-            return source_path.to_path_buf();
+            return source_path.as_ref().to_path_buf();
         }
         // Compute prefix: if the artifact project path starts with the
         // base, use the suffix. Otherwise fall back to its directory name.
