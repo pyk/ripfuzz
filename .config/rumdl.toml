@@ -1,0 +1,7 @@
+[MD013]
+line-length = 80
+reflow = true
+
+[MD060]
+enabled = true
+style = "aligned"

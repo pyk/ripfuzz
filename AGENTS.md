@@ -1,21 +1,23 @@
 # Raptor
 
-Raptor is a parallelized, coverage-guided, mutational Solidity smart contract fuzzer
-built on top of revm.
+Raptor is a parallelized, coverage-guided, mutational Solidity smart contract
+fuzzer built on top of revm.
 
-# Architecture & Conventions
+## Architecture & Conventions
 
-You must treat the following documentation as authoritative when modifying raptor:
+You must treat the following documentation as authoritative when modifying
+raptor:
 
 - [Project Guidelines](docs/project-guidelines.md): You must follow the project
   guidelines.
-- [Handler Contract](docs/handler-contract.md): You must understand these conventions
-  because raptor's contract parser, ABI classifier, and fuzzer core are built around
-  them.
-- [Glossary](docs/glossary.md): You must use the canonical terms defined here (campaign,
-  handler contract, property, action, setup) when writing code or documentation.
+- [Handler Contract](docs/handler-contract.md): You must understand these
+  conventions because raptor's contract parser, ABI classifier, and fuzzer core
+  are built around them.
+- [Glossary](docs/glossary.md): You must use the canonical terms defined here
+  (campaign, handler contract, property, action, setup) when writing code or
+  documentation.
 
-# Cargo Docs
+## Cargo Docs
 
 You must use `cargo txt` to access crate documentation locally.
 

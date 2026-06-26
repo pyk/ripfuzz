@@ -1,6 +1,7 @@
 # Rust Project Organization Guidelines
 
-These guidelines are inspired by the Rust standard library and mature Rust crates.
+These guidelines are inspired by the Rust standard library and mature Rust
+crates.
 
 The primary goal is:
 
@@ -397,7 +398,8 @@ A useful rule:
 
 > A method should primarily operate on state contained in `self`.
 
-If most information comes from parameters rather than `self`, reconsider the design.
+If most information comes from parameters rather than `self`, reconsider the
+design.
 
 * * *
 
@@ -570,7 +572,8 @@ Linker::new(config)
 
 A useful test:
 
-> If I removed `self`, would the function still need almost all the same arguments?
+> If I removed `self`, would the function still need almost all the same
+> arguments?
 
 If yes, the operation may belong elsewhere.
 
