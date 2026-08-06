@@ -202,9 +202,7 @@ mod tests {
         (chain, target)
     }
 
-    // -----------------------------------------------------------------
     // Handler-level unit tests
-    // -----------------------------------------------------------------
 
     /// `prank::prank` must register an active single-call prank.
     #[test]
@@ -314,9 +312,7 @@ mod tests {
         assert_eq!(state.prank.start.unwrap().caller, PRANK_ADDR_2);
     }
 
-    // -----------------------------------------------------------------
     // Integration tests
-    // -----------------------------------------------------------------
 
     /// `vm.startPrank(ADMIN)` used during setup must persist into `chain.exec`
     /// so that a nested call without any additional prank cheatcode still sees

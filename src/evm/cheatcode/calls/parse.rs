@@ -103,9 +103,7 @@ mod tests {
         (chain, target)
     }
 
-    // -----------------------------------------------------------------
     // Handler-level unit tests
-    // -----------------------------------------------------------------
 
     /// vm.parseUint("123") must return 123.
     #[test]
@@ -250,9 +248,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------
     // Integration tests
-    // -----------------------------------------------------------------
 
     /// Values parsed during setup must be readable by an invariant call
     /// executed through `chain.exec`, proving the baseline state is correct.

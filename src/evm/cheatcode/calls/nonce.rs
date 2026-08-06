@@ -95,9 +95,7 @@ mod tests {
         (chain, target)
     }
 
-    // -----------------------------------------------------------------------
     // Handler-level unit tests
-    // -----------------------------------------------------------------------
 
     /// vm.setNonce must succeed and vm.getNonce must read the written value.
     #[test]
@@ -155,9 +153,7 @@ mod tests {
         assert_eq!(decoded, U256::ZERO, "unknown account nonce must be 0");
     }
 
-    // -----------------------------------------------------------------------
     // Integration tests
-    // -----------------------------------------------------------------------
 
     /// `vm.setNonce` used during setup must persist the stored nonce so that
     /// a later invariant call can verify the baseline value.

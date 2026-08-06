@@ -62,9 +62,7 @@ mod tests {
         (chain, target)
     }
 
-    // -----------------------------------------------------------------
     // Handler-level unit tests
-    // -----------------------------------------------------------------
 
     /// vm.warp must set the EVM context block.timestamp and persist it in state.
     #[test]
@@ -103,9 +101,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------
     // Integration tests
-    // -----------------------------------------------------------------
 
     /// `vm.warp` used during setup must persist into `chain.exec` so that a
     /// plain `block.timestamp` read in the first exec transaction returns the

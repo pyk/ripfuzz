@@ -62,9 +62,7 @@ mod tests {
         (chain, target)
     }
 
-    // -----------------------------------------------------------------
     // Handler-level unit test
-    // -----------------------------------------------------------------
 
     /// vm.prevrandao must set the EVM context prevrandao and persist it in state.
     #[test]
@@ -91,9 +89,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------
     // Integration tests
-    // -----------------------------------------------------------------
 
     /// `vm.prevrandao` used during setup must persist into `chain.exec` so
     /// that the invariant passes without any additional cheatcode calls.

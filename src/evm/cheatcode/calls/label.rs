@@ -72,9 +72,7 @@ mod tests {
         (chain, target)
     }
 
-    // -----------------------------------------------------------------------
     // Handler-level unit tests
-    // -----------------------------------------------------------------------
 
     /// vm.label must store the name in execution state.
     #[test]
@@ -167,9 +165,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
     // Integration tests
-    // -----------------------------------------------------------------------
 
     /// `vm.label` used during setup must persist the stored labels so that
     /// a later invariant call can verify the canonical values.

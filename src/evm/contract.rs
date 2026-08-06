@@ -202,9 +202,7 @@ mod tests {
         assert_eq!(b.as_ref(), [0x12, 0x34]);
     }
 
-    // -----------------------------------------------------------------------
     // Fixture helpers
-    // -----------------------------------------------------------------------
 
     fn load_fixture(contract_id: &str) -> Result<Contract> {
         let project = Project::new("fixtures/handler-contract-validation");
@@ -213,9 +211,7 @@ mod tests {
         Contract::try_get(&artifacts, &id)
     }
 
-    // -----------------------------------------------------------------------
     // 1. Valid handler contract should have >0 handler functions
-    // -----------------------------------------------------------------------
 
     #[test]
     fn valid_handler_has_handler_functions() {
@@ -229,9 +225,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
     // 2. Valid handler contract can have 0 or more invariant functions
-    // -----------------------------------------------------------------------
 
     #[test]
     fn valid_handler_can_have_zero_invariants() {
@@ -258,9 +252,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
     // 3. Invariant function must have no arguments
-    // -----------------------------------------------------------------------
 
     #[test]
     fn invariant_with_args_fails() {
@@ -272,10 +264,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // 4. Invariant function must be external (implicit: ABI only contains
-    //    public/external functions)
-    // -----------------------------------------------------------------------
+    // 4. Invariant function must be external (implicit: ABI only contains public/external functions)
 
     #[test]
     fn public_invariant_is_classified_as_invariant() {
@@ -288,9 +277,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
     // 5. Invariant function must be view or pure
-    // -----------------------------------------------------------------------
 
     #[test]
     fn invariant_non_view_is_accepted() {
@@ -303,9 +290,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
     // 6. Constructor must not have arguments
-    // -----------------------------------------------------------------------
 
     #[test]
     fn constructor_with_args_fails() {
@@ -317,9 +302,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
     // 7. setup function is optional
-    // -----------------------------------------------------------------------
 
     #[test]
     fn setup_is_optional() {
@@ -327,9 +310,7 @@ mod tests {
         assert!(contract.setup_function.is_none());
     }
 
-    // -----------------------------------------------------------------------
     // 8. setup function must not have arguments
-    // -----------------------------------------------------------------------
 
     #[test]
     fn setup_with_args_fails() {
@@ -340,10 +321,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // 9. setup function must be external (implicit: ABI only contains
-    //    public/external functions)
-    // -----------------------------------------------------------------------
+    // 9. setup function must be external (implicit: ABI only contains public/external functions)
 
     #[test]
     fn public_setup_is_accepted() {
@@ -353,9 +331,7 @@ mod tests {
         assert!(contract.setup_function.is_some());
     }
 
-    // -----------------------------------------------------------------------
     // 10. setup function must not be view or pure
-    // -----------------------------------------------------------------------
 
     #[test]
     fn setup_view_fails() {
@@ -373,9 +349,7 @@ mod tests {
         assert!(setup.inputs.is_empty());
     }
 
-    // -----------------------------------------------------------------------
     // Edge case: contract with no targets at all fails
-    // -----------------------------------------------------------------------
 
     #[test]
     fn no_handlers_fails() {
@@ -386,9 +360,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
     // 11. Duplicate function names are not allowed
-    // -----------------------------------------------------------------------
 
     #[test]
     fn duplicate_function_name_fails() {

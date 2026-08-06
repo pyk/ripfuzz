@@ -971,10 +971,6 @@ impl TraceContext {
     }
 }
 
-// ---------------------------------------------------------------------------
-// AST index building
-// ---------------------------------------------------------------------------
-
 /// Walk a [`solc::ast::SourceUnit`] tree to collect all public/external
 /// [`FunctionDefinition`]s keyed by their 4-byte selector.
 fn collect_ast_functions(
@@ -1033,10 +1029,6 @@ fn collect_contract_structs(
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// AST type → DynSolType conversion
-// ---------------------------------------------------------------------------
 
 /// Convert an AST type name to a [`DynSolType`] for ABI decoding.
 ///
@@ -1102,10 +1094,6 @@ fn elementary_to_dyn_sol_type(ty: &ElementaryType) -> DynSolType {
         ElementaryType::Ufixed(_, _) | ElementaryType::Fixed(_, _) => DynSolType::Uint(256),
     }
 }
-
-// ---------------------------------------------------------------------------
-// AST-based library call decoding
-// ---------------------------------------------------------------------------
 
 /// Decode a library call using the AST [`FunctionDefinition`] and struct index.
 fn decode_ast_call<'a>(

@@ -13,10 +13,6 @@ use revm::primitives::Bytes;
 use serde::Deserialize;
 use tracing::{debug, instrument};
 
-// ---------------------------------------------------------------------------
-// Foundry's Artifact ID
-// ---------------------------------------------------------------------------
-
 /// Unique identifier for a compiled build artifact.
 ///
 /// Format: `path:name` (e.g. `src/Counter.sol:Counter`).
@@ -84,10 +80,6 @@ impl FromStr for ArtifactId {
         Self::try_from(s)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Foundry's Artifact
-// ---------------------------------------------------------------------------
 
 /// A compiled Solidity artifact loaded from a Foundry project.
 #[derive(Clone, Debug, PartialEq)]
@@ -661,9 +653,7 @@ pub fn get_contract_definition<'a>(
 mod tests {
     use super::*;
 
-    // -----------------------------------------------------------------------
     // ArtifactId tests
-    // -----------------------------------------------------------------------
 
     #[test]
     fn artifact_id_from_valid_string() {
@@ -730,9 +720,7 @@ mod tests {
         assert!(err.to_string().contains("must end with `.sol`"));
     }
 
-    // -----------------------------------------------------------------------
     // Artifact synthetic parsing tests
-    // -----------------------------------------------------------------------
 
     #[test]
     fn parse_artifact_missing_metadata_fails() {

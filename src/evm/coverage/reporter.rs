@@ -84,10 +84,6 @@ use crate::evm::coverage::shared::{RawEdgeCounts, SharedCoverage};
 use crate::evm::coverage::source_map::{SourceMapEntry, parse_source_map};
 use crate::foundry::{Artifact, ArtifactBytecode, ArtifactId, BuildInfo, LinkReferences};
 
-// ---------------------------------------------------------------------------
-// Bytecode helpers
-// ---------------------------------------------------------------------------
-
 fn collect_link_positions(link_refs: &LinkReferences) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     for libs in link_refs.values() {
@@ -132,10 +128,6 @@ fn parse_bytecode_with_placeholders(object: &str, link_refs: &LinkReferences) ->
     hex::decode(cleaned).unwrap_or_default()
 }
 
-// ---------------------------------------------------------------------------
-// PC-to-source map
-// ---------------------------------------------------------------------------
-
 fn build_pc_to_source_map(
     bytecode: &[u8],
     source_map: &[SourceMapEntry],
@@ -158,10 +150,6 @@ fn build_pc_to_source_map(
     }
     result
 }
-
-// ---------------------------------------------------------------------------
-// Artifact index
-// ---------------------------------------------------------------------------
 
 struct ArtifactIndexEntry<'a> {
     artifact: &'a Artifact,
@@ -265,10 +253,6 @@ impl<'a> ArtifactIndex<'a> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Line offset helpers
-// ---------------------------------------------------------------------------
-
 fn offset_to_line(content: &str, offset: usize) -> usize {
     let safe_offset = offset.min(content.len());
     let mut line = content
@@ -282,12 +266,6 @@ fn offset_to_line(content: &str, offset: usize) -> usize {
     }
     line
 }
-
-// ---------------------------------------------------------------------------
-// Source ID resolution from build-info
-// ---------------------------------------------------------------------------
-// Coverage report types
-// ---------------------------------------------------------------------------
 
 /// A coverage report in lcov.info format.
 #[derive(Debug, Clone, Default)]
@@ -372,10 +350,6 @@ impl fmt::Display for CoverageReport {
         Ok(())
     }
 }
-
-// ---------------------------------------------------------------------------
-// Function coverage from AST
-// ---------------------------------------------------------------------------
 
 /// Walk a deployed bytecode's source map and populate `source_map_lines`
 /// with every line that has a source map entry. Also insert the pc_map into
@@ -576,10 +550,6 @@ fn collect_function_coverage(
     file_functions
 }
 
-// ---------------------------------------------------------------------------
-// Contract definition lines
-// ---------------------------------------------------------------------------
-
 /// Collect contract definition line numbers from the AST of resolved
 /// artifacts. Contract, interface, and library definition lines are
 /// non-executable and must not appear in the coverage report.
@@ -616,10 +586,6 @@ fn collect_contract_definition_lines(
 
     contract_lines
 }
-
-// ---------------------------------------------------------------------------
-// Coverage reporter
-// ---------------------------------------------------------------------------
 
 /// Orchestrates the building of lcov coverage reports.
 #[derive(Debug, Clone)]
@@ -716,18 +682,14 @@ impl CoverageReporter {
     /// 8. **Assemble the final `lcov.info` report.**
     #[instrument(skip(self), level = "trace")]
     pub fn build(self) -> CoverageReport {
-        // -------------------------------------------------------------------
         // Step 1: Build path-to-artifact map.
-        // -------------------------------------------------------------------
         let mut path_to_artifact: HashMap<PathBuf, &Artifact> = HashMap::new();
         for artifact in &self.artifacts {
             // checkrs: allow(clone_in_loops)
             path_to_artifact.insert(artifact.ast().absolute_path.clone(), artifact);
         }
 
-        // -------------------------------------------------------------------
         // Step 2: Match active bytecodes → root artifacts.
-        // -------------------------------------------------------------------
         let index = ArtifactIndex::new(&self.artifacts);
         let all_bytecodes = self.shared_coverage.all_bytecodes();
         tracing::trace!(all_bytecodes_len = all_bytecodes.len());
@@ -760,13 +722,11 @@ impl CoverageReporter {
             artifact_canon_paths.insert(artifact.id(), canon);
         }
 
-        // -------------------------------------------------------------------
         // Step 3: Resolve source files recursively from metadata.sources.
         //
         // Also builds a path_map from project-relative paths to qualified
         // paths (prefixed with the external project directory when the
         // artifact lives in a different project).
-        // -------------------------------------------------------------------
         let mut all_files: HashSet<PathBuf> = HashSet::new();
         let mut resolved_artifact_ids: HashSet<&ArtifactId> = HashSet::new();
         // Map project-relative source path → lcov-qualified path.
@@ -835,13 +795,11 @@ impl CoverageReporter {
             .filter(|a| resolved_artifact_ids.contains(a.id()))
             .collect();
 
-        // -------------------------------------------------------------------
         // Step 4: Pre-read source files and build caches.
         //
         // Collect the unique project paths from all resolved artifacts so
         // that source files from external projects (loaded via
         // --external-project) can be found alongside the main project.
-        // -------------------------------------------------------------------
         let project_paths: Vec<&std::path::Path> = {
             let mut seen = HashSet::new();
             let mut paths = Vec::new();
@@ -871,12 +829,10 @@ impl CoverageReporter {
             }
         }
 
-        // -------------------------------------------------------------------
         // Step 5: Build PC-counter map.
         //
         // For each matched codehash, walk PCs with hits, resolve through
         // the artifact source map to (file, line), and aggregate hit counts.
-        // -------------------------------------------------------------------
         let matched_counts = self
             .shared_coverage
             .raw_edge_counts_with_bytecodes_for_ids(&matched_ids);
@@ -994,7 +950,6 @@ impl CoverageReporter {
             }
         }
 
-        // -------------------------------------------------------------------
         // Step 6: Determine executable lines.
         //
         // A line is executable when:
@@ -1002,7 +957,6 @@ impl CoverageReporter {
         //   2. It is not a close-bracket line (trimmed == "}").
         //   3. It is not empty (trimmed.is_empty()).
         //   4. It is not a contract/interface/library definition line.
-        // -------------------------------------------------------------------
         let contract_def_lines =
             collect_contract_definition_lines(&resolved_artifact_refs, &sid_maps, &source_cache);
 
@@ -1045,9 +999,7 @@ impl CoverageReporter {
             }
         }
 
-        // -------------------------------------------------------------------
         // Step 7: Collect function coverage from AST.
-        // -------------------------------------------------------------------
         let file_functions = collect_function_coverage(
             &resolved_artifact_refs,
             &sid_maps,
@@ -1077,9 +1029,7 @@ impl CoverageReporter {
             executable_line_hits.entry(path.clone()).or_default();
         }
 
-        // -------------------------------------------------------------------
         // Step 8: Assemble the report.
-        // -------------------------------------------------------------------
         let mut all_paths: Vec<PathBuf> = all_files.into_iter().collect();
         all_paths.sort();
 
@@ -1101,10 +1051,6 @@ impl CoverageReporter {
         CoverageReport { files }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

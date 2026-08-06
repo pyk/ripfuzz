@@ -51,10 +51,6 @@ impl DatabaseExt for revm::database::EmptyDBTyped<std::convert::Infallible> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// EmptyDB
-// ---------------------------------------------------------------------------
-
 /// Wrapper around `revm::EmptyDB` that returns `Some(AccountInfo::default())`
 /// for every address so that `CacheDB` never marks an account as
 /// `AccountState::NotExisting`.
@@ -88,10 +84,6 @@ impl DatabaseRef for EmptyDB {
         self.0.block_hash_ref(number)
     }
 }
-
-// ---------------------------------------------------------------------------
-// DatabaseError
-// ---------------------------------------------------------------------------
 
 /// Unified database error.
 #[derive(Debug)]
@@ -128,10 +120,6 @@ impl From<std::convert::Infallible> for DatabaseError {
         match e {}
     }
 }
-
-// ---------------------------------------------------------------------------
-// Database
-// ---------------------------------------------------------------------------
 
 /// Unified EVM database.
 #[derive(Clone, Debug)]

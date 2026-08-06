@@ -116,9 +116,7 @@ mod tests {
         (chain, target)
     }
 
-    // -----------------------------------------------------------------
     // Handler-level unit tests
-    // -----------------------------------------------------------------
 
     /// vm.store followed by vm.load must return the stored value.
     #[test]
@@ -156,9 +154,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------
     // Integration tests
-    // -----------------------------------------------------------------
 
     /// `vm.store` used during setup must write the expected value, and
     /// `vm.load` in a later transaction must read it back. The invariant

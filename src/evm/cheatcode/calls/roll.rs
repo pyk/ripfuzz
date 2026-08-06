@@ -66,9 +66,7 @@ mod tests {
         (chain, target)
     }
 
-    // -----------------------------------------------------------------
     // Handler-level unit tests
-    // -----------------------------------------------------------------
 
     /// vm.roll must set the EVM context block.number and persist it in state.
     #[test]
@@ -105,9 +103,7 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------
     // Integration tests
-    // -----------------------------------------------------------------
 
     /// `vm.roll` used during setup must persist into `chain.exec` so that the
     /// invariant passes without any additional cheatcode calls.

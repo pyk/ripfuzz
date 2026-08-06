@@ -18,7 +18,7 @@ impl BuildOptions {
         self
     }
 
-    pub(crate) fn is_force(&self) -> bool {
+    pub fn is_force(&self) -> bool {
         self.force
     }
 }

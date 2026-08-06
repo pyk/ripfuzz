@@ -104,9 +104,7 @@ mod tests {
         s
     }
 
-    // -----------------------------------------------------------------
     // Handler-level unit tests
-    // -----------------------------------------------------------------
 
     /// vm.toString(address) must return the checksummed address string.
     #[test]
@@ -207,9 +205,7 @@ mod tests {
         assert_eq!(decoded, "0x");
     }
 
-    // -----------------------------------------------------------------
     // Integration tests
-    // -----------------------------------------------------------------
 
     /// `vm.toString` used during setup must store correctly formatted strings.
     /// The invariants verify that all six type variants match their expected

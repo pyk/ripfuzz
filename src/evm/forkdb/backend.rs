@@ -187,9 +187,7 @@ impl SharedBackend {
         self.try_slow_path(reqs)
     }
 
-    // ------------------------------------------------------------------
     // Fast path
-    // ------------------------------------------------------------------
 
     /// Try to satisfy every request from the lock-free global cache.
     ///
@@ -207,9 +205,7 @@ impl SharedBackend {
         Ok(Some(results))
     }
 
-    // ------------------------------------------------------------------
     // Slow path
-    // ------------------------------------------------------------------
 
     /// Coordinate with other threads until all pending requests are resolved
     /// and the global cache is updated.
@@ -303,9 +299,7 @@ impl SharedBackend {
         }
     }
 
-    // ------------------------------------------------------------------
     // Batch execution (pure: no shared mutable state)
-    // ------------------------------------------------------------------
 
     /// Execute a JSON-RPC batch.
     ///

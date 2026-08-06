@@ -6,10 +6,6 @@ use revm::{
     primitives::{Address, Bytes, U256},
 };
 
-// ---------------------------------------------------------------------------
-// Outcome builders
-// ---------------------------------------------------------------------------
-
 pub fn success() -> CallOutcome {
     CallOutcome {
         result: InterpreterResult {
