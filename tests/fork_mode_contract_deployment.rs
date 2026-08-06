@@ -5,11 +5,11 @@
 //! fetches for them. Only genuine on-chain accounts trigger RPC.
 
 use alloy_sol_types::SolCall;
-use raptor::{
+use revm::primitives::Bytes;
+use ripfuzz::{
     ArtifactId, Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, MockTransport, Project,
     SetupInput, Transaction,
 };
-use revm::primitives::Bytes;
 use serde_json::json;
 
 alloy_sol_types::sol! {

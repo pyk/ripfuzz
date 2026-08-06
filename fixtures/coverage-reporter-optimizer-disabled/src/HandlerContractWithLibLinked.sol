@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {RaptorFuzz} from "./RaptorFuzz.sol";
+import {RipFuzz} from "./RipFuzz.sol";
 import {CounterLinked} from "./CounterLinked.sol";
 
-contract HandlerContractWithLibLinked is RaptorFuzz {
+contract HandlerContractWithLibLinked is RipFuzz {
     uint256 public latestValue;
     CounterLinked public counterLinked;
 

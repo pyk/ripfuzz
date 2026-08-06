@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.28;
 
-abstract contract RaptorFuzz {
+abstract contract RipFuzz {
     uint256 private constant _UINT256_MAX =
         115792089237316195423570985008687907853269984665640564039457584007913129639935;
 

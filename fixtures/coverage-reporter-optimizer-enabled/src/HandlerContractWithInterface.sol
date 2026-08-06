@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {RaptorFuzz} from "./RaptorFuzz.sol";
+import {RipFuzz} from "./RipFuzz.sol";
 import {ICounter} from "./ICounter.sol";
 import {Vm} from "./Vm.sol";
 
-contract HandlerContractWithInterface is RaptorFuzz {
+contract HandlerContractWithInterface is RipFuzz {
     Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
     uint256 public latestValue;
     ICounter public counterInterface;

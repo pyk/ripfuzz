@@ -46,7 +46,7 @@ contract StorageTypes {
         int256Value = -57896044618658097711785492504343953926634992332820282019728792003956564819968;
         bytes1Value = 0x01;
         bytes32Value = hex"deadbeef00000000000000000000000000000000000000000000000000000000";
-        addressValue = 0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1;
+        addressValue = 0xD93a248535Ef447440e7D63A2aff6c3e75B235C7;
         bytesValue = hex"cafebabe";
         stringValue = "hello";
         uintArray.push(1);
@@ -56,15 +56,15 @@ contract StorageTypes {
         fixedArray[0] = 10;
         fixedArray[1] = 20;
         fixedArray[2] = 30;
-        balances[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1] = 1000;
-        allowances[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1][0x1234567890123456789012345678901234567890] = 500;
-        idToOwner[1] = 0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1;
-        isWhitelisted[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1] = true;
+        balances[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7] = 1000;
+        allowances[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7][0x1234567890123456789012345678901234567890] = 500;
+        idToOwner[1] = 0xD93a248535Ef447440e7D63A2aff6c3e75B235C7;
+        isWhitelisted[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7] = true;
         proofs[keccak256(abi.encodePacked("test"))] = 42;
         idToArray[1].push(10);
         idToArray[1].push(20);
         idToPoint[1] = Point({x: 7, y: 8});
-        userToPoint[0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1] = Point({x: 9, y: 10});
+        userToPoint[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7] = Point({x: 9, y: 10});
     }
 
     function setBool(bool b) external {
@@ -195,14 +195,14 @@ contract StorageTypesRevert {
         st.setTuple(0, 0);
         st.setStruct(Point({x: 0, y: 0}));
         st.setNestedStruct(Line({start: Point({x: 0, y: 0}), end: Point({x: 0, y: 0})}));
-        st.setBalance(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0);
-        st.setAllowance(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0x1234567890123456789012345678901234567890, 0);
+        st.setBalance(0xD93a248535Ef447440e7D63A2aff6c3e75B235C7, 0);
+        st.setAllowance(0xD93a248535Ef447440e7D63A2aff6c3e75B235C7, 0x1234567890123456789012345678901234567890, 0);
         st.setIdToOwner(1, address(0));
-        st.setWhitelisted(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, false);
+        st.setWhitelisted(0xD93a248535Ef447440e7D63A2aff6c3e75B235C7, false);
         st.setProof(keccak256(abi.encodePacked("test")), 0);
         st.pushIdToArray(1, 30);
         st.setIdToPoint(1, Point({x: 0, y: 0}));
-        st.setUserToPoint(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, Point({x: 0, y: 0}));
+        st.setUserToPoint(0xD93a248535Ef447440e7D63A2aff6c3e75B235C7, Point({x: 0, y: 0}));
         revert("storage types revert");
     }
 

@@ -3,7 +3,7 @@ pragma solidity ^0.8.18;
 
 import "./Vm.sol";
 
-/// @notice Minimal stateful-fuzz handler for raptor prevrandao cheatcode.
+/// @notice Minimal stateful-fuzz handler for ripfuzz prevrandao cheatcode.
 ///
 /// Setup establishes a canonical `block.prevrandao` via `vm.prevrandao`.
 /// Actions mutate or restore the value; invariants verify the canonical

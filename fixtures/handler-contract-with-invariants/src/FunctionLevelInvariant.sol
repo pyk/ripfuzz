@@ -7,7 +7,7 @@ pragma solidity 0.8.28;
 /// `two()` have been executed in the same sequence.  The minimal
 /// reproducing sequence is exactly `one() -> two() -> three()`.
 ///
-/// Two system-level invariants are also declared so raptor appends them
+/// Two system-level invariants are also declared so ripfuzz appends them
 /// after every call sequence.
 contract FunctionLevelInvariant {
     bool public oneCalled;

@@ -1,13 +1,13 @@
 [package]
-name = "raptor"
-description = "Parallelized, coverage-guided, mutational Solidity smart contract fuzzing, powered by revm."
+name = "ripfuzz"
+description = "High-throughput, coverage-guided, mutational fuzzer for Solidity smart contracts"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/pyk/raptor"
+repository = "https://github.com/pyk/ripfuzz"
 
 [lib]
-name = "raptor"
+name = "ripfuzz"
 path = "src/lib.rs"
 
 [dependencies]

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {RaptorFuzz} from "./RaptorFuzz.sol";
+import {RipFuzz} from "./RipFuzz.sol";
 import {Counter} from "./Counter.sol";
 
-contract HandlerContractWithLib is RaptorFuzz {
+contract HandlerContractWithLib is RipFuzz {
     uint256 public latestValue;
     Counter public counter;
 

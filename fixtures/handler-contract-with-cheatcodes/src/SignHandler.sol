@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import "./Vm.sol";
 
-/// @notice Minimal stateful-fuzz handler for raptor sign cheatcode.
+/// @notice Minimal stateful-fuzz handler for ripfuzz sign cheatcode.
 ///
 /// Setup derives well-known signatures via `vm.sign` and stores them.
 /// Actions re-derive signatures; invariants verify they recover to the

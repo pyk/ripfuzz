@@ -1,4 +1,4 @@
-//! User-friendly console output for the Raptor CLI.
+//! User-friendly console output for the Ripfuzz CLI.
 //!
 //! Provides a [`Console`] that prints status messages to stderr with coloured
 //! status prefixes. When running in a terminal, `begin` / `end` pairs replace

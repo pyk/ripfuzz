@@ -44,13 +44,13 @@ Traces:
     │   │   └─ ← [Stop]
     │   ├─ [1150] StorageTypes::setNestedStruct(Line({ start: Point({ x: 0, y: 0 }), end: Point({ x: 0, y: 0 }) }))
     │   │   └─ ← [Stop]
-    │   ├─ [932] StorageTypes::setBalance(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0)
+    │   ├─ [932] StorageTypes::setBalance(0xD93a248535Ef447440e7D63A2aff6c3e75B235C7, 0)
     │   │   └─ ← [Stop]
-    │   ├─ [1257] StorageTypes::setAllowance(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, 0x1234567890123456789012345678901234567890, 0)
+    │   ├─ [1257] StorageTypes::setAllowance(0xD93a248535Ef447440e7D63A2aff6c3e75B235C7, 0x1234567890123456789012345678901234567890, 0)
     │   │   └─ ← [Stop]
     │   ├─ [1094] StorageTypes::setIdToOwner(1, 0x0000000000000000000000000000000000000000)
     │   │   └─ ← [Stop]
-    │   ├─ [1134] StorageTypes::setWhitelisted(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, false)
+    │   ├─ [1134] StorageTypes::setWhitelisted(0xD93a248535Ef447440e7D63A2aff6c3e75B235C7, false)
     │   │   └─ ← [Stop]
     │   ├─ [896] StorageTypes::setProof(0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658, 0)
     │   │   └─ ← [Stop]
@@ -58,7 +58,7 @@ Traces:
     │   │   └─ ← [Stop]
     │   ├─ [2254] StorageTypes::setIdToPoint(1, Point({ x: 0, y: 0 }))
     │   │   └─ ← [Stop]
-    │   ├─ [2378] StorageTypes::setUserToPoint(0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1, Point({ x: 0, y: 0 }))
+    │   ├─ [2378] StorageTypes::setUserToPoint(0xD93a248535Ef447440e7D63A2aff6c3e75B235C7, Point({ x: 0, y: 0 }))
     │   │   └─ ← [Stop]
     │   └─ ← [Revert] 0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001473746f7261676520747970657320726576657274000000000000000000000000
     └─ ← [Revert] storage types revert

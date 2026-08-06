@@ -137,7 +137,7 @@ impl Chain {
         database.insert_account_info(DEFAULT_DEPLOYER, info);
 
         // Insert a dummy VM contract so Solidity's `extcodesize` check passes
-        // when a target calls raptor cheatcodes during deployment or setup.
+        // when a target calls ripfuzz cheatcodes during deployment or setup.
         let vm_code = Bytecode::new_raw(Bytes::from_static(&[0x00]));
         database.insert_account_info(
             VM_ADDRESS,
@@ -260,7 +260,7 @@ mod tests {
         );
     }
 
-    /// Chain::fork must inject a dummy contract at the raptor VM address so
+    /// Chain::fork must inject a dummy contract at the ripfuzz VM address so
     /// that Solidity `extcodesize` checks do not revert when a handler contract
     /// calls cheatcodes during deployment or setup.
     #[test]

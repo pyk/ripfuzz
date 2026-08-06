@@ -25,7 +25,7 @@ contract ReturnValueTypes {
     }
 
     function returnAddress() external pure returns (address) {
-        return 0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1;
+        return 0xD93a248535Ef447440e7D63A2aff6c3e75B235C7;
     }
 
     function returnBytes32() external pure returns (bytes32) {

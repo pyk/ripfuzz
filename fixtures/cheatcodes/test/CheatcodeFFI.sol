@@ -54,7 +54,7 @@ contract CheatcodeFFI {
         string[] memory inputs = new string[](3);
         inputs[0] = "sh";
         inputs[1] = "-c";
-        inputs[2] = "touch /tmp/raptor_ffi_revert_marker";
+        inputs[2] = "touch /tmp/ripfuzz_ffi_revert_marker";
         vm.ffi(inputs);
 
         // Mutate contract state after ffi

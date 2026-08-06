@@ -1,7 +1,7 @@
-# raptor
+# ripfuzz
 
-Parallelized, coverage-guided, mutational Solidity smart contract fuzzing,
-powered by revm.
+High-throughput, coverage-guided, mutational fuzzer for Solidity smart
+contracts.
 
 ## Development
 
@@ -23,7 +23,7 @@ Run the test suite:
 cargo test
 
 # Run integration tests for network forking
-RAPTOR_FORK_RPC_URL=<url> cargo test -- --ignored
+RIPFUZZ_FORK_RPC_URL=<url> cargo test -- --ignored
 ```
 
 Check code with Clippy:

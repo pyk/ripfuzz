@@ -1,7 +1,7 @@
-# Raptor
+# Ripfuzz
 
-Raptor is a parallelized, coverage-guided, mutational Solidity smart contract
-fuzzer built on top of revm.
+Ripfuzz is a high-throughput, coverage-guided, mutational fuzzer for Solidity
+smart contracts.
 
 ## Non-negotiable rules
 

@@ -7,7 +7,7 @@
 //! additional RPC calls.
 
 use alloy_sol_types::SolCall;
-use raptor::{
+use ripfuzz::{
     ArtifactId, Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, MockTransport, Project,
     SetupInput, Transaction,
 };

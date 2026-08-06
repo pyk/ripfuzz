@@ -1,4 +1,4 @@
-//! Logging setup for the Raptor CLI.
+//! Logging setup for the Ripfuzz CLI.
 //!
 //! Provides a [`tracing`] subscriber that writes default formatted output
 //! to a log file.
@@ -25,10 +25,10 @@ pub fn init(log_file: &Path, level: tracing::Level) -> Result<()> {
     let file = File::create(log_file)?;
 
     let filter = match level {
-        tracing::Level::ERROR => EnvFilter::new("raptor=error"),
-        tracing::Level::WARN => EnvFilter::new("raptor=warn,revm=error"),
-        tracing::Level::INFO => EnvFilter::new("raptor=info,revm=error"),
-        tracing::Level::DEBUG => EnvFilter::new("raptor=debug,revm=warn"),
+        tracing::Level::ERROR => EnvFilter::new("ripfuzz=error"),
+        tracing::Level::WARN => EnvFilter::new("ripfuzz=warn,revm=error"),
+        tracing::Level::INFO => EnvFilter::new("ripfuzz=info,revm=error"),
+        tracing::Level::DEBUG => EnvFilter::new("ripfuzz=debug,revm=warn"),
         tracing::Level::TRACE => EnvFilter::new("trace"),
     };
 

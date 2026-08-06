@@ -21,13 +21,13 @@
 //! 4. **New revert path**: execution reverted at a PC that previously
 //!    always succeeded.
 //! 5. **Deeper execution**: the same loop body was hit more times than
-//!    before. Raptor uses AFL-style bucketing so that small
+//!    before. Ripfuzz uses AFL-style bucketing so that small
 //!    count differences are ignored, but crossing a power-of-two
 //!    threshold counts as novel.
 //!
 //! The inspector does not distinguish between different transaction
 //! outcomes (return true, return false, stop, out of gas) beyond
-//! "reverted or not". This is sufficient for Raptor because invariants
+//! "reverted or not". This is sufficient for Ripfuzz because invariants
 //! are checked via `assert` panic, not via return value.
 //!
 //! The inspector records these signals so the fuzzer can decide whether

@@ -3,7 +3,7 @@
 # 1. TargetContractBasicOnce
 # - All files from TargetContractBasic compilation unit are expected:
 # 	- src/TargetContractBasic.sol
-# 	- src/RaptorFuzz.sol
+# 	- src/RipFuzz.sol
 # - addAndSub function have 1 hit
 .PHONY: check
 TargetContractBasicOnce:
@@ -13,7 +13,7 @@ TargetContractBasicOnce:
 # 2. TargetContractBasicTwice
 # - All files from TargetContractBasic compilation unit are expected:
 # 	- src/TargetContractBasic.sol
-# 	- src/RaptorFuzz.sol
+# 	- src/RipFuzz.sol
 # - addAndSub function have 2 hits
 .PHONY: check
 TargetContractBasicTwice:
@@ -23,7 +23,7 @@ TargetContractBasicTwice:
 # 3. TargetContractWithLoop
 # - All files from TargetContractWithLoop compilation unit are expected:
 # 	- src/TargetContractWithLoop.sol
-# 	- src/RaptorFuzz.sol
+# 	- src/RipFuzz.sol
 # - constructor, setup, and runLoop functions have hits
 .PHONY: check
 TargetContractWithLoop:
@@ -33,7 +33,7 @@ TargetContractWithLoop:
 # 4. TargetContractWithInterface
 # - All files from TargetContractWithInterface compilation unit are expected:
 # 	- src/TargetContractWithInterface.sol
-# 	- src/RaptorFuzz.sol
+# 	- src/RipFuzz.sol
 # 	- src/Counter.sol
 # 	- src/ICounter.sol
 # 	- src/MathLib.sol
@@ -47,7 +47,7 @@ TargetContractWithInterface:
 # 6. TargetContractWithLib
 # - All files from TargetContractWithLib compilation unit are expected:
 # 	- src/TargetContractWithLib.sol
-# 	- src/RaptorFuzz.sol
+# 	- src/RipFuzz.sol
 # 	- src/Counter.sol
 # 	- src/MathLib.sol
 # - libCall function have 1 hit
@@ -59,7 +59,7 @@ TargetContractWithLib:
 # 7. TargetContractWithLibLinked
 # - All files from TargetContractWithLibLinked compilation unit are expected:
 # 	- src/TargetContractWithLibLinked.sol
-# 	- src/RaptorFuzz.sol
+# 	- src/RipFuzz.sol
 # 	- src/CounterLinked.sol
 # 	- src/MathLibLinked.sol
 # - libLinkedCall function have 1 hit
@@ -71,7 +71,7 @@ TargetContractWithLibLinked:
 # 8. TargetContractWithIf
 # - All files from TargetContractWithIf compilation unit are expected:
 # 	- src/TargetContractWithIf.sol
-# 	- src/RaptorFuzz.sol
+# 	- src/RipFuzz.sol
 # - if statement, if-else, and if-else with empty lines have hits
 .PHONY: check
 TargetContractWithIf:

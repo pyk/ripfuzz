@@ -1,14 +1,14 @@
-//! CLI entry point for the Raptor fuzzer.
+//! CLI entry point for the Ripfuzz fuzzer.
 
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use tracing::error;
 
-use raptor::commands;
+use ripfuzz::commands;
 
 #[derive(Debug, Parser)]
-#[command(name = "raptor", version, about)]
+#[command(name = "ripfuzz", version, about)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

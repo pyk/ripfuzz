@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-/// @notice Raptor VM interface for cheatcodes.
+/// @notice Ripfuzz VM interface for cheatcodes.
 ///
-/// NOTE: The raptor VM is **not** Foundry VM compatible.  It does not
-/// implement all Foundry cheatcodes — only the subset supported by raptor.
+/// NOTE: The ripfuzz VM is **not** Foundry VM compatible.  It does not
+/// implement all Foundry cheatcodes — only the subset supported by ripfuzz.
 interface Vm {
     // State / Block manipulation
     function warp(uint256) external;

@@ -1,4 +1,4 @@
-//! Corpus types and shared state for the Raptor fuzzer.
+//! Corpus types and shared state for the Ripfuzz fuzzer.
 //!
 //! [`SharedCorpus`] is responsible for:
 //! - Loading and validating corpus from disk.

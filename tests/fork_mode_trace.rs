@@ -10,11 +10,11 @@ use std::path::PathBuf;
 
 use alloy_primitives::Address;
 use alloy_sol_types::SolCall;
-use raptor::{
+use revm::primitives::Bytes;
+use ripfuzz::{
     Artifact, ArtifactId, Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, Project,
     TraceContext, Transaction,
 };
-use revm::primitives::Bytes;
 
 // ---------------------------------------------------------------------------
 // Fork mode constants (Base mainnet)

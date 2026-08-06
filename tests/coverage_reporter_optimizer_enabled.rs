@@ -6,11 +6,11 @@ use std::path::Path;
 
 use alloy_primitives::U256;
 use alloy_sol_types::SolCall;
-use raptor::{
+use revm::primitives::{Address, Bytes};
+use ripfuzz::{
     Artifact, ArtifactId, Chain, ChainConfig, Contract, CoverageReport, CoverageReporter,
     DeployInput, Project, SetupInput, SharedCoverage, Transaction,
 };
-use revm::primitives::{Address, Bytes};
 
 alloy_sol_types::sol! {
     interface HandlerContractBasic {

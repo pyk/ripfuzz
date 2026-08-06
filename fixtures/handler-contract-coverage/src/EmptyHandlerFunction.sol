@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {RaptorFuzz} from "./RaptorFuzz.sol";
+import {RipFuzz} from "./RipFuzz.sol";
 
-contract EmptyHandlerFunction is RaptorFuzz {
+contract EmptyHandlerFunction is RipFuzz {
     function dummyHandlerFunction() external {}
 }

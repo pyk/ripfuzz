@@ -1,60 +1,60 @@
 --- Call #1 [REVERT] ---
-[3191739] → new ReturnValueTypesTrace@0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2
+[3191739] → new ReturnValueTypesTrace@0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22
     ├─  call context:
-    │   @ msg.sender: RaptorDeployer [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]
+    │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
     │   @ msg.value: 0
     │   @ block.timestamp: 1438269988
     │   @ block.number: 1
-    ├─ [3028779] → new ReturnValueTypes@0xB70839f72cA9d90009FE83f9D6D7497bE0bD57b0
+    ├─ [3028779] → new ReturnValueTypes@0x6eBa38112d9106c17c00A791244E8b11732Fdd30
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] 2579 bytes of code
     ├─ [339] ReturnValueTypes::returnBool() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] true
     ├─ [443] ReturnValueTypes::returnUint256() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] 42
     ├─ [354] ReturnValueTypes::returnInt256() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] -42
     ├─ [380] ReturnValueTypes::returnAddress() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
-    │   └─ ← [return] RaptorDeployer: [0xC34296175b9e78F66EDbeaEb7acEa4c615C092E1]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+    │   └─ ← [return] RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
     ├─ [355] ReturnValueTypes::returnBytes32() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] 0xdeadbeef00000000000000000000000000000000000000000000000000000000
     ├─ [726] ReturnValueTypes::returnString() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] "hello"
     ├─ [725] ReturnValueTypes::returnBytes() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] 0xcafebabe
     ├─ [701] ReturnValueTypes::returnStruct() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] Point({ x: 1, y: 2 })
     ├─ [1771] ReturnValueTypes::returnArray() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] [1, 2, 3]
     ├─ [1489] ReturnValueTypes::returnFixedArray() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] [10, 20, 30]
     ├─ [859] ReturnValueTypes::returnMultiple() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] 100, "world"
     ├─ [1285] ReturnValueTypes::returnNestedStruct() [staticcall]
     │   ├─  call context changes:
-    │   │   @ msg.sender: ReturnValueTypesTrace [0xB48Bd837Cb11a87BEAD45Ea4B7EA3164e8Af71F2]
+    │   │   @ msg.sender: ReturnValueTypesTrace [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
     │   └─ ← [return] Line({ start: Point({ x: 1, y: 2 }), end: Point({ x: 3, y: 4 }) })
     └─ ← [revert] return value types trace

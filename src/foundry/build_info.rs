@@ -181,11 +181,11 @@ mod tests {
         write_build_info(
             tmp.path(),
             "abc123.json",
-            &[("5", "src/RaptorFuzz.sol"), ("6", "src/Target.sol")],
+            &[("5", "src/RipFuzz.sol"), ("6", "src/Target.sol")],
         );
 
-        let map = BuildInfo::load_for_artifact(tmp.path(), "src/RaptorFuzz.sol", 5).unwrap();
-        assert_eq!(map.get(&5).unwrap(), &PathBuf::from("src/RaptorFuzz.sol"));
+        let map = BuildInfo::load_for_artifact(tmp.path(), "src/RipFuzz.sol", 5).unwrap();
+        assert_eq!(map.get(&5).unwrap(), &PathBuf::from("src/RipFuzz.sol"));
         assert_eq!(map.get(&6).unwrap(), &PathBuf::from("src/Target.sol"));
         assert_eq!(map.len(), 2);
     }
@@ -222,30 +222,30 @@ mod tests {
     fn load_for_artifact_incremental_unchanged_artifact() {
         let tmp = tempfile::tempdir().unwrap();
 
-        // First compilation: RaptorFuzz at ID 5, Target at ID 6.
+        // First compilation: RipFuzz at ID 5, Target at ID 6.
         write_build_info(
             tmp.path(),
             "first.json",
             &[
                 ("0", "src/Counter.sol"),
-                ("5", "src/RaptorFuzz.sol"),
+                ("5", "src/RipFuzz.sol"),
                 ("6", "src/Target.sol"),
             ],
         );
         // Sleep so the second file has a newer mtime.
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        // Incremental: only Target changed, recompiled with RaptorFuzz at ID 0.
+        // Incremental: only Target changed, recompiled with RipFuzz at ID 0.
         write_build_info(
             tmp.path(),
             "second.json",
-            &[("0", "src/RaptorFuzz.sol"), ("1", "src/Target.sol")],
+            &[("0", "src/RipFuzz.sol"), ("1", "src/Target.sol")],
         );
 
-        // RaptorFuzz's artifact JSON was NOT updated, still has source_id 5.
-        // It should match the first build-info (where 5 → RaptorFuzz.sol).
-        let map = BuildInfo::load_for_artifact(tmp.path(), "src/RaptorFuzz.sol", 5).unwrap();
-        assert_eq!(map.get(&5).unwrap(), &PathBuf::from("src/RaptorFuzz.sol"));
+        // RipFuzz's artifact JSON was NOT updated, still has source_id 5.
+        // It should match the first build-info (where 5 → RipFuzz.sol).
+        let map = BuildInfo::load_for_artifact(tmp.path(), "src/RipFuzz.sol", 5).unwrap();
+        assert_eq!(map.get(&5).unwrap(), &PathBuf::from("src/RipFuzz.sol"));
         assert_eq!(map.get(&6).unwrap(), &PathBuf::from("src/Target.sol"));
         // Should have all 3 entries from the first build-info.
         assert_eq!(map.len(), 3);
@@ -261,7 +261,7 @@ mod tests {
             "first.json",
             &[
                 ("0", "src/Counter.sol"),
-                ("5", "src/RaptorFuzz.sol"),
+                ("5", "src/RipFuzz.sol"),
                 ("6", "src/Target.sol"),
             ],
         );
@@ -271,13 +271,13 @@ mod tests {
         write_build_info(
             tmp.path(),
             "second.json",
-            &[("0", "src/RaptorFuzz.sol"), ("1", "src/Target.sol")],
+            &[("0", "src/RipFuzz.sol"), ("1", "src/Target.sol")],
         );
 
         // Target's artifact JSON was updated, now has source_id 1.
         // It should match the second (most recent) build-info.
         let map = BuildInfo::load_for_artifact(tmp.path(), "src/Target.sol", 1).unwrap();
-        assert_eq!(map.get(&0).unwrap(), &PathBuf::from("src/RaptorFuzz.sol"));
+        assert_eq!(map.get(&0).unwrap(), &PathBuf::from("src/RipFuzz.sol"));
         assert_eq!(map.get(&1).unwrap(), &PathBuf::from("src/Target.sol"));
         assert_eq!(map.len(), 2);
     }

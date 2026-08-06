@@ -1,4 +1,4 @@
-//! Raptor - Parallelized, coverage-guided, mutational Solidity smart contract fuzzer.
+//! Ripfuzz - High-throughput, coverage-guided, mutational fuzzer for Solidity smart contracts.
 
 pub use corpus::{
     Call, CorpusConfig, CorpusReplayer, CorpusStats, ExtractedLiterals, Item, SharedCorpus,

@@ -1,4 +1,4 @@
-//! Raptor VM contract address.
+//! Ripfuzz VM contract address.
 
 use alloy_primitives::{Address, address};
 

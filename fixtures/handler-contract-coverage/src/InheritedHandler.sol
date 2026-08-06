@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {BaseRaptorFuzz} from "./BaseRaptorFuzz.sol";
+import {BaseRipFuzz} from "./BaseRipFuzz.sol";
 
-contract InheritedHandler is BaseRaptorFuzz {
-    // Inherits inheritedHandlerFunction from BaseRaptorFuzz
+contract InheritedHandler is BaseRipFuzz {
+    // Inherits inheritedHandlerFunction from BaseRipFuzz
 }

@@ -307,7 +307,7 @@ impl Default for ForkModeArgs {
 impl ForkModeArgs {
     /// Build a [`ForkDBConfig`](crate::evm::ForkDBConfig) from CLI arguments.
     pub fn build_fork_config(&self, project_path: impl AsRef<Path>) -> Result<ForkDBConfig> {
-        let cache_dir = raptor_dir(project_path).join("cache");
+        let cache_dir = ripfuzz_dir(project_path).join("cache");
         let block = self
             .rpc_block
             .context("--rpc-block is required with --rpc-url")?;
@@ -323,9 +323,9 @@ impl ForkModeArgs {
     }
 }
 
-/// Returns the raptor data directory for the given project path.
-fn raptor_dir(project_path: impl AsRef<Path>) -> PathBuf {
-    project_path.as_ref().join(".raptor")
+/// Returns the ripfuzz data directory for the given project path.
+fn ripfuzz_dir(project_path: impl AsRef<Path>) -> PathBuf {
+    project_path.as_ref().join(".ripfuzz")
 }
 
 #[instrument(skip(args), fields(target = ?args.target, threads = args.threads, max_runs = args.max_runs))]
@@ -336,7 +336,7 @@ pub fn run(args: Args) -> Result<()> {
     let campaign_seed = match args.seed {
         Some(s) => {
             console.print(format!(
-                "starting raptor v{} (seed: {s}, user-provided)",
+                "starting ripfuzz v{} (seed: {s}, user-provided)",
                 env!("CARGO_PKG_VERSION")
             ))?;
             s
@@ -344,7 +344,7 @@ pub fn run(args: Args) -> Result<()> {
         None => {
             let s = fastrand::Rng::new().u64(1..=100_000);
             console.print(format!(
-                "starting raptor v{} (seed: {s})",
+                "starting ripfuzz v{} (seed: {s})",
                 env!("CARGO_PKG_VERSION")
             ))?;
             s
@@ -364,7 +364,7 @@ pub fn run(args: Args) -> Result<()> {
     let campaign_id = format!("{date}-{hour}-{uuid_prefix}");
 
     if !args.disable_log {
-        let log_file = raptor_dir(&project_path)
+        let log_file = ripfuzz_dir(&project_path)
             .join("campaigns")
             .join(&campaign_id)
             .join("fuzz.log");
@@ -512,7 +512,7 @@ pub fn run(args: Args) -> Result<()> {
         for (addr, label) in chain.labels() {
             ctx = ctx.with_label(*addr, label);
         }
-        let trace_dir = raptor_dir(&project_path)
+        let trace_dir = ripfuzz_dir(&project_path)
             .join("campaigns")
             .join(&campaign_id);
         fs::create_dir_all(&trace_dir)?;
@@ -569,7 +569,7 @@ pub fn run(args: Args) -> Result<()> {
             for (addr, label) in chain.labels() {
                 ctx = ctx.with_label(*addr, label);
             }
-            let trace_dir = raptor_dir(&project_path)
+            let trace_dir = ripfuzz_dir(&project_path)
                 .join("campaigns")
                 .join(&campaign_id);
             fs::create_dir_all(&trace_dir)?;
@@ -589,7 +589,7 @@ pub fn run(args: Args) -> Result<()> {
     let literals = ExtractedLiterals::from_artifacts(&build_artifacts);
     let base_corpus_dir = args
         .corpus_dir
-        .unwrap_or_else(|| raptor_dir(&project_path).join("corpus"));
+        .unwrap_or_else(|| ripfuzz_dir(&project_path).join("corpus"));
     let corpus_dir = SharedCorpus::dir_for(&base_corpus_dir, &handler_contract.artifact_id);
     let corpus_config = CorpusConfig::new(corpus_dir)
         .handler_functions(handler_contract.handler_functions.clone())
@@ -790,7 +790,7 @@ pub fn run(args: Args) -> Result<()> {
         }
 
         console.print("no failed assertions found!")?;
-        console.print("raptor out. see ya")?;
+        console.print("ripfuzz out. see ya")?;
 
         return Ok(());
     }
@@ -1022,7 +1022,7 @@ fn write_coverage_report(
 
     let report = reporter.build();
 
-    let coverage_dir = raptor_dir(&project.path)
+    let coverage_dir = ripfuzz_dir(&project.path)
         .join("campaigns")
         .join(campaign_id)
         .join("coverage");
@@ -1054,7 +1054,7 @@ fn write_trace_to_file(
     for (addr, label) in chain.labels() {
         ctx = ctx.with_label(*addr, label);
     }
-    let trace_dir = raptor_dir(&project_path)
+    let trace_dir = ripfuzz_dir(&project_path)
         .join("campaigns")
         .join(campaign_id);
     fs::create_dir_all(&trace_dir)?;

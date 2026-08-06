@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import "./Vm.sol";
 
-/// @notice Minimal stateful-fuzz handler for raptor warp cheatcode.
+/// @notice Minimal stateful-fuzz handler for ripfuzz warp cheatcode.
 ///
 /// Setup warps to a canonical timestamp and stores it.
 /// Actions restore or mutate the timestamp; invariants verify the value.

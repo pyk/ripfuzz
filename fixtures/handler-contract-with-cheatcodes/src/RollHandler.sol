@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import "./Vm.sol";
 
-/// @notice Minimal stateful-fuzz handler for raptor roll cheatcode.
+/// @notice Minimal stateful-fuzz handler for ripfuzz roll cheatcode.
 ///
 /// Setup establishes a canonical `block.number` via `vm.roll`.  Actions
 /// mutate or restore the value; invariants verify the canonical state.

@@ -6,7 +6,7 @@
 
 use alloy_primitives::Bytes;
 use alloy_sol_types::SolCall;
-use raptor::{
+use ripfuzz::{
     Artifact, ArtifactId, Chain, ChainConfig, Contract, CoverageReporter, DeployInput,
     ForkDBConfig, MockTransport, Project, SharedCoverage, Transaction,
 };
@@ -74,7 +74,7 @@ fn external_project_coverage_report() {
     let adder_artifact_path =
         std::path::PathBuf::from("fixtures/external-coverage-adder/out/Adder.sol/Adder.json");
     let adder_artifact =
-        raptor::Artifact::from_json(adder_artifact_path).expect("adder artifact must parse");
+        ripfuzz::Artifact::from_json(adder_artifact_path).expect("adder artifact must parse");
     let adder_deployed_bytecode = adder_artifact
         .deployed_bytecode()
         .expect("adder must have deployed bytecode")

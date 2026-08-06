@@ -32,8 +32,8 @@ mod linker;
 mod setup;
 mod transaction;
 
-/// Default deployer address: `address(uint160(uint256(keccak256("raptor deployer"))))`.
-pub const DEFAULT_DEPLOYER: Address = address!("0xc34296175b9e78f66edbeaeb7acea4c615c092e1");
+/// Default deployer address: `address(uint160(uint256(keccak256("ripfuzz deployer"))))`.
+pub const DEFAULT_DEPLOYER: Address = address!("0xd93a248535ef447440e7d63a2aff6c3e75b235c7");
 
 /// EVM Chain state and executor.
 ///
@@ -151,7 +151,7 @@ impl Chain {
     /// Deploy a contract and return the full [`DeployOutput`] result.
     ///
     /// A [`cheatcode::Inspector`] is included so that handler contracts can call
-    /// raptor cheatcodes (e.g. `vm.warp`) during constructor execution.
+    /// ripfuzz cheatcodes (e.g. `vm.warp`) during constructor execution.
     ///
     /// If `opts.libraries` is non-empty, the linked libraries are deployed first
     /// (recursively, in dependency order), their addresses are collected, and the

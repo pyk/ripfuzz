@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import "./Vm.sol";
 
-/// @notice Minimal stateful-fuzz handler for raptor store/load cheatcodes.
+/// @notice Minimal stateful-fuzz handler for ripfuzz store/load cheatcodes.
 ///
 /// Setup writes a canonical value to this contract's storage via vm.store
 /// and reads it back via vm.load. Actions mutate storage; invariants verify

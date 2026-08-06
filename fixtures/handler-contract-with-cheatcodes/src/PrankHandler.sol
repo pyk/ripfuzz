@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import "./Vm.sol";
 import "./PrankVictim.sol";
 
-/// @notice Minimal stateful-fuzz handler for raptor prank cheatcodes.
+/// @notice Minimal stateful-fuzz handler for ripfuzz prank cheatcodes.
 ///
 /// Setup establishes a persistent `vm.startPrank(ADMIN)` so that every
 /// action during `chain.exec` sees ADMIN as `msg.sender` unless it

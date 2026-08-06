@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {RaptorFuzz} from "./RaptorFuzz.sol";
+import {RipFuzz} from "./RipFuzz.sol";
 
-contract HandlerContractWithIf is RaptorFuzz {
+contract HandlerContractWithIf is RipFuzz {
     uint256 public value;
 
     constructor() {

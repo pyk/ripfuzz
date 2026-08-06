@@ -108,8 +108,8 @@ pub struct TraceContext {
 impl Default for TraceContext {
     fn default() -> Self {
         let mut labels = HashMap::new();
-        labels.insert(VM_ADDRESS, "RaptorVM".into());
-        labels.insert(DEFAULT_DEPLOYER, "RaptorDeployer".into());
+        labels.insert(VM_ADDRESS, "RipfuzzVM".into());
+        labels.insert(DEFAULT_DEPLOYER, "RipfuzzDeployer".into());
         Self {
             labels,
             abis: Vec::new(),
@@ -1921,9 +1921,9 @@ mod tests {
     #[test]
     fn vm_address_is_labeled_by_default() {
         let ctx = TraceContext::new();
-        assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RaptorVM"));
+        assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RipfuzzVM"));
 
         let ctx = TraceContext::from_project(&Project::new("fixtures/trace-context")).unwrap();
-        assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RaptorVM"));
+        assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RipfuzzVM"));
     }
 }

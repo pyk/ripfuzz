@@ -2486,43 +2486,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "raptor"
-version = "0.1.0"
-dependencies = [
- "alloy-chains",
- "alloy-dyn-abi",
- "alloy-hardforks",
- "alloy-json-abi",
- "alloy-op-hardforks",
- "alloy-primitives",
- "alloy-sol-macro",
- "alloy-sol-types",
- "anyhow",
- "clap",
- "crossbeam",
- "dashmap",
- "fastrand",
- "hex",
- "jiff",
- "k256",
- "papaya",
- "parking_lot",
- "rayon",
- "revm",
- "serde",
- "serde_json",
- "serial_test",
- "solc",
- "tempfile",
- "toml",
- "tracing",
- "tracing-subscriber 0.3.23",
- "ureq",
- "uuid",
- "walkdir",
-]
-
-[[package]]
 name = "rayon"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2811,6 +2774,43 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd124222d17ad93a644ed9d011a40f4fb64aa54275c08cc216524a9ea82fb09f"
 dependencies = [
  "digest 0.10.7",
+]
+
+[[package]]
+name = "ripfuzz"
+version = "0.1.0"
+dependencies = [
+ "alloy-chains",
+ "alloy-dyn-abi",
+ "alloy-hardforks",
+ "alloy-json-abi",
+ "alloy-op-hardforks",
+ "alloy-primitives",
+ "alloy-sol-macro",
+ "alloy-sol-types",
+ "anyhow",
+ "clap",
+ "crossbeam",
+ "dashmap",
+ "fastrand",
+ "hex",
+ "jiff",
+ "k256",
+ "papaya",
+ "parking_lot",
+ "rayon",
+ "revm",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "solc",
+ "tempfile",
+ "toml",
+ "tracing",
+ "tracing-subscriber 0.3.23",
+ "ureq",
+ "uuid",
+ "walkdir",
 ]
 
 [[package]]

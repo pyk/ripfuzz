@@ -1,12 +1,12 @@
 # Glossary
 
-Consistent vocabulary for raptor users and contributors.
+Consistent vocabulary for ripfuzz users and contributors.
 
 ## Core Terms
 
 ### Fuzzing Campaign
 
-A single invocation of `raptor fuzz`. A campaign initializes the
+A single invocation of `ripfuzz fuzz`. A campaign initializes the
 **handler contract**, builds seed inputs, and orchestrates one or more
 **fuzzers** that generate sequences of **function calls**, execute them against
 a cloned contract state, and check that all **properties** still hold. If a
@@ -16,9 +16,9 @@ run" or "test run".
 
 ### Handler Contract
 
-The Solidity file you pass to `raptor fuzz` (e.g.
-`./test/CounterHandler.sol:CounterHandler`). It is the contract raptor compiles,
-deploys, and exercises.
+The Solidity file you pass to `ripfuzz fuzz` (e.g.
+`./test/CounterHandler.sol:CounterHandler`). It is the contract ripfuzz
+compiles, deploys, and exercises.
 
 ### Invariant Function
 
@@ -28,7 +28,7 @@ A Solidity function that encodes an invariant. By default it must:
 - take no arguments
 - be `pure` or `view`
 
-Raptor appends every invariant to the end of each function call sequence and
+Ripfuzz appends every invariant to the end of each function call sequence and
 executes it in the same EVM loop. If an invariant reverts with a Solidity
 `assert` failure (`Panic(0x01)`), the fuzzer records a failed assertion. The
 return value, if any, is ignored. Synonyms: **invariant**, **property test**.
@@ -52,7 +52,7 @@ protocol must never exceed `MAX_DEPOSIT_AMOUNT`.
 ### Handler Function
 
 Any external or public function in the handler contract that is *not* a setup or
-invariant function. Raptor calls these with randomly-generated arguments to
+invariant function. Ripfuzz calls these with randomly-generated arguments to
 mutate contract state. A single fuzz input is a **sequence of function calls**.
 Synonyms: **function call**, **target function** (Foundry, Echidna).
 
@@ -60,13 +60,13 @@ Synonyms: **function call**, **target function** (Foundry, Echidna).
 
 A function that establishes the initial state cloned for every fuzz input. The
 contract **constructor** always runs once at deployment. If a function named
-`setup()` exists, raptor calls it once after deployment.
+`setup()` exists, ripfuzz calls it once after deployment.
 
 ### Fuzzer
 
 A single parallel fuzzing instance that executes function call sequences against
 a cloned contract state and reports new coverage or failed assertions to the
-campaign manager. By default raptor spawns one fuzzer per available CPU core.
+campaign manager. By default ripfuzz spawns one fuzzer per available CPU core.
 
 ### Campaign Result
 
@@ -95,7 +95,7 @@ panic with the fewest possible calls.
 ### Coverage-Guided Fuzzing
 
 The technique that steers the fuzzer toward unexplored code by observing which
-EVM instructions each input exercises. After every execution, raptor compares
+EVM instructions each input exercises. After every execution, ripfuzz compares
 the coverage against all previously seen coverage. If the input reached a new
 instruction, branch, call depth, or revert path, it is considered
 **interesting** and added to the **corpus** for future mutation.
@@ -103,7 +103,7 @@ instruction, branch, call depth, or revert path, it is considered
 ### Coverage Map
 
 A data structure that records which parts of EVM bytecode were executed during a
-fuzzing campaign. Raptor maintains two kinds:
+fuzzing campaign. Ripfuzz maintains two kinds:
 
 - **Local Coverage**: collected by the `Inspector` during a single execution of
   a call sequence. Reset for every sequence.
@@ -130,7 +130,7 @@ If any of these counts is non-zero, the input is **interesting**.
 
 ### AFL Bucket
 
-A coarse-grained classification of raw hit counts, borrowed from AFL. Raptor
+A coarse-grained classification of raw hit counts, borrowed from AFL. Ripfuzz
 buckets raw hit counts into power-of-two buckets so that "hit 5 times" and "hit
 6 times" are treated as the same coverage, while "hit 7 times" and "hit 8 times"
 are treated as different (the loop crossed a threshold).
@@ -163,7 +163,7 @@ coverage for speed.
 
 ## Correspondence with Other Fuzzers
 
-| Raptor           | Foundry (invariant) | Medusa        | Echidna       |
+| Ripfuzz          | Foundry (invariant) | Medusa        | Echidna       |
 | ---------------- | ------------------- | ------------- | ------------- |
 | Handler Contract | Handler             | Target        | Target        |
 | `invariant_`     | `invariant_`        | `property_`   | `echidna_`    |

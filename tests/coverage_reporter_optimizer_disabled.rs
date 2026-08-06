@@ -6,11 +6,11 @@ use std::path::Path;
 
 use alloy_primitives::U256;
 use alloy_sol_types::SolCall;
-use raptor::{
+use revm::primitives::{Address, Bytes};
+use ripfuzz::{
     Artifact, ArtifactId, Chain, ChainConfig, Contract, CoverageReporter, DeployInput, Project,
     SetupInput, SharedCoverage, Transaction,
 };
-use revm::primitives::{Address, Bytes};
 
 alloy_sol_types::sol! {
     interface HandlerContractBasic {
@@ -102,7 +102,7 @@ fn deploy_and_setup(project_path: impl AsRef<Path>, contract: &Contract) -> Depl
 fn build_report(
     shared_coverage: &SharedCoverage,
     artifacts: &[Artifact],
-) -> raptor::CoverageReport {
+) -> ripfuzz::CoverageReport {
     CoverageReporter::new()
         .build_artifacts(artifacts.to_vec())
         .shared_coverage(shared_coverage.clone())

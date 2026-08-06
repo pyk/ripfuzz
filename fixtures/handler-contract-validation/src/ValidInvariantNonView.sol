@@ -11,7 +11,7 @@ contract ValidInvariantNonView {
     }
 
     /// Invariant functions may emit events for debugging, so they need not
-    /// be view or pure. Storage writes are discarded because raptor clones
+    /// be view or pure. Storage writes are discarded because ripfuzz clones
     /// state before each fuzz input.
     function invariant_check() external {
         if (value > 1000) {

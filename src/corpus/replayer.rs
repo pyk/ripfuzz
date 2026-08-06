@@ -196,7 +196,7 @@ mod tests {
         let item = Item::from(vec![call]);
 
         // Create corpus with the item.
-        let corpus_dir = std::env::temp_dir().join("raptor_test_corpus");
+        let corpus_dir = std::env::temp_dir().join("ripfuzz_test_corpus");
         let _ = fs::remove_dir_all(&corpus_dir);
         let corpus_config = corpus::CorpusConfig::new(corpus_dir)
             .handler_functions(contract.handler_functions.clone())

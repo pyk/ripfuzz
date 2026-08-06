@@ -63,7 +63,7 @@ impl Chain {
         db.insert_account_info(DEFAULT_DEPLOYER, info);
 
         // Insert a dummy VM contract so Solidity's `extcodesize` check passes
-        // when a target calls raptor cheatcodes during deployment or setup.
+        // when a target calls ripfuzz cheatcodes during deployment or setup.
         let vm_code = Bytecode::new_raw(Bytes::from_static(&[0x00]));
         db.insert_account_info(
             VM_ADDRESS,
@@ -118,8 +118,8 @@ mod tests {
     }
 
     #[test]
-    fn default_deployer_matches_raptor_deployer_string() {
-        let hash = alloy_primitives::utils::keccak256(b"raptor deployer");
+    fn default_deployer_matches_ripfuzz_deployer_string() {
+        let hash = alloy_primitives::utils::keccak256(b"ripfuzz deployer");
         let expected = Address::from_word(hash);
         assert_eq!(expected, DEFAULT_DEPLOYER);
     }
@@ -170,7 +170,7 @@ mod tests {
         );
     }
 
-    /// Chain::new must inject a dummy contract at the raptor VM address so
+    /// Chain::new must inject a dummy contract at the ripfuzz VM address so
     /// that Solidity `extcodesize` checks do not revert when a handler contract
     /// calls cheatcodes during deployment or setup.
     #[test]
@@ -377,7 +377,7 @@ mod tests {
         );
     }
 
-    /// A handler contract that calls a raptor cheatcode in its constructor must
+    /// A handler contract that calls a ripfuzz cheatcode in its constructor must
     /// deploy successfully on an empty sandbox chain.
     #[test]
     fn deploy_cheatcode_in_constructor_succeeds() {
@@ -407,7 +407,7 @@ mod tests {
     }
 
     /// A handler contract with no constructor but a `setup()` that calls a
-    /// raptor cheatcode must deploy and setup successfully on an empty sandbox
+    /// ripfuzz cheatcode must deploy and setup successfully on an empty sandbox
     /// chain.
     #[test]
     fn setup_cheatcode_succeeds() {

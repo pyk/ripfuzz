@@ -40,7 +40,7 @@ mod tests {
     use super::*;
 
     /// Known Keccak256 ID for a simple call sequence.
-    const STABLE_ID: &str = "2880aa420481e25bf9a99f197c9de9b3b641089ed62fca21630b55a6dd6bbbd3";
+    const STABLE_ID: &str = "a3e083b0ba6622a363e57200ebb074540b366925b651ea13ae337b2e825003eb";
 
     #[test]
     fn item_id_is_unique_for_different_calls() {

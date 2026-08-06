@@ -1,11 +1,11 @@
 # Handler Contract Conventions
 
-This document defines how to write a Solidity contract that `raptor fuzz` can
+This document defines how to write a Solidity contract that `ripfuzz fuzz` can
 fuzz.
 
 ## Overview
 
-A raptor handler contract is a normal Solidity contract with **three kinds of
+A ripfuzz handler contract is a normal Solidity contract with **three kinds of
 functions**:
 
 1. **Setup Functions**: initialize state before fuzzing begins
@@ -26,7 +26,7 @@ contract CounterHandler {
     // 1. SETUP
     // ------------------------------------------------------------------------
     // The constructor (or a setup() call) establishes the initial world state.
-    // Raptor deploys the contract once and then clones that state for every
+    // Ripfuzz deploys the contract once and then clones that state for every
     // fuzz input.
     function setup() external {
         count = 0;
@@ -36,7 +36,7 @@ contract CounterHandler {
     // 2. HANDLER FUNCTIONS
     // ------------------------------------------------------------------------
     // Any external/public function that does NOT match an invariant prefix is
-    // a handler function. Raptor will call these with type-appropriate random
+    // a handler function. Ripfuzz will call these with type-appropriate random
     // inputs.
 
     function increment() external {
@@ -55,9 +55,9 @@ contract CounterHandler {
     // ------------------------------------------------------------------------
     // 3. INVARIANT FUNCTIONS
     // ------------------------------------------------------------------------
-    // Functions with the `invariant_` prefix and no arguments. Raptor appends
+    // Functions with the `invariant_` prefix and no arguments. Ripfuzz appends
     // these to the end of every function call sequence. If any reverts with
-    // an `assert` panic, raptor reports a bug.
+    // an `assert` panic, ripfuzz reports a bug.
 
     function invariant_count_never_negative() external {
         assert(count >= 0);
@@ -76,7 +76,7 @@ Setup establishes the **base state** that every fuzz input starts from.
 ### What counts as setup
 
 - The contract **constructor** always runs once at deployment
-- A function named **`setup()`**. Raptor calls this automatically after
+- A function named **`setup()`**. Ripfuzz calls this automatically after
   deployment if it exists
 
 ### Rules
@@ -102,7 +102,7 @@ contract LendingHandler {
 
 ## 2. Handler Functions
 
-These are the functions raptor calls with random inputs to explore state space.
+These are the functions ripfuzz calls with random inputs to explore state space.
 
 ### Discovery rules
 
@@ -114,7 +114,7 @@ A function is treated as a handler function if **all** of these are true:
 
 ### Input generation
 
-Raptor generates ABI-encoded calldata for each function call by randomly
+Ripfuzz generates ABI-encoded calldata for each function call by randomly
 selecting a handler function and producing values for every argument.
 
 - The 4-byte selector is fixed (from the ABI)
@@ -139,7 +139,7 @@ selecting a handler function and producing values for every argument.
 ### Multiple function calls per input
 
 A single fuzz input is a **sequence of function calls** (default: up to 32
-calls). This lets raptor explore stateful interactions.
+calls). This lets ripfuzz explore stateful interactions.
 
 ```solidity
 // A single fuzz input might do:
@@ -178,12 +178,12 @@ Requirements:
 - Return type is optional and ignored
 
 Invariant functions need not be declared `view` or `pure`. Emitting events for
-debugging is allowed. Raptor runs invariants on cloned state and discards the
+debugging is allowed. Ripfuzz runs invariants on cloned state and discards the
 clone afterward, so any storage writes are naturally isolated.
 
 ### Semantics
 
-- Raptor appends **all** invariant calls to the end of every function call
+- Ripfuzz appends **all** invariant calls to the end of every function call
   sequence and executes them in the same EVM loop
 - If **any** call (handler function or invariant) reverts with a Solidity
   `assert` panic (`Panic(0x01)`), the fuzzer records a **failed assertion**
@@ -217,7 +217,7 @@ single function runs. For example, after calling `deposit(uint256 amount)`, the
 contract's ETH balance should increase by `amount` and the sender's balance
 should decrease by the same amount.
 
-In raptor, you can test function-level invariants by adding `assert` statements
+In ripfuzz, you can test function-level invariants by adding `assert` statements
 directly inside the handler function itself. The fuzzer records a failed
 assertion whenever any call reverts with a Solidity `assert` panic
 (`Panic(0x01)`), regardless of whether the assertion is in a handler function or
@@ -252,7 +252,7 @@ are more general than function-level invariants. For example:
   `MAX_DEPOSIT_AMOUNT`.
 - No user's balance should exceed the total supply of an ERC20 token.
 
-System-level invariants are the most common use case for raptor's `invariant_`
+System-level invariants are the most common use case for ripfuzz's `invariant_`
 functions because they are checked automatically after every function call
 sequence.
 
@@ -278,7 +278,7 @@ contract VaultHandler {
 
 ## Fuzzing Lifecycle
 
-For each fuzz input, raptor performs this exact sequence:
+For each fuzz input, ripfuzz performs this exact sequence:
 
 ```text
 1. CLONE the post-setup state
@@ -298,7 +298,7 @@ For each fuzz input, raptor performs this exact sequence:
 
 ## Comparison with Other Fuzzers
 
-| Feature           | Raptor                  | Foundry (invariant) | Medusa                 | Echidna                 |
+| Feature           | Ripfuzz                 | Foundry (invariant) | Medusa                 | Echidna                 |
 | ----------------- | ----------------------- | ------------------- | ---------------------- | ----------------------- |
 | Setup             | `constructor`/`setup()` | `setup()`           | Deployment + `setup()` | `constructor`/`setup()` |
 | Handler Functions | All external/public     | Handlers            | All external/public    | All external/public     |
@@ -310,12 +310,12 @@ For each fuzz input, raptor performs this exact sequence:
 
 ## Fork Mode
 
-When `--rpc-url` and `--rpc-block` are passed to `raptor fuzz`, the EVM
+When `--rpc-url` and `--rpc-block` are passed to `ripfuzz fuzz`, the EVM
 initializes its database from a remote Ethereum node at the specified block.
 This lets handler contracts reference live mainnet (or testnet) state, for
 example querying the real USDC contract, while still fuzzing locally.
 
-Fork state is read-only from the RPC perspective: raptor caches every remote
+Fork state is read-only from the RPC perspective: ripfuzz caches every remote
 account, slot, and block hash in memory, writes that cache to disk on campaign
 end, and never persists local EVM mutations (deployments, setup, sequence
 execution) beyond the in-memory `CacheDB`. Because each fuzz input clones the

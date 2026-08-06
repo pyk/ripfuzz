@@ -3,7 +3,7 @@ pragma solidity ^0.8.13;
 
 import "./Vm.sol";
 
-/// @notice Minimal stateful-fuzz handler for raptor toString cheatcodes.
+/// @notice Minimal stateful-fuzz handler for ripfuzz toString cheatcodes.
 ///
 /// Setup converts well-known values to strings via vm.toString and stores them.
 /// Actions re-convert all values; invariants verify the stored strings match.
