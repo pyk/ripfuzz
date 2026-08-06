@@ -1,0 +1,6 @@
+exclude = [".git/", "lib/", "target/"]
+
+[format]
+line-width = 79
+wrap = "reflow"
+table-indent = 0

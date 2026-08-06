@@ -102,7 +102,8 @@ contract LendingHandler {
 
 ## 2. Handler Functions
 
-These are the functions ripfuzz calls with random inputs to explore state space.
+These are the functions ripfuzz calls with random inputs to explore state
+space.
 
 ### Discovery rules
 
@@ -211,17 +212,17 @@ Invariants can be divided into two categories based on their scope.
 
 #### Function-Level Invariants
 
-A **function-level invariant** is a property that arises from the execution of a
-specific function. It describes what must be true *before* and *after* that
+A **function-level invariant** is a property that arises from the execution of
+a specific function. It describes what must be true *before* and *after* that
 single function runs. For example, after calling `deposit(uint256 amount)`, the
 contract's ETH balance should increase by `amount` and the sender's balance
 should decrease by the same amount.
 
-In ripfuzz, you can test function-level invariants by adding `assert` statements
-directly inside the handler function itself. The fuzzer records a failed
-assertion whenever any call reverts with a Solidity `assert` panic
-(`Panic(0x01)`), regardless of whether the assertion is in a handler function or
-an `invariant_` function.
+In ripfuzz, you can test function-level invariants by adding `assert`
+statements directly inside the handler function itself. The fuzzer records a
+failed assertion whenever any call reverts with a Solidity `assert` panic
+(`Panic(0x01)`), regardless of whether the assertion is in a handler function
+or an `invariant_` function.
 
 ```solidity
 contract CounterHandler {

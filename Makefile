@@ -6,14 +6,19 @@ endif
 
 .PHONY: check
 check: # Run code quality tools
-	@echo "Run rust formatter"
-	@cargo fmt
-	@echo "Run markdown formatter"
-	@uvx --from rumdl==0.2.22 rumdl fmt --silent .
 	@echo "Run clippy"
 	@cargo clippy -- -D warnings
 	@echo "Run checkrs"
-	@checkrs run src/
+	@uvx --from git+https://github.com/pyk/checkrs checkrs run src/
+	@echo "Run markdown formatter"
+	@uvx --from panache-cli==2.61.0 panache format --check .
+
+.PHONY: fmt
+fmt: # Run code formatters
+	@echo "Run rust formatter"
+	@cargo fmt
+	@echo "Run markdown formatter"
+	@uvx --from panache-cli==2.61.0 panache format .
 
 FIXTURE_DIRS := $(wildcard fixtures/*)
 

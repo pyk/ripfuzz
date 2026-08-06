@@ -6,13 +6,13 @@ Consistent vocabulary for ripfuzz users and contributors.
 
 ### Fuzzing Campaign
 
-A single invocation of `ripfuzz run`. A campaign initializes the
-**handler contract**, builds seed inputs, and orchestrates one or more
-**fuzzers** that generate sequences of **function calls**, execute them against
-a cloned contract state, and check that all **properties** still hold. If a
-**failed assertion** is found, the campaign spawns one or more **shrinkers** to
-minimize the failing sequence before reporting the result. Also called a "fuzz
-run" or "test run".
+A single invocation of `ripfuzz run`. A campaign initializes the **handler
+contract**, builds seed inputs, and orchestrates one or more **fuzzers** that
+generate sequences of **function calls**, execute them against a cloned
+contract state, and check that all **properties** still hold. If a **failed
+assertion** is found, the campaign spawns one or more **shrinkers** to minimize
+the failing sequence before reporting the result. Also called a "fuzz run" or
+"test run".
 
 ### Handler Contract
 
@@ -38,8 +38,8 @@ return value, if any, is ignored. Synonyms: **invariant**, **property test**.
 A property that arises from the execution of a **specific function**. It
 describes what must be true *before* and *after* that single function runs. For
 example, after calling `deposit(uint256 amount)`, the contract's ETH balance
-should increase by `amount` and the sender's balance should decrease by the same
-amount.
+should increase by `amount` and the sender's balance should decrease by the
+same amount.
 
 ### System-Level Invariant
 
@@ -51,8 +51,8 @@ protocol must never exceed `MAX_DEPOSIT_AMOUNT`.
 
 ### Handler Function
 
-Any external or public function in the handler contract that is *not* a setup or
-invariant function. Ripfuzz calls these with randomly-generated arguments to
+Any external or public function in the handler contract that is *not* a setup
+or invariant function. Ripfuzz calls these with randomly-generated arguments to
 mutate contract state. A single fuzz input is a **sequence of function calls**.
 Synonyms: **function call**, **target function** (Foundry, Echidna).
 
@@ -64,22 +64,24 @@ contract **constructor** always runs once at deployment. If a function named
 
 ### Fuzzer
 
-A single parallel fuzzing instance that executes function call sequences against
-a cloned contract state and reports new coverage or failed assertions to the
-campaign manager. By default ripfuzz spawns one fuzzer per available CPU core.
+A single parallel fuzzing instance that executes function call sequences
+against a cloned contract state and reports new coverage or failed assertions
+to the campaign manager. By default ripfuzz spawns one fuzzer per available CPU
+core.
 
 ### Campaign Result
 
 The aggregated output of a fuzzing campaign, including the total number of
-iterations executed across all fuzzers and any failed assertions (assert panics)
-discovered.
+iterations executed across all fuzzers and any failed assertions (assert
+panics) discovered.
 
 ### Failed Assertion
 
 A failure recorded when any call (handler function or invariant) reverts with a
-Solidity `assert` panic (`Panic(0x01)`). The fuzzer treats a failed assertion as
-a bug and adds it to the set of objectives. Reverts caused by `require` or other
-reasons do not produce a failed assertion. Synonyms: **objective**, **bug**.
+Solidity `assert` panic (`Panic(0x01)`). The fuzzer treats a failed assertion
+as a bug and adds it to the set of objectives. Reverts caused by `require` or
+other reasons do not produce a failed assertion. Synonyms: **objective**,
+**bug**.
 
 ### Shrinker
 
@@ -102,8 +104,8 @@ instruction, branch, call depth, or revert path, it is considered
 
 ### Coverage Map
 
-A data structure that records which parts of EVM bytecode were executed during a
-fuzzing campaign. Ripfuzz maintains two kinds:
+A data structure that records which parts of EVM bytecode were executed during
+a fuzzing campaign. Ripfuzz maintains two kinds:
 
 - **Local Coverage**: collected by the `Inspector` during a single execution of
   a call sequence. Reset for every sequence.
@@ -132,8 +134,8 @@ If any of these counts is non-zero, the input is **interesting**.
 
 A coarse-grained classification of raw hit counts, borrowed from AFL. Ripfuzz
 buckets raw hit counts into power-of-two buckets so that "hit 5 times" and "hit
-6 times" are treated as the same coverage, while "hit 7 times" and "hit 8 times"
-are treated as different (the loop crossed a threshold).
+6 times" are treated as the same coverage, while "hit 7 times" and "hit 8
+times" are treated as different (the loop crossed a threshold).
 
 | Raw hits | Bucket |
 | -------- | ------ |
@@ -158,8 +160,8 @@ directions produce different jump edges. Encoded as a 64-bit marker:
 
 The mapping from EVM bytecode positions back to Solidity source code lines,
 branches, and functions. Used only at the end of a campaign to produce a
-human-readable coverage report. The fuzzing loop itself operates on raw bytecode
-coverage for speed.
+human-readable coverage report. The fuzzing loop itself operates on raw
+bytecode coverage for speed.
 
 ## Correspondence with Other Fuzzers
 

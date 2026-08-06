@@ -5,10 +5,10 @@ crates.
 
 The primary goal is:
 
-> Organize code around domain concepts and types. Modules exist to support those
-> concepts. Implementation details stay hidden.
+> Organize code around domain concepts and types. Modules exist to support
+> those concepts. Implementation details stay hidden.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## Core Philosophy
 
@@ -34,7 +34,7 @@ A user of your crate should learn a small set of nouns.
 
 Most operations should be discovered through those nouns.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 1. Types Define the Public API
 
@@ -63,7 +63,7 @@ A useful question:
 
 Those concepts should usually be types.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 2. Organize Modules Around Domain Concepts
 
@@ -97,7 +97,7 @@ Ask:
 
 > What part of the domain does this module represent?
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 3. One Primary Type Per Module
 
@@ -112,9 +112,10 @@ linker.rs   -> Linker
 
 The filename and primary exported type usually match.
 
-When opening a file, it should be obvious what abstraction it exists to support.
+When opening a file, it should be obvious what abstraction it exists to
+support.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 4. Modules Exist to Support Types
 
@@ -143,7 +144,7 @@ A useful test:
 
 If not, they probably belong together.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 5. Keep Implementation Details Private
 
@@ -179,7 +180,7 @@ loader
 resolver
 ```
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 6. Re-export Public Concepts
 
@@ -210,7 +211,7 @@ mod artifacts;
 
 The public API should be smaller than the implementation.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 7. Avoid Deep Hierarchies
 
@@ -235,7 +236,7 @@ evm/
 
 Create nesting only when it introduces a meaningful abstraction boundary.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 8. Avoid utils.rs
 
@@ -265,7 +266,7 @@ over:
 utils.rs
 ```
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 9. Separate Public Operations From Implementation
 
@@ -291,7 +292,7 @@ Users should see domain operations.
 
 Implementation modules should remain internal.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## Method Design
 
@@ -319,7 +320,7 @@ A useful question:
 
 If yes, it probably belongs as a method.
 
-* * *
+-------------------------------------------------------------------------------
 
 ### 11. Constructors Are Entry Points
 
@@ -337,7 +338,7 @@ let project = open_project(path)?;
 
 Users should discover behavior through types.
 
-* * *
+-------------------------------------------------------------------------------
 
 ### 12. If The Function Name Starts With The Type Name, It May Be A Method
 
@@ -371,7 +372,7 @@ contract.link(...)
 contract.analyze(...)
 ```
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 13. Free Functions Are Exceptions
 
@@ -388,7 +389,7 @@ thread::sleep(...)
 
 If a function naturally operates on a type, prefer a method.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## Handling Many Arguments
 
@@ -401,7 +402,7 @@ A useful rule:
 If most information comes from parameters rather than `self`, reconsider the
 design.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 14. Use Option Types For Configuration
 
@@ -442,7 +443,7 @@ Command
 DirBuilder
 ```
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 15. Move Stable Configuration Into The Type
 
@@ -469,7 +470,7 @@ project.build()?;
 
 Configuration that is part of the object's identity should live on the object.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 16. Introduce Operation Types For Complex Workflows
 
@@ -508,7 +509,7 @@ Builder
 
 These are often called operation types or builder types.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 17. Use Context Objects For Internal Workflows
 
@@ -540,7 +541,7 @@ analyzer.analyze(contract, &ctx)?;
 
 This prevents parameter explosion.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## 18. If Most Inputs Are Not `self`, It Might Not Be A Method
 
@@ -577,7 +578,7 @@ A useful test:
 
 If yes, the operation may belong elsewhere.
 
-* * *
+-------------------------------------------------------------------------------
 
 ## Design Decision Tree
 

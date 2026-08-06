@@ -7,9 +7,9 @@ Each level contains a contract with a `caught()` view function. The fuzzer
 succeeds when it discovers an input sequence that makes `caught()` return
 `true`. Every wrong move reverts with `unicode"💀"`.
 
-* * *
+-------------------------------------------------------------------------------
 
-## Level 1 — L1SimpleKnob
+## Level 1 --- L1SimpleKnob
 
 **File:** `src/L1SimpleKnob.sol`
 
@@ -24,9 +24,9 @@ sequence of three calls (ignoring value inputs) leads to success.
 
 **Goal:** `property == 3 ether`
 
-* * *
+-------------------------------------------------------------------------------
 
-## Level 2 — L2ValueGate
+## Level 2 --- L2ValueGate
 
 **File:** `src/L2ValueGate.sol`
 
@@ -39,58 +39,58 @@ value, is needed to pass the gate.
 
 **Goal:** `property == 2 ether`
 
-* * *
+-------------------------------------------------------------------------------
 
-## Level 3 — L3CounterStrike
+## Level 3 --- L3CounterStrike
 
 **File:** `src/L3CounterStrike.sol`
 
 A counter that must be incremented an exact number of times:
 
-- `tick()` — increments an internal counter.
-- `claim()` — succeeds only when the counter is exactly `7`.
+- `tick()` --- increments an internal counter.
+- `claim()` --- succeeds only when the counter is exactly `7`.
 
-Ripfuzz must learn that repeating the same call exactly seven times (no more, no
-less) before calling `claim()` is the winning strategy.
+Ripfuzz must learn that repeating the same call exactly seven times (no more,
+no less) before calling `claim()` is the winning strategy.
 
 **Goal:** `property == 3 ether`
 
-* * *
+-------------------------------------------------------------------------------
 
-## Level 4 — L4StateMachine
+## Level 4 --- L4StateMachine
 
 **File:** `src/L4StateMachine.sol`
 
 A strict state machine where wrong transitions reset progress:
 
-- `stepA()` — valid only from idle.
-- `stepB()` — valid only after `stepA`.
-- `stepC()` — valid only after `stepB`.
-- `finish()` — valid only after `stepC`.
+- `stepA()` --- valid only from idle.
+- `stepB()` --- valid only after `stepA`.
+- `stepC()` --- valid only after `stepB`.
+- `finish()` --- valid only after `stepC`.
 
 Any mis-ordered call resets the state back to idle. Ripfuzz must find the exact
 sequence `A → B → C → finish` without any detours.
 
 **Goal:** `property == 4 ether`
 
-* * *
+-------------------------------------------------------------------------------
 
-## Level 5 — L5ComboLock
+## Level 5 --- L5ComboLock
 
 **File:** `src/L5ComboLock.sol`
 
 A combination lock that checks both order and value properties:
 
-1. `prime(uint256 n)` — accepts any prime number.
-2. `even(uint256 n)` — accepts any even number.
-3. `odd(uint256 n)` — accepts any odd number.
+1. `prime(uint256 n)` --- accepts any prime number.
+2. `even(uint256 n)` --- accepts any even number.
+3. `odd(uint256 n)` --- accepts any odd number.
 
-Any wrong value or wrong order resets the lock. Ripfuzz must find a valid prime,
-then a valid even, then a valid odd number in exactly that order.
+Any wrong value or wrong order resets the lock. Ripfuzz must find a valid
+prime, then a valid even, then a valid odd number in exactly that order.
 
 **Goal:** `property == 5 ether`
 
-* * *
+-------------------------------------------------------------------------------
 
 ## How to fuzz a level
 
