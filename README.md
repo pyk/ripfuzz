@@ -1,7 +1,21 @@
-# ripfuzz
+<h3 align="center">
+    ripfuzz
+</h3>
 
-High-throughput, coverage-guided, mutational fuzzer for Solidity smart
-contracts.
+<p align="center">
+    High-throughput, coverage-guided, mutational fuzzer for Solidity smart contracts.
+<p>
+
+<p align="center">
+  <img src="https://img.shields.io/crates/v/solray.svg?colorA=00f&colorB=fff&style=flat&logo=rust" alt="Crates.io">
+  <img src="https://img.shields.io/crates/d/solray?colorA=00f&colorB=fff&style=flat&logo=rust" alt="Downloads">
+  <img src="https://img.shields.io/github/license/pyk/solray?colorA=00f&colorB=fff&style=flat" alt="MIT License">
+</p>
+
+> [!IMPORTANT]
+>
+> `ripfuzz` is in early active development.
+
 
 ## Development
 
