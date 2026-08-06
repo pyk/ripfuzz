@@ -6,7 +6,7 @@ Consistent vocabulary for ripfuzz users and contributors.
 
 ### Fuzzing Campaign
 
-A single invocation of `ripfuzz fuzz`. A campaign initializes the
+A single invocation of `ripfuzz run`. A campaign initializes the
 **handler contract**, builds seed inputs, and orchestrates one or more
 **fuzzers** that generate sequences of **function calls**, execute them against
 a cloned contract state, and check that all **properties** still hold. If a
@@ -16,7 +16,7 @@ run" or "test run".
 
 ### Handler Contract
 
-The Solidity file you pass to `ripfuzz fuzz` (e.g.
+The Solidity file you pass to `ripfuzz run` (e.g.
 `./test/CounterHandler.sol:CounterHandler`). It is the contract ripfuzz
 compiles, deploys, and exercises.
 

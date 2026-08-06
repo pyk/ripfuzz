@@ -1,3 +1,3 @@
 //! CLI command definitions.
 
-pub mod fuzz;
+pub mod run;

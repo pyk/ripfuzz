@@ -16,15 +16,15 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
-    /// Start a fuzzing campaign.
-    Fuzz(commands::fuzz::Args),
+    /// Run a fuzzing campaign.
+    Run(commands::run::Args),
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Fuzz(args) => commands::fuzz::run(args),
+        Commands::Run(args) => commands::run::run(args),
     };
 
     if let Err(e) = result {

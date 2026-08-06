@@ -96,7 +96,7 @@ then a valid even, then a valid odd number in exactly that order.
 
 ```sh
 cd fixtures/challenges
-ripfuzz fuzz src/L1SimpleKnob.sol
+ripfuzz run src/L1SimpleKnob.sol
 ```
 
 Ripfuzz will compile the contract, deploy it, and run the fuzz loop. If it

@@ -1,4 +1,4 @@
-//! `fuzz` CLI command implementation.
+//! `run` CLI command implementation.
 
 use std::collections::HashMap;
 use std::env;

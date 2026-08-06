@@ -1,6 +1,6 @@
 # Handler Contract Conventions
 
-This document defines how to write a Solidity contract that `ripfuzz fuzz` can
+This document defines how to write a Solidity contract that `ripfuzz run` can
 fuzz.
 
 ## Overview
@@ -310,7 +310,7 @@ For each fuzz input, ripfuzz performs this exact sequence:
 
 ## Fork Mode
 
-When `--rpc-url` and `--rpc-block` are passed to `ripfuzz fuzz`, the EVM
+When `--rpc-url` and `--rpc-block` are passed to `ripfuzz run`, the EVM
 initializes its database from a remote Ethereum node at the specified block.
 This lets handler contracts reference live mainnet (or testnet) state, for
 example querying the real USDC contract, while still fuzzing locally.
