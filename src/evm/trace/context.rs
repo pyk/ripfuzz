@@ -1624,7 +1624,7 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
             _ => {}
         }
     }
-    arrays.sort_by(|a, b| b.start_slot.cmp(&a.start_slot));
+    arrays.sort_by_key(|a| std::cmp::Reverse(a.start_slot));
     Some((names, arrays, mappings)).filter(|(n, _, _)| !n.is_empty())
 }
 

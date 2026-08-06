@@ -86,7 +86,7 @@ impl BuildInfo {
         }
 
         // Most recent first.
-        files.sort_by(|a, b| b.1.cmp(&a.1));
+        files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
 
         let key = artifact_source_id.to_string();
         for (path, _) in files {
