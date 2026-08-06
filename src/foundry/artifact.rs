@@ -22,6 +22,48 @@ pub struct ArtifactId {
     pub name: String,
 }
 
+impl ArtifactId {
+    /// Resolve a target specifier against loaded build artifacts.
+    ///
+    /// Accepts either a full artifact id (`src/Foo.sol:Foo`) or a bare
+    /// contract name (`Foo`). Bare names are matched against the `name`
+    /// field of every artifact in `artifacts`.
+    ///
+    /// Returns an error when `target` is empty, a full artifact id is
+    /// malformed or missing, a bare name matches nothing, or a bare name
+    /// matches more than one artifact (lists the full ids to choose from).
+    pub fn resolve(target: &str, artifacts: &HashMap<ArtifactId, Artifact>) -> Result<Self> {
+        let target = target.trim();
+        ensure!(!target.is_empty(), "target must be non-empty");
+
+        if target.contains(':') {
+            let id = Self::try_from(target)?;
+            ensure!(
+                artifacts.contains_key(&id),
+                "target artifact `{}` not found in build artifacts",
+                id
+            );
+            return Ok(id);
+        }
+
+        let mut matches: Vec<&ArtifactId> =
+            artifacts.keys().filter(|id| id.name == target).collect();
+
+        match matches.len() {
+            0 => bail!("contract `{}` not found in build artifacts", target),
+            1 => Ok(matches.remove(0).clone()),
+            _ => {
+                matches.sort_by_key(|a| a.to_string());
+                let mut msg = format!("There are multiple '{}' contract.\n\nSelect one:\n", target);
+                for id in matches {
+                    msg.push_str(&format!("\nripfuzz run {}", id));
+                }
+                bail!(msg);
+            }
+        }
+    }
+}
+
 impl fmt::Display for ArtifactId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", self.path.display(), self.name)
@@ -718,6 +760,85 @@ mod tests {
     fn artifact_id_path_without_sol_extension_fails() {
         let err = ArtifactId::try_from("test/ImpossibleBug:ImpossibleBug").unwrap_err();
         assert!(err.to_string().contains("must end with `.sol`"));
+    }
+
+    fn sample_artifacts() -> HashMap<ArtifactId, Artifact> {
+        let mut artifacts = HashMap::new();
+        let ids = [
+            ("src/Foo.sol", "Foo"),
+            ("src/Bar.sol", "Bar"),
+            ("src/dup/A.sol", "Dup"),
+            ("src/dup/B.sol", "Dup"),
+        ];
+        for (path, name) in ids {
+            let id = ArtifactId {
+                path: PathBuf::from(path),
+                name: name.to_owned(),
+            };
+            // Minimal Interface shell: resolve only inspects map keys.
+            artifacts.insert(
+                id.clone(),
+                Artifact::Interface(InterfaceArtifact {
+                    id,
+                    project_path: PathBuf::from("."),
+                    ast: solc::ast::SourceUnit::default(),
+                    abi: JsonAbi::default(),
+                    source_id: 0,
+                    sources: None,
+                    optimizer: None,
+                    method_identifiers: HashMap::new(),
+                }),
+            );
+        }
+        artifacts
+    }
+
+    #[test]
+    fn resolve_full_artifact_id() {
+        let artifacts = sample_artifacts();
+        let id = ArtifactId::resolve("src/Foo.sol:Foo", &artifacts).unwrap();
+        assert_eq!(id.path, PathBuf::from("src/Foo.sol"));
+        assert_eq!(id.name, "Foo");
+    }
+
+    #[test]
+    fn resolve_bare_contract_name() {
+        let artifacts = sample_artifacts();
+        let id = ArtifactId::resolve("Bar", &artifacts).unwrap();
+        assert_eq!(id.path, PathBuf::from("src/Bar.sol"));
+        assert_eq!(id.name, "Bar");
+    }
+
+    #[test]
+    fn resolve_bare_name_missing_fails() {
+        let artifacts = sample_artifacts();
+        let err = ArtifactId::resolve("Missing", &artifacts).unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn resolve_full_id_missing_fails() {
+        let artifacts = sample_artifacts();
+        let err = ArtifactId::resolve("src/Missing.sol:Missing", &artifacts).unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn resolve_ambiguous_name_lists_options() {
+        let artifacts = sample_artifacts();
+        let err = ArtifactId::resolve("Dup", &artifacts).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("There are multiple 'Dup' contract"));
+        assert!(msg.contains("Select one:"));
+        assert!(msg.contains("ripfuzz run src/dup/A.sol:Dup"));
+        assert!(msg.contains("ripfuzz run src/dup/B.sol:Dup"));
+    }
+
+    #[test]
+    fn resolve_empty_target_fails() {
+        let artifacts = sample_artifacts();
+        let err = ArtifactId::resolve("  ", &artifacts).unwrap_err();
+        assert!(err.to_string().contains("non-empty"));
     }
 
     // Artifact synthetic parsing tests

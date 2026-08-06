@@ -6,7 +6,7 @@ Consistent vocabulary for ripfuzz users and contributors.
 
 ### Fuzzing Campaign
 
-A single invocation of `ripfuzz run`. A campaign initializes the **handler
+A single invocation of `ripfuzz run`. A campaign initializes the **harness
 contract**, builds seed inputs, and orchestrates one or more **fuzzers** that
 generate sequences of **function calls**, execute them against a cloned
 contract state, and check that all **properties** still hold. If a **failed
@@ -14,11 +14,11 @@ assertion** is found, the campaign spawns one or more **shrinkers** to minimize
 the failing sequence before reporting the result. Also called a "fuzz run" or
 "test run".
 
-### Handler Contract
+### Harness Contract
 
-The Solidity file you pass to `ripfuzz run` (e.g.
-`./test/CounterHandler.sol:CounterHandler`). It is the contract ripfuzz
-compiles, deploys, and exercises.
+The Solidity file you pass to `ripfuzz run` (e.g. `Harness` or
+`src/Harness.sol:Harness`). It is the contract ripfuzz compiles, deploys, and
+exercises.
 
 ### Invariant Function
 
@@ -51,7 +51,7 @@ protocol must never exceed `MAX_DEPOSIT_AMOUNT`.
 
 ### Handler Function
 
-Any external or public function in the handler contract that is *not* a setup
+Any external or public function in the harness contract that is *not* a setup
 or invariant function. Ripfuzz calls these with randomly-generated arguments to
 mutate contract state. A single fuzz input is a **sequence of function calls**.
 Synonyms: **function call**, **target function** (Foundry, Echidna).
@@ -167,7 +167,7 @@ bytecode coverage for speed.
 
 | Ripfuzz          | Foundry (invariant) | Medusa        | Echidna       |
 | ---------------- | ------------------- | ------------- | ------------- |
-| Handler Contract | Handler             | Target        | Target        |
+| Harness Contract | Handler             | Target        | Target        |
 | `invariant_`     | `invariant_`        | `property_`   | `echidna_`    |
 | Handler Function | Handler function    | Function call | Function call |
 | Campaign         | Test run            | Fuzzing run   | Test run      |

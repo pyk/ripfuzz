@@ -1,7 +1,7 @@
 //! Regression tests: fork mode contract deployment.
 //!
 //! When chain fork mode is initialized, the Chain is aware of all
-//! addresses created inside the handler contract and skips remote RPC
+//! addresses created inside the harness contract and skips remote RPC
 //! fetches for them. Only genuine on-chain accounts trigger RPC.
 
 use alloy_sol_types::SolCall;

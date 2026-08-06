@@ -55,7 +55,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface FfiHandler {
+        interface FfiHarness {
             function setup() external;
             function actionFfi() external;
             function actionMutateFfi() external;
@@ -70,14 +70,14 @@ mod tests {
     const EXPECTED_VALUE: U256 = U256::from_limbs([42, 0, 0, 0]);
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/harness-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/FfiHandler.sol:FfiHandler");
+        let contract = load_fixture("src/FfiHarness.sol:FfiHarness");
         let config = ChainConfig::default().ffi(true);
         let mut chain = Chain::new(config).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -141,9 +141,9 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target)
-                .calldata(Bytes::from(FfiHandler::getValueCall::new(()).abi_encode())),
+                .calldata(Bytes::from(FfiHarness::getValueCall::new(()).abi_encode())),
             Transaction::new(target).calldata(Bytes::from(
-                FfiHandler::invariant_ffiCall::new(()).abi_encode(),
+                FfiHarness::invariant_ffiCall::new(()).abi_encode(),
             )),
         ];
 
@@ -153,7 +153,7 @@ mod tests {
             execution.results[0].success,
             "getValue must return the ffi-derived value"
         );
-        let stored: U256 = FfiHandler::getValueCall::abi_decode_returns(
+        let stored: U256 = FfiHarness::getValueCall::abi_decode_returns(
             &execution.results[0].output.clone().unwrap(),
         )
         .unwrap();
@@ -172,9 +172,9 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target)
-                .calldata(Bytes::from(FfiHandler::actionFfiCall::new(()).abi_encode())),
+                .calldata(Bytes::from(FfiHarness::actionFfiCall::new(()).abi_encode())),
             Transaction::new(target).calldata(Bytes::from(
-                FfiHandler::invariant_ffiCall::new(()).abi_encode(),
+                FfiHarness::invariant_ffiCall::new(()).abi_encode(),
             )),
         ];
 
@@ -196,10 +196,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                FfiHandler::actionFfiSequenceCall::new(()).abi_encode(),
+                FfiHarness::actionFfiSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                FfiHandler::invariant_ffiCall::new(()).abi_encode(),
+                FfiHarness::invariant_ffiCall::new(()).abi_encode(),
             )),
         ];
 
@@ -210,7 +210,7 @@ mod tests {
             "actionFfiSequence must succeed"
         );
         let output = execution.results[0].output.clone().unwrap();
-        let ret = FfiHandler::actionFfiSequenceCall::abi_decode_returns(&output).unwrap();
+        let ret = FfiHarness::actionFfiSequenceCall::abi_decode_returns(&output).unwrap();
         assert_eq!(ret.first, U256::from(1), "first ffi must read 1");
         assert_eq!(ret.second, EXPECTED_VALUE, "second ffi must read 42");
         assert_eq!(ret.third, U256::from(5), "third ffi must read 5");
@@ -229,12 +229,12 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                FfiHandler::actionMutateFfiCall::new(()).abi_encode(),
+                FfiHarness::actionMutateFfiCall::new(()).abi_encode(),
             )),
             Transaction::new(target)
-                .calldata(Bytes::from(FfiHandler::actionFfiCall::new(()).abi_encode())),
+                .calldata(Bytes::from(FfiHarness::actionFfiCall::new(()).abi_encode())),
             Transaction::new(target).calldata(Bytes::from(
-                FfiHandler::invariant_ffiCall::new(()).abi_encode(),
+                FfiHarness::invariant_ffiCall::new(()).abi_encode(),
             )),
         ];
 
@@ -257,9 +257,9 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target)
-                .calldata(Bytes::from(FfiHandler::actionFfiCall::new(()).abi_encode())),
+                .calldata(Bytes::from(FfiHarness::actionFfiCall::new(()).abi_encode())),
             Transaction::new(target).calldata(Bytes::from(
-                FfiHandler::invariant_ffiCall::new(()).abi_encode(),
+                FfiHarness::invariant_ffiCall::new(()).abi_encode(),
             )),
         ];
 
@@ -284,17 +284,17 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target)
-                .calldata(Bytes::from(FfiHandler::actionFfiCall::new(()).abi_encode())),
+                .calldata(Bytes::from(FfiHarness::actionFfiCall::new(()).abi_encode())),
             Transaction::new(target).calldata(Bytes::from(
-                FfiHandler::actionMutateFfiCall::new(()).abi_encode(),
+                FfiHarness::actionMutateFfiCall::new(()).abi_encode(),
             )),
             Transaction::new(target)
-                .calldata(Bytes::from(FfiHandler::actionFfiCall::new(()).abi_encode())),
+                .calldata(Bytes::from(FfiHarness::actionFfiCall::new(()).abi_encode())),
             Transaction::new(target).calldata(Bytes::from(
-                FfiHandler::actionFfiSequenceCall::new(()).abi_encode(),
+                FfiHarness::actionFfiSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                FfiHandler::invariant_ffiCall::new(()).abi_encode(),
+                FfiHarness::invariant_ffiCall::new(()).abi_encode(),
             )),
         ];
 

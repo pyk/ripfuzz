@@ -1073,28 +1073,28 @@ mod tests {
             function branch(bool take) external;
         }
 
-        interface HandlerContractWithInterface {
+        interface HarnessContractWithInterface {
             function interfaceCall(uint256 amount) external returns (uint256);
         }
 
-        interface HandlerContractWithLibLinked {
+        interface HarnessContractWithLibLinked {
             function libLinkedCall(uint256 amount) external returns (uint256);
         }
 
-        interface HandlerContractWithLib {
+        interface HarnessContractWithLib {
             function libCall(uint256 amount) external returns (uint256);
         }
 
-        interface HandlerContractBasic {
+        interface HarnessContractBasic {
             function addAndSub(uint256 a, uint256 b) external returns (uint256);
         }
 
-        interface HandlerContractWithLoop {
+        interface HarnessContractWithLoop {
             function runLoop(uint256 count) external;
             function runNestedLoop(uint256 outer, uint256 inner) external;
         }
 
-        interface HandlerContractWithIf {
+        interface HarnessContractWithIf {
             function runIf(bool condition) external;
             function runIfElse(bool condition) external;
             function runIfElseWithNewline(bool condition) external;
@@ -1105,7 +1105,7 @@ mod tests {
             function dummyHandlerFunction() external;
         }
 
-        interface InheritedHandler {
+        interface InheritedHarness {
             function inheritedHandlerFunction() external;
         }
 
@@ -1179,8 +1179,8 @@ mod tests {
     }
 
     fn project_path() -> PathBuf {
-        fs::canonicalize("fixtures/handler-contract-coverage")
-            .unwrap_or_else(|_| PathBuf::from("fixtures/handler-contract-coverage"))
+        fs::canonicalize("fixtures/harness-contract-coverage")
+            .unwrap_or_else(|_| PathBuf::from("fixtures/harness-contract-coverage"))
     }
 
     /// Regression test: build artifacts that include interfaces (which have
@@ -1188,10 +1188,10 @@ mod tests {
     #[test]
     fn coverage_report_build_with_interface_artifact() {
         let contract = load_coverage_fixture(
-            "fixtures/handler-contract-coverage",
+            "fixtures/harness-contract-coverage",
             "src/CoverageBranch.sol:CoverageBranch",
         );
-        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             CoverageBranch::branchCall::new((false,)).abi_encode(),
@@ -1200,7 +1200,7 @@ mod tests {
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/handler-contract-coverage");
+        let project = foundry::Project::new("fixtures/harness-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
 
@@ -1213,48 +1213,48 @@ mod tests {
     /// Regression test: coverage report for if-statement close brackets and
     /// empty lines between if-else branches must be handled correctly.
     #[test]
-    fn handler_contract_with_if() {
+    fn harness_contract_with_if() {
         let contract = load_coverage_fixture(
-            "fixtures/handler-contract-coverage",
-            "src/HandlerContractWithIf.sol:HandlerContractWithIf",
+            "fixtures/harness-contract-coverage",
+            "src/HarnessContractWithIf.sol:HarnessContractWithIf",
         );
-        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
 
         let txs = vec![
             Transaction::new(deployed.address).calldata(Bytes::from(
-                HandlerContractWithIf::runIfCall::new((true,)).abi_encode(),
+                HarnessContractWithIf::runIfCall::new((true,)).abi_encode(),
             )),
             Transaction::new(deployed.address).calldata(Bytes::from(
-                HandlerContractWithIf::runIfElseCall::new((true,)).abi_encode(),
+                HarnessContractWithIf::runIfElseCall::new((true,)).abi_encode(),
             )),
             Transaction::new(deployed.address).calldata(Bytes::from(
-                HandlerContractWithIf::runIfElseCall::new((false,)).abi_encode(),
+                HarnessContractWithIf::runIfElseCall::new((false,)).abi_encode(),
             )),
             Transaction::new(deployed.address).calldata(Bytes::from(
-                HandlerContractWithIf::runIfElseWithNewlineCall::new((true,)).abi_encode(),
+                HarnessContractWithIf::runIfElseWithNewlineCall::new((true,)).abi_encode(),
             )),
             Transaction::new(deployed.address).calldata(Bytes::from(
-                HandlerContractWithIf::runIfElseWithNewlineCall::new((false,)).abi_encode(),
+                HarnessContractWithIf::runIfElseWithNewlineCall::new((false,)).abi_encode(),
             )),
             Transaction::new(deployed.address).calldata(Bytes::from(
-                HandlerContractWithIf::runNestedIfCall::new((true, true)).abi_encode(),
+                HarnessContractWithIf::runNestedIfCall::new((true, true)).abi_encode(),
             )),
         ];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/handler-contract-coverage");
+        let project = foundry::Project::new("fixtures/harness-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
         let formatted = format!("{report}");
 
         let expected_file =
-            "fixtures/handler-contract-coverage/expected/HandlerContractWithIf.info";
+            "fixtures/harness-contract-coverage/expected/HarnessContractWithIf.info";
         let expected = fs::read_to_string(expected_file)
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         let expected = expected.replace(
-            "fixtures/handler-contract-coverage",
+            "fixtures/harness-contract-coverage",
             &project_path().to_string_lossy(),
         );
         assert_eq!(
@@ -1269,10 +1269,10 @@ mod tests {
     #[test]
     fn coverage_report_empty_handler_function() {
         let contract = load_coverage_fixture(
-            "fixtures/handler-contract-coverage",
+            "fixtures/harness-contract-coverage",
             "src/EmptyHandlerFunction.sol:EmptyHandlerFunction",
         );
-        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             EmptyHandlerFunction::dummyHandlerFunctionCall::new(()).abi_encode(),
@@ -1281,7 +1281,7 @@ mod tests {
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/handler-contract-coverage");
+        let project = foundry::Project::new("fixtures/harness-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
 
@@ -1301,19 +1301,19 @@ mod tests {
     #[test]
     fn coverage_report_inherited_target_function() {
         let contract = load_coverage_fixture(
-            "fixtures/handler-contract-coverage",
-            "src/InheritedHandler.sol:InheritedHandler",
+            "fixtures/harness-contract-coverage",
+            "src/InheritedHarness.sol:InheritedHarness",
         );
-        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            InheritedHandler::inheritedHandlerFunctionCall::new(()).abi_encode(),
+            InheritedHarness::inheritedHandlerFunctionCall::new(()).abi_encode(),
         ))];
         let exec = deployed.chain.exec(&txs).unwrap();
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/handler-contract-coverage");
+        let project = foundry::Project::new("fixtures/harness-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
 
@@ -1330,10 +1330,10 @@ mod tests {
     #[test]
     fn coverage_report_function_start_line_without_source_map() {
         let contract = load_coverage_fixture(
-            "fixtures/handler-contract-coverage",
+            "fixtures/harness-contract-coverage",
             "src/UnusedLibraryUser.sol:UnusedLibraryUser",
         );
-        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             hex::decode("771602f7").unwrap(), // useAdd(uint256,uint256)
@@ -1342,7 +1342,7 @@ mod tests {
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/handler-contract-coverage");
+        let project = foundry::Project::new("fixtures/harness-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
 
@@ -1370,7 +1370,7 @@ mod tests {
     /// the file's actual line count.
     #[test]
     fn coverage_report_trailing_newline_no_out_of_range() {
-        let project = foundry::Project::new("fixtures/handler-contract-coverage");
+        let project = foundry::Project::new("fixtures/harness-contract-coverage");
         let mut artifacts: Vec<Artifact> =
             project.load_artifacts().unwrap().into_values().collect();
 
@@ -1388,7 +1388,7 @@ mod tests {
         // Inject a fake source map entry pointing to the end of the file to
         // simulate a compiler-generated entry that sits past the final newline.
         let source_path =
-            PathBuf::from("fixtures/handler-contract-coverage/src/CoverageTrailingNewline.sol");
+            PathBuf::from("fixtures/harness-contract-coverage/src/CoverageTrailingNewline.sol");
         let content = fs::read_to_string(&source_path).unwrap();
         let file_len = content.len();
 
@@ -1435,7 +1435,7 @@ mod tests {
     #[test]
     fn coverage_report_immutable_contract_matched() {
         let contract = load_coverage_fixture(
-            "fixtures/handler-contract-coverage",
+            "fixtures/harness-contract-coverage",
             "src/CoverageImmutable.sol:CoverageImmutable",
         );
         let config = ChainConfig::default().coverage(true);
@@ -1456,7 +1456,7 @@ mod tests {
         let coverage = exec.coverage.expect("coverage must be present");
         global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/handler-contract-coverage");
+        let project = foundry::Project::new("fixtures/harness-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&global, &artifacts);
 
@@ -1491,10 +1491,10 @@ mod tests {
     #[test]
     fn coverage_report_inactive_artifact_no_executable_lines() {
         let contract = load_coverage_fixture(
-            "fixtures/handler-contract-coverage",
+            "fixtures/harness-contract-coverage",
             "src/CoverageInactiveUser.sol:CoverageInactiveUser",
         );
-        let mut deployed = deploy_and_setup("fixtures/handler-contract-coverage", &contract);
+        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
 
         let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
             CoverageInactiveUser::callUsedCall::new(()).abi_encode(),
@@ -1503,7 +1503,7 @@ mod tests {
         let coverage = exec.coverage.expect("coverage must be present");
         deployed.global.merge(&coverage);
 
-        let project = foundry::Project::new("fixtures/handler-contract-coverage");
+        let project = foundry::Project::new("fixtures/harness-contract-coverage");
         let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
         let report = build_report(&deployed.global, &artifacts);
 

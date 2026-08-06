@@ -1,4 +1,4 @@
-//! Handler contract definition and validation.
+//! Harness contract definition and validation.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail, ensure};
 use crate::evm::DeployLibraryInput;
 use crate::foundry::{Artifact, ArtifactId, ContractArtifact};
 
-/// A validated handler contract ready for fuzzing.
+/// A validated harness contract ready for fuzzing.
 ///
 /// Created from a Foundry [`Artifact`] (or `&Artifact`) by validating that it
 /// represents a concrete contract and extracting the functions the fuzzer will
@@ -28,7 +28,7 @@ pub struct Contract {
     pub setup_function: Option<Function>,
     /// Hex-encoded initcode used to deploy the contract.
     pub initcode: String,
-    /// Linked libraries that must be deployed before the handler contract.
+    /// Linked libraries that must be deployed before the harness contract.
     pub libraries: Vec<DeployLibraryInput>,
 }
 
@@ -43,7 +43,7 @@ impl Contract {
         for (name, funcs) in &contract.abi.functions {
             ensure!(
                 funcs.len() <= 1,
-                "handler contract must not have duplicate function names: `{}`",
+                "harness contract must not have duplicate function names: `{}`",
                 name
             );
         }
@@ -77,7 +77,7 @@ impl Contract {
         if let Some(constructor) = &contract.abi.constructor {
             ensure!(
                 constructor.inputs.is_empty(),
-                "handler contract constructor must not have arguments"
+                "harness contract constructor must not have arguments"
             );
         }
 
@@ -97,7 +97,7 @@ impl Contract {
 
         ensure!(
             !handler_functions.is_empty(),
-            "handler contract must have at least one handler function"
+            "harness contract must have at least one handler function"
         );
 
         Ok(Self {
@@ -151,7 +151,7 @@ impl Contract {
         Ok(libraries)
     }
 
-    /// Load a handler contract from the build artifacts and prepare its library
+    /// Load a harness contract from the build artifacts and prepare its library
     /// dependencies.
     ///
     /// `artifact_id` must be a concrete contract (not an interface, library, or
@@ -205,17 +205,17 @@ mod tests {
     // Fixture helpers
 
     fn load_fixture(contract_id: &str) -> Result<Contract> {
-        let project = Project::new("fixtures/handler-contract-validation");
+        let project = Project::new("fixtures/harness-contract-validation");
         let artifacts = project.load_artifacts()?;
         let id = ArtifactId::try_from(contract_id)?;
         Contract::try_get(&artifacts, &id)
     }
 
-    // 1. Valid handler contract should have >0 handler functions
+    // 1. Valid harness contract should have >0 handler functions
 
     #[test]
     fn valid_handler_has_handler_functions() {
-        let contract = load_fixture("src/ValidHandler.sol:ValidHandler").unwrap();
+        let contract = load_fixture("src/ValidHarness.sol:ValidHarness").unwrap();
         assert!(!contract.handler_functions.is_empty());
         assert!(
             contract
@@ -225,7 +225,7 @@ mod tests {
         );
     }
 
-    // 2. Valid handler contract can have 0 or more invariant functions
+    // 2. Valid harness contract can have 0 or more invariant functions
 
     #[test]
     fn valid_handler_can_have_zero_invariants() {
@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn public_invariant_is_classified_as_invariant() {
-        let contract = load_fixture("src/ValidHandler.sol:ValidHandler").unwrap();
+        let contract = load_fixture("src/ValidHarness.sol:ValidHarness").unwrap();
         assert!(
             contract
                 .invariant_functions
@@ -356,7 +356,7 @@ mod tests {
         let err = load_fixture("src/InvalidNoHandlers.sol:InvalidNoHandlers").unwrap_err();
         assert!(
             err.to_string()
-                .contains("handler contract must have at least one handler function")
+                .contains("harness contract must have at least one handler function")
         );
     }
 
@@ -368,7 +368,7 @@ mod tests {
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("handler contract must not have duplicate function names")
+                .contains("harness contract must not have duplicate function names")
         );
     }
 }

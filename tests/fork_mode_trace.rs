@@ -54,7 +54,7 @@ const AUSDC_IMPL_ADDRESS: Address =
     alloy_primitives::address!("7354dc700a1a2ab9622f2292b60ca1ced5b204d0");
 
 // ---------------------------------------------------------------------------
-// Handler contract interface
+// Harness contract interface
 // ---------------------------------------------------------------------------
 
 alloy_sol_types::sol! {
@@ -101,7 +101,7 @@ fn build_trace_context(handler_address: Address) -> TraceContext {
 /// fork mode with an on-disk response cache.  The cache is committed
 /// to the repository so no live RPC is needed.
 ///
-/// The handler contract is a local deployment; external projects
+/// The harness contract is a local deployment; external projects
 /// (Pool Proxy + Implementation + aUSDC) provide ABIs and labels so
 /// that the trace renders contract names and decoded calldata.
 #[test]
@@ -120,14 +120,14 @@ fn supply_usdc_to_aave_v3_pool() {
         .cache_dir(CACHE_DIR);
     let mut chain = Chain::new(ChainConfig::default().trace(true).fork(config)).unwrap();
 
-    // 1. Deploy handler contract
+    // 1. Deploy harness contract
     let handler_project = Project::new("fixtures/fork-mode-trace");
     let handler_artifacts = handler_project.load_artifacts().unwrap();
     let handler_id = ArtifactId::try_from("src/SupplyUSDC.sol:SupplyUSDC").unwrap();
-    let handler_contract = Contract::try_get(&handler_artifacts, &handler_id).unwrap();
+    let harness_contract = Contract::try_get(&handler_artifacts, &handler_id).unwrap();
 
     let deployment = chain
-        .deploy(DeployInput::new(&handler_contract.initcode))
+        .deploy(DeployInput::new(&harness_contract.initcode))
         .unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();

@@ -33,7 +33,7 @@ fn block_json() -> serde_json::Value {
 }
 
 alloy_sol_types::sol! {
-    interface IMultiProjectHandler {
+    interface IMultiProjectHarness {
         function callAdder(address adder) external view returns (uint256);
     }
 }
@@ -110,18 +110,18 @@ fn external_project_coverage_report() {
         Chain::fork_with_transport(ChainConfig::default().coverage(true), config, transport)
             .expect("fork chain must init");
 
-    // Load and deploy the handler contract.
+    // Load and deploy the harness contract.
     let handler_project = Project::new("fixtures/multi-project-coverage");
     let handler_artifacts = handler_project
         .load_artifacts()
         .expect("handler artifacts must load");
-    let handler_id = ArtifactId::try_from("src/MultiProjectHandler.sol:MultiProjectHandler")
+    let handler_id = ArtifactId::try_from("src/MultiProjectHarness.sol:MultiProjectHarness")
         .expect("handler artifact id must parse");
-    let handler_contract =
-        Contract::try_get(&handler_artifacts, &handler_id).expect("handler contract must exist");
+    let harness_contract =
+        Contract::try_get(&handler_artifacts, &handler_id).expect("harness contract must exist");
 
     let deployment = chain
-        .deploy(DeployInput::new(&handler_contract.initcode))
+        .deploy(DeployInput::new(&harness_contract.initcode))
         .expect("deployment must succeed");
     assert!(deployment.result.success, "deployment must succeed");
 
@@ -130,7 +130,7 @@ fn external_project_coverage_report() {
     // Execute a call through the handler to the adder.
     let txs = vec![
         Transaction::new(target).calldata(Bytes::from(
-            IMultiProjectHandler::callAdderCall {
+            IMultiProjectHarness::callAdderCall {
                 adder: adder_address,
             }
             .abi_encode(),

@@ -171,7 +171,7 @@ mod tests {
     }
 
     /// Chain::new must inject a dummy contract at the ripfuzz VM address so
-    /// that Solidity `extcodesize` checks do not revert when a handler contract
+    /// that Solidity `extcodesize` checks do not revert when a harness contract
     /// calls cheatcodes during deployment or setup.
     #[test]
     fn chain_new_injects_vm_address() {
@@ -272,7 +272,7 @@ mod tests {
     /// Load a [`evm::Contract`](Contract) from a pre-built
     /// fixture by its full artifact id (`path:name`).
     fn load_fixture(id: &str) -> Contract {
-        let project = Project::new("fixtures/handler-contract-deployment");
+        let project = Project::new("fixtures/harness-contract-deployment");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
@@ -292,7 +292,7 @@ mod tests {
 
     }
 
-    /// A handler contract with a constructor but no `setup()` function must
+    /// A harness contract with a constructor but no `setup()` function must
     /// deploy successfully on an empty sandbox chain.
     #[test]
     fn deploy_no_setup_succeeds() {
@@ -316,7 +316,7 @@ mod tests {
         );
     }
 
-    /// A handler contract whose constructor reverts must fail deployment on an
+    /// A harness contract whose constructor reverts must fail deployment on an
     /// empty sandbox chain.
     #[test]
     fn deploy_constructor_revert_fails() {
@@ -342,7 +342,7 @@ mod tests {
         );
     }
 
-    /// A handler contract whose `setup()` reverts must fail setup on an empty
+    /// A harness contract whose `setup()` reverts must fail setup on an empty
     /// sandbox chain.
     #[test]
     fn setup_revert_fails() {
@@ -377,7 +377,7 @@ mod tests {
         );
     }
 
-    /// A handler contract that calls a ripfuzz cheatcode in its constructor must
+    /// A harness contract that calls a ripfuzz cheatcode in its constructor must
     /// deploy successfully on an empty sandbox chain.
     #[test]
     fn deploy_cheatcode_in_constructor_succeeds() {
@@ -406,7 +406,7 @@ mod tests {
         );
     }
 
-    /// A handler contract with no constructor but a `setup()` that calls a
+    /// A harness contract with no constructor but a `setup()` that calls a
     /// ripfuzz cheatcode must deploy and setup successfully on an empty sandbox
     /// chain.
     #[test]
@@ -438,7 +438,7 @@ mod tests {
         );
     }
 
-    /// A handler contract whose `setup()` deploys another contract that depends
+    /// A harness contract whose `setup()` deploys another contract that depends
     /// on an internal library must deploy, setup, and run the library code
     /// successfully on an empty sandbox chain.
     #[test]
@@ -508,15 +508,15 @@ mod tests {
         assert_eq!(count, U256::from(1), "count must be 1 after increment");
     }
 
-    /// A handler contract whose `setup()` deploys another contract that depends
+    /// A harness contract whose `setup()` deploys another contract that depends
     /// on a linked library must deploy, setup, and run the library code
     /// successfully on an empty sandbox chain.
     ///
     /// The linked library is deployed automatically via `DeployInput::add_library`
-    /// before the handler contract is deployed.
+    /// before the harness contract is deployed.
     #[test]
     fn setup_deploys_contract_with_linked_library() {
-        let project = Project::new("fixtures/handler-contract-deployment");
+        let project = Project::new("fixtures/harness-contract-deployment");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = ArtifactId::try_from(
             "test/EmptyChainDeployLinkedLibInSetup.sol:EmptyChainDeployLinkedLibInSetup",

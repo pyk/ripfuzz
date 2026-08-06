@@ -30,9 +30,10 @@ use crate::shrinker::{Shrinker, ShrinkerConfig};
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Handler contract identifier (e.g. ./test/Contract.sol:Contract).
-    #[arg(value_name = "TARGET")]
-    pub target: ArtifactId,
+    /// Harness contract identifier: bare name (`Harness`) or full artifact id
+    /// (`src/Harness.sol:Harness`).
+    #[arg(value_name = "HARNESS")]
+    pub harness: String,
 
     // Project & Deployment
     /// Path to the Foundry project root.
@@ -44,11 +45,11 @@ pub struct Args {
     )]
     pub project_path: Option<PathBuf>,
 
-    /// Wei to send during handler contract deployment.
+    /// Wei to send during harness contract deployment.
     #[arg(long = "deploy-value", default_value = "0", value_parser = Args::parse_balance, value_name = "WEI", help_heading = "Project & Deployment")]
     pub deploy_value: U256,
 
-    /// Account address used to deploy the handler contract.
+    /// Account address used to deploy the harness contract.
     #[arg(
         long = "deployer",
         default_value_t = crate::evm::DEFAULT_DEPLOYER,
@@ -175,7 +176,7 @@ pub struct Args {
     /// Additional Foundry projects whose build artifacts are loaded for
     /// coverage and trace resolution.
     ///
-    /// Useful in fork mode when the handler contract interacts
+    /// Useful in fork mode when the harness contract interacts with
     /// contracts compiled in separate projects. Each path must point to a
     /// Foundry project root that contains an `out/` directory with compiled
     /// artifacts (run `forge build --ast --extra-output storageLayout` there
@@ -328,7 +329,7 @@ fn ripfuzz_dir(project_path: impl AsRef<Path>) -> PathBuf {
     project_path.as_ref().join(".ripfuzz")
 }
 
-#[instrument(skip(args), fields(target = ?args.target, threads = args.threads, max_runs = args.max_runs))]
+#[instrument(skip(args), fields(harness = ?args.harness, threads = args.threads, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
     let mut console = Console::new();
     console.set_disabled(args.disable_log);
@@ -426,20 +427,28 @@ pub fn run(args: Args) -> Result<()> {
         }
     }
 
-    // Load handler contract and prepare library dependencies.
-    console.begin(format!("loading handler contract {} ...", args.target.name))?;
-    let handler_contract = match Contract::try_get(&build_artifacts, &args.target) {
+    // Resolve the harness (bare name or full artifact id) then load it.
+    console.begin(format!("loading harness contract {} ...", args.harness))?;
+    let harness_id = match ArtifactId::resolve(&args.harness, &build_artifacts) {
+        Ok(id) => id,
+        Err(e) => {
+            console.end_fail(format!("loading harness contract {} failed", args.harness))?;
+            console.print_line(format!("{e:#}"))?;
+            return Err(e);
+        }
+    };
+    let harness_contract = match Contract::try_get(&build_artifacts, &harness_id) {
         Ok(c) => c,
         Err(e) => {
             console.end_fail(format!(
-                "loading handler contract {} failed",
-                args.target.name
+                "loading harness contract {} failed",
+                harness_id.name
             ))?;
             console.print_line(format!("{e:#}"))?;
             return Err(e);
         }
     };
-    console.update(format!("loaded {} as handler contract", args.target.name))?;
+    console.update(format!("loaded {} as harness contract", harness_id.name))?;
     console.end()?;
 
     // TODO(pyk): Create InitcodeRegistry
@@ -493,13 +502,13 @@ pub fn run(args: Args) -> Result<()> {
         chain.block_env().timestamp,
     ))?;
 
-    // Deploy handler contract
-    let contract_name = &handler_contract.artifact_id.name;
+    // Deploy harness contract
+    let contract_name = &harness_contract.artifact_id.name;
     console.begin(format!("deploying {contract_name}..."))?;
-    let mut deploy_opts = DeployInput::new(&handler_contract.initcode)
+    let mut deploy_opts = DeployInput::new(&harness_contract.initcode)
         .caller(args.deployer_address)
         .value(args.deploy_value);
-    let libraries = handler_contract.libraries.clone();
+    let libraries = harness_contract.libraries.clone();
     for lib in libraries {
         deploy_opts = deploy_opts.add_library(lib);
     }
@@ -521,7 +530,7 @@ pub fn run(args: Args) -> Result<()> {
         fs::write(&trace_file, format!("{trace}"))?;
         console.end_fail(format!("failed to deploy {contract_name}"))?;
         console.print_line(format!("    trace: {}", trace_file.display()))?;
-        return Err(anyhow::anyhow!("handler contract deployment failed"));
+        return Err(anyhow::anyhow!("harness contract deployment failed"));
     }
     let deployed_address = deployment
         .address
@@ -549,7 +558,7 @@ pub fn run(args: Args) -> Result<()> {
 
     // Run setup if present
     let mut setup_coverage = None;
-    if let Some(ref setup) = handler_contract.setup_function {
+    if let Some(ref setup) = harness_contract.setup_function {
         console.begin("calling setup")?;
         let setup_output = match chain.setup(
             SetupInput::new(deployed_address)
@@ -590,9 +599,9 @@ pub fn run(args: Args) -> Result<()> {
     let base_corpus_dir = args
         .corpus_dir
         .unwrap_or_else(|| ripfuzz_dir(&project_path).join("corpus"));
-    let corpus_dir = SharedCorpus::dir_for(&base_corpus_dir, &handler_contract.artifact_id);
+    let corpus_dir = SharedCorpus::dir_for(&base_corpus_dir, &harness_contract.artifact_id);
     let corpus_config = CorpusConfig::new(corpus_dir)
-        .handler_functions(handler_contract.handler_functions.clone())
+        .handler_functions(harness_contract.handler_functions.clone())
         .max_calls(args.max_calls)
         .literals(literals.clone());
     let corpus = SharedCorpus::new(corpus_config);
@@ -632,7 +641,7 @@ pub fn run(args: Args) -> Result<()> {
             .shared_corpus(corpus.clone())
             .chain(chain.clone())
             .deployed_address(deployed_address)
-            .invariant_functions(handler_contract.invariant_functions.clone())
+            .invariant_functions(harness_contract.invariant_functions.clone())
             .caller(args.deployer_address)
             .replay()
         {
@@ -658,10 +667,10 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     // Initialize shared metrics across all fuzzer threads.
-    let all_function_signatures: Vec<String> = handler_contract
+    let all_function_signatures: Vec<String> = harness_contract
         .handler_functions
         .iter()
-        .chain(handler_contract.invariant_functions.iter())
+        .chain(harness_contract.invariant_functions.iter())
         .map(|f| f.signature())
         .collect();
     let shared_metrics = SharedMetrics::new(all_function_signatures.clone());
@@ -683,7 +692,7 @@ pub fn run(args: Args) -> Result<()> {
         .shared_coverage(shared_coverage.clone())
         .shared_metrics(shared_metrics.clone())
         .shutdown_signal(shutdown_signal.clone())
-        .invariant_functions(handler_contract.invariant_functions.clone())
+        .invariant_functions(harness_contract.invariant_functions.clone())
         .caller(args.deployer_address)
         .gas_limit(args.gas_limit)
         .timeout(timeout)
@@ -707,7 +716,7 @@ pub fn run(args: Args) -> Result<()> {
         handles.push((fuzzer_id, handle));
     }
 
-    let contract_name = &handler_contract.artifact_id.name;
+    let contract_name = &harness_contract.artifact_id.name;
     console.begin(format!(
         "fuzzing {contract_name} with {fuzzers} threads ..."
     ))?;
@@ -718,8 +727,8 @@ pub fn run(args: Args) -> Result<()> {
     let stats_ctx = formatter::CampaignStats::new(
         &shared_coverage,
         &corpus,
-        &handler_contract.handler_functions,
-        &handler_contract.invariant_functions,
+        &harness_contract.handler_functions,
+        &harness_contract.invariant_functions,
     );
     let mut snapshot = shared_metrics.aggregate();
     let mut function_metrics = shared_metrics.function_metrics();
@@ -771,7 +780,7 @@ pub fn run(args: Args) -> Result<()> {
             &project,
             &campaign_id,
             &shared_coverage,
-            &handler_contract,
+            &harness_contract,
             artifacts,
         ) {
             Ok(files) => {
@@ -815,7 +824,7 @@ pub fn run(args: Args) -> Result<()> {
     // Combine the smallest failing item with invariants so the shrinker
     // operates on a single corpus item and never appends invariants.
     let mut combined_calls = smallest_failure.item.calls.clone();
-    let invariant_calls: Vec<Call> = handler_contract
+    let invariant_calls: Vec<Call> = harness_contract
         .invariant_functions
         .iter()
         // checkrs: allow(clone_in_iterator)
@@ -831,10 +840,10 @@ pub fn run(args: Args) -> Result<()> {
 
     // Include both handler and invariant functions so the shrinker can
     // generate replacement calls for any position in the sequence.
-    let all_functions: Vec<alloy_json_abi::Function> = handler_contract
+    let all_functions: Vec<alloy_json_abi::Function> = harness_contract
         .handler_functions
         .iter()
-        .chain(handler_contract.invariant_functions.iter())
+        .chain(harness_contract.invariant_functions.iter())
         .cloned()
         .collect();
 
@@ -987,7 +996,7 @@ pub fn run(args: Args) -> Result<()> {
         &project,
         &campaign_id,
         &shared_coverage,
-        &handler_contract,
+        &harness_contract,
         artifacts,
     ) {
         Ok(files) => {
@@ -1012,7 +1021,7 @@ fn write_coverage_report(
     project: &Project,
     campaign_id: &str,
     shared_coverage: &SharedCoverage,
-    _handler_contract: &Contract,
+    _harness_contract: &Contract,
     artifacts: Vec<Artifact>,
 ) -> Result<Vec<(PathBuf, f64)>> {
     let reporter = CoverageReporter::new()
@@ -1071,7 +1080,6 @@ mod tests {
     use revm::primitives::U256;
 
     use crate::evm::DEFAULT_DEPLOYER;
-    use crate::foundry;
 
     use super::*;
 
@@ -1090,7 +1098,7 @@ mod tests {
     fn make_args(corpus_dir: impl AsRef<Path>) -> Args {
         let corpus_dir = corpus_dir.as_ref().to_path_buf();
         Args {
-            target: foundry::ArtifactId::try_from("src/L1SimpleKnob.sol:SimpleKnob").unwrap(),
+            harness: "src/L1SimpleKnob.sol:SimpleKnob".to_owned(),
             project_path: Some(PathBuf::from("fixtures/challenges")),
             deploy_value: U256::ZERO,
             deployer_address: DEFAULT_DEPLOYER,

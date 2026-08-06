@@ -40,7 +40,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface SignHandler {
+        interface SignHarness {
             function setup() external;
             function actionResignOne() external;
             function actionResignTwo() external;
@@ -65,14 +65,14 @@ mod tests {
     const ADDR_MAX: Address = address!("0x80C0dbf239224071c59dD8970ab9d542E3414aB2");
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/harness-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/SignHandler.sol:SignHandler");
+        let contract = load_fixture("src/SignHarness.sol:SignHarness");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -188,13 +188,13 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::invariant_sigOneValidCall::new(()).abi_encode(),
+                SignHarness::invariant_sigOneValidCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::invariant_sigTwoValidCall::new(()).abi_encode(),
+                SignHarness::invariant_sigTwoValidCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::invariant_sigMaxValidCall::new(()).abi_encode(),
+                SignHarness::invariant_sigMaxValidCall::new(()).abi_encode(),
             )),
         ];
 
@@ -222,10 +222,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::actionResignOneCall::new(()).abi_encode(),
+                SignHarness::actionResignOneCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::invariant_sigOneValidCall::new(()).abi_encode(),
+                SignHarness::invariant_sigOneValidCall::new(()).abi_encode(),
             )),
         ];
 
@@ -246,22 +246,22 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::actionResignOneCall::new(()).abi_encode(),
+                SignHarness::actionResignOneCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::actionResignTwoCall::new(()).abi_encode(),
+                SignHarness::actionResignTwoCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::actionResignMaxValidCall::new(()).abi_encode(),
+                SignHarness::actionResignMaxValidCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::invariant_sigOneValidCall::new(()).abi_encode(),
+                SignHarness::invariant_sigOneValidCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::invariant_sigTwoValidCall::new(()).abi_encode(),
+                SignHarness::invariant_sigTwoValidCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::invariant_sigMaxValidCall::new(()).abi_encode(),
+                SignHarness::invariant_sigMaxValidCall::new(()).abi_encode(),
             )),
         ];
 
@@ -278,7 +278,7 @@ mod tests {
     fn invalid_zero_key_reverts_in_transaction() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            SignHandler::actionSignZeroCall::new(()).abi_encode(),
+            SignHarness::actionSignZeroCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -294,7 +294,7 @@ mod tests {
     fn invalid_order_key_reverts_in_transaction() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            SignHandler::actionSignOrderCall::new(()).abi_encode(),
+            SignHarness::actionSignOrderCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -311,7 +311,7 @@ mod tests {
     fn sign_and_addr_agree() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            SignHandler::actionSignAndAddrCall::new(()).abi_encode(),
+            SignHarness::actionSignAndAddrCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -324,7 +324,7 @@ mod tests {
             .output
             .clone()
             .expect("must return output");
-        let ret = SignHandler::actionSignAndAddrCall::abi_decode_returns(&output).unwrap();
+        let ret = SignHarness::actionSignAndAddrCall::abi_decode_returns(&output).unwrap();
         assert_eq!(
             ret.derived, ret.recovered,
             "vm.addr(1) must match ecrecover(vm.sign(1, digest))"
@@ -344,10 +344,10 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::actionResignOneCall::new(()).abi_encode(),
+                SignHarness::actionResignOneCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::invariant_sigOneValidCall::new(()).abi_encode(),
+                SignHarness::invariant_sigOneValidCall::new(()).abi_encode(),
             )),
         ];
         let execution = cloned.exec(&txs).unwrap();
@@ -370,10 +370,10 @@ mod tests {
 
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::actionResignOneCall::new(()).abi_encode(),
+                SignHarness::actionResignOneCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::invariant_sigOneValidCall::new(()).abi_encode(),
+                SignHarness::invariant_sigOneValidCall::new(()).abi_encode(),
             )),
         ];
         let execution = chain.exec(&txs).unwrap();
@@ -385,10 +385,10 @@ mod tests {
 
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::actionResignOneCall::new(()).abi_encode(),
+                SignHarness::actionResignOneCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                SignHandler::invariant_sigOneValidCall::new(()).abi_encode(),
+                SignHarness::invariant_sigOneValidCall::new(()).abi_encode(),
             )),
         ];
         let execution = chain.exec(&txs).unwrap();

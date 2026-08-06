@@ -40,7 +40,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface EtchHandler {
+        interface EtchHarness {
             function setup() external;
             function invariant_etch() external view;
             function actionRestoreEtch() external;
@@ -50,14 +50,14 @@ mod tests {
     }
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/harness-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/EtchHandler.sol:EtchHandler");
+        let contract = load_fixture("src/EtchHarness.sol:EtchHarness");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -76,7 +76,7 @@ mod tests {
     fn etch_set_in_setup_matches_expected() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            EtchHandler::invariant_etchCall::new(()).abi_encode(),
+            EtchHarness::invariant_etchCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -88,17 +88,17 @@ mod tests {
     }
 
     /// Re-etching the canonical code in a later transaction must not
-    /// corrupt the handler contract. This is the core property a stateful
+    /// corrupt the harness contract. This is the core property a stateful
     /// fuzzer relies on when actions need to restore canonical bytecode.
     #[test]
     fn restore_etch_in_action_preserves_value() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::actionRestoreEtchCall::new(()).abi_encode(),
+                EtchHarness::actionRestoreEtchCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::invariant_etchCall::new(()).abi_encode(),
+                EtchHarness::invariant_etchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -122,10 +122,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::actionEtchSequenceCall::new(()).abi_encode(),
+                EtchHarness::actionEtchSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::invariant_etchCall::new(()).abi_encode(),
+                EtchHarness::invariant_etchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -149,13 +149,13 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::actionMutateEtchCall::new(()).abi_encode(),
+                EtchHarness::actionMutateEtchCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::actionRestoreEtchCall::new(()).abi_encode(),
+                EtchHarness::actionRestoreEtchCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::invariant_etchCall::new(()).abi_encode(),
+                EtchHarness::invariant_etchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -184,10 +184,10 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::actionRestoreEtchCall::new(()).abi_encode(),
+                EtchHarness::actionRestoreEtchCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::invariant_etchCall::new(()).abi_encode(),
+                EtchHarness::invariant_etchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -212,19 +212,19 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::actionRestoreEtchCall::new(()).abi_encode(),
+                EtchHarness::actionRestoreEtchCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::actionMutateEtchCall::new(()).abi_encode(),
+                EtchHarness::actionMutateEtchCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::actionRestoreEtchCall::new(()).abi_encode(),
+                EtchHarness::actionRestoreEtchCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::actionEtchSequenceCall::new(()).abi_encode(),
+                EtchHarness::actionEtchSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                EtchHandler::invariant_etchCall::new(()).abi_encode(),
+                EtchHarness::invariant_etchCall::new(()).abi_encode(),
             )),
         ];
 

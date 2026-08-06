@@ -63,7 +63,7 @@ impl FuzzerConfig {
         self
     }
 
-    /// Set the handler contract address.
+    /// Set the harness contract address.
     pub fn target_address(mut self, value: Address) -> Self {
         self.target_address = value;
         self

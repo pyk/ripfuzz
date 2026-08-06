@@ -253,7 +253,7 @@ impl SharedCorpus {
         rng.f32() < 0.30
     }
 
-    /// Generate a single random call for the handler contract.
+    /// Generate a single random call for the harness contract.
     fn generate_call(&self, rng: &mut fastrand::Rng) -> Call {
         let functions = &self.inner.handler_functions;
         if functions.is_empty() {

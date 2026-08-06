@@ -76,7 +76,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface StorageHandler {
+        interface StorageHarness {
             function setup() external;
             function getLoadedValue() external view returns (bytes32);
             function getEmptySlotValue() external view returns (bytes32);
@@ -97,14 +97,14 @@ mod tests {
     const TARGET_ADDR: Address = address!("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF");
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/harness-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/StorageHandler.sol:StorageHandler");
+        let contract = load_fixture("src/StorageHarness.sol:StorageHarness");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -116,7 +116,7 @@ mod tests {
         (chain, target)
     }
 
-    // Handler-level unit tests
+    // Harness-level unit tests
 
     /// vm.store followed by vm.load must return the stored value.
     #[test]
@@ -164,10 +164,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::getLoadedValueCall::new(()).abi_encode(),
+                StorageHarness::getLoadedValueCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::invariant_valueMatchCall::new(()).abi_encode(),
+                StorageHarness::invariant_valueMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -181,7 +181,7 @@ mod tests {
             .output
             .clone()
             .expect("must return output");
-        let loaded = StorageHandler::getLoadedValueCall::abi_decode_returns(&output).unwrap();
+        let loaded = StorageHarness::getLoadedValueCall::abi_decode_returns(&output).unwrap();
         assert_eq!(
             loaded.as_slice(),
             EXPECTED_VALUE.as_slice(),
@@ -201,10 +201,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::actionRestoreCall::new(()).abi_encode(),
+                StorageHarness::actionRestoreCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::invariant_valueMatchCall::new(()).abi_encode(),
+                StorageHarness::invariant_valueMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -224,10 +224,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::actionMutateCall::new(()).abi_encode(),
+                StorageHarness::actionMutateCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::invariant_valueMatchCall::new(()).abi_encode(),
+                StorageHarness::invariant_valueMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -248,10 +248,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::actionSequenceCall::new(()).abi_encode(),
+                StorageHarness::actionSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::invariant_valueMatchCall::new(()).abi_encode(),
+                StorageHarness::invariant_valueMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -269,7 +269,7 @@ mod tests {
     fn store_to_precompile_reverts_in_transaction() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            StorageHandler::actionStorePrecompileCall::new(()).abi_encode(),
+            StorageHarness::actionStorePrecompileCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -285,7 +285,7 @@ mod tests {
     fn load_from_precompile_reverts_in_transaction() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            StorageHandler::actionLoadPrecompileCall::new(()).abi_encode(),
+            StorageHarness::actionLoadPrecompileCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -302,7 +302,7 @@ mod tests {
     fn load_empty_slot_returns_zero() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            StorageHandler::getEmptySlotValueCall::new(()).abi_encode(),
+            StorageHarness::getEmptySlotValueCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -315,7 +315,7 @@ mod tests {
             .output
             .clone()
             .expect("must return output");
-        let decoded = StorageHandler::getEmptySlotValueCall::abi_decode_returns(&output).unwrap();
+        let decoded = StorageHarness::getEmptySlotValueCall::abi_decode_returns(&output).unwrap();
         assert_eq!(decoded.as_slice(), [0u8; 32], "empty slot must return zero");
     }
 
@@ -328,10 +328,10 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::actionRestoreCall::new(()).abi_encode(),
+                StorageHarness::actionRestoreCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::invariant_valueMatchCall::new(()).abi_encode(),
+                StorageHarness::invariant_valueMatchCall::new(()).abi_encode(),
             )),
         ];
         let execution = cloned.exec(&txs).unwrap();
@@ -354,10 +354,10 @@ mod tests {
 
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::actionRestoreCall::new(()).abi_encode(),
+                StorageHarness::actionRestoreCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::invariant_valueMatchCall::new(()).abi_encode(),
+                StorageHarness::invariant_valueMatchCall::new(()).abi_encode(),
             )),
         ];
         let execution = chain.exec(&txs).unwrap();
@@ -369,10 +369,10 @@ mod tests {
 
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::actionRestoreCall::new(()).abi_encode(),
+                StorageHarness::actionRestoreCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                StorageHandler::invariant_valueMatchCall::new(()).abi_encode(),
+                StorageHarness::invariant_valueMatchCall::new(()).abi_encode(),
             )),
         ];
         let execution = chain.exec(&txs).unwrap();

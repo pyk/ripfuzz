@@ -11,7 +11,7 @@ interface IPool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
 }
 
-/// @notice Handler that supplies USDC to the Aave V3 pool on Base.
+/// @notice Harness that supplies USDC to the Aave V3 pool on Base.
 contract SupplyUSDC {
     Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
@@ -25,11 +25,11 @@ contract SupplyUSDC {
     function supply() external {
         uint256 amount = 10 * 1e6; // 10 USDC (6 decimals)
 
-        // Label the handler contract for readable trace output.
+        // Label the harness contract for readable trace output.
         vm.label(address(this), "SupplyUSDC");
 
         // -----------------------------------------------------------------
-        // Set USDC balance for the handler contract.
+        // Set USDC balance for the harness contract.
         //
         // USDC uses slot 9 for the _balances mapping.
         // slot = keccak256(abi.encode(address(this), uint256(9)))

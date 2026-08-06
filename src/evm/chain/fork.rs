@@ -261,7 +261,7 @@ mod tests {
     }
 
     /// Chain::fork must inject a dummy contract at the ripfuzz VM address so
-    /// that Solidity `extcodesize` checks do not revert when a handler contract
+    /// that Solidity `extcodesize` checks do not revert when a harness contract
     /// calls cheatcodes during deployment or setup.
     #[test]
     fn chain_fork_injects_vm_address() {
@@ -631,7 +631,7 @@ mod tests {
             }),
         );
 
-        // Mock the ForkDB response for the handler contract address.
+        // Mock the ForkDB response for the harness contract address.
         let target_addr_payload = json!([
             {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0xb48bd837cb11a87bead45ea4b7ea3164e8af71f2","0x1438f2d"]},
             {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":["0xb48bd837cb11a87bead45ea4b7ea3164e8af71f2","0x1438f2d"]},
@@ -668,7 +668,7 @@ mod tests {
             Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
 
         // Load a simple contract from the fixture project.
-        let project = Project::new("fixtures/handler-contract-deployment");
+        let project = Project::new("fixtures/harness-contract-deployment");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id =
             ArtifactId::try_from("test/EmptyChainNoSetup.sol:EmptyChainNoSetup").unwrap();
@@ -721,7 +721,7 @@ mod tests {
         );
 
         // --- Deploy: verify deployment sets chain_id on the TxEnv ---
-        let project = Project::new("fixtures/handler-contract-deployment");
+        let project = Project::new("fixtures/harness-contract-deployment");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id =
             ArtifactId::try_from("test/EmptyChainNoSetup.sol:EmptyChainNoSetup").unwrap();

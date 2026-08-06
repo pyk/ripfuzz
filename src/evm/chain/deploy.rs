@@ -66,7 +66,7 @@ impl DeployInput {
         self
     }
 
-    /// Add a linked library to deploy before the handler contract.
+    /// Add a linked library to deploy before the harness contract.
     pub fn add_library(mut self, library: DeployLibraryInput) -> Self {
         self.libraries.push(library);
         self

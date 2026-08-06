@@ -30,7 +30,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface PrevrandaoHandler {
+        interface PrevrandaoHarness {
             function setup() external;
             function actionRestoreCanonical() external;
             function actionMutateValue() external;
@@ -43,14 +43,14 @@ mod tests {
     }
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/harness-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/PrevrandaoHandler.sol:PrevrandaoHandler");
+        let contract = load_fixture("src/PrevrandaoHarness.sol:PrevrandaoHarness");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -62,7 +62,7 @@ mod tests {
         (chain, target)
     }
 
-    // Handler-level unit test
+    // Harness-level unit test
 
     /// vm.prevrandao must set the EVM context prevrandao and persist it in state.
     #[test]
@@ -97,7 +97,7 @@ mod tests {
     fn setup_prevrandao_persists_into_exec() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            PrevrandaoHandler::invariant_prevrandaoMatchCall::new(()).abi_encode(),
+            PrevrandaoHarness::invariant_prevrandaoMatchCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -115,13 +115,13 @@ mod tests {
     fn prevrandao_preserved_after_deployment_and_setup() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            PrevrandaoHandler::getPrevrandaoCall::new(()).abi_encode(),
+            PrevrandaoHarness::getPrevrandaoCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
         assert_eq!(execution.results.len(), 1);
         assert!(execution.results[0].success, "getPrevrandao must succeed");
-        let value = PrevrandaoHandler::getPrevrandaoCall::abi_decode_returns(
+        let value = PrevrandaoHarness::getPrevrandaoCall::abi_decode_returns(
             &execution.results[0].output.clone().unwrap(),
         )
         .unwrap();
@@ -144,10 +144,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrevrandaoHandler::actionReadPrevrandaoCall::new(()).abi_encode(),
+                PrevrandaoHarness::actionReadPrevrandaoCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrevrandaoHandler::invariant_prevrandaoMatchCall::new(()).abi_encode(),
+                PrevrandaoHarness::invariant_prevrandaoMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -171,10 +171,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrevrandaoHandler::actionRestoreCanonicalCall::new(()).abi_encode(),
+                PrevrandaoHarness::actionRestoreCanonicalCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrevrandaoHandler::invariant_prevrandaoMatchCall::new(()).abi_encode(),
+                PrevrandaoHarness::invariant_prevrandaoMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -198,10 +198,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrevrandaoHandler::actionMutateValueCall::new(()).abi_encode(),
+                PrevrandaoHarness::actionMutateValueCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrevrandaoHandler::invariant_prevrandaoMatchCall::new(()).abi_encode(),
+                PrevrandaoHarness::invariant_prevrandaoMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -225,10 +225,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                PrevrandaoHandler::actionSequenceCall::new(()).abi_encode(),
+                PrevrandaoHarness::actionSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                PrevrandaoHandler::invariant_prevrandaoMatchCall::new(()).abi_encode(),
+                PrevrandaoHarness::invariant_prevrandaoMatchCall::new(()).abi_encode(),
             )),
         ];
 
@@ -249,7 +249,7 @@ mod tests {
         let (chain, target) = deploy_and_setup();
         let mut cloned = chain.clone();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            PrevrandaoHandler::invariant_prevrandaoMatchCall::new(()).abi_encode(),
+            PrevrandaoHarness::invariant_prevrandaoMatchCall::new(()).abi_encode(),
         ))];
 
         let execution = cloned.exec(&txs).unwrap();

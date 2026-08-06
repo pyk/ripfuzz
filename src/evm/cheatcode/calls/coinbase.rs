@@ -29,7 +29,7 @@ mod tests {
     use crate::foundry;
 
     alloy_sol_types::sol! {
-        interface CoinbaseHandler {
+        interface CoinbaseHarness {
             function setup() external;
             function invariant_coinbase() external view;
             function actionRestoreCoinbase() external;
@@ -39,14 +39,14 @@ mod tests {
     }
 
     fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/handler-contract-with-cheatcodes");
+        let project = foundry::Project::new("fixtures/harness-contract-with-cheatcodes");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/CoinbaseHandler.sol:CoinbaseHandler");
+        let contract = load_fixture("src/CoinbaseHarness.sol:CoinbaseHarness");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
@@ -65,7 +65,7 @@ mod tests {
     fn coinbase_set_in_setup_matches_expected() {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
-            CoinbaseHandler::invariant_coinbaseCall::new(()).abi_encode(),
+            CoinbaseHarness::invariant_coinbaseCall::new(()).abi_encode(),
         ))];
 
         let execution = chain.exec(&txs).unwrap();
@@ -84,10 +84,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::actionRestoreCoinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::actionRestoreCoinbaseCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::invariant_coinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::invariant_coinbaseCall::new(()).abi_encode(),
             )),
         ];
 
@@ -111,10 +111,10 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::actionCoinbaseSequenceCall::new(()).abi_encode(),
+                CoinbaseHarness::actionCoinbaseSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::invariant_coinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::invariant_coinbaseCall::new(()).abi_encode(),
             )),
         ];
 
@@ -138,13 +138,13 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::actionMutateCoinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::actionMutateCoinbaseCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::actionRestoreCoinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::actionRestoreCoinbaseCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::invariant_coinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::invariant_coinbaseCall::new(()).abi_encode(),
             )),
         ];
 
@@ -173,10 +173,10 @@ mod tests {
         let mut cloned = chain.clone();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::actionRestoreCoinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::actionRestoreCoinbaseCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::invariant_coinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::invariant_coinbaseCall::new(()).abi_encode(),
             )),
         ];
 
@@ -201,19 +201,19 @@ mod tests {
         let (mut chain, target) = deploy_and_setup();
         let txs = vec![
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::actionRestoreCoinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::actionRestoreCoinbaseCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::actionMutateCoinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::actionMutateCoinbaseCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::actionRestoreCoinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::actionRestoreCoinbaseCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::actionCoinbaseSequenceCall::new(()).abi_encode(),
+                CoinbaseHarness::actionCoinbaseSequenceCall::new(()).abi_encode(),
             )),
             Transaction::new(target).calldata(Bytes::from(
-                CoinbaseHandler::invariant_coinbaseCall::new(()).abi_encode(),
+                CoinbaseHarness::invariant_coinbaseCall::new(()).abi_encode(),
             )),
         ];
 

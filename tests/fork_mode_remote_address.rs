@@ -1,6 +1,6 @@
 //! Regression test: fork mode remote address.
 //!
-//! When chain fork mode is initialized, a handler contract that reads on-chain
+//! When chain fork mode is initialized, a harness contract that reads on-chain
 //! state (e.g. vitalik.eth balance) must receive real fork data via the normal
 //! ForkDB lazy-fetch path and cache the result so that subsequent reads across
 //! constructor, setup, handler function, and invariant function do not trigger

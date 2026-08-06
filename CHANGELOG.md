@@ -12,6 +12,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- `ripfuzz run <HARNESS>` accepts a bare harness name (`Harness`) or a full
+  artifact id (`src/Harness.sol:Harness`). When multiple contracts share the
+  same name, the command lists the matching full ids to choose from
 - Upgraded solc dependency to v0.0.14
 
 ### Fixed
@@ -22,8 +25,9 @@ Initial public release
 
 ### Added
 
-- `ripfuzz run <target>`: run a coverage-guided, mutational fuzzing campaign
-  against a Foundry handler contract using `File.sol:Name` artifact ID syntax
+- `ripfuzz run <HARNESS>`: run a coverage-guided, mutational fuzzing campaign
+  against a Foundry harness contract using name or `File.sol:Name` artifact ID
+  syntax
 - Parallel fuzzing across configurable worker threads with a shared
   coverage-guided corpus and metrics
 - Invariant checking: handler invariant functions are executed after each
