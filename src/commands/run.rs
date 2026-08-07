@@ -357,12 +357,11 @@ pub fn run(args: Args) -> Result<()> {
 
     // Generate campaign ID for coverage report, trace output, and log file.
     let now = jiff::Zoned::now();
-    let date = jiff::fmt::strtime::format("%Y-%m-%d", &now).unwrap_or_default();
-    let hour = jiff::fmt::strtime::format("%H%M", &now).unwrap_or_default();
+    let timestamp = jiff::fmt::strtime::format("%Y-%m-%d-%H%M%S", &now).unwrap_or_default();
     let uuid = uuid::Uuid::new_v4();
     let uuid_str: String = uuid.into();
     let uuid_prefix = uuid_str.split('-').next().unwrap_or_default();
-    let campaign_id = format!("{date}-{hour}-{uuid_prefix}");
+    let campaign_id = format!("{timestamp}-{uuid_prefix}");
 
     if !args.disable_log {
         let log_file = ripfuzz_dir(&project_path)

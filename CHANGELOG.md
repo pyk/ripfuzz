@@ -16,6 +16,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   artifact id (`src/Harness.sol:Harness`). When multiple contracts share the
   same name, the command lists the matching full ids to choose from
 - Upgraded solc dependency to v0.0.14
+- Campaign directory IDs include seconds
+  (`.ripfuzz/campaigns/YYYY-MM-DD-HHMMSS-<uuid>/`) so campaigns started in the
+  same minute are easier to tell apart
 
 ### Fixed
 
