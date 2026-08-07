@@ -16,7 +16,7 @@ path = "src/lib.rs"
 anyhow = "1.0.100"
 
 # CLI
-clap = { version="4.5.54", features = ["derive"] }
+clap = { version = "4.5.54", features = ["derive"] }
 
 # Logging & Tracing
 tracing = "0.1.44"
@@ -34,7 +34,11 @@ fastrand = "2"
 jiff = "0.2.28"
 
 # EVM
-revm = { version = "38.0.0", features = ["optional_balance_check", "optional_eip3607", "optional_no_base_fee"] }
+revm = { version = "38.0.0", features = [
+  "optional_balance_check",
+  "optional_eip3607",
+  "optional_no_base_fee",
+] }
 
 # Hex decoding for foundry artifacts
 hex = "0.4.3"
@@ -70,6 +74,9 @@ papaya = "0.2.4"
 
 # Path traversal
 walkdir = "2"
+
+# .env support
+dotenvy = "0.15.7"
 
 [dev-dependencies]
 # Test utilities

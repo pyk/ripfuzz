@@ -329,6 +329,19 @@ fn ripfuzz_dir(project_path: impl AsRef<Path>) -> PathBuf {
     project_path.as_ref().join(".ripfuzz")
 }
 
+/// Load `.env` from `dir` into the process environment when the file exists.
+///
+/// Existing environment variables are preserved (not overridden). Returns the
+/// loaded path, or `None` when no `.env` file is present.
+fn load_dotenv(dir: impl AsRef<Path>) -> Result<Option<PathBuf>> {
+    let path = dir.as_ref().join(".env");
+    match dotenvy::from_path(&path) {
+        Ok(()) => Ok(Some(path)),
+        Err(e) if e.not_found() => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("failed to load {}", path.display())),
+    }
+}
+
 #[instrument(skip(args), fields(harness = ?args.harness, threads = args.threads, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
     let mut console = Console::new();
@@ -355,6 +368,9 @@ pub fn run(args: Args) -> Result<()> {
     // Resolve project path
     let project_path = args.project_path.map(Ok).unwrap_or_else(env::current_dir)?;
 
+    // Load project `.env` so `vm.getEnv` can read those values.
+    let dotenv_path = load_dotenv(&project_path)?;
+
     // Generate campaign ID for coverage report, trace output, and log file.
     let now = jiff::Zoned::now();
     let timestamp = jiff::fmt::strtime::format("%Y-%m-%d-%H%M%S", &now).unwrap_or_default();
@@ -372,6 +388,9 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     debug!(?project_path, "resolved project path");
+    if let Some(ref path) = dotenv_path {
+        debug!(?path, "loaded environment from .env");
+    }
 
     // Build project
     console.begin("building foundry project ...")?;
@@ -1119,6 +1138,41 @@ mod tests {
             shrink_timeout_secs: None,
             shrink_threads: None,
         }
+    }
+
+    /// Present `.env` must load values into the process environment.
+    #[test]
+    fn load_dotenv_loads_values() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = format!("RIPFUZZ_DOTENV_LOAD_{}", std::process::id());
+        fs::write(dir.path().join(".env"), format!("{key}=from-dotenv\n")).unwrap();
+
+        let loaded = load_dotenv(dir.path()).expect("load must succeed");
+        assert_eq!(
+            loaded.as_deref(),
+            Some(dir.path().join(".env").as_path()),
+            "must return the loaded .env path"
+        );
+        assert_eq!(
+            env::var(&key).expect("env var must be set"),
+            "from-dotenv",
+            "must load values from .env"
+        );
+    }
+
+    /// Existing process environment variables must take precedence over `.env`.
+    #[test]
+    fn load_dotenv_preserves_existing_env() {
+        let original = env::var("PATH").expect("PATH must be set");
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".env"), "PATH=should-not-override\n").unwrap();
+
+        load_dotenv(dir.path()).expect("load must succeed");
+        assert_eq!(
+            env::var("PATH").expect("PATH must still be set"),
+            original,
+            "existing env vars must not be overridden by .env"
+        );
     }
 
     /// Regression test: once a bug is found, the corpus must not grow on

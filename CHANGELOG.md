@@ -27,6 +27,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
   The two-argument form returns `defaultValue` when the key is missing.
 
+- Automatic `.env` loading from the project directory (defaults to the current
+  working directory). Values are available to `vm.getEnv`. Existing process
+  environment variables take precedence over `.env`.
+
 ### Changed
 
 - `ripfuzz run <HARNESS>` accepts a bare harness name (`Harness`) or a full
