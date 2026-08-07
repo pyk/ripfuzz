@@ -128,24 +128,11 @@ impl Chain {
         self.database.as_ref()
     }
 
-    /// Create a new chain.
+    /// Create a new empty sandbox chain.
     ///
-    /// When [`Config::fork`](super::Config) is `Some`, the chain is forked
-    /// from a remote RPC node pinned to [`Config::fork_block_number`].
-    /// Otherwise an empty sandbox chain is created.
+    /// Remote state is opted into at runtime via `vm.fork(url, block)`.
     pub fn new(config: ChainConfig) -> Result<Self> {
-        match config.fork_config().cloned() {
-            Some(fork_config) => {
-                let agent_cfg = ureq::Agent::config_builder()
-                    .timeout_global(Some(std::time::Duration::from_millis(
-                        fork_config.timeout_ms,
-                    )))
-                    .build();
-                let agent = ureq::Agent::new_with_config(agent_cfg);
-                Self::fork_with_transport(config, fork_config, agent)
-            }
-            None => Ok(Self::empty(config)),
-        }
+        Ok(Self::empty(config))
     }
 
     /// Deploy a contract and return the full [`DeployOutput`] result.

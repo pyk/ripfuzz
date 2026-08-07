@@ -19,6 +19,7 @@ pub mod deal;
 pub mod etch;
 pub mod fee;
 pub mod ffi;
+pub mod fork;
 pub mod get_code;
 pub mod get_env;
 pub mod label;
@@ -84,6 +85,16 @@ sol! {
         // Environment
         function getEnv(string key) external returns (string memory value);
         function getEnv(string key, string defaultValue) external returns (string memory value);
+
+        // Fork
+        struct ForkConfig {
+            uint32 retries;
+            uint64 backoffMs;
+            uint64 timeoutMs;
+            uint64 rateLimit;
+        }
+        function fork(string url, uint256 blockNumber) external;
+        function fork(string url, uint256 blockNumber, ForkConfig config) external;
     }
 }
 
@@ -96,7 +107,7 @@ pub fn dispatch<CTX>(
 ) -> Option<CallOutcome>
 where
     CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut,
-    CTX::Db: DatabaseExt,
+    CTX::Db: DatabaseExt + fork::AsForkDatabase,
 {
     match call {
         // Block
@@ -149,5 +160,20 @@ where
         // Environment
         VmCalls::getEnv_0(c) => get_env::get_env(&c.key),
         VmCalls::getEnv_1(c) => get_env::get_env_or_default(&c.key, &c.defaultValue),
+
+        // Fork
+        VmCalls::fork_0(c) => fork::fork(ctx, state, &c.url, c.blockNumber),
+        VmCalls::fork_1(c) => fork::fork_with_options(
+            ctx,
+            state,
+            &c.url,
+            c.blockNumber,
+            fork::ForkOptions {
+                retries: Some(c.config.retries),
+                backoff_ms: Some(c.config.backoffMs),
+                timeout_ms: Some(c.config.timeoutMs),
+                rate_limit: Some(c.config.rateLimit),
+            },
+        ),
     }
 }

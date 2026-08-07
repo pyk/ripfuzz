@@ -18,7 +18,6 @@ pub use inspector::LocalTracker;
 pub use local_registry::SharedLocalAddressRegistry;
 pub use request::{Request, url_hash};
 pub use response::Response;
-#[cfg_attr(not(test), allow(unused_imports))]
 pub use transport::{MockTransport, Transport};
 
 mod backend;

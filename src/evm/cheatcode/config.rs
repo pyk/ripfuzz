@@ -2,8 +2,11 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use revm::primitives::Bytes;
+
+use crate::evm::forkdb::{ForkDBConfig, Transport};
 
 /// User-facing configuration for the cheatcode inspector.
 #[derive(Debug, Clone)]
@@ -15,6 +18,10 @@ pub struct CheatcodeConfig {
     /// Compiled contract initcode keyed by artifact id and short name,
     /// populated by `vm.getCode`.
     pub compiled_contracts: HashMap<String, Bytes>,
+    /// Default RPC settings for `vm.fork`.
+    pub fork_defaults: ForkDBConfig,
+    /// Optional transport override for tests.
+    pub transport: Option<Arc<dyn Transport>>,
 }
 
 impl CheatcodeConfig {
@@ -24,6 +31,8 @@ impl CheatcodeConfig {
             ffi: false,
             project_root: project_root.as_ref().to_path_buf(),
             compiled_contracts: HashMap::new(),
+            fork_defaults: ForkDBConfig::new(""),
+            transport: None,
         }
     }
 
@@ -53,6 +62,18 @@ impl CheatcodeConfig {
         self.ffi = enabled;
         self
     }
+
+    /// Set default RPC settings used by `vm.fork`.
+    pub fn with_fork_defaults(mut self, defaults: ForkDBConfig) -> Self {
+        self.fork_defaults = defaults;
+        self
+    }
+
+    /// Inject a custom transport (used by tests with [`crate::evm::MockTransport`]).
+    pub fn with_transport(mut self, transport: Arc<dyn Transport>) -> Self {
+        self.transport = Some(transport);
+        self
+    }
 }
 
 impl Default for CheatcodeConfig {
@@ -61,6 +82,8 @@ impl Default for CheatcodeConfig {
             ffi: false,
             project_root: PathBuf::new(),
             compiled_contracts: HashMap::new(),
+            fork_defaults: ForkDBConfig::new(""),
+            transport: None,
         }
     }
 }

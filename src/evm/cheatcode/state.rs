@@ -2,13 +2,15 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use revm::primitives::{Address, Bytes, U256};
 
 use crate::evm::cheatcode::CheatcodeConfig;
+use crate::evm::forkdb::{ForkDBConfig, SharedLocalAddressRegistry, Transport};
 
 /// Transient scratchpad for one call sequence.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ExecutionState {
     pub block: BlockCheatState,
     pub prank: PrankCheatState,
@@ -16,18 +18,48 @@ pub struct ExecutionState {
     pub compiled_contracts: HashMap<String, Bytes>,
     pub project_root: PathBuf,
     pub ffi_enabled: bool,
+    /// Default RPC settings used by `vm.fork` when no per-call config is given.
+    pub fork_defaults: ForkDBConfig,
+    /// Optional transport override (tests inject [`crate::evm::MockTransport`]).
+    pub transport: Option<Arc<dyn Transport>>,
+    /// Local addresses that must persist across fork switches.
+    pub local_registry: SharedLocalAddressRegistry,
+}
+
+impl Default for ExecutionState {
+    fn default() -> Self {
+        Self {
+            block: BlockCheatState::default(),
+            prank: PrankCheatState::default(),
+            labels: HashMap::new(),
+            compiled_contracts: HashMap::new(),
+            project_root: PathBuf::new(),
+            ffi_enabled: false,
+            fork_defaults: ForkDBConfig::new(""),
+            transport: None,
+            local_registry: SharedLocalAddressRegistry::new(),
+        }
+    }
 }
 
 impl ExecutionState {
-    // TODO(pyk): remove this, Chain owns execution state now
     /// Seed execution state from a [`CheatcodeConfig`].
     pub fn from_config(config: &CheatcodeConfig) -> Self {
         Self {
             project_root: config.project_root.clone(),
             ffi_enabled: config.ffi,
             compiled_contracts: config.compiled_contracts.clone(),
+            fork_defaults: config.fork_defaults.clone(),
+            transport: config.transport.clone(),
+            local_registry: SharedLocalAddressRegistry::new(),
             ..Self::default()
         }
+    }
+
+    /// Attach the chain's shared local-address registry.
+    pub fn with_local_registry(mut self, registry: SharedLocalAddressRegistry) -> Self {
+        self.local_registry = registry;
+        self
     }
 }
 

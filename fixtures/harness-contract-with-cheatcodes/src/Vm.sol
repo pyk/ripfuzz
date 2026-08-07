@@ -58,4 +58,14 @@ interface Vm {
     // Environment
     function getEnv(string calldata) external returns (string memory);
     function getEnv(string calldata, string calldata) external returns (string memory);
+
+    // Fork
+    struct ForkConfig {
+        uint32 retries;
+        uint64 backoffMs;
+        uint64 timeoutMs;
+        uint64 rateLimit;
+    }
+    function fork(string calldata url, uint256 blockNumber) external;
+    function fork(string calldata url, uint256 blockNumber, ForkConfig calldata config) external;
 }

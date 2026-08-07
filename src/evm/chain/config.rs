@@ -2,11 +2,12 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use revm::primitives::Bytes;
 
 use crate::evm::cheatcode::CheatcodeConfig;
-use crate::evm::forkdb::ForkDBConfig;
+use crate::evm::forkdb::{ForkDBConfig, Transport};
 
 /// Campaign-level configuration that controls chain behaviour.
 #[derive(Debug, Clone)]
@@ -14,7 +15,6 @@ pub struct ChainConfig {
     cheatcode: CheatcodeConfig,
     trace: bool,
     coverage: bool,
-    fork: Option<ForkDBConfig>,
 }
 
 impl ChainConfig {
@@ -24,7 +24,6 @@ impl ChainConfig {
             cheatcode: CheatcodeConfig::new(project_root),
             trace: false,
             coverage: false,
-            fork: None,
         }
     }
 
@@ -37,12 +36,6 @@ impl ChainConfig {
     /// Enable or disable coverage collection.
     pub fn coverage(mut self, enabled: bool) -> Self {
         self.coverage = enabled;
-        self
-    }
-
-    /// Set the fork configuration.
-    pub fn fork(mut self, config: ForkDBConfig) -> Self {
-        self.fork = Some(config);
         self
     }
 
@@ -59,6 +52,18 @@ impl ChainConfig {
         self
     }
 
+    /// Set default RPC settings used by `vm.fork`.
+    pub fn with_fork_defaults(mut self, defaults: ForkDBConfig) -> Self {
+        self.cheatcode = self.cheatcode.with_fork_defaults(defaults);
+        self
+    }
+
+    /// Inject a custom transport for `vm.fork` (tests).
+    pub fn with_transport(mut self, transport: Arc<dyn Transport>) -> Self {
+        self.cheatcode = self.cheatcode.with_transport(transport);
+        self
+    }
+
     /// Enable or disable trace collection on an existing config.
     pub fn set_trace(&mut self, enabled: bool) {
         self.trace = enabled;
@@ -72,11 +77,6 @@ impl ChainConfig {
     /// Whether coverage collection is enabled.
     pub fn coverage_enabled(&self) -> bool {
         self.coverage
-    }
-
-    /// Fork configuration, if any.
-    pub fn fork_config(&self) -> Option<&ForkDBConfig> {
-        self.fork.as_ref()
     }
 
     /// Cheatcode inspector configuration.

@@ -76,10 +76,15 @@ impl Chain {
             },
         );
 
-        let cheatcode_state = ExecutionState::from_config(config.cheatcode());
+        let local_registry = SharedLocalAddressRegistry::new();
+        // Always-persistent system accounts across fork switches.
+        local_registry.mark_local(DEFAULT_DEPLOYER);
+        local_registry.mark_local(VM_ADDRESS);
+        let cheatcode_state = ExecutionState::from_config(config.cheatcode())
+            .with_local_registry(local_registry.clone());
         Self {
             database: Some(Database::Empty(db)),
-            local_registry: SharedLocalAddressRegistry::new(),
+            local_registry,
             block_env,
             cfg_env,
             deployer: DEFAULT_DEPLOYER,

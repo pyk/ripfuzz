@@ -39,11 +39,6 @@ impl ForkDB {
         }
     }
 
-    /// Public accessor for the underlying [`SharedBackend`].
-    pub fn backend(&self) -> &SharedBackend {
-        &self.backend
-    }
-
     /// Parse the heterogeneous batch responses for `basic_ref` into an
     /// `AccountInfo`. The responses may arrive in any order; we match by
     /// variant rather than by index so that `db.rs` is decoupled from the
@@ -159,6 +154,10 @@ impl DatabaseRef for ForkDB {
     }
 
     fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
+        // Locally-created accounts have no remote storage; return zero without RPC.
+        if self.local_registry.is_local(address) {
+            return Ok(U256::ZERO);
+        }
         let mut responses = self.backend.fetch_or_wait(&[Request::GetStorageAt {
             chain_id: self.chain_id,
             address,

@@ -31,6 +31,30 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   working directory). Values are available to `vm.getEnv`. Existing process
   environment variables take precedence over `.env`.
 
+- `vm.fork` cheatcode to create or select a remote chain fork:
+
+  ```solidity
+  struct ForkConfig {
+      uint32 retries;
+      uint64 backoffMs;
+      uint64 timeoutMs;
+      uint64 rateLimit;
+  }
+
+  function fork(string calldata url, uint256 blockNumber) external;
+  function fork(string calldata url, uint256 blockNumber, ForkConfig config)
+      external;
+  ```
+
+  Campaigns always start as an empty sandbox. Call `vm.fork` in `setup` or
+  action modifiers to opt into remote state. Multiple forks are cached and
+  selected by `(url, block)`. Local accounts (harness, deployer, `vm.addr`
+  results) persist across switches. Remote state is isolated per fork, so the
+  same address on two chains (e.g. a bridge on Ethereum and Polygon) keeps
+  independent storage and balances. Coverage is keyed by bytecode hash, not
+  address. Single-arg `vm.fork` defaults: retries 3, backoff 100ms, timeout
+  30s, no rate limit (same as the former CLI defaults).
+
 ### Changed
 
 - `ripfuzz run <HARNESS>` accepts a bare harness name (`Harness`) or a full
@@ -40,6 +64,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - Campaign directory IDs include seconds
   (`.ripfuzz/campaigns/YYYY-MM-DD-HHMMSS-<uuid>/`) so campaigns started in the
   same minute are easier to tell apart
+- Fork mode is driven entirely by `vm.fork` in the harness. CLI flags
+  `--rpc-url`, `--rpc-block`, `--rpc-retries`, `--rpc-backoff`,
+  `--rpc-timeout`, and `--rpc-rate-limit` are removed. Single-arg
+  `vm.fork(url, block)` uses built-in defaults (retries 3, backoff 100ms,
+  timeout 30s, no rate limit). Override via `vm.fork(url, block, ForkConfig)`
 
 ### Fixed
 

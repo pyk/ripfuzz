@@ -17,6 +17,7 @@ use revm::{
 
 use crate::evm::cheatcode::calls;
 use crate::evm::cheatcode::calls::Vm::VmCalls;
+use crate::evm::cheatcode::calls::fork::AsForkDatabase;
 use crate::evm::cheatcode::{CheatcodeConfig, ExecutionState, VM_ADDRESS};
 use crate::evm::database::DatabaseExt;
 use crate::evm::forkdb::SharedLocalAddressRegistry;
@@ -61,17 +62,19 @@ impl Inspector {
     }
 
     pub fn from_state(state: ExecutionState) -> Self {
+        let local_registry = Some(state.local_registry.clone());
         Self {
             state,
             shared_labels: None,
             depth: 0,
-            local_registry: None,
+            local_registry,
         }
     }
 
     /// Set the shared local address registry so that `vm.addr` can mark
     /// derived addresses as local.
     pub fn with_local_registry(mut self, registry: SharedLocalAddressRegistry) -> Self {
+        self.state.local_registry = registry.clone();
         self.local_registry = Some(registry);
         self
     }
@@ -226,7 +229,7 @@ impl Default for Inspector {
 impl<CTX: ContextTr<Block = BlockEnv, Tx = TxEnv> + ContextSetters + CfgMut>
     revm::inspector::Inspector<CTX, EthInterpreter> for Inspector
 where
-    CTX::Db: DatabaseExt,
+    CTX::Db: DatabaseExt + AsForkDatabase,
 {
     fn initialize_interp(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
     }

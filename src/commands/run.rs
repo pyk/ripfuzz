@@ -155,10 +155,6 @@ pub struct Args {
     #[arg(long = "disable-log", help_heading = "Logging")]
     pub disable_log: bool,
 
-    /// Fork mode configuration.
-    #[command(flatten)]
-    pub fork_mode: ForkModeArgs,
-
     // Security
     /// Enable the `ffi` cheatcode (security-sensitive).
     #[arg(long = "ffi", help_heading = "Security")]
@@ -247,80 +243,6 @@ impl Args {
         let mut padded = [0u8; 20];
         padded[20 - bytes.len()..].copy_from_slice(&bytes);
         Ok(Address::new(padded))
-    }
-}
-
-#[derive(Debug, Parser)]
-pub struct ForkModeArgs {
-    /// JSON-RPC URL to fork from.
-    #[arg(long = "rpc-url", value_name = "URL", help_heading = "Fork Mode")]
-    pub rpc_url: Option<String>,
-
-    /// Block number to fork at. Must be <= the remote latest block.
-    #[arg(long = "rpc-block", value_name = "N", help_heading = "Fork Mode")]
-    pub rpc_block: Option<u64>,
-
-    /// Maximum retry attempts per RPC URL after transient failure.
-    #[arg(
-        long = "rpc-retries",
-        default_value = "3",
-        value_name = "N",
-        help_heading = "Fork Mode"
-    )]
-    pub rpc_retries: u32,
-
-    /// Initial retry backoff in milliseconds (doubles each attempt).
-    #[arg(
-        long = "rpc-backoff",
-        default_value = "100",
-        value_name = "MS",
-        help_heading = "Fork Mode"
-    )]
-    pub rpc_backoff: u64,
-
-    /// Optional rate limit: maximum requests per second across all URLs.
-    #[arg(long = "rpc-rate-limit", value_name = "N", help_heading = "Fork Mode")]
-    pub rpc_rate_limit: Option<u64>,
-
-    /// Request timeout in milliseconds for each RPC call.
-    #[arg(
-        long = "rpc-timeout",
-        default_value = "30000",
-        value_name = "MS",
-        help_heading = "Fork Mode"
-    )]
-    pub rpc_timeout: u64,
-}
-
-impl Default for ForkModeArgs {
-    fn default() -> Self {
-        Self {
-            rpc_url: None,
-            rpc_block: None,
-            rpc_retries: 3,
-            rpc_backoff: 100,
-            rpc_rate_limit: None,
-            rpc_timeout: 30000,
-        }
-    }
-}
-
-impl ForkModeArgs {
-    /// Build a [`ForkDBConfig`](crate::evm::ForkDBConfig) from CLI arguments.
-    pub fn build_fork_config(&self, project_path: impl AsRef<Path>) -> Result<ForkDBConfig> {
-        let cache_dir = ripfuzz_dir(project_path).join("cache");
-        let block = self
-            .rpc_block
-            .context("--rpc-block is required with --rpc-url")?;
-        let url = self.rpc_url.as_ref().context("--rpc-url is required")?;
-        let config = ForkDBConfig::new(url.clone())
-            .retries(self.rpc_retries)
-            .backoff_ms(self.rpc_backoff)
-            .rate_limit(self.rpc_rate_limit)
-            .timeout_ms(self.rpc_timeout)
-            .cache_dir(&cache_dir)
-            .block_number(block);
-        Ok(config)
     }
 }
 
@@ -485,23 +407,14 @@ pub fn run(args: Args) -> Result<()> {
         compiled_contracts.insert(id.into(), initcode);
     }
 
-    // Create test chain
+    // Create test chain (empty sandbox; harnesses call vm.fork to opt into remote state).
+    // RPC retries/timeout/etc. use ForkDBConfig defaults; override via vm.fork(..., ForkConfig).
     console.begin("spawning test chain ...")?;
-    let mut chain_config = ChainConfig::new(&project_path)
+    let fork_defaults = ForkDBConfig::new("").cache_dir(ripfuzz_dir(&project_path).join("cache"));
+    let chain_config = ChainConfig::new(&project_path)
         .with_compiled_contracts(compiled_contracts)
+        .with_fork_defaults(fork_defaults)
         .coverage(true);
-    if args.fork_mode.rpc_url.is_some() {
-        console.update("forking chain")?;
-        let fork_config = match args.fork_mode.build_fork_config(&project_path) {
-            Ok(c) => c,
-            Err(e) => {
-                console.end_fail("forking chain failed")?;
-                console.print_line(format!("{e:#}"))?;
-                return Err(e);
-            }
-        };
-        chain_config = chain_config.fork(fork_config);
-    }
     let mut chain = match Chain::new(chain_config) {
         Ok(c) => c,
         Err(e) => {
@@ -1129,7 +1042,6 @@ mod tests {
             corpus_dir: Some(corpus_dir),
             log_level: tracing::Level::INFO,
             disable_log: true,
-            fork_mode: ForkModeArgs::default(),
             ffi: false,
             force: false,
             fail_on_revert: false,

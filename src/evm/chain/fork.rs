@@ -1,165 +1,64 @@
-//! Forked chain initialisation.
+//! Forked chain initialisation helpers (tests and library convenience).
+
+use std::sync::Arc;
 
 use alloy_primitives::U256;
-use anyhow::{Context as _, Result, ensure};
-use revm::{
-    bytecode::Bytecode,
-    context::{BlockEnv, CfgEnv},
-    context_interface::block::BlobExcessGasAndPrice,
-    database::CacheDB,
-    primitives::Bytes,
-    state::AccountInfo,
-};
+use anyhow::{Context as _, Result};
+use revm::context_interface::block::BlobExcessGasAndPrice;
 
-use crate::evm::chain::{Chain, ChainConfig, DEFAULT_DEPLOYER};
-use crate::evm::cheatcode::*;
-use crate::evm::database::Database;
-use crate::evm::forkdb;
-use crate::evm::forkdb::{ForkDB, ForkDBConfig, SharedLocalAddressRegistry};
-use crate::evm::specs;
+use crate::evm::chain::{Chain, ChainConfig};
+use crate::evm::forkdb::{ForkDBConfig, Transport};
 
 impl Chain {
-    /// Create a forked EVM with a custom transport (used in tests).
+    /// Create a chain that is already forked (used in tests).
+    ///
+    /// Prefer `vm.fork` from harness code for campaigns. This helper builds an
+    /// empty chain and immediately selects the given fork via the multi-fork
+    /// database layer.
     pub fn fork_with_transport(
         chain_config: ChainConfig,
         forkdb_config: ForkDBConfig,
-        transport: impl forkdb::Transport + 'static,
+        transport: impl Transport + 'static,
     ) -> Result<Self> {
+        let transport: Arc<dyn Transport> = Arc::new(transport);
+        let chain_config = chain_config
+            .with_fork_defaults(forkdb_config.clone())
+            .with_transport(transport.clone());
+        let mut chain = Self::empty(chain_config);
+
+        let url = forkdb_config.url.clone();
         let block_number = forkdb_config.block_number;
-        let url_hash = forkdb::url_hash(&forkdb_config.url);
-        let local_registry = SharedLocalAddressRegistry::new();
-        let backend = forkdb::SharedBackend::new_with_transport(forkdb_config, transport);
+        let db = chain.database.as_mut().context("database unavailable")?;
+        let env = db
+            .fork(
+                &url,
+                block_number,
+                forkdb_config,
+                Some(transport),
+                chain.local_registry.clone(),
+            )
+            .context("creating fork")?;
 
-        // resolve chain_id so every subsequent cache key is scoped.
-        let mut responses = backend
-            .fetch_or_wait(&[forkdb::Request::GetChainId { url_hash }])
-            .with_context(|| "fetching chain id for fork")?;
-        let chain_id = responses
-            .pop()
-            .and_then(|r| match r {
-                forkdb::Response::ChainId(v) => Some(v),
-                _ => None,
-            })
-            .context("missing ChainId response")?;
+        chain.cfg_env.chain_id = env.chain_id;
+        chain.cfg_env.set_spec_and_mainnet_gas_params(env.spec_id);
+        chain.block_env.number = U256::from(env.block_number);
+        chain.block_env.timestamp = env.timestamp;
+        chain.block_env.beneficiary = env.beneficiary;
+        chain.block_env.difficulty = env.difficulty;
+        chain.block_env.prevrandao = env.prevrandao;
+        chain.block_env.gas_limit = u64::MAX;
+        chain.block_env.basefee = 0;
+        let excess = env.excess_blob_gas.unwrap_or(0);
+        chain.block_env.blob_excess_gas_and_price =
+            Some(BlobExcessGasAndPrice::new_with_spec(excess, env.spec_id));
 
-        // fetch the fork block using the real chain_id.
-        let mut responses = backend
-            .fetch_or_wait(&[forkdb::Request::GetBlockByNumber {
-                chain_id,
-                block: block_number,
-            }])
-            .with_context(|| format!("fetching fork block {block_number}"))?;
-        let block = responses
-            .pop()
-            .and_then(|r| match r {
-                forkdb::Response::BlockByNumber(b) => Some(b),
-                _ => None,
-            })
-            .context("missing BlockByNumber response")?;
+        chain.cheatcode_state.block.chain_id = Some(U256::from(env.chain_id));
+        chain.cheatcode_state.block.number = Some(U256::from(env.block_number));
+        chain.cheatcode_state.block.timestamp = Some(env.timestamp);
+        chain.cheatcode_state.block.beneficiary = Some(env.beneficiary);
+        chain.cheatcode_state.block.prevrandao = env.prevrandao;
 
-        let returned_number = block.number.to::<u64>();
-        ensure!(
-            returned_number == block_number,
-            "RPC returned block {returned_number} but requested block {block_number}"
-        );
-
-        let spec_id = specs::get_spec_id(chain_id, block.timestamp.to());
-
-        let mut cfg_env = CfgEnv::default();
-        cfg_env.chain_id = chain_id;
-        cfg_env.tx_gas_limit_cap = Some(u64::MAX);
-        cfg_env.disable_nonce_check = true;
-        cfg_env.disable_eip3607 = true;
-        cfg_env.disable_base_fee = true;
-        cfg_env.limit_contract_code_size = Some(usize::MAX);
-        cfg_env.limit_contract_initcode_size = Some(usize::MAX);
-        cfg_env.set_spec_and_mainnet_gas_params(spec_id);
-
-        let fork_db = ForkDB::new(
-            backend.clone(),
-            local_registry.clone(),
-            block_number,
-            chain_id,
-        );
-        let mut database = CacheDB::new(fork_db);
-
-        // Pre-cache the fork block hash so the BLOCKHASH opcode does not
-        // trigger an unnecessary RPC call.
-        if let Some(hash) = block.hash {
-            database
-                .cache
-                .block_hashes
-                .insert(U256::from(block.number), hash);
-        }
-
-        let mut block_env = BlockEnv {
-            number: U256::from(block.number),
-            beneficiary: block.coinbase,
-            timestamp: U256::from(block.timestamp),
-            // Use u64::MAX for the block gas limit so that transactions with
-            // gas_limit = u64::MAX (the default for deploy/call) do not fail
-            // revm validation with CallerGasLimitMoreThanBlock.
-            gas_limit: u64::MAX,
-            // Zero basefee so that transactions with gas_price = 0 (the default
-            // for deploy/call) do not fail validation with GasPriceLessThanBasefee.
-            basefee: 0,
-            difficulty: block.difficulty,
-            prevrandao: block.prevrandao,
-            blob_excess_gas_and_price: None,
-            slot_num: 0,
-        };
-        if let Some(excess) = block.excess_blob_gas {
-            block_env.blob_excess_gas_and_price =
-                Some(BlobExcessGasAndPrice::new_with_spec(excess.to(), spec_id));
-        }
-
-        // Seed the coinbase so that gas payment during execution does not
-        // trigger an RPC fetch for a real miner address.
-        database.insert_account_info(
-            block.coinbase,
-            AccountInfo {
-                balance: U256::MAX,
-                nonce: 0,
-                code_hash: revm::primitives::KECCAK_EMPTY,
-                code: None,
-                account_id: None,
-            },
-        );
-
-        // Set deployer balance
-        let info = AccountInfo {
-            balance: U256::MAX,
-            nonce: 0,
-            code_hash: revm::primitives::KECCAK_EMPTY,
-            code: None,
-            account_id: None,
-        };
-        database.insert_account_info(DEFAULT_DEPLOYER, info);
-
-        // Insert a dummy VM contract so Solidity's `extcodesize` check passes
-        // when a target calls ripfuzz cheatcodes during deployment or setup.
-        let vm_code = Bytecode::new_raw(Bytes::from_static(&[0x00]));
-        database.insert_account_info(
-            VM_ADDRESS,
-            AccountInfo {
-                balance: U256::ZERO,
-                nonce: 0,
-                code_hash: vm_code.hash_slow(),
-                code: Some(vm_code),
-                account_id: None,
-            },
-        );
-
-        let cheatcode_state = ExecutionState::from_config(chain_config.cheatcode());
-        Ok(Self {
-            database: Some(Database::Fork(database)),
-            local_registry,
-            block_env,
-            cfg_env,
-            deployer: DEFAULT_DEPLOYER,
-            config: chain_config,
-            cheatcode_state,
-        })
+        Ok(chain)
     }
 }
 
@@ -593,7 +492,7 @@ mod tests {
             result.is_err(),
             "Chain::fork must reject a block whose number does not match the requested height"
         );
-        let err_msg = format!("{}", result.unwrap_err());
+        let err_msg = format!("{:#}", result.unwrap_err());
         assert!(
             err_msg.contains("100"),
             "error message must mention the requested block number: {err_msg}"

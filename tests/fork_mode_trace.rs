@@ -115,10 +115,19 @@ fn supply_usdc_to_aave_v3_pool() {
         cache_path.display(),
     );
 
-    let config = ForkDBConfig::new(LIVE_RPC_URL)
+    let fork_config = ForkDBConfig::new(LIVE_RPC_URL)
         .block_number(BLOCK_NUMBER)
         .cache_dir(CACHE_DIR);
-    let mut chain = Chain::new(ChainConfig::default().trace(true).fork(config)).unwrap();
+    // Pre-fork via library helper so the harness sees remote Base state at deploy time.
+    // Campaign code should call vm.fork instead; this test exercises the fork DB + trace path.
+    let agent_cfg = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_millis(
+            fork_config.timeout_ms,
+        )))
+        .build();
+    let agent = ureq::Agent::new_with_config(agent_cfg);
+    let mut chain =
+        Chain::fork_with_transport(ChainConfig::default().trace(true), fork_config, agent).unwrap();
 
     // 1. Deploy harness contract
     let handler_project = Project::new("fixtures/fork-mode-trace");
