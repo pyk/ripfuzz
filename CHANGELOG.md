@@ -10,6 +10,23 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `vm.getEnv` cheatcode to read environment variables as strings:
+
+  ```solidity
+  function getEnv(string calldata key) external returns (string memory value);
+  function getEnv(string calldata key, string calldata defaultValue)
+      external
+      returns (string memory value);
+  ```
+
+  The single-argument form reverts when the key is missing:
+
+  ```text
+  Failed to get environment variable FOO as type string: environment variable not found
+  ```
+
+  The two-argument form returns `defaultValue` when the key is missing.
+
 ### Changed
 
 - `ripfuzz run <HARNESS>` accepts a bare harness name (`Harness`) or a full

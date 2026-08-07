@@ -54,4 +54,8 @@ interface Vm {
 
     // FFI
     function ffi(string[] calldata) external returns (bytes memory);
+
+    // Environment
+    function getEnv(string calldata) external returns (string memory);
+    function getEnv(string calldata, string calldata) external returns (string memory);
 }

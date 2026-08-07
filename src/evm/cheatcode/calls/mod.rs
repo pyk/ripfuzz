@@ -20,6 +20,7 @@ pub mod etch;
 pub mod fee;
 pub mod ffi;
 pub mod get_code;
+pub mod get_env;
 pub mod label;
 pub mod nonce;
 pub mod parse;
@@ -79,6 +80,10 @@ sol! {
         function addr(uint256 sk) external returns (address);
         function sign(uint256 sk, bytes32 digest) external returns (uint8 v, bytes32 r, bytes32 s);
         function ffi(string[] args) external returns (bytes memory);
+
+        // Environment
+        function getEnv(string key) external returns (string memory value);
+        function getEnv(string key, string defaultValue) external returns (string memory value);
     }
 }
 
@@ -140,5 +145,9 @@ where
         VmCalls::addr(c) => addr::handle(c.sk),
         VmCalls::sign(c) => sign::handle(c.sk, c.digest.into()),
         VmCalls::ffi(c) => ffi::handle(c.args, state),
+
+        // Environment
+        VmCalls::getEnv_0(c) => get_env::get_env(&c.key),
+        VmCalls::getEnv_1(c) => get_env::get_env_or_default(&c.key, &c.defaultValue),
     }
 }
