@@ -120,6 +120,7 @@ contract CounterHarness is Harness {
 | Wallet      | `addr`, `sign`                                                                                 |
 | FFI         | `ffi`                                                                                          |
 | Environment | `getEnv`                                                                                       |
+| Fork        | `fork`                                                                                         |
 
 The full interface lives in
 [RVM.sol](https://github.com/pyk/ripfuzz-std/blob/main/src/RVM.sol). More
