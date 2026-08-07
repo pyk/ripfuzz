@@ -2784,7 +2784,7 @@ dependencies = [
 
 [[package]]
 name = "ripfuzz"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "alloy-chains",
  "alloy-dyn-abi",

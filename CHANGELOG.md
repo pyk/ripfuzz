@@ -10,6 +10,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.9.1] - 2026-08-07
+
+### Added
+
 - `vm.getEnv` cheatcode to read environment variables as strings:
 
   ```solidity
@@ -155,5 +163,6 @@ Initial public release
   `SharedCorpus`, `CorpusReplayer`, and `CoverageReporter` types for
   programmatic use
 
-[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.0...HEAD
+[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/pyk/ripfuzz/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/pyk/ripfuzz/releases/tag/v0.9.0
