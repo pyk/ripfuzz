@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeDifficulty {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
     uint256 public recordedDifficulty;
 
     // --- setup interaction ---
 
     function setup() external {
-        vm.difficulty(9999);
+        rvm.difficulty(9999);
     }
 
     function call_record() external {
@@ -18,7 +18,7 @@ contract CheatcodeDifficulty {
     }
 
     function setup_difficulty_unchanged() external view returns (bool) {
-        // setup() called vm.difficulty(9999) but it must be a no-op.
+        // setup() called rvm.difficulty(9999) but it must be a no-op.
         // On post-Paris, block.difficulty reads prevrandao, which defaults to 0.
         return recordedDifficulty == 0;
     }
@@ -30,7 +30,7 @@ contract CheatcodeDifficulty {
     // --- Same-sequence no-op ---
 
     function call_difficulty(uint256 x) external {
-        vm.difficulty(x);
+        rvm.difficulty(x);
         recordedDifficulty = block.difficulty;
     }
 
@@ -42,7 +42,7 @@ contract CheatcodeDifficulty {
     // --- Revert safety ---
 
     function call_difficulty_and_revert(uint256 x) external {
-        vm.difficulty(x);
+        rvm.difficulty(x);
         revert("intentional");
     }
 
@@ -54,8 +54,8 @@ contract CheatcodeDifficulty {
     // --- Interaction with prevrandao ---
 
     function call_prevrandao_then_difficulty() external {
-        vm.prevrandao(bytes32(uint256(42)));
-        vm.difficulty(9999);
+        rvm.prevrandao(bytes32(uint256(42)));
+        rvm.difficulty(9999);
         recordedDifficulty = block.difficulty;
     }
 
@@ -76,7 +76,7 @@ contract CheatcodeDifficulty {
     // --- Edge: difficulty to zero ---
 
     function call_difficulty_zero() external {
-        vm.difficulty(0);
+        rvm.difficulty(0);
     }
 
     function difficulty_zero_no_op() external view returns (bool) {
@@ -86,7 +86,7 @@ contract CheatcodeDifficulty {
     // --- Edge: difficulty to max uint64 ---
 
     function call_difficulty_max() external {
-        vm.difficulty(type(uint64).max);
+        rvm.difficulty(type(uint64).max);
     }
 
     function difficulty_max_no_op() external view returns (bool) {

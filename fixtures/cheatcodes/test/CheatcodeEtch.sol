@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeEtch {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
 
     // Runtime bytecode: PUSH1 0x01 PUSH1 0x00 MSTORE PUSH1 0x20 PUSH1 0x00 RETURN
     bytes constant RUNTIME_CODE = hex"6001600052602060006000f3";
@@ -13,7 +13,7 @@ contract CheatcodeEtch {
 
     // --- setup interaction ---
     function setup() external {
-        vm.etch(address(0xCAFE), RUNTIME_CODE);
+        rvm.etch(address(0xCAFE), RUNTIME_CODE);
     }
 
     function call_record_extcodesize_cafe() external {
@@ -28,7 +28,7 @@ contract CheatcodeEtch {
 
     // --- Same-sequence persistence ---
     function call_etch_beef() external {
-        vm.etch(address(0xBEEF), RUNTIME_CODE);
+        rvm.etch(address(0xBEEF), RUNTIME_CODE);
     }
 
     function etch_persists_across_calls() external view returns (bool) {
@@ -39,7 +39,7 @@ contract CheatcodeEtch {
 
     // --- Revert safety ---
     function call_etch_and_revert() external {
-        vm.etch(address(0xDEAD), RUNTIME_CODE);
+        rvm.etch(address(0xDEAD), RUNTIME_CODE);
         revert("intentional");
     }
 
@@ -51,8 +51,8 @@ contract CheatcodeEtch {
 
     // --- Overwrite ---
     function call_etch_overwrite() external {
-        vm.etch(address(0xBEEF), RUNTIME_CODE);
-        vm.etch(address(0xBEEF), EMPTY_CODE);
+        rvm.etch(address(0xBEEF), RUNTIME_CODE);
+        rvm.etch(address(0xBEEF), EMPTY_CODE);
     }
 
     function etch_overwrite() external view returns (bool) {
@@ -63,7 +63,7 @@ contract CheatcodeEtch {
 
     // --- Non-existent address ---
     function call_etch_new_account() external {
-        vm.etch(address(0xFACADE), RUNTIME_CODE);
+        rvm.etch(address(0xFACADE), RUNTIME_CODE);
     }
 
     function etch_new_account() external view returns (bool) {
@@ -81,7 +81,7 @@ contract CheatcodeEtch {
 
     // --- Precompile guard ---
     function call_etch_precompile() external {
-        vm.etch(address(0x01), RUNTIME_CODE);
+        rvm.etch(address(0x01), RUNTIME_CODE);
     }
 
     function precompile_unchanged() external view returns (bool) {

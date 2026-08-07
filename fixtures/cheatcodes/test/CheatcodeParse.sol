@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeParse {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
 
     // State variables to persist parse results across calls
     uint256 public storedUint;
@@ -17,14 +17,14 @@ contract CheatcodeParse {
     // --- setup interaction ---
 
     function setup() external {
-        storedUint = vm.parseUint("999");
-        storedInt = vm.parseInt("-999");
-        storedBool = vm.parseBool("true");
-        storedAddr = vm.parseAddress(
+        storedUint = rvm.parseUint("999");
+        storedInt = rvm.parseInt("-999");
+        storedBool = rvm.parseBool("true");
+        storedAddr = rvm.parseAddress(
             "0x71C7656EC7ab88b098defB751B7401B5f6d8976F"
         );
-        storedBytes = vm.parseBytes("0xabcd");
-        storedBytes32 = vm.parseBytes32(
+        storedBytes = rvm.parseBytes("0xabcd");
+        storedBytes32 = rvm.parseBytes32(
             "0x1111111111111111111111111111111111111111111111111111111111111111"
         );
     }
@@ -45,7 +45,7 @@ contract CheatcodeParse {
     // --- Same-sequence calls ---
 
     function call_parse_and_store(string calldata s) external {
-        storedUint = vm.parseUint(s);
+        storedUint = rvm.parseUint(s);
     }
 
     function parse_persists_in_sequence()
@@ -61,12 +61,12 @@ contract CheatcodeParse {
 
     function call_parse_no_side_effect(string calldata s) external view {
         // Pure parse should not change any chain state
-        vm.parseUint(s);
-        vm.parseInt(s);
-        vm.parseBool("true");
-        vm.parseAddress("0x71C7656EC7ab88b098defB751B7401B5f6d8976F");
-        vm.parseBytes("0x00");
-        vm.parseBytes32(
+        rvm.parseUint(s);
+        rvm.parseInt(s);
+        rvm.parseBool("true");
+        rvm.parseAddress("0x71C7656EC7ab88b098defB751B7401B5f6d8976F");
+        rvm.parseBytes("0x00");
+        rvm.parseBytes32(
             "0x1111111111111111111111111111111111111111111111111111111111111111"
         );
     }
@@ -79,7 +79,7 @@ contract CheatcodeParse {
     // --- Revert safety ---
 
     function call_parse_and_revert(string calldata badUint) external {
-        vm.parseUint(badUint); // if badUint is malformed, this reverts
+        rvm.parseUint(badUint); // if badUint is malformed, this reverts
         revert("should not reach here");
     }
 
@@ -91,8 +91,8 @@ contract CheatcodeParse {
     // --- Cross-cheatcode: parse + deal ---
 
     function call_parse_then_deal(string calldata amtStr) external {
-        uint256 amt = vm.parseUint(amtStr);
-        vm.deal(address(0xBEEF), amt);
+        uint256 amt = rvm.parseUint(amtStr);
+        rvm.deal(address(0xBEEF), amt);
     }
 
     function parse_deal() external view returns (bool) {
@@ -103,13 +103,13 @@ contract CheatcodeParse {
 
     function to_string_round_trip() external view returns (bool) {
         uint256 original = 12345;
-        uint256 recovered = vm.parseUint(vm.toString(original));
+        uint256 recovered = rvm.parseUint(rvm.toString(original));
         return recovered == original;
     }
 
     function bool_round_trip() external view returns (bool) {
         bool original = true;
-        bool recovered = vm.parseBool(vm.toString(original));
+        bool recovered = rvm.parseBool(rvm.toString(original));
         return recovered == original;
     }
 
@@ -117,37 +117,37 @@ contract CheatcodeParse {
 
     function max_uint() external view returns (bool) {
         uint256 max = type(uint256).max;
-        uint256 parsed = vm.parseUint(vm.toString(max));
+        uint256 parsed = rvm.parseUint(rvm.toString(max));
         return parsed == max;
     }
 
     function max_int() external view returns (bool) {
         int256 max = type(int256).max;
-        int256 parsed = vm.parseInt(vm.toString(max));
+        int256 parsed = rvm.parseInt(rvm.toString(max));
         return parsed == max;
     }
 
     function min_int() external view returns (bool) {
         int256 min = type(int256).min;
-        int256 parsed = vm.parseInt(vm.toString(min));
+        int256 parsed = rvm.parseInt(rvm.toString(min));
         return parsed == min;
     }
 
     // --- Edge: hex inputs ---
 
     function hex_uint() external view returns (bool) {
-        return vm.parseUint("0xff") == 255;
+        return rvm.parseUint("0xff") == 255;
     }
 
     function hex_address() external view returns (bool) {
         return
-            vm.parseAddress("0x71c7656ec7ab88b098defb751b7401b5f6d8976f") ==
+            rvm.parseAddress("0x71c7656ec7ab88b098defb751b7401b5f6d8976f") ==
             address(0x71C7656EC7ab88b098defB751B7401B5f6d8976F);
     }
 
     function hex_bytes32() external view returns (bool) {
         return
-            vm.parseBytes32(
+            rvm.parseBytes32(
                 "0x2222222222222222222222222222222222222222222222222222222222222222"
             ) ==
             bytes32(
@@ -159,17 +159,17 @@ contract CheatcodeParse {
 
     function bool_true_variants() external view returns (bool) {
         return
-            vm.parseBool("true") &&
-            vm.parseBool("TRUE") &&
-            vm.parseBool("True") &&
-            vm.parseBool("1");
+            rvm.parseBool("true") &&
+            rvm.parseBool("TRUE") &&
+            rvm.parseBool("True") &&
+            rvm.parseBool("1");
     }
 
     function bool_false_variants() external view returns (bool) {
         return
-            !vm.parseBool("false") &&
-            !vm.parseBool("FALSE") &&
-            !vm.parseBool("False") &&
-            !vm.parseBool("0");
+            !rvm.parseBool("false") &&
+            !rvm.parseBool("FALSE") &&
+            !rvm.parseBool("False") &&
+            !rvm.parseBool("0");
     }
 }

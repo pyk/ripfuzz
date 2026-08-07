@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "./Vm.sol";
+import "./RVM.sol";
 
 /// @title AddrHarness
 /// @notice Real-world fuzz handler that derives actor addresses from private
 ///         keys during setup and re-derives them in actions. Invariants verify
-///         that `vm.addr` remains deterministic across the campaign.
+///         that `rvm.addr` remains deterministic across the campaign.
 contract AddrHarness {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     /// Largest valid secp256k1 private key (curve order - 1).
     uint256 constant MAX_VALID_KEY = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140;
@@ -18,9 +18,9 @@ contract AddrHarness {
     address public proposer;
 
     function setup() external {
-        admin = vm.addr(1);
-        voter = vm.addr(2);
-        proposer = vm.addr(MAX_VALID_KEY);
+        admin = rvm.addr(1);
+        voter = rvm.addr(2);
+        proposer = rvm.addr(MAX_VALID_KEY);
     }
 
     /// Invariant: all stored actor addresses must match the well-known
@@ -32,47 +32,47 @@ contract AddrHarness {
     }
 
     /// Action: re-derive admin address and overwrite storage.
-    /// Fuzzer uses this to prove `vm.addr(1)` is deterministic across txs.
+    /// Fuzzer uses this to prove `rvm.addr(1)` is deterministic across txs.
     function actionRefreshAdmin() external {
-        admin = vm.addr(1);
+        admin = rvm.addr(1);
     }
 
     /// Action: re-derive voter address and overwrite storage.
     function actionRefreshVoter() external {
-        voter = vm.addr(2);
+        voter = rvm.addr(2);
     }
 
     /// Action: re-derive proposer address and overwrite storage.
     function actionRefreshProposer() external {
-        proposer = vm.addr(MAX_VALID_KEY);
+        proposer = rvm.addr(MAX_VALID_KEY);
     }
 
     /// Action: re-derive all actor addresses in one transaction.
     function actionRefreshAll() external {
-        admin = vm.addr(1);
-        voter = vm.addr(2);
-        proposer = vm.addr(MAX_VALID_KEY);
+        admin = rvm.addr(1);
+        voter = rvm.addr(2);
+        proposer = rvm.addr(MAX_VALID_KEY);
     }
 
     /// Action: interleave different keys to prove no internal corruption.
     function actionRefreshInterleaved() external {
-        address a = vm.addr(1);
-        address b = vm.addr(2);
-        address c = vm.addr(1);
-        address d = vm.addr(MAX_VALID_KEY);
+        address a = rvm.addr(1);
+        address b = rvm.addr(2);
+        address c = rvm.addr(1);
+        address d = rvm.addr(MAX_VALID_KEY);
         admin = a;
         voter = b;
         proposer = d;
         assert(c == a);
     }
 
-    /// Action: call `vm.addr(0)` which must revert.
+    /// Action: call `rvm.addr(0)` which must revert.
     function actionInvalidZero() external pure {
-        vm.addr(0);
+        rvm.addr(0);
     }
 
-    /// Action: call `vm.addr` with a key >= curve order which must revert.
+    /// Action: call `rvm.addr` with a key >= curve order which must revert.
     function actionInvalidOrder() external pure {
-        vm.addr(MAX_VALID_KEY + 1);
+        rvm.addr(MAX_VALID_KEY + 1);
     }
 }

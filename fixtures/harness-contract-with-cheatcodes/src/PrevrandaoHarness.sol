@@ -1,42 +1,42 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import "./Vm.sol";
+import "./RVM.sol";
 
 /// @notice Minimal stateful-fuzz handler for ripfuzz prevrandao cheatcode.
 ///
-/// Setup establishes a canonical `block.prevrandao` via `vm.prevrandao`.
+/// Setup establishes a canonical `block.prevrandao` via `rvm.prevrandao`.
 /// Actions mutate or restore the value; invariants verify the canonical
 /// state is intact.
 contract PrevrandaoHarness {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     bytes32 constant CANONICAL = bytes32(uint256(0x4242424242424242424242424242424242424242424242424242424242424242));
 
     uint256 public storedPrevrandao;
 
     function setup() external {
-        vm.prevrandao(CANONICAL);
+        rvm.prevrandao(CANONICAL);
         storedPrevrandao = block.prevrandao;
     }
 
     /// Re-set the canonical prevrandao and store it.
     function actionRestoreCanonical() external {
-        vm.prevrandao(CANONICAL);
+        rvm.prevrandao(CANONICAL);
         storedPrevrandao = block.prevrandao;
     }
 
     /// Set a non-canonical prevrandao and store it.
     function actionMutateValue() external {
-        vm.prevrandao(bytes32(uint256(0xdeadbeef)));
+        rvm.prevrandao(bytes32(uint256(0xdeadbeef)));
         storedPrevrandao = block.prevrandao;
     }
 
     /// Interleave multiple prevrandao values, ending on the canonical one.
     function actionSequence() external {
-        vm.prevrandao(bytes32(uint256(1)));
-        vm.prevrandao(bytes32(uint256(2)));
-        vm.prevrandao(CANONICAL);
+        rvm.prevrandao(bytes32(uint256(1)));
+        rvm.prevrandao(bytes32(uint256(2)));
+        rvm.prevrandao(CANONICAL);
         storedPrevrandao = block.prevrandao;
     }
 

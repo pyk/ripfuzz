@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 import {PrankVictim} from "../src/PrankVictim.sol";
 
 contract CheatcodePrank {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
     PrankVictim public victim;
     PrankVictim public inner;
     address[] public actors;
@@ -19,32 +19,32 @@ contract CheatcodePrank {
 
     modifier useActor(uint256 actorSeed) {
         currentActor = actors[actorSeed % actors.length];
-        vm.startPrank(currentActor);
+        rvm.startPrank(currentActor);
         _;
-        vm.stopPrank();
+        rvm.stopPrank();
     }
 
-    // 1. vm.prank(addr) changes msg.sender only, not tx.origin
+    // 1. rvm.prank(addr) changes msg.sender only, not tx.origin
     function call_prank_sender() external {
         address oldOrigin = tx.origin;
-        vm.prank(address(0x111));
+        rvm.prank(address(0x111));
         victim.record();
         require(victim.lastSender() == address(0x111), "prank sender wrong");
         require(victim.lastOrigin() == oldOrigin, "prank origin mutated");
     }
 
-    // 2. vm.prank(addr, origin) changes both
+    // 2. rvm.prank(addr, origin) changes both
     function call_prank_origin() external {
-        vm.prank(address(0x222), address(0x333));
+        rvm.prank(address(0x222), address(0x333));
         victim.record();
         require(victim.lastSender() == address(0x222), "prank sender wrong");
         require(victim.lastOrigin() == address(0x333), "prank origin wrong");
     }
 
-    // 3. vm.prank is consumed by the next call and cleaned up
+    // 3. rvm.prank is consumed by the next call and cleaned up
     function call_prank_consumed() external {
         address oldOrigin = tx.origin;
-        vm.prank(address(0x444));
+        rvm.prank(address(0x444));
         victim.record();
         // second call must NOT be pranked
         victim.record();
@@ -52,15 +52,15 @@ contract CheatcodePrank {
         require(victim.lastOrigin() == oldOrigin, "origin leaked");
     }
 
-    // 4. vm.startPrank / stopPrank
+    // 4. rvm.startPrank / stopPrank
     function call_start_stop() external {
         address oldOrigin = tx.origin;
-        vm.startPrank(address(0x555), address(0x666));
+        rvm.startPrank(address(0x555), address(0x666));
         victim.record();
         victim.record();
         require(victim.lastSender() == address(0x555), "startPrank sender");
         require(victim.lastOrigin() == address(0x666), "startPrank origin");
-        vm.stopPrank();
+        rvm.stopPrank();
         victim.record();
         // after stopPrank
         require(victim.lastSender() == address(this), "stopPrank sender");
@@ -71,9 +71,9 @@ contract CheatcodePrank {
         return victim.lastSender();
     }
 
-    // 5. vm.startPrank without stopPrank persists across calls
+    // 5. rvm.startPrank without stopPrank persists across calls
     function call_start_no_stop() external {
-        vm.startPrank(address(0x777));
+        rvm.startPrank(address(0x777));
         victim.record();
     }
 
@@ -89,37 +89,37 @@ contract CheatcodePrank {
 
     // 6. Overwrite validation: startPrank can overwrite a used startPrank
     function call_start_overwrite_used() external {
-        vm.startPrank(address(0x111));
+        rvm.startPrank(address(0x111));
         victim.record();
-        vm.startPrank(address(0x222));
+        rvm.startPrank(address(0x222));
         victim.record();
     }
 
     // 7. Overwrite validation: unused startPrank cannot be overwritten
     function call_start_overwrite_unused_reverts() external {
-        vm.startPrank(address(0x111));
-        vm.startPrank(address(0x222));
+        rvm.startPrank(address(0x111));
+        rvm.startPrank(address(0x222));
         victim.record();
     }
 
     // 8. Overwrite validation: prank cannot overwrite startPrank
     function call_prank_over_start_reverts() external {
-        vm.startPrank(address(0x111));
-        vm.prank(address(0x222));
+        rvm.startPrank(address(0x111));
+        rvm.prank(address(0x222));
         victim.record();
     }
 
     // 9. Overwrite validation: double prank reverts
     function call_double_prank_reverts() external {
-        vm.prank(address(0x111));
-        vm.prank(address(0x222));
+        rvm.prank(address(0x111));
+        rvm.prank(address(0x222));
         victim.record();
     }
 
     // 10. Nested calls: only the immediate next call is pranked, not deeper calls from the victim
     function call_prank_nested() external {
         address oldOrigin = tx.origin;
-        vm.prank(address(0x999));
+        rvm.prank(address(0x999));
         victim.nestedRecord(inner);
         require(victim.lastSender() == address(0x999), "outer pranked");
         require(victim.lastOrigin() == oldOrigin, "outer origin");
@@ -129,25 +129,25 @@ contract CheatcodePrank {
 
     // 8. startPrank nested calls: all calls are pranked
     function call_start_nested() external {
-        vm.startPrank(address(0xaaa), address(0xbbb));
+        rvm.startPrank(address(0xaaa), address(0xbbb));
         victim.nestedRecord(inner);
         require(victim.lastSender() == address(0xaaa), "outer startPrank");
         require(victim.lastOrigin() == address(0xbbb), "outer origin");
         require(inner.lastSender() == address(0xaaa), "inner startPrank");
         require(inner.lastOrigin() == address(0xbbb), "inner origin");
-        vm.stopPrank();
+        rvm.stopPrank();
     }
 
     // 9. stopPrank mid-sequence
     function call_stop_mid() external {
-        vm.stopPrank();
+        rvm.stopPrank();
         victim.record();
         require(victim.lastSender() == address(this), "stopPrank failed");
     }
 
     // 10. Constructor pranking
     function call_prank_constructor() external {
-        vm.prank(address(0xccc));
+        rvm.prank(address(0xccc));
         PrankVictim v = new PrankVictim();
         require(v.lastSender() == address(0xccc), "constructor prank");
         // after creation, normal caller restored

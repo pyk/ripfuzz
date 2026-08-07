@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeFFI {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
 
     bytes32 public recordedHash;
     uint256 public recordedTimestamp;
@@ -15,7 +15,7 @@ contract CheatcodeFFI {
         string[] memory inputs = new string[](2);
         inputs[0] = "echo";
         inputs[1] = "setup";
-        bytes memory res = vm.ffi(inputs);
+        bytes memory res = rvm.ffi(inputs);
         recordedHash = keccak256(res);
     }
 
@@ -38,7 +38,7 @@ contract CheatcodeFFI {
         string[] memory inputs = new string[](2);
         inputs[0] = "echo";
         inputs[1] = msg;
-        bytes memory res = vm.ffi(inputs);
+        bytes memory res = rvm.ffi(inputs);
         recordedHash = keccak256(res);
     }
 
@@ -55,7 +55,7 @@ contract CheatcodeFFI {
         inputs[0] = "sh";
         inputs[1] = "-c";
         inputs[2] = "touch /tmp/ripfuzz_ffi_revert_marker";
-        vm.ffi(inputs);
+        rvm.ffi(inputs);
 
         // Mutate contract state after ffi
         recordedHash = keccak256("should be reverted");
@@ -76,7 +76,7 @@ contract CheatcodeFFI {
         inputs[1] = "%s";
         // ABI-encoded "hi" as hex string with 0x prefix
         inputs[2] = "0x000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000026869000000000000000000000000000000000000000000000000000000000000";
-        bytes memory res = vm.ffi(inputs);
+        bytes memory res = rvm.ffi(inputs);
         recordedHash = keccak256(res);
     }
 
@@ -91,7 +91,7 @@ contract CheatcodeFFI {
         string[] memory inputs = new string[](2);
         inputs[0] = "echo";
         inputs[1] = "hello";
-        bytes memory res = vm.ffi(inputs);
+        bytes memory res = rvm.ffi(inputs);
         recordedHash = keccak256(res);
     }
 
@@ -103,7 +103,7 @@ contract CheatcodeFFI {
 
     function action_ffi_empty() external {
         string[] memory inputs = new string[](0);
-        vm.ffi(inputs);
+        rvm.ffi(inputs);
     }
 
     // --- Command failure reverts ---
@@ -111,7 +111,7 @@ contract CheatcodeFFI {
     function action_ffi_fail() external {
         string[] memory inputs = new string[](1);
         inputs[0] = "false";
-        vm.ffi(inputs);
+        rvm.ffi(inputs);
     }
 
     // --- Property sees final FFI result ---
@@ -127,10 +127,10 @@ contract CheatcodeFFI {
         string[] memory inputs = new string[](2);
         inputs[0] = "echo";
         inputs[1] = "gm";
-        bytes memory res = vm.ffi(inputs);
+        bytes memory res = rvm.ffi(inputs);
         recordedHash = keccak256(res);
 
-        vm.warp(999999);
+        rvm.warp(999999);
         recordedTimestamp = block.timestamp;
     }
 

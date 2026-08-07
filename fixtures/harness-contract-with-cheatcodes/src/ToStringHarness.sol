@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "./Vm.sol";
+import "./RVM.sol";
 
 /// @notice Minimal stateful-fuzz handler for ripfuzz toString cheatcodes.
 ///
-/// Setup converts well-known values to strings via vm.toString and stores them.
+/// Setup converts well-known values to strings via rvm.toString and stores them.
 /// Actions re-convert all values; invariants verify the stored strings match.
 contract ToStringHarness {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     address constant TEST_ADDR = 0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf;
     bool constant TEST_BOOL = true;
@@ -25,22 +25,22 @@ contract ToStringHarness {
     string public storedBytes;
 
     function setup() external {
-        storedAddr = vm.toString(TEST_ADDR);
-        storedBool = vm.toString(TEST_BOOL);
-        storedUint = vm.toString(TEST_UINT);
-        storedInt = vm.toString(TEST_INT);
-        storedBytes32 = vm.toString(TEST_BYTES32);
-        storedBytes = vm.toString(TEST_BYTES);
+        storedAddr = rvm.toString(TEST_ADDR);
+        storedBool = rvm.toString(TEST_BOOL);
+        storedUint = rvm.toString(TEST_UINT);
+        storedInt = rvm.toString(TEST_INT);
+        storedBytes32 = rvm.toString(TEST_BYTES32);
+        storedBytes = rvm.toString(TEST_BYTES);
     }
 
     /// Re-convert all canonical values and overwrite storage.
     function actionRefreshAll() external {
-        storedAddr = vm.toString(TEST_ADDR);
-        storedBool = vm.toString(TEST_BOOL);
-        storedUint = vm.toString(TEST_UINT);
-        storedInt = vm.toString(TEST_INT);
-        storedBytes32 = vm.toString(TEST_BYTES32);
-        storedBytes = vm.toString(TEST_BYTES);
+        storedAddr = rvm.toString(TEST_ADDR);
+        storedBool = rvm.toString(TEST_BOOL);
+        storedUint = rvm.toString(TEST_UINT);
+        storedInt = rvm.toString(TEST_INT);
+        storedBytes32 = rvm.toString(TEST_BYTES32);
+        storedBytes = rvm.toString(TEST_BYTES);
     }
 
     function invariant_addr() external view {

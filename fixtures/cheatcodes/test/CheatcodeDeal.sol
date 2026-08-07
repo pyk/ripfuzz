@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeDeal {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
 
     uint256 public recordedBalance;
     address public constant TARGET = address(0xBEEF);
@@ -13,8 +13,8 @@ contract CheatcodeDeal {
     // --- setup interaction ---
 
     function setup() external {
-        vm.deal(address(this), 5 ether);
-        vm.deal(TARGET, 3 ether);
+        rvm.deal(address(this), 5 ether);
+        rvm.deal(TARGET, 3 ether);
     }
 
     function call_record_target_balance() external {
@@ -32,7 +32,7 @@ contract CheatcodeDeal {
     // --- Same-sequence persistence ---
 
     function call_deal(uint256 amt) external {
-        vm.deal(TARGET, amt);
+        rvm.deal(TARGET, amt);
         recordedBalance = TARGET.balance;
     }
 
@@ -44,7 +44,7 @@ contract CheatcodeDeal {
     // --- Revert safety ---
 
     function call_deal_and_revert(uint256 amt) external {
-        vm.deal(TARGET, amt);
+        rvm.deal(TARGET, amt);
         revert("intentional");
     }
 
@@ -56,11 +56,11 @@ contract CheatcodeDeal {
     // --- Overwrite ---
 
     function call_deal_100() external {
-        vm.deal(TARGET, 100);
+        rvm.deal(TARGET, 100);
     }
 
     function call_deal_200() external {
-        vm.deal(TARGET, 200);
+        rvm.deal(TARGET, 200);
     }
 
     function deal_overwrite() external view returns (bool) {
@@ -70,7 +70,7 @@ contract CheatcodeDeal {
     // --- Edge: zero ---
 
     function call_deal_zero() external {
-        vm.deal(TARGET, 0);
+        rvm.deal(TARGET, 0);
     }
 
     function deal_zero() external view returns (bool) {
@@ -80,7 +80,7 @@ contract CheatcodeDeal {
     // --- Edge: max uint256 ---
 
     function call_deal_max() external {
-        vm.deal(TARGET, type(uint256).max);
+        rvm.deal(TARGET, type(uint256).max);
     }
 
     function deal_max() external view returns (bool) {
@@ -90,7 +90,7 @@ contract CheatcodeDeal {
     // --- Edge: empty / non-existent address ---
 
     function call_deal_empty(uint256 amt) external {
-        vm.deal(EMPTY_ADDR, amt);
+        rvm.deal(EMPTY_ADDR, amt);
     }
 
     function deal_empty() external view returns (bool) {
@@ -107,9 +107,9 @@ contract CheatcodeDeal {
     // --- Cross-cheatcode interaction: deal + warp + roll ---
 
     function call_deal_and_warp_roll() external {
-        vm.deal(TARGET, 777);
-        vm.warp(12345);
-        vm.roll(67890);
+        rvm.deal(TARGET, 777);
+        rvm.warp(12345);
+        rvm.roll(67890);
     }
 
     function deal_and_warp_roll() external view returns (bool) {
@@ -121,7 +121,7 @@ contract CheatcodeDeal {
     // --- Self-deal (contract deals to itself mid-sequence) ---
 
     function call_self_deal(uint256 amt) external {
-        vm.deal(address(this), amt);
+        rvm.deal(address(this), amt);
     }
 
     function self_deal_overwrites_setup() external view returns (bool) {

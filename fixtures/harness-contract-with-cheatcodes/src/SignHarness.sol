@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "./Vm.sol";
+import "./RVM.sol";
 
 /// @notice Minimal stateful-fuzz handler for ripfuzz sign cheatcode.
 ///
-/// Setup derives well-known signatures via `vm.sign` and stores them.
+/// Setup derives well-known signatures via `rvm.sign` and stores them.
 /// Actions re-derive signatures; invariants verify they recover to the
 /// correct addresses.
 contract SignHarness {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     bytes32 constant DIGEST = 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa;
 
@@ -32,40 +32,40 @@ contract SignHarness {
     bytes32 public sMax;
 
     function setup() external {
-        (vOne, rOne, sOne) = vm.sign(1, DIGEST);
-        (vTwo, rTwo, sTwo) = vm.sign(2, DIGEST);
-        (vMax, rMax, sMax) = vm.sign(MAX_VALID_KEY, DIGEST);
+        (vOne, rOne, sOne) = rvm.sign(1, DIGEST);
+        (vTwo, rTwo, sTwo) = rvm.sign(2, DIGEST);
+        (vMax, rMax, sMax) = rvm.sign(MAX_VALID_KEY, DIGEST);
     }
 
     /// Re-sign with key 1 and store it.
     function actionResignOne() external {
-        (vOne, rOne, sOne) = vm.sign(1, DIGEST);
+        (vOne, rOne, sOne) = rvm.sign(1, DIGEST);
     }
 
     /// Re-sign with key 2 and store it.
     function actionResignTwo() external {
-        (vTwo, rTwo, sTwo) = vm.sign(2, DIGEST);
+        (vTwo, rTwo, sTwo) = rvm.sign(2, DIGEST);
     }
 
     /// Re-sign with the max valid key and store it.
     function actionResignMaxValid() external {
-        (vMax, rMax, sMax) = vm.sign(MAX_VALID_KEY, DIGEST);
+        (vMax, rMax, sMax) = rvm.sign(MAX_VALID_KEY, DIGEST);
     }
 
-    /// vm.sign(0) must revert.
+    /// rvm.sign(0) must revert.
     function actionSignZero() external pure {
-        vm.sign(0, DIGEST);
+        rvm.sign(0, DIGEST);
     }
 
-    /// vm.sign with key >= curve order must revert.
+    /// rvm.sign with key >= curve order must revert.
     function actionSignOrder() external pure {
-        vm.sign(MAX_VALID_KEY + 1, DIGEST);
+        rvm.sign(MAX_VALID_KEY + 1, DIGEST);
     }
 
-    /// Use vm.addr and vm.sign together and return both addresses.
+    /// Use rvm.addr and rvm.sign together and return both addresses.
     function actionSignAndAddr() external pure returns (address derived, address recovered) {
-        derived = vm.addr(1);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, DIGEST);
+        derived = rvm.addr(1);
+        (uint8 v, bytes32 r, bytes32 s) = rvm.sign(1, DIGEST);
         recovered = ecrecover(DIGEST, v, r, s);
     }
 

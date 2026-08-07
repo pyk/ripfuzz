@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeChainId {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
     uint256 public recordedChainId;
     uint256 public recordedTimestamp;
 
     // --- setup interaction ---
 
     function setup() external {
-        vm.chainId(1337);
+        rvm.chainId(1337);
     }
 
     function call_record() external {
@@ -29,7 +29,7 @@ contract CheatcodeChainId {
     // --- Same-sequence persistence ---
 
     function call_chain_id(uint256 id) external {
-        vm.chainId(id);
+        rvm.chainId(id);
         recordedChainId = block.chainid;
     }
 
@@ -40,7 +40,7 @@ contract CheatcodeChainId {
     // --- Revert safety ---
 
     function call_chain_id_and_revert(uint256 id) external {
-        vm.chainId(id);
+        rvm.chainId(id);
         revert("intentional");
     }
 
@@ -51,11 +51,11 @@ contract CheatcodeChainId {
     // --- Overwrite ---
 
     function call_chain_id_100() external {
-        vm.chainId(100);
+        rvm.chainId(100);
     }
 
     function call_chain_id_200() external {
-        vm.chainId(200);
+        rvm.chainId(200);
     }
 
     function chain_id_overwrite() external view returns (bool) {
@@ -65,7 +65,7 @@ contract CheatcodeChainId {
     // --- Edge: chainId to zero ---
 
     function call_chain_id_zero() external {
-        vm.chainId(0);
+        rvm.chainId(0);
     }
 
     function chain_id_zero() external view returns (bool) {
@@ -75,7 +75,7 @@ contract CheatcodeChainId {
     // --- Edge: chainId to max uint64 ---
 
     function call_chain_id_max_u64() external {
-        vm.chainId(type(uint64).max);
+        rvm.chainId(type(uint64).max);
     }
 
     function chain_id_max_u64() external view returns (bool) {
@@ -85,7 +85,7 @@ contract CheatcodeChainId {
     // --- Edge: chainId too large ---
 
     function call_chain_id_too_large() external {
-        vm.chainId(uint256(type(uint64).max) + 1);
+        rvm.chainId(uint256(type(uint64).max) + 1);
     }
 
     function chain_id_too_large_reverts() external view returns (bool) {
@@ -103,8 +103,8 @@ contract CheatcodeChainId {
     // --- Cross-cheatcode interaction: chainId + warp ---
 
     function call_chain_id_and_warp() external {
-        vm.chainId(12345);
-        vm.warp(67890);
+        rvm.chainId(12345);
+        rvm.warp(67890);
         recordedChainId = block.chainid;
         recordedTimestamp = block.timestamp;
     }

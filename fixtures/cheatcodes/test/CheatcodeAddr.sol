@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeAddr {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
 
     address public derivedFromSetup;
     address public derivedFromCall;
@@ -16,7 +16,7 @@ contract CheatcodeAddr {
     // --- setup interaction ---
 
     function setup() external {
-        derivedFromSetup = vm.addr(1);
+        derivedFromSetup = rvm.addr(1);
     }
 
     function setup_addr_persists() external view returns (bool) {
@@ -27,7 +27,7 @@ contract CheatcodeAddr {
 
     function call_derive_and_store(uint256 pk) external {
         // We use a fixed pk (100) in the test sequence so the property is deterministic.
-        derivedFromCall = vm.addr(pk);
+        derivedFromCall = rvm.addr(pk);
     }
 
     function addr_visible_in_next_call() external view returns (bool) {
@@ -37,7 +37,7 @@ contract CheatcodeAddr {
     // --- Revert safety (contract stores addr, then reverts) ---
 
     function call_derive_and_revert(uint256 pk) external {
-        lastStoredAddr = vm.addr(pk);
+        lastStoredAddr = rvm.addr(pk);
         revert("intentional");
     }
 
@@ -49,11 +49,11 @@ contract CheatcodeAddr {
     // --- Overwrite within same sequence ---
 
     function call_store_pk_1() external {
-        lastStoredAddr = vm.addr(1);
+        lastStoredAddr = rvm.addr(1);
     }
 
     function call_store_pk_2() external {
-        lastStoredAddr = vm.addr(2);
+        lastStoredAddr = rvm.addr(2);
     }
 
     function last_addr_overwrite() external view returns (bool) {
@@ -63,7 +63,7 @@ contract CheatcodeAddr {
     // --- Edge: invalid private key = 0 ---
 
     function call_addr_zero() external {
-        lastStoredAddr = vm.addr(0);
+        lastStoredAddr = rvm.addr(0);
     }
 
     function addr_zero_reverts() external view returns (bool) {
@@ -75,7 +75,7 @@ contract CheatcodeAddr {
 
     function call_addr_too_large() external {
         // secp256k1_order = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-        lastStoredAddr = vm.addr(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141);
+        lastStoredAddr = rvm.addr(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141);
     }
 
     function addr_too_large_reverts() external view returns (bool) {
@@ -85,7 +85,7 @@ contract CheatcodeAddr {
     // --- Edge: boundary valid key (order - 1) ---
 
     function call_addr_boundary() external {
-        lastStoredAddr = vm.addr(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140);
+        lastStoredAddr = rvm.addr(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140);
     }
 
     function addr_boundary_ok() external view returns (bool) {
@@ -102,9 +102,9 @@ contract CheatcodeAddr {
     // --- No interference with block cheatcodes ---
 
     function call_addr_and_warp_roll(uint256 pk) external {
-        lastStoredAddr = vm.addr(pk);
-        vm.warp(12345);
-        vm.roll(67890);
+        lastStoredAddr = rvm.addr(pk);
+        rvm.warp(12345);
+        rvm.roll(67890);
     }
 
     function addr_and_warp_roll() external view returns (bool) {

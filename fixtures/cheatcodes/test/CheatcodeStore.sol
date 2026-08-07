@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeStore {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
 
     bytes32 public constant SLOT_A = bytes32(uint256(1));
     bytes32 public constant SLOT_B = bytes32(uint256(2));
@@ -16,24 +16,24 @@ contract CheatcodeStore {
     // --- setup interaction ---
 
     function setup() external {
-        vm.store(address(this), SLOT_A, bytes32(uint256(0xCAFE)));
-        vm.store(TARGET, SLOT_A, bytes32(uint256(0xBABE)));
+        rvm.store(address(this), SLOT_A, bytes32(uint256(0xCAFE)));
+        rvm.store(TARGET, SLOT_A, bytes32(uint256(0xBABE)));
     }
 
     function call_record_slot_a() external {
-        recordedValue = vm.load(address(this), SLOT_A);
+        recordedValue = rvm.load(address(this), SLOT_A);
     }
 
     function setup_store_persists() external view returns (bool) {
-        return vm.load(address(this), SLOT_A) == bytes32(uint256(0xCAFE))
-            && vm.load(TARGET, SLOT_A) == bytes32(uint256(0xBABE));
+        return rvm.load(address(this), SLOT_A) == bytes32(uint256(0xCAFE))
+            && rvm.load(TARGET, SLOT_A) == bytes32(uint256(0xBABE));
     }
 
     // --- Same-sequence persistence ---
 
     function call_store_then_load(bytes32 value) external {
-        vm.store(TARGET, SLOT_A, value);
-        recordedValue = vm.load(TARGET, SLOT_A);
+        rvm.store(TARGET, SLOT_A, value);
+        recordedValue = rvm.load(TARGET, SLOT_A);
     }
 
     function store_persists_across_calls() external view returns (bool) {
@@ -43,40 +43,40 @@ contract CheatcodeStore {
     // --- Revert safety ---
 
     function call_store_and_revert(bytes32 value) external {
-        vm.store(TARGET, SLOT_B, value);
+        rvm.store(TARGET, SLOT_B, value);
         revert("intentional");
     }
 
     function revert_undoes_store() external view returns (bool) {
-        return vm.load(TARGET, SLOT_B) == bytes32(0);
+        return rvm.load(TARGET, SLOT_B) == bytes32(0);
     }
 
     // --- Overwrite ---
 
     function call_store_overwrite() external {
-        vm.store(TARGET, SLOT_A, bytes32(uint256(0x1111)));
-        vm.store(TARGET, SLOT_A, bytes32(uint256(0x2222)));
+        rvm.store(TARGET, SLOT_A, bytes32(uint256(0x1111)));
+        rvm.store(TARGET, SLOT_A, bytes32(uint256(0x2222)));
     }
 
     function store_overwrite() external view returns (bool) {
-        return vm.load(TARGET, SLOT_A) == bytes32(uint256(0x2222));
+        return rvm.load(TARGET, SLOT_A) == bytes32(uint256(0x2222));
     }
 
     // --- Zero write (clear slot) ---
 
     function call_store_zero() external {
-        vm.store(TARGET, SLOT_A, bytes32(0));
+        rvm.store(TARGET, SLOT_A, bytes32(0));
     }
 
     function store_zero_clears() external view returns (bool) {
-        return vm.load(TARGET, SLOT_A) == bytes32(0);
+        return rvm.load(TARGET, SLOT_A) == bytes32(0);
     }
 
     // --- Empty / non-existent address ---
 
     function call_store_empty() external {
-        vm.store(EMPTY_ADDR, SLOT_A, bytes32(uint256(0xFACE)));
-        recordedValue = vm.load(EMPTY_ADDR, SLOT_A);
+        rvm.store(EMPTY_ADDR, SLOT_A, bytes32(uint256(0xFACE)));
+        recordedValue = rvm.load(EMPTY_ADDR, SLOT_A);
     }
 
     function store_empty_address() external view returns (bool) {
@@ -86,21 +86,21 @@ contract CheatcodeStore {
     // --- Multi-call sequence final state ---
 
     function call_store_step1() external {
-        vm.store(address(this), SLOT_B, bytes32(uint256(0xAAAA)));
+        rvm.store(address(this), SLOT_B, bytes32(uint256(0xAAAA)));
     }
 
     function call_store_step2() external {
-        vm.store(address(this), SLOT_B, bytes32(uint256(0xBBBB)));
+        rvm.store(address(this), SLOT_B, bytes32(uint256(0xBBBB)));
     }
 
     function multi_call_final_state() external view returns (bool) {
-        return vm.load(address(this), SLOT_B) == bytes32(uint256(0xBBBB));
+        return rvm.load(address(this), SLOT_B) == bytes32(uint256(0xBBBB));
     }
 
     // --- Precompile rejection ---
 
     function call_store_precompile() external {
-        vm.store(address(0x01), SLOT_A, bytes32(uint256(0xBAD)));
+        rvm.store(address(0x01), SLOT_A, bytes32(uint256(0xBAD)));
     }
 
     function precompile_store_reverts() external view returns (bool) {
@@ -113,18 +113,18 @@ contract CheatcodeStore {
     // --- Cross-cheatcode interference ---
 
     function call_store_and_warp() external {
-        vm.store(address(this), SLOT_A, bytes32(uint256(0x9999)));
-        vm.warp(12345);
+        rvm.store(address(this), SLOT_A, bytes32(uint256(0x9999)));
+        rvm.warp(12345);
     }
 
     function store_and_warp() external view returns (bool) {
-        return vm.load(address(this), SLOT_A) == bytes32(uint256(0x9999))
+        return rvm.load(address(this), SLOT_A) == bytes32(uint256(0x9999))
             && block.timestamp == 12345;
     }
 
     // --- Corpus isolation helper ---
 
     function setup_only_store() external view returns (bool) {
-        return vm.load(address(this), SLOT_A) == bytes32(uint256(0xCAFE));
+        return rvm.load(address(this), SLOT_A) == bytes32(uint256(0xCAFE));
     }
 }

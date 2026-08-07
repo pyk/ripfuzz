@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "./Vm.sol";
+import "./RVM.sol";
 
 contract FfiHarness {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     uint256 constant EXPECTED_VALUE = 42;
 
@@ -28,7 +28,7 @@ contract FfiHarness {
         storedValue = _ffiToUint100();
     }
 
-    /// Call vm.ffi with the same args twice in one tx to prove determinism.
+    /// Call rvm.ffi with the same args twice in one tx to prove determinism.
     function actionFfiSequence() external returns (uint256 first, uint256 second, uint256 third) {
         first = _ffiToUint1();
         second = _ffiToUint42();
@@ -48,21 +48,21 @@ contract FfiHarness {
 
     function _ffiToUint1() internal returns (uint256) {
         string[] memory args = _makeFfiArgs("0000000000000000000000000000000000000000000000000000000000000001");
-        return abi.decode(vm.ffi(args), (uint256));
+        return abi.decode(rvm.ffi(args), (uint256));
     }
 
     function _ffiToUint42() internal returns (uint256) {
         string[] memory args = _makeFfiArgs("000000000000000000000000000000000000000000000000000000000000002a");
-        return abi.decode(vm.ffi(args), (uint256));
+        return abi.decode(rvm.ffi(args), (uint256));
     }
 
     function _ffiToUint5() internal returns (uint256) {
         string[] memory args = _makeFfiArgs("0000000000000000000000000000000000000000000000000000000000000005");
-        return abi.decode(vm.ffi(args), (uint256));
+        return abi.decode(rvm.ffi(args), (uint256));
     }
 
     function _ffiToUint100() internal returns (uint256) {
         string[] memory args = _makeFfiArgs("0000000000000000000000000000000000000000000000000000000000000064");
-        return abi.decode(vm.ffi(args), (uint256));
+        return abi.decode(rvm.ffi(args), (uint256));
     }
 }

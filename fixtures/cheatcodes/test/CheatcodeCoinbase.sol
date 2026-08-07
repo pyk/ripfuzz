@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeCoinbase {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
     address public recordedCoinbase;
     uint256 public recordedBlockNumber;
     uint256 public recordedTimestamp;
@@ -13,7 +13,7 @@ contract CheatcodeCoinbase {
     // --- setup interaction ---
 
     function setup() external {
-        vm.coinbase(address(0xCA11BA5E));
+        rvm.coinbase(address(0xCA11BA5E));
     }
 
     function call_record_coinbase() external {
@@ -43,7 +43,7 @@ contract CheatcodeCoinbase {
     // --- Same-sequence persistence ---
 
     function call_coinbase(address addr) external {
-        vm.coinbase(addr);
+        rvm.coinbase(addr);
         recordedCoinbase = block.coinbase;
     }
 
@@ -55,7 +55,7 @@ contract CheatcodeCoinbase {
     // --- Revert safety ---
 
     function call_coinbase_and_revert(address addr) external {
-        vm.coinbase(addr);
+        rvm.coinbase(addr);
         revert("intentional");
     }
 
@@ -66,11 +66,11 @@ contract CheatcodeCoinbase {
     // --- Coinbase overwrite ---
 
     function call_coinbase_A() external {
-        vm.coinbase(address(0xA));
+        rvm.coinbase(address(0xA));
     }
 
     function call_coinbase_B() external {
-        vm.coinbase(address(0xB));
+        rvm.coinbase(address(0xB));
     }
 
     function coinbase_overwrite() external view returns (bool) {
@@ -81,7 +81,7 @@ contract CheatcodeCoinbase {
     // --- Edge: coinbase to zero address ---
 
     function call_coinbase_zero() external {
-        vm.coinbase(address(0));
+        rvm.coinbase(address(0));
     }
 
     function coinbase_zero() external view returns (bool) {
@@ -98,10 +98,10 @@ contract CheatcodeCoinbase {
     // --- Cross-cheatcode interaction: coinbase + roll + warp + fee ---
 
     function call_coinbase_and_roll_warp_fee() external {
-        vm.coinbase(address(0xC011B4a5E0000000000000000000000000000000));
-        vm.roll(7000);
-        vm.warp(9000);
-        vm.fee(5000);
+        rvm.coinbase(address(0xC011B4a5E0000000000000000000000000000000));
+        rvm.roll(7000);
+        rvm.warp(9000);
+        rvm.fee(5000);
     }
 
     function coinbase_and_roll_warp_fee() external view returns (bool) {

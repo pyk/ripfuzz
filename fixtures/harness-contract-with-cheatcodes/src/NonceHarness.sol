@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "./Vm.sol";
+import "./RVM.sol";
 
 contract NonceHarness {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     address constant ACTOR = 0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF;
     uint64 constant BASELINE = 42;
@@ -12,37 +12,37 @@ contract NonceHarness {
     uint256 public storedNonce;
 
     function setup() external {
-        vm.setNonce(ACTOR, BASELINE);
-        storedNonce = vm.getNonce(ACTOR);
+        rvm.setNonce(ACTOR, BASELINE);
+        storedNonce = rvm.getNonce(ACTOR);
     }
 
     /// Bump the actor nonce by one and store it.
     function actionBumpNonce() external {
-        uint64 current = uint64(vm.getNonce(ACTOR));
-        vm.setNonce(ACTOR, current + 1);
-        storedNonce = vm.getNonce(ACTOR);
+        uint64 current = uint64(rvm.getNonce(ACTOR));
+        rvm.setNonce(ACTOR, current + 1);
+        storedNonce = rvm.getNonce(ACTOR);
     }
 
     /// Bump the actor nonce by two and store it.
     function actionBumpNonceByTwo() external {
-        uint64 current = uint64(vm.getNonce(ACTOR));
-        vm.setNonce(ACTOR, current + 2);
-        storedNonce = vm.getNonce(ACTOR);
+        uint64 current = uint64(rvm.getNonce(ACTOR));
+        rvm.setNonce(ACTOR, current + 2);
+        storedNonce = rvm.getNonce(ACTOR);
     }
 
     /// Overwrite the actor nonce multiple times, ending +30 above current.
     function actionOverwriteSequence() external {
-        uint64 current = uint64(vm.getNonce(ACTOR));
-        vm.setNonce(ACTOR, current + 10);
-        vm.setNonce(ACTOR, current + 20);
-        vm.setNonce(ACTOR, current + 30);
-        storedNonce = vm.getNonce(ACTOR);
+        uint64 current = uint64(rvm.getNonce(ACTOR));
+        rvm.setNonce(ACTOR, current + 10);
+        rvm.setNonce(ACTOR, current + 20);
+        rvm.setNonce(ACTOR, current + 30);
+        storedNonce = rvm.getNonce(ACTOR);
     }
 
     /// Attempt to set nonce lower than current. Must revert.
     function actionRevertLowNonce() external {
-        uint64 current = uint64(vm.getNonce(ACTOR));
-        vm.setNonce(ACTOR, current - 1);
+        uint64 current = uint64(rvm.getNonce(ACTOR));
+        rvm.setNonce(ACTOR, current - 1);
     }
 
     function getStoredNonce() external view returns (uint256) {
@@ -50,9 +50,9 @@ contract NonceHarness {
     }
 
     /// Read the actor nonce directly from the cheatcode inspector.
-    /// Used to prove that vm.setNonce in setup persists into exec.
+    /// Used to prove that rvm.setNonce in setup persists into exec.
     function getNonceDirect() external view returns (uint256) {
-        return vm.getNonce(ACTOR);
+        return rvm.getNonce(ACTOR);
     }
 
     /// Invariant: the stored nonce must never drop below the baseline.

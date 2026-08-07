@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "./Vm.sol";
+import "./RVM.sol";
 
 /// @notice Regression test fixture for startPrank leak bug.
 ///
-/// When vm.startPrank is active, calls made by contracts that were called
+/// When rvm.startPrank is active, calls made by contracts that were called
 /// with the pranked address must NOT see the pranked address as msg.sender.
 /// The prank must only apply to calls made by the contract that invoked
-/// vm.startPrank.
+/// rvm.startPrank.
 contract PrankLeakHarness {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     PrankLeakVictim public victim;
     PrankLeakIntermediate public intermediate;
@@ -23,9 +23,9 @@ contract PrankLeakHarness {
     }
 
     function action() external {
-        vm.startPrank(ALICE);
+        rvm.startPrank(ALICE);
         intermediate.record();
-        vm.stopPrank();
+        rvm.stopPrank();
     }
 
     function invariant() external view {

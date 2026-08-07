@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeFee {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
     uint256 public recordedBaseFee;
     uint256 public recordedBlockNumber;
     uint256 public recordedTimestamp;
@@ -12,7 +12,7 @@ contract CheatcodeFee {
     // --- setup interaction ---
 
     function setup() external {
-        vm.fee(12345);
+        rvm.fee(12345);
     }
 
     function call_record_basefee() external {
@@ -38,7 +38,7 @@ contract CheatcodeFee {
     // --- Same-sequence persistence ---
 
     function call_fee(uint256 num) external {
-        vm.fee(num);
+        rvm.fee(num);
         recordedBaseFee = block.basefee;
     }
 
@@ -50,7 +50,7 @@ contract CheatcodeFee {
     // --- Revert safety ---
 
     function call_fee_and_revert(uint256 num) external {
-        vm.fee(num);
+        rvm.fee(num);
         revert("intentional");
     }
 
@@ -61,11 +61,11 @@ contract CheatcodeFee {
     // --- Fee overwrite ---
 
     function call_fee_100() external {
-        vm.fee(100);
+        rvm.fee(100);
     }
 
     function call_fee_200() external {
-        vm.fee(200);
+        rvm.fee(200);
     }
 
     function fee_overwrite() external view returns (bool) {
@@ -76,7 +76,7 @@ contract CheatcodeFee {
     // --- Edge: fee to zero ---
 
     function call_fee_zero() external {
-        vm.fee(0);
+        rvm.fee(0);
     }
 
     function fee_zero() external view returns (bool) {
@@ -86,7 +86,7 @@ contract CheatcodeFee {
     // --- Edge: fee to max uint64 ---
 
     function call_fee_max_uint64() external {
-        vm.fee(type(uint64).max);
+        rvm.fee(type(uint64).max);
     }
 
     function fee_max_uint64() external view returns (bool) {
@@ -103,9 +103,9 @@ contract CheatcodeFee {
     // --- Cross-cheatcode interaction: fee + roll + warp ---
 
     function call_fee_and_roll_warp() external {
-        vm.fee(5000);
-        vm.roll(7000);
-        vm.warp(9000);
+        rvm.fee(5000);
+        rvm.roll(7000);
+        rvm.warp(9000);
     }
 
     function fee_and_roll_warp() external view returns (bool) {

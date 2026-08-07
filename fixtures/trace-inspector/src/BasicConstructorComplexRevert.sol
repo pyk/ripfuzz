@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "./Vm.sol";
+import {RVM} from "./RVM.sol";
 
 struct Point {
     uint256 x;
@@ -124,7 +124,7 @@ contract DeepContract {
 }
 
 contract BasicConstructorComplexRevert {
-    Vm public constant VM = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM public constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     constructor() payable {
         Counter counter = new Counter(42);
@@ -152,7 +152,7 @@ contract BasicConstructorComplexRevert {
         MathLib.add(10, 20);
         counter.selfCall(50);
         counter.payableCall{value: 1000}();
-        VM.warp(1234567890);
+        rvm.warp(1234567890);
         DeepContract deep = new DeepContract();
         deep.run(counter);
         revert("constructor always reverts");

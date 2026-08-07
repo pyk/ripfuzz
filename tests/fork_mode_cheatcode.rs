@@ -1,6 +1,6 @@
 //! Integration tests: fork mode cheatcodes.
 //!
-//! Verify that cheatcodes (e.g. `vm.warp`) behave correctly when the
+//! Verify that cheatcodes (e.g. `rvm.warp`) behave correctly when the
 //! EVM is running in fork mode.
 
 use alloy_sol_types::SolCall;
@@ -12,27 +12,27 @@ use ripfuzz::{
 use serde_json::json;
 
 alloy_sol_types::sol! {
-    interface VmWarp {
+    interface RvmWarp {
         function warp(uint256 value) external;
         function getBlockTimestamp() external view returns (uint256);
     }
 
-    interface VmRoll {
+    interface RvmRoll {
         function roll(uint256 value) external;
         function getBlockNumber() external view returns (uint256);
     }
 
-    interface VmChainId {
+    interface RvmChainId {
         function setChainId(uint256 value) external;
         function getChainId() external view returns (uint256);
     }
 
-    interface VmAddr {
+    interface RvmAddr {
         function setup() external;
         function getBalance() external view returns (uint256);
     }
 
-    interface VmDeal {
+    interface RvmDeal {
         function setup() external;
         function dealLocalAddress() external;
         function dealRemoteAddress() external;
@@ -40,13 +40,13 @@ alloy_sol_types::sol! {
         function getRemoteBalance() external view returns (uint256);
     }
 
-    interface VmLoad {
+    interface RvmLoad {
         function setup() external;
         function loadLocalContract() external;
         function loadRemoteContract() external;
     }
 
-    interface VmStore {
+    interface RvmStore {
         function setup() external;
         function storeLocalContract() external;
         function storeRemoteContract() external;
@@ -102,11 +102,11 @@ fn fork_chain(transport: &MockTransport, url: &str) -> Chain {
     Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap()
 }
 
-/// Integration test: `vm.warp` cheatcode must correctly update
+/// Integration test: `rvm.warp` cheatcode must correctly update
 /// `block.timestamp` in fork mode. The deployed harness contract is
 /// local and must not trigger any RPC fetch.
 #[test]
-fn vm_warp() {
+fn rvm_warp() {
     let transport = MockTransport::default();
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
@@ -119,7 +119,7 @@ fn vm_warp() {
 
     let project = Project::new("fixtures/fork-mode-cheatcode");
     let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/VmWarp.sol:VmWarp").unwrap();
+    let artifact_id = ArtifactId::try_from("test/RvmWarp.sol:RvmWarp").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -127,8 +127,8 @@ fn vm_warp() {
     let target = deployment.address.unwrap();
 
     let warp_value = alloy_primitives::U256::from(42);
-    let warp_calldata = Bytes::from(VmWarp::warpCall::new((warp_value,)).abi_encode());
-    let get_timestamp_calldata = Bytes::from(VmWarp::getBlockTimestampCall::new(()).abi_encode());
+    let warp_calldata = Bytes::from(RvmWarp::warpCall::new((warp_value,)).abi_encode());
+    let get_timestamp_calldata = Bytes::from(RvmWarp::getBlockTimestampCall::new(()).abi_encode());
 
     let txs = [
         Transaction::new(target).calldata(warp_calldata),
@@ -141,7 +141,7 @@ fn vm_warp() {
         "getBlockTimestamp call must succeed"
     );
 
-    let ts = VmWarp::getBlockTimestampCall::abi_decode_returns(
+    let ts = RvmWarp::getBlockTimestampCall::abi_decode_returns(
         &exec_output.results[1].output.clone().unwrap(),
     )
     .unwrap();
@@ -158,7 +158,7 @@ fn vm_warp() {
 /// `block.number` in fork mode. The deployed harness contract is
 /// local and must not trigger any RPC fetch.
 #[test]
-fn vm_roll() {
+fn rvm_roll() {
     let transport = MockTransport::default();
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
@@ -171,7 +171,7 @@ fn vm_roll() {
 
     let project = Project::new("fixtures/fork-mode-cheatcode");
     let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/VmRoll.sol:VmRoll").unwrap();
+    let artifact_id = ArtifactId::try_from("test/RvmRoll.sol:RvmRoll").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -179,8 +179,8 @@ fn vm_roll() {
     let target = deployment.address.unwrap();
 
     let roll_value = alloy_primitives::U256::from(42);
-    let roll_calldata = Bytes::from(VmRoll::rollCall::new((roll_value,)).abi_encode());
-    let get_block_calldata = Bytes::from(VmRoll::getBlockNumberCall::new(()).abi_encode());
+    let roll_calldata = Bytes::from(RvmRoll::rollCall::new((roll_value,)).abi_encode());
+    let get_block_calldata = Bytes::from(RvmRoll::getBlockNumberCall::new(()).abi_encode());
 
     let txs = [
         Transaction::new(target).calldata(roll_calldata),
@@ -193,7 +193,7 @@ fn vm_roll() {
         "getBlockNumber call must succeed"
     );
 
-    let bn = VmRoll::getBlockNumberCall::abi_decode_returns(
+    let bn = RvmRoll::getBlockNumberCall::abi_decode_returns(
         &exec_output.results[1].output.clone().unwrap(),
     )
     .unwrap();
@@ -210,7 +210,7 @@ fn vm_roll() {
 /// `block.chainid` in fork mode. The deployed harness contract is
 /// local and must not trigger any RPC fetch.
 #[test]
-fn vm_chain_id() {
+fn rvm_chain_id() {
     let transport = MockTransport::default();
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
@@ -223,7 +223,7 @@ fn vm_chain_id() {
 
     let project = Project::new("fixtures/fork-mode-cheatcode");
     let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/VmChainId.sol:VmChainId").unwrap();
+    let artifact_id = ArtifactId::try_from("test/RvmChainId.sol:RvmChainId").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -232,8 +232,8 @@ fn vm_chain_id() {
 
     let chain_id_value = alloy_primitives::U256::from(1337);
     let set_chain_id_calldata =
-        Bytes::from(VmChainId::setChainIdCall::new((chain_id_value,)).abi_encode());
-    let get_chain_id_calldata = Bytes::from(VmChainId::getChainIdCall::new(()).abi_encode());
+        Bytes::from(RvmChainId::setChainIdCall::new((chain_id_value,)).abi_encode());
+    let get_chain_id_calldata = Bytes::from(RvmChainId::getChainIdCall::new(()).abi_encode());
 
     let txs = [
         Transaction::new(target).calldata(set_chain_id_calldata),
@@ -249,7 +249,7 @@ fn vm_chain_id() {
         "getChainId call must succeed"
     );
 
-    let id = VmChainId::getChainIdCall::abi_decode_returns(
+    let id = RvmChainId::getChainIdCall::abi_decode_returns(
         &exec_output.results[1].output.clone().unwrap(),
     )
     .unwrap();
@@ -265,7 +265,7 @@ fn vm_chain_id() {
 /// address in fork mode. The derived address is local and its balance
 /// read must not trigger any RPC fetch.
 #[test]
-fn vm_addr() {
+fn rvm_addr() {
     let transport = MockTransport::default();
     let url = "mock://test";
     let mut chain = fork_chain(&transport, url);
@@ -278,7 +278,7 @@ fn vm_addr() {
 
     let project = Project::new("fixtures/fork-mode-cheatcode");
     let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/VmAddr.sol:VmAddr").unwrap();
+    let artifact_id = ArtifactId::try_from("test/RvmAddr.sol:RvmAddr").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -288,7 +288,7 @@ fn vm_addr() {
     let setup_result = chain.setup(SetupInput::new(target)).unwrap();
     assert!(setup_result.result.success, "setup must succeed");
 
-    let get_balance_calldata = Bytes::from(VmAddr::getBalanceCall::new(()).abi_encode());
+    let get_balance_calldata = Bytes::from(RvmAddr::getBalanceCall::new(()).abi_encode());
     let txs = [Transaction::new(target).calldata(get_balance_calldata)];
 
     let exec_output = chain.exec(&txs).unwrap();
@@ -297,9 +297,10 @@ fn vm_addr() {
         "getBalance call must succeed"
     );
 
-    let balance =
-        VmAddr::getBalanceCall::abi_decode_returns(&exec_output.results[0].output.clone().unwrap())
-            .unwrap();
+    let balance = RvmAddr::getBalanceCall::abi_decode_returns(
+        &exec_output.results[0].output.clone().unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         balance,
         alloy_primitives::U256::ZERO,
@@ -314,7 +315,7 @@ fn vm_addr() {
 /// fetch, while the remote address (vitalik.eth) requires a single
 /// batched account fetch.
 #[test]
-fn vm_deal() {
+fn rvm_deal() {
     let transport = MockTransport::default();
     let url = "mock://test";
 
@@ -346,7 +347,7 @@ fn vm_deal() {
 
     let project = Project::new("fixtures/fork-mode-cheatcode");
     let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/VmDeal.sol:VmDeal").unwrap();
+    let artifact_id = ArtifactId::try_from("test/RvmDeal.sol:RvmDeal").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -356,10 +357,10 @@ fn vm_deal() {
     let setup_result = chain.setup(SetupInput::new(target)).unwrap();
     assert!(setup_result.result.success, "setup must succeed");
 
-    let deal_local_calldata = Bytes::from(VmDeal::dealLocalAddressCall::new(()).abi_encode());
-    let deal_remote_calldata = Bytes::from(VmDeal::dealRemoteAddressCall::new(()).abi_encode());
-    let get_local_calldata = Bytes::from(VmDeal::getLocalBalanceCall::new(()).abi_encode());
-    let get_remote_calldata = Bytes::from(VmDeal::getRemoteBalanceCall::new(()).abi_encode());
+    let deal_local_calldata = Bytes::from(RvmDeal::dealLocalAddressCall::new(()).abi_encode());
+    let deal_remote_calldata = Bytes::from(RvmDeal::dealRemoteAddressCall::new(()).abi_encode());
+    let get_local_calldata = Bytes::from(RvmDeal::getLocalBalanceCall::new(()).abi_encode());
+    let get_remote_calldata = Bytes::from(RvmDeal::getRemoteBalanceCall::new(()).abi_encode());
 
     let txs = [
         Transaction::new(target).calldata(deal_local_calldata),
@@ -385,14 +386,14 @@ fn vm_deal() {
         "getRemoteBalance must succeed"
     );
 
-    let local_balance = VmDeal::getLocalBalanceCall::abi_decode_returns(
+    let local_balance = RvmDeal::getLocalBalanceCall::abi_decode_returns(
         &exec_output.results[2].output.clone().unwrap(),
     )
     .unwrap();
     let one_ether = alloy_primitives::U256::from(10_u128.pow(18));
     assert_eq!(local_balance, one_ether, "local balance must be 1 ether");
 
-    let remote_balance = VmDeal::getRemoteBalanceCall::abi_decode_returns(
+    let remote_balance = RvmDeal::getRemoteBalanceCall::abi_decode_returns(
         &exec_output.results[3].output.clone().unwrap(),
     )
     .unwrap();
@@ -410,7 +411,7 @@ fn vm_deal() {
 /// read must not trigger any RPC fetch, while the remote (WETH) read
 /// must trigger a single storage fetch.
 #[test]
-fn vm_load() {
+fn rvm_load() {
     let transport = MockTransport::default();
     let url = "mock://test";
 
@@ -454,7 +455,7 @@ fn vm_load() {
 
     let project = Project::new("fixtures/fork-mode-cheatcode");
     let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/VmLoad.sol:VmLoad").unwrap();
+    let artifact_id = ArtifactId::try_from("test/RvmLoad.sol:RvmLoad").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -464,8 +465,8 @@ fn vm_load() {
     let setup_result = chain.setup(SetupInput::new(target)).unwrap();
     assert!(setup_result.result.success, "setup must succeed");
 
-    let load_local_calldata = Bytes::from(VmLoad::loadLocalContractCall::new(()).abi_encode());
-    let load_remote_calldata = Bytes::from(VmLoad::loadRemoteContractCall::new(()).abi_encode());
+    let load_local_calldata = Bytes::from(RvmLoad::loadLocalContractCall::new(()).abi_encode());
+    let load_remote_calldata = Bytes::from(RvmLoad::loadRemoteContractCall::new(()).abi_encode());
 
     let txs = [
         Transaction::new(target).calldata(load_local_calldata),
@@ -493,7 +494,7 @@ fn vm_load() {
 /// write must not trigger any RPC fetch, while the remote (WETH) write
 /// must trigger only the basic account fetch (no storage fetch).
 #[test]
-fn vm_store() {
+fn rvm_store() {
     let transport = MockTransport::default();
     let url = "mock://test";
 
@@ -528,7 +529,7 @@ fn vm_store() {
 
     let project = Project::new("fixtures/fork-mode-cheatcode");
     let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/VmStore.sol:VmStore").unwrap();
+    let artifact_id = ArtifactId::try_from("test/RvmStore.sol:RvmStore").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
@@ -538,8 +539,9 @@ fn vm_store() {
     let setup_result = chain.setup(SetupInput::new(target)).unwrap();
     assert!(setup_result.result.success, "setup must succeed");
 
-    let store_local_calldata = Bytes::from(VmStore::storeLocalContractCall::new(()).abi_encode());
-    let store_remote_calldata = Bytes::from(VmStore::storeRemoteContractCall::new(()).abi_encode());
+    let store_local_calldata = Bytes::from(RvmStore::storeLocalContractCall::new(()).abi_encode());
+    let store_remote_calldata =
+        Bytes::from(RvmStore::storeRemoteContractCall::new(()).abi_encode());
 
     let txs = [
         Transaction::new(target).calldata(store_local_calldata),

@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "./Vm.sol";
+import "./RVM.sol";
 import "./PrankVictim.sol";
 
 /// @notice Minimal stateful-fuzz handler for ripfuzz prank cheatcodes.
 ///
-/// Setup establishes a persistent `vm.startPrank(ADMIN)` so that every
+/// Setup establishes a persistent `rvm.startPrank(ADMIN)` so that every
 /// action during `chain.exec` sees ADMIN as `msg.sender` unless it
 /// explicitly changes or stops the prank.  Invariants verify the
 /// expected sender for each scenario.
 contract PrankHarness {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     PrankVictim public victim;
 
@@ -26,9 +26,9 @@ contract PrankHarness {
 
     modifier useActor(uint256 actorSeed) {
         currentActor = actors[actorSeed % actors.length];
-        vm.startPrank(currentActor);
+        rvm.startPrank(currentActor);
         _;
-        vm.stopPrank();
+        rvm.stopPrank();
     }
 
     function setup() external {
@@ -38,7 +38,7 @@ contract PrankHarness {
             address(0x2000000000000000000000000000000000000002),
             address(0x3000000000000000000000000000000000000003)
         ];
-        vm.startPrank(ADMIN);
+        rvm.startPrank(ADMIN);
         victim.record();
         lastSender = victim.lastSender();
     }
@@ -52,7 +52,7 @@ contract PrankHarness {
 
     /// Overwrite the used startPrank with a different user.
     function actionOverwriteStart() external {
-        vm.startPrank(USER);
+        rvm.startPrank(USER);
         victim.record();
         lastSender = victim.lastSender();
     }
@@ -60,15 +60,15 @@ contract PrankHarness {
     /// Stop the persistent prank so the real caller (this contract)
     /// becomes `msg.sender`.
     function actionStopPrank() external {
-        vm.stopPrank();
+        rvm.stopPrank();
         victim.record();
         lastSender = victim.lastSender();
     }
 
     /// Stop the current prank and restore the canonical admin prank.
     function actionRestoreAdmin() external {
-        vm.stopPrank();
-        vm.startPrank(ADMIN);
+        rvm.stopPrank();
+        rvm.startPrank(ADMIN);
         victim.record();
         lastSender = victim.lastSender();
     }
@@ -84,22 +84,22 @@ contract PrankHarness {
         return lastSender;
     }
 
-    /// vm.prank twice without consuming the first must revert.
+    /// rvm.prank twice without consuming the first must revert.
     function actionRevertDoublePrank() external {
-        vm.prank(ALICE);
-        vm.prank(USER);
+        rvm.prank(ALICE);
+        rvm.prank(USER);
     }
 
-    /// vm.startPrank twice without using the first must revert.
+    /// rvm.startPrank twice without using the first must revert.
     function actionRevertDoubleStart() external {
-        vm.startPrank(ALICE);
-        vm.startPrank(USER);
+        rvm.startPrank(ALICE);
+        rvm.startPrank(USER);
     }
 
-    /// vm.prank over an active startPrank must revert.
+    /// rvm.prank over an active startPrank must revert.
     function actionRevertPrankOverStart() external {
-        vm.startPrank(ALICE);
-        vm.prank(USER);
+        rvm.startPrank(ALICE);
+        rvm.prank(USER);
     }
 
     /// Invariant: lastSender must be the admin address.

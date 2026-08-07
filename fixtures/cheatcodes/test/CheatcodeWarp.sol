@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeWarp {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
     uint256 public recordedTimestamp;
     uint256 public recordedBlockNumber;
 
     // --- setup interaction ---
 
     function setup() external {
-        vm.warp(1234567890);
+        rvm.warp(1234567890);
     }
 
     function call_record_timestamp() external {
@@ -33,7 +33,7 @@ contract CheatcodeWarp {
     // --- Same-sequence persistence ---
 
     function call_warp(uint256 ts) external {
-        vm.warp(ts);
+        rvm.warp(ts);
         recordedTimestamp = block.timestamp;
     }
 
@@ -45,7 +45,7 @@ contract CheatcodeWarp {
     // --- Revert safety ---
 
     function call_warp_and_revert(uint256 ts) external {
-        vm.warp(ts);
+        rvm.warp(ts);
         revert("intentional");
     }
 
@@ -56,7 +56,7 @@ contract CheatcodeWarp {
     // --- Delay interaction ---
 
     function call_warp_100() external {
-        vm.warp(100);
+        rvm.warp(100);
     }
 
     function warp_with_delay() external view returns (bool) {
@@ -68,7 +68,7 @@ contract CheatcodeWarp {
     // --- Warp overwrite ---
 
     function call_warp_200() external {
-        vm.warp(200);
+        rvm.warp(200);
     }
 
     function warp_overwrite() external view returns (bool) {
@@ -79,7 +79,7 @@ contract CheatcodeWarp {
     // --- Edge: warp to zero ---
 
     function call_warp_zero() external {
-        vm.warp(0);
+        rvm.warp(0);
     }
 
     function warp_zero() external view returns (bool) {
@@ -90,7 +90,7 @@ contract CheatcodeWarp {
     // --- Edge: warp to max uint64 ---
 
     function call_warp_max_uint64() external {
-        vm.warp(type(uint64).max);
+        rvm.warp(type(uint64).max);
     }
 
     function warp_max_uint64() external view returns (bool) {
@@ -107,8 +107,8 @@ contract CheatcodeWarp {
     // --- Cross-cheatcode interaction: warp + roll ---
 
     function call_warp_and_roll() external {
-        vm.warp(1000);
-        vm.roll(5000);
+        rvm.warp(1000);
+        rvm.roll(5000);
     }
 
     function warp_and_roll() external view returns (bool) {

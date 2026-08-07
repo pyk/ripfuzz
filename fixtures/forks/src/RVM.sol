@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-interface Vm {
+/// @notice Ripfuzz RVM interface for cheatcodes.
+///
+/// NOTE: The ripfuzz RVM is **not** Foundry VM compatible.  It does not
+/// implement all Foundry cheatcodes — only the subset supported by ripfuzz.
+interface RVM {
     function label(address, string calldata) external;
     function prank(address) external;
     function startPrank(address) external;

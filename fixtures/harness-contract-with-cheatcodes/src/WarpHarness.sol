@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "./Vm.sol";
+import "./RVM.sol";
 
 /// @notice Minimal stateful-fuzz handler for ripfuzz warp cheatcode.
 ///
 /// Setup warps to a canonical timestamp and stores it.
 /// Actions restore or mutate the timestamp; invariants verify the value.
 contract WarpHarness {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     uint256 constant EXPECTED = 1_234_567_890;
 
     uint256 public storedTimestamp;
 
     function setup() external {
-        vm.warp(EXPECTED);
+        rvm.warp(EXPECTED);
         storedTimestamp = block.timestamp;
     }
 
@@ -26,13 +26,13 @@ contract WarpHarness {
 
     /// Re-warp to the canonical value and store it.
     function actionWarp() external {
-        vm.warp(EXPECTED);
+        rvm.warp(EXPECTED);
         storedTimestamp = block.timestamp;
     }
 
     /// Warp to a non-canonical value and store it.
     function actionMutate() external {
-        vm.warp(99);
+        rvm.warp(99);
         storedTimestamp = block.timestamp;
     }
 

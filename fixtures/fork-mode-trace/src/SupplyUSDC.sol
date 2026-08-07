@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "./Vm.sol";
+import {RVM} from "./RVM.sol";
 
 interface IERC20 {
     function approve(address spender, uint256 amount) external returns (bool);
@@ -13,7 +13,7 @@ interface IPool {
 
 /// @notice Harness that supplies USDC to the Aave V3 pool on Base.
 contract SupplyUSDC {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     // Base USDC token address.
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
@@ -26,7 +26,7 @@ contract SupplyUSDC {
         uint256 amount = 10 * 1e6; // 10 USDC (6 decimals)
 
         // Label the harness contract for readable trace output.
-        vm.label(address(this), "SupplyUSDC");
+        rvm.label(address(this), "SupplyUSDC");
 
         // -----------------------------------------------------------------
         // Set USDC balance for the harness contract.
@@ -35,7 +35,7 @@ contract SupplyUSDC {
         // slot = keccak256(abi.encode(address(this), uint256(9)))
         // -----------------------------------------------------------------
         bytes32 balanceSlot = keccak256(abi.encode(address(this), uint256(9)));
-        vm.store(USDC, balanceSlot, bytes32(amount));
+        rvm.store(USDC, balanceSlot, bytes32(amount));
 
         // Approve USDC spend by the pool.
         IERC20(USDC).approve(POOL, amount);

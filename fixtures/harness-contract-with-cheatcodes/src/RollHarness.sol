@@ -1,41 +1,41 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "./Vm.sol";
+import "./RVM.sol";
 
 /// @notice Minimal stateful-fuzz handler for ripfuzz roll cheatcode.
 ///
-/// Setup establishes a canonical `block.number` via `vm.roll`.  Actions
+/// Setup establishes a canonical `block.number` via `rvm.roll`.  Actions
 /// mutate or restore the value; invariants verify the canonical state.
 contract RollHarness {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     uint256 constant CANONICAL = 42;
 
     uint256 public storedBlockNumber;
 
     function setup() external {
-        vm.roll(CANONICAL);
+        rvm.roll(CANONICAL);
         storedBlockNumber = block.number;
     }
 
     /// Re-set the canonical block number and store it.
     function actionRestoreCanonical() external {
-        vm.roll(CANONICAL);
+        rvm.roll(CANONICAL);
         storedBlockNumber = block.number;
     }
 
     /// Set a non-canonical block number and store it.
     function actionMutateValue() external {
-        vm.roll(999);
+        rvm.roll(999);
         storedBlockNumber = block.number;
     }
 
     /// Interleave multiple block numbers, ending on the canonical one.
     function actionSequence() external {
-        vm.roll(1);
-        vm.roll(2);
-        vm.roll(CANONICAL);
+        rvm.roll(1);
+        rvm.roll(2);
+        rvm.roll(CANONICAL);
         storedBlockNumber = block.number;
     }
 

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import "./Vm.sol";
+import "./RVM.sol";
 
-/// @notice Exercises `vm.fork` for single- and multi-fork campaigns.
+/// @notice Exercises `rvm.fork` for single- and multi-fork campaigns.
 ///
 /// Includes helpers for same-address / different-chain isolation tests
 /// (e.g. a bridge contract deployed at the same address on Ethereum and Polygon).
 contract ForkHarness {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     /// Shared remote address used for isolation tests (PolyBridger-style).
     address constant BRIDGE = 0x1111111111111111111111111111111111111111;
@@ -29,7 +29,7 @@ contract ForkHarness {
     }
 
     function actionFork(string calldata url, uint256 blockNumber) external {
-        vm.fork(url, blockNumber);
+        rvm.fork(url, blockNumber);
         lastUrl = url;
         lastBlock = block.number;
         lastChainId = block.chainid;
@@ -44,10 +44,10 @@ contract ForkHarness {
         uint64 timeoutMs,
         uint64 rateLimit
     ) external {
-        Vm.ForkConfig memory config = Vm.ForkConfig({
+        RVM.ForkConfig memory config = RVM.ForkConfig({
             retries: retries, backoffMs: backoffMs, timeoutMs: timeoutMs, rateLimit: rateLimit
         });
-        vm.fork(url, blockNumber, config);
+        rvm.fork(url, blockNumber, config);
         lastUrl = url;
         lastBlock = block.number;
         lastChainId = block.chainid;
@@ -56,30 +56,30 @@ contract ForkHarness {
 
     /// Fork then read remote bridge slot 0 and balance.
     function actionForkAndReadBridge(string calldata url, uint256 blockNumber) external {
-        vm.fork(url, blockNumber);
-        lastSlot0 = vm.load(BRIDGE, bytes32(uint256(0)));
+        rvm.fork(url, blockNumber);
+        lastSlot0 = rvm.load(BRIDGE, bytes32(uint256(0)));
         lastBalance = BRIDGE.balance;
         lastBlock = block.number;
         lastChainId = block.chainid;
     }
 
-    /// Fork, mutate bridge storage via vm.store, then re-read.
+    /// Fork, mutate bridge storage via rvm.store, then re-read.
     function actionForkStoreBridge(string calldata url, uint256 blockNumber, bytes32 value) external {
-        vm.fork(url, blockNumber);
-        vm.store(BRIDGE, bytes32(uint256(0)), value);
-        lastSlot0 = vm.load(BRIDGE, bytes32(uint256(0)));
+        rvm.fork(url, blockNumber);
+        rvm.store(BRIDGE, bytes32(uint256(0)), value);
+        lastSlot0 = rvm.load(BRIDGE, bytes32(uint256(0)));
     }
 
-    /// Fork, mutate bridge balance via vm.deal, then re-read.
+    /// Fork, mutate bridge balance via rvm.deal, then re-read.
     function actionForkDealBridge(string calldata url, uint256 blockNumber, uint256 value) external {
-        vm.fork(url, blockNumber);
-        vm.deal(BRIDGE, value);
+        rvm.fork(url, blockNumber);
+        rvm.deal(BRIDGE, value);
         lastBalance = BRIDGE.balance;
     }
 
     /// Read bridge slot 0 on the currently active fork (no re-fork).
     function actionReadBridge() external {
-        lastSlot0 = vm.load(BRIDGE, bytes32(uint256(0)));
+        lastSlot0 = rvm.load(BRIDGE, bytes32(uint256(0)));
         lastBalance = BRIDGE.balance;
     }
 

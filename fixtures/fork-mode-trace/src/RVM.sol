@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-/// @notice Ripfuzz VM interface for cheatcodes.
-interface Vm {
+/// @notice Ripfuzz RVM interface for cheatcodes.
+interface RVM {
     function store(address, bytes32, bytes32) external;
     function load(address, bytes32) external view returns (bytes32);
     function label(address, string calldata) external;

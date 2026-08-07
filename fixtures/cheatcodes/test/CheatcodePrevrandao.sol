@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
 contract CheatcodePrevrandao {
-    Vm constant vm = Vm(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
     bytes32 public recordedPrevrandao;
     uint256 public recordedBlockNumber;
     uint256 public recordedTimestamp;
@@ -15,7 +15,7 @@ contract CheatcodePrevrandao {
     // --- setup interaction ---
 
     function setup() external {
-        vm.prevrandao(bytes32(uint256(0xCA11BA5E)));
+        rvm.prevrandao(bytes32(uint256(0xCA11BA5E)));
     }
 
     function call_record_prevrandao() external {
@@ -49,7 +49,7 @@ contract CheatcodePrevrandao {
     // --- Same-sequence persistence ---
 
     function call_prevrandao(bytes32 val) external {
-        vm.prevrandao(val);
+        rvm.prevrandao(val);
         recordedPrevrandao = bytes32(uint256(block.prevrandao));
     }
 
@@ -61,7 +61,7 @@ contract CheatcodePrevrandao {
     // --- Revert safety ---
 
     function call_prevrandao_and_revert(bytes32 val) external {
-        vm.prevrandao(val);
+        rvm.prevrandao(val);
         revert("intentional");
     }
 
@@ -72,11 +72,11 @@ contract CheatcodePrevrandao {
     // --- Prevrandao overwrite ---
 
     function call_prevrandao_A() external {
-        vm.prevrandao(bytes32(uint256(0xA)));
+        rvm.prevrandao(bytes32(uint256(0xA)));
     }
 
     function call_prevrandao_B() external {
-        vm.prevrandao(bytes32(uint256(0xB)));
+        rvm.prevrandao(bytes32(uint256(0xB)));
     }
 
     function prevrandao_overwrite() external view returns (bool) {
@@ -87,7 +87,7 @@ contract CheatcodePrevrandao {
     // --- Edge: prevrandao to zero bytes32 ---
 
     function call_prevrandao_zero() external {
-        vm.prevrandao(bytes32(0));
+        rvm.prevrandao(bytes32(0));
     }
 
     function prevrandao_zero() external view returns (bool) {
@@ -97,7 +97,7 @@ contract CheatcodePrevrandao {
     // --- Edge: prevrandao to max uint256 ---
 
     function call_prevrandao_max() external {
-        vm.prevrandao(bytes32(type(uint256).max));
+        rvm.prevrandao(bytes32(type(uint256).max));
     }
 
     function prevrandao_max() external view returns (bool) {
@@ -114,11 +114,11 @@ contract CheatcodePrevrandao {
     // --- Cross-cheatcode interaction: prevrandao + roll + warp + fee + coinbase ---
 
     function call_prevrandao_and_roll_warp_fee_coinbase() external {
-        vm.prevrandao(bytes32(uint256(0xBEEF)));
-        vm.roll(7000);
-        vm.warp(9000);
-        vm.fee(5000);
-        vm.coinbase(address(0xC011BA5E));
+        rvm.prevrandao(bytes32(uint256(0xBEEF)));
+        rvm.roll(7000);
+        rvm.warp(9000);
+        rvm.fee(5000);
+        rvm.coinbase(address(0xC011BA5E));
     }
 
     function prevrandao_and_roll_warp_fee_coinbase() external view returns (bool) {
@@ -132,15 +132,15 @@ contract CheatcodePrevrandao {
     // --- Interaction with difficulty no-op ---
 
     function call_prevrandao_then_difficulty() external {
-        vm.prevrandao(bytes32(uint256(0xF00D)));
-        vm.difficulty(9999);
+        rvm.prevrandao(bytes32(uint256(0xF00D)));
+        rvm.difficulty(9999);
         recordedDifficulty = block.difficulty;
         recordedPrevrandao = bytes32(uint256(block.prevrandao));
     }
 
     function difficulty_noop_does_not_clobber() external view returns (bool) {
         // On post-Paris, block.difficulty reads prevrandao.
-        // vm.difficulty(9999) is a no-op and must not overwrite the prior prevrandao.
+        // rvm.difficulty(9999) is a no-op and must not overwrite the prior prevrandao.
         return recordedDifficulty == uint256(0xF00D)
             && recordedPrevrandao == bytes32(uint256(0xF00D));
     }

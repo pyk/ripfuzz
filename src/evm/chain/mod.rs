@@ -602,8 +602,8 @@ mod tests {
 
     /// Execute against a basic target to verify coverage works with initcode.
     #[test]
-    fn execute_coverage_on_basic_target() {
-        let project = foundry::Project::new("fixtures/basic-target");
+    fn execute_coverage_on_basic_harness() {
+        let project = foundry::Project::new("fixtures/basic-harness");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id =
             foundry::ArtifactId::try_from("src/NamedMismatch.sol:DifferentName").unwrap();

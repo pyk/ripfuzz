@@ -37,7 +37,7 @@ TargetContractWithLoop:
 # 	- src/Counter.sol
 # 	- src/ICounter.sol
 # 	- src/MathLib.sol
-# 	- src/Vm.sol
+# 	- src/RVM.sol
 # - constructor and interfaceCall functions have hits
 .PHONY: check
 TargetContractWithInterface:

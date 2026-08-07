@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Vm} from "../src/Vm.sol";
+import {RVM} from "../src/RVM.sol";
 
-/// @notice Integration test fixture for verifying that the `vm.load`
+/// @notice Integration test fixture for verifying that the `rvm.load`
 /// cheatcode correctly reads storage from local and remote contracts
 /// in fork mode.
-contract VmLoad {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+contract RvmLoad {
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
 
     LocalContract public localContract;
 
@@ -17,17 +17,17 @@ contract VmLoad {
         localContract = new LocalContract();
     }
 
-    /// Use vm.load to read storage slot 0 from the local contract and
+    /// Use rvm.load to read storage slot 0 from the local contract and
     /// assert it equals 42.
     function loadLocalContract() external {
-        bytes32 value = vm.load(address(localContract), bytes32(uint256(0)));
+        bytes32 value = rvm.load(address(localContract), bytes32(uint256(0)));
         require(value == bytes32(uint256(42)), "local load mismatch");
     }
 
-    /// Use vm.load to read WETH decimals from storage slot 2 and
+    /// Use rvm.load to read WETH decimals from storage slot 2 and
     /// assert it equals 18 (0x12).
     function loadRemoteContract() external {
-        bytes32 decimals = vm.load(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, bytes32(uint256(2)));
+        bytes32 decimals = rvm.load(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, bytes32(uint256(2)));
         require(decimals == bytes32(uint256(18)), "remote load mismatch");
     }
 }

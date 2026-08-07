@@ -3,15 +3,15 @@ pragma solidity ^0.8.28;
 
 import {RipFuzz} from "./RipFuzz.sol";
 import {ICounter} from "./ICounter.sol";
-import {Vm} from "./Vm.sol";
+import {RVM} from "./RVM.sol";
 
 contract HarnessContractWithInterface is RipFuzz {
-    Vm constant vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
     uint256 public latestValue;
     ICounter public counterInterface;
 
     constructor() {
-        bytes memory code = vm.getCode("src/Counter.sol:Counter");
+        bytes memory code = rvm.getCode("src/Counter.sol:Counter");
         address counter;
         assembly {
             counter := create(0, add(code, 0x20), mload(code))
