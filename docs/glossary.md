@@ -6,23 +6,20 @@ Consistent vocabulary for ripfuzz users and contributors.
 
 ### Fuzzing Campaign
 
-A single invocation of `ripfuzz run`. A campaign initializes the **harness
-contract**, builds seed inputs, and orchestrates one or more **fuzzers** that
-generate sequences of **function calls**, execute them against a cloned
-contract state, and check that all **properties** still hold. If a **failed
-assertion** is found, the campaign spawns one or more **shrinkers** to minimize
-the failing sequence before reporting the result. Also called a "fuzz run" or
-"test run".
+A single invocation of `ripfuzz run`. The campaign deploys the **harness
+contract** and coordinates **fuzzers** (and **shrinkers**, when a **failed
+assertion** is found) until the run finishes with a **campaign result**. Also
+called a "fuzz run" or "test run".
 
 ### Harness Contract
 
 The Solidity file you pass to `ripfuzz run` (e.g. `Harness` or
 `src/Harness.sol:Harness`). It is the contract ripfuzz compiles, deploys, and
-exercises.
+fuzzes.
 
 ### Invariant Function
 
-A Solidity function that encodes an invariant. By default it must:
+A Solidity function that checks an invariant. By default it must:
 
 - start with the prefix `invariant_`
 - take no arguments
@@ -41,13 +38,13 @@ example, after calling `deposit(uint256 amount)`, the contract's ETH balance
 should increase by `amount` and the sender's balance should decrease by the
 same amount.
 
-### System-Level Invariant
+### Protocol-Level Invariant
 
-A property that must hold true across the **entire execution** of a system,
-regardless of which functions are called. These are more general than
-function-level invariants. For example, the `xy = k` constant product formula
-must always hold for a Uniswap pool, or the total deposited amount in a lending
-protocol must never exceed `MAX_DEPOSIT_AMOUNT`.
+A property that must hold after **any sequence of function calls**, not just
+one specific function. These are more general than function-level invariants.
+For example, the `xy = k` constant product formula must always hold for a
+Uniswap pool, or the total deposited amount in a lending protocol must never
+exceed `MAX_DEPOSIT_AMOUNT`.
 
 ### Handler Function
 
@@ -107,63 +104,43 @@ instruction, branch, call depth, or revert path, it is considered
 A data structure that records which parts of EVM bytecode were executed during
 a fuzzing campaign. Ripfuzz maintains two kinds:
 
-- **Local Coverage**: collected by the `Inspector` during a single execution of
-  a call sequence. Reset for every sequence.
-- **Global Coverage** (Shared Coverage): the merged union of all local coverage
-  maps across every fuzzer thread. This is what the fuzzer checks to detect
-  novelty.
+- **Execution Coverage**: collected by the Inspector during a single execution
+  of a call sequence. Reset for every sequence.
+- **Shared Coverage**: the merged union of all execution coverage maps across
+  every fuzzer thread. This is what the fuzzer checks to detect novelty.
 
 ### Coverage Update
 
-The result of merging a local coverage map into the global map. A
-`CoverageUpdate` counts how many genuinely new coverage points were discovered,
-across six dimensions:
+The result of merging execution coverage into the shared map. A coverage update
+counts how many genuinely new coverage points were discovered, across four
+dimensions:
 
-| Dimension           | Meaning                                      |
-| ------------------- | -------------------------------------------- |
-| `new_edges`         | A PC was executed for the first time         |
-| `new_features`      | A PC was hit more deeply (higher AFL bucket) |
-| `new_depths`        | A PC was hit at a new call-stack depth       |
-| `new_reverts`       | A new revert path was exercised              |
-| `new_jump_edges`    | A new JUMP/JUMPI destination was taken       |
-| `new_jump_features` | A known jump edge was taken more times       |
+| Dimension        | Meaning                                |
+| ---------------- | -------------------------------------- |
+| `new_edges`      | A PC was executed for the first time   |
+| `new_depths`     | A PC was hit at a new call-stack depth |
+| `new_reverts`    | A new revert path was exercised        |
+| `new_jump_edges` | A new JUMP/JUMPI destination was taken |
 
-If any of these counts is non-zero, the input is **interesting**.
-
-### AFL Bucket
-
-A coarse-grained classification of raw hit counts, borrowed from AFL. Ripfuzz
-buckets raw hit counts into power-of-two buckets so that "hit 5 times" and "hit
-6 times" are treated as the same coverage, while "hit 7 times" and "hit 8
-times" are treated as different (the loop crossed a threshold).
-
-| Raw hits | Bucket |
-| -------- | ------ |
-| 0        | 0      |
-| 1        | 1      |
-| 2        | 2      |
-| 3        | 4      |
-| 4-7      | 8      |
-| 8-15     | 16     |
-| 16-31    | 32     |
-| 32-127   | 64     |
-| 128-255  | 128    |
+Coverage is binary for novelty: hitting the same PC or jump edge again does not
+count as new, even if the hit count is higher. If any of these counts is
+non-zero, the input is **interesting**.
 
 ### Jump Edge
 
-A coverage signal that records the source and destination PCs of a `JUMP` or
-`JUMPI` instruction. Two inputs that both reach a branch but take different
-directions produce different jump edges. Encoded as a 64-bit marker:
+A coverage signal that records the source and destination PCs of a taken `JUMP`
+or `JUMPI`. Two inputs that reach the same branch but jump to different
+destinations produce different jump edges. Encoded as a 64-bit marker:
 `rotate_left(src_pc, 32) ^ dst_pc`.
 
 ### Source Map / Source Coverage
 
-The mapping from EVM bytecode positions back to Solidity source code lines,
-branches, and functions. Used only at the end of a campaign to produce a
-human-readable coverage report. The fuzzing loop itself operates on raw
-bytecode coverage for speed.
+The mapping from EVM bytecode positions back to Solidity source ranges. After a
+campaign, the coverage reporter uses source maps plus shared coverage to write
+an `lcov.info` report with line and function hits. The fuzzing loop itself
+operates on raw bytecode coverage for speed.
 
-## Correspondence with Other Fuzzers
+## In Other Fuzzers
 
 | Ripfuzz          | Foundry (invariant) | Medusa        | Echidna       |
 | ---------------- | ------------------- | ------------- | ------------- |

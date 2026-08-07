@@ -1,7 +1,7 @@
-# Harness Contract Conventions
+# Harness Contract Reference
 
-This document defines how to write a Solidity contract that `ripfuzz run` can
-fuzz.
+This document is the reference for writing a Solidity contract that
+`ripfuzz run` can fuzz.
 
 ## Overview
 
@@ -13,61 +13,117 @@ functions**:
 3. **Invariant Functions**: invariants the fuzzer checks after every call
    sequence
 
-## Example
+## Using ripfuzz-std
+
+[ripfuzz-std](https://github.com/pyk/ripfuzz-std) is the standard library for
+ripfuzz harnesses. It provides:
+
+- **Harness**: base contract with an `rvm` instance for cheatcodes
+- **RVM**: the cheatcode interface ripfuzz implements
+
+A harness does not need to use ripfuzz-std. Plain Solidity is enough for pure
+logic. Use ripfuzz-std when you need to set balances, prank callers, warp time,
+label addresses, or call other RVM helpers.
+
+### Installation
+
+```bash
+forge install pyk/ripfuzz-std
+```
+
+### Example with cheatcodes
+
+Inherit from `Harness` to get `rvm` at the ripfuzz VM address (same address as
+Foundry's HEVM):
 
 ```solidity
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.35;
 
-contract CounterHarness {
+import {Harness} from "ripfuzz/Harness.sol";
+
+contract Counter {
     uint256 public count;
+    address public owner;
 
-    // ------------------------------------------------------------------------
-    // 1. SETUP
-    // ------------------------------------------------------------------------
-    // The constructor (or a setup() call) establishes the initial world state.
-    // Ripfuzz deploys the contract once and then clones that state for every
-    // fuzz input.
-    function setup() external {
-        count = 0;
+    constructor() {
+        owner = msg.sender;
     }
 
-    // ------------------------------------------------------------------------
-    // 2. HANDLER FUNCTIONS
-    // ------------------------------------------------------------------------
-    // Any external/public function that does NOT match an invariant prefix is
-    // a handler function. Ripfuzz will call these with type-appropriate random
-    // inputs.
-
     function increment() external {
+        require(msg.sender == owner, "not owner");
         count += 1;
     }
 
-    function decrement() external {
-        require(count > 0, "underflow");
-        count -= 1;
-    }
-
     function add(uint256 x) external {
+        require(msg.sender == owner, "not owner");
         count += x;
     }
+}
 
-    // ------------------------------------------------------------------------
-    // 3. INVARIANT FUNCTIONS
-    // ------------------------------------------------------------------------
-    // Functions with the `invariant_` prefix and no arguments. Ripfuzz appends
-    // these to the end of every function call sequence. If any reverts with
-    // an `assert` panic, ripfuzz reports a bug.
+contract CounterHarness is Harness {
+    Counter counter;
+    address user;
 
-    function invariant_count_never_negative() external {
-        assert(count >= 0);
+    // [+] Setup ==============================================================
+
+    /// @notice Establish the initial world state.
+    /// @dev Ripfuzz deploys once, then clones that state for every fuzz input.
+    function setup() external {
+        user = address(0xBEEF);
+        rvm.deal(user, 100 ether);
+        rvm.label(user, "user");
+
+        // Deploy as `user` so that user owns the counter.
+        rvm.prank(user);
+        counter = new Counter();
     }
 
-    function invariant_count_stays_small() external {
-        assert(count < 1000);
+    // [+] Handler functions ==================================================
+
+    /// @notice Increment the counter as `user`.
+    /// @dev Handler functions are external/public and not setup or invariants.
+    ///      Ripfuzz calls these with type-appropriate random inputs.
+    function increment() external {
+        rvm.prank(user);
+        counter.increment();
+    }
+
+    /// @notice Add `x` to the counter as `user`.
+    function add(uint256 x) external {
+        rvm.prank(user);
+        counter.add(x);
+    }
+
+    // [+] Invariant functions ================================================
+
+    /// @notice Count must stay below 1000.
+    /// @dev Invariant functions use the `invariant_` prefix and take no
+    ///      arguments. Ripfuzz appends them to every call sequence. An
+    ///      `assert` panic is reported as a bug.
+    function invariant_CountStaysSmall() external view {
+        assert(counter.count() < 1000);
     }
 }
 ```
+
+### Available cheatcodes
+
+| Category    | Cheatcodes                                                                                     |
+| ----------- | ---------------------------------------------------------------------------------------------- |
+| Block       | `warp`, `roll`, `fee`, `coinbase`, `prevrandao`, `chainId`                                     |
+| Account     | `deal`, `etch`, `setNonce`, `getNonce`, `store`, `load`                                        |
+| Prank       | `prank`, `startPrank`, `stopPrank`                                                             |
+| Label       | `label`, `getLabel`                                                                            |
+| Conversion  | `toString`, `parseUint`, `parseInt`, `parseBool`, `parseAddress`, `parseBytes`, `parseBytes32` |
+| Bytecode    | `getCode`                                                                                      |
+| Wallet      | `addr`, `sign`                                                                                 |
+| FFI         | `ffi`                                                                                          |
+| Environment | `getEnv`                                                                                       |
+
+The full interface lives in
+[RVM.sol](https://github.com/pyk/ripfuzz-std/blob/main/src/RVM.sol). More
+cheatcodes will be added as ripfuzz grows support.
 
 ## 1. Setup Functions
 
@@ -83,22 +139,18 @@ Setup establishes the **base state** that every fuzz input starts from.
 
 - Setup runs **exactly once** per fuzz campaign
 - The resulting state is **cloned** for every fuzz input
-- Setup functions should not be called by the fuzzer as regular function calls
+- `setup` is not treated as a handler function
 
-### Example with setup()
+### What to put in setup
 
-```solidity
-contract LendingHarness {
-    Token public token;
-    LendingPool public pool;
+Use the constructor for simple initialization. Prefer `setup()` when you need
+cheatcodes or multi-step deployment after the harness itself exists.
 
-    function setup() external {
-        token = new Token();
-        pool = new LendingPool(address(token));
-        token.mint(address(pool), 1_000_000 ether);
-    }
-}
-```
+In the CounterHarness example above, `setup()`:
+
+- Funds and labels a user with `rvm.deal` / `rvm.label`
+- Deploys the target under that identity with `rvm.prank`
+- Stores handles the handlers will use later
 
 ## 2. Handler Functions
 
@@ -154,7 +206,7 @@ calls). This lets ripfuzz explore stateful interactions.
 
 Invariant functions are **state checks** that must always hold.
 
-### Naming convention
+### Naming
 
 By default, invariant functions must match the prefix:
 
@@ -162,19 +214,24 @@ By default, invariant functions must match the prefix:
 invariant_
 ```
 
-Example: `invariant_balancePositive`, `invariant_noReentrancy`
+Use PascalCase for the name after the prefix:
+
+```text
+invariant_BalancePositive
+invariant_NoReentrancy
+```
 
 ### Signature requirements
 
 A valid invariant function **must** have this signature shape:
 
 ```solidity
-function invariant_<name>() external
+function invariant_Name() external
 ```
 
 Requirements:
 
-- Name starts with `invariant_`
+- Name starts with `invariant_` followed by a PascalCase name
 - Takes **no arguments**
 - Return type is optional and ignored
 
@@ -197,11 +254,11 @@ clone afterward, so any storage writes are naturally isolated.
 ### Example invariants
 
 ```solidity
-function invariant_solvency() external {
+function invariant_Solvency() external {
     assert(token.balanceOf(address(pool)) >= pool.totalDeposits());
 }
 
-function invariant_userCantBorrowMoreThanDeposited() external {
+function invariant_UserCantBorrowMoreThanDeposited() external {
     assert(pool.totalBorrows() <= pool.totalDeposits());
 }
 ```
@@ -242,20 +299,20 @@ contract CounterHarness {
 }
 ```
 
-#### System-Level Invariants
+#### Protocol-Level Invariants
 
-A **system-level invariant** is a property that must hold true across the
-*entire* execution of the system, no matter which functions are called. These
-are more general than function-level invariants. For example:
+A **protocol-level invariant** is a property that must hold after *any*
+sequence of function calls, not just one specific function. These are more
+general than function-level invariants. For example:
 
 - The `xy = k` constant product formula should always hold for a Uniswap pool.
 - The total deposited amount in a lending protocol should never exceed
   `MAX_DEPOSIT_AMOUNT`.
 - No user's balance should exceed the total supply of an ERC20 token.
 
-System-level invariants are the most common use case for ripfuzz's `invariant_`
-functions because they are checked automatically after every function call
-sequence.
+Protocol-level invariants are the most common use case for ripfuzz's
+`invariant_` functions because they are checked automatically after every
+function call sequence.
 
 ```solidity
 contract VaultHarness {
@@ -271,7 +328,7 @@ contract VaultHarness {
         totalDeposits -= amount;
     }
 
-    function invariant_total_within_limit() external {
+    function invariant_TotalWithinLimit() external {
         assert(totalDeposits <= MAX_DEPOSIT);
     }
 }
