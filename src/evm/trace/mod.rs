@@ -816,13 +816,18 @@ impl<'a> TraceDisplay<'a> {
                     format!("0x{}", hex::encode(&frame.output))
                 };
                 if out.is_empty() {
-                    writeln!(f, "{result_prefix}← [stop]")?;
+                    if is_empty_code_call(frame) {
+                        writeln!(f, "{result_prefix}← [stop] (no code)")?;
+                    } else {
+                        writeln!(f, "{result_prefix}← [stop]")?;
+                    }
                 } else {
                     writeln!(f, "{result_prefix}← [return] {out}")?;
                 }
             }
         } else {
-            let revert = self.ctx.decode_revert(&frame.output);
+            let revert = empty_code_revert_reason(frame)
+                .unwrap_or_else(|| self.ctx.decode_revert(&frame.output));
             writeln!(f, "{result_prefix}← [revert] {revert}")?;
         }
 
@@ -846,6 +851,41 @@ impl<'a> TraceDisplay<'a> {
 pub enum CallFrameKind {
     Call(CallScheme),
     Create,
+}
+
+/// True when this call frame targeted an account with no bytecode.
+///
+/// Precompiles execute without account code, so they are excluded.
+fn is_empty_code_call(frame: &CallFrame) -> bool {
+    if !matches!(frame.kind, CallFrameKind::Call(_)) {
+        return false;
+    }
+    if frame.code_bytes.is_some() {
+        return false;
+    }
+    let Some(addr) = frame.address.or(frame.code_address) else {
+        return false;
+    };
+    !revm::precompile::Precompiles::latest().contains(&addr)
+}
+
+/// Prefer a clear reason when an empty revert follows a call to an empty account.
+///
+/// Solidity high-level calls to addresses with no code succeed at the EVM level
+/// (empty returndata / STOP) and then the caller reverts with empty data. Without
+/// this, traces only show `reverted`, which hides the missing-contract cause.
+fn empty_code_revert_reason(frame: &CallFrame) -> Option<String> {
+    if !frame.output.is_empty() {
+        return None;
+    }
+    // Prefer the most recent empty-code child as the likely cause.
+    frame.children.iter().rev().find_map(|child| {
+        if !is_empty_code_call(child) {
+            return None;
+        }
+        let addr = child.address.or(child.code_address)?;
+        Some(format!("no contract code at {}", addr.to_checksum(None)))
+    })
 }
 
 /// A single frame in a raw call trace.

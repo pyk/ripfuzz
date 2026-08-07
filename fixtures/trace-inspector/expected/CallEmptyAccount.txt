@@ -1,0 +1,12 @@
+--- Call #1 [REVERT] ---
+[2880] → new CallEmptyAccount@0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22
+    ├─  call context:
+    │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
+    │   @ msg.value: 0
+    │   @ block.timestamp: 1438269988
+    │   @ block.number: 1
+    ├─ [0] 0x4395686a0674d9cAA686fc6CE22a05Fa977B2842::value() [staticcall]
+    │   ├─  call context changes:
+    │   │   @ msg.sender: CallEmptyAccount [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+    │   └─ ← [stop] (no code)
+    └─ ← [revert] no contract code at 0x4395686a0674d9cAA686fc6CE22a05Fa977B2842

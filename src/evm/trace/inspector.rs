@@ -690,4 +690,32 @@ mod tests {
             "trace output must match expected"
         );
     }
+
+    /// Calls to addresses with no bytecode must annotate the empty account path
+    /// so --fail-on-revert traces are actionable (e.g. forgot rvm.fork).
+    #[test]
+    fn call_empty_account_trace() {
+        let contract = load_fixture("src/CallEmptyAccount.sol:CallEmptyAccount");
+
+        let project = Project::new("fixtures/trace-inspector");
+        let mut ctx = TraceContext::from_project(&project).unwrap();
+
+        let mut chain = Chain::empty(ChainConfig::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(!deployment.result.success, "deployment must fail");
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+
+        let root = &deployment.trace.roots[0];
+        let deploy_address = root.address.unwrap();
+        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+
+        let formatted = format!("{}", deployment.trace.display_with(&ctx));
+        let expected = fs::read_to_string("fixtures/trace-inspector/expected/CallEmptyAccount.txt")
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "trace output must match expected"
+        );
+    }
 }

@@ -102,6 +102,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   empty-sandbox hardfork instead of the remote chain's hardfork at that height
   (opcodes, gas schedule, and blob base-fee fraction).
 
+- Traces now surface calls to empty accounts clearly. A successful call with no
+  bytecode shows `← [stop] (no code)`, and a parent empty revert that follows
+  such a call decodes as `no contract code at <address>` instead of plain
+  `reverted`. This makes `--fail-on-revert` failures actionable when a harness
+  hits remote addresses without `rvm.fork`.
+
 ## [0.9.0] - 2026-08-06
 
 Initial public release
