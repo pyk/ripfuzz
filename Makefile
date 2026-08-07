@@ -4,17 +4,18 @@ ifneq (,$(wildcard ./.env))
     export
 endif
 
-.PHONY: check
-check: # Run code quality tools
+.PHONY: lint
+lint: # Run linter
+	@echo "Run formatter check"
+	@cargo fmt --check
+	@uvx --from panache-cli==2.61.0 panache format --check .
 	@echo "Run clippy"
 	@cargo clippy -- -D warnings
 	@echo "Run checkrs"
 	@uvx --from git+https://github.com/pyk/checkrs checkrs run src/
-	@echo "Run markdown formatter"
-	@uvx --from panache-cli==2.61.0 panache format --check .
 
 .PHONY: fmt
-fmt: # Run code formatters
+fmt: # Run formatter
 	@echo "Run rust formatter"
 	@cargo fmt
 	@echo "Run markdown formatter"

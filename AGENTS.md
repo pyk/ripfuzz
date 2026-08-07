@@ -10,7 +10,7 @@ have a severe negative impact on the project and the user.
 
 ### General Rules
 
-- You must run `make check` and `make test` before finishing a task.
+- You must run `make lint` and `make test` before finishing a task.
 - You must not use `cargo doc` to get crate documentation, use `cargo txt` to
   view crate documentation.
 - You must not create fixture artifacts manually. Run `forge build` to generate
