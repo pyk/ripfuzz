@@ -20,10 +20,9 @@
 //!    depth 2 instead of depth 1).
 //! 4. **New revert path**: execution reverted at a PC that previously
 //!    always succeeded.
-//! 5. **Deeper execution**: the same loop body was hit more times than
-//!    before. Ripfuzz uses AFL-style bucketing so that small
-//!    count differences are ignored, but crossing a power-of-two
-//!    threshold counts as novel.
+//!
+//! Coverage novelty is binary: hitting the same PC or jump edge again does
+//! not count as new, even if the hit count is higher.
 //!
 //! The inspector does not distinguish between different transaction
 //! outcomes (return true, return false, stop, out of gas) beyond
@@ -433,7 +432,7 @@ mod tests {
         let update2 = global.merge(&coverage2);
         assert!(
             !update2.is_interesting(),
-            "repeated execution of the same path should not be interesting without AFL bucketing"
+            "repeated execution of the same path should not be interesting under binary coverage"
         );
     }
 
