@@ -13,7 +13,7 @@ interface IPool {
 
 /// @notice Harness that supplies USDC to the Aave V3 pool on Base.
 contract SupplyUSDC {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
     // Base USDC token address.
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;

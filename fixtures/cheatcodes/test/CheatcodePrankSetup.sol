@@ -5,7 +5,7 @@ import {RVM} from "../src/RVM.sol";
 import {PrankVictim} from "../src/PrankVictim.sol";
 
 contract CheatcodePrankSetup {
-    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x628dC59F11F72B611132eC40437F125ba1312F08));
     PrankVictim public victim;
 
     function setup() external {

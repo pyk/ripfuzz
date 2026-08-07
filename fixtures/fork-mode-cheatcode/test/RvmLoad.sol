@@ -7,7 +7,7 @@ import {RVM} from "../src/RVM.sol";
 /// cheatcode correctly reads storage from local and remote contracts
 /// in fork mode.
 contract RvmLoad {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
     LocalContract public localContract;
 

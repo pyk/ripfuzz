@@ -8,7 +8,7 @@ import "./RVM.sol";
 ///         keys during setup and re-derives them in actions. Invariants verify
 ///         that `rvm.addr` remains deterministic across the campaign.
 contract AddrHarness {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
     /// Largest valid secp256k1 private key (curve order - 1).
     uint256 constant MAX_VALID_KEY = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140;

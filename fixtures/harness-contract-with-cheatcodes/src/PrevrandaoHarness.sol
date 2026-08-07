@@ -9,7 +9,7 @@ import "./RVM.sol";
 /// Actions mutate or restore the value; invariants verify the canonical
 /// state is intact.
 contract PrevrandaoHarness {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
     bytes32 constant CANONICAL = bytes32(uint256(0x4242424242424242424242424242424242424242424242424242424242424242));
 

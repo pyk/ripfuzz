@@ -8,7 +8,7 @@ import "./RVM.sol";
 /// Setup converts well-known values to strings via rvm.toString and stores them.
 /// Actions re-convert all values; invariants verify the stored strings match.
 contract ToStringHarness {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
     address constant TEST_ADDR = 0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf;
     bool constant TEST_BOOL = true;

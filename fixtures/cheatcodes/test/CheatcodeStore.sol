@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeStore {
-    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x628dC59F11F72B611132eC40437F125ba1312F08));
 
     bytes32 public constant SLOT_A = bytes32(uint256(1));
     bytes32 public constant SLOT_B = bytes32(uint256(2));

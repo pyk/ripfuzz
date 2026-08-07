@@ -8,7 +8,7 @@ import "./RVM.sol";
 ///         `rvm.coinbase` cheatcode.  Setup establishes a canonical coinbase and
 ///         actions mutate or restore it.  Invariants verify deterministic control.
 contract CoinbaseHarness {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
     address constant EXPECTED_COINBASE = 0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF;
 

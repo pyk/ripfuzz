@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {RVM} from "../src/RVM.sol";
 
 contract EmptyChainCheatcodeInConstructor {
-    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x628dC59F11F72B611132eC40437F125ba1312F08));
 
     constructor() {
         rvm.warp(1234567890);

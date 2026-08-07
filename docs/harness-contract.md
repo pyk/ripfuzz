@@ -33,8 +33,8 @@ forge install pyk/ripfuzz-std
 
 ### Example with cheatcodes
 
-Inherit from `Harness` to get `rvm` at the ripfuzz VM address (same address as
-Foundry's HEVM):
+Inherit from `Harness` to get `rvm` at the ripfuzz VM address
+(`keccak256("ripfuzz cheatcode")`):
 
 ```solidity
 // SPDX-License-Identifier: MIT

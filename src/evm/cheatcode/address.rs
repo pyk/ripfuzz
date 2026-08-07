@@ -4,11 +4,8 @@ use alloy_primitives::{Address, address};
 
 /// Cheat code address.
 ///
-/// Calculated as `address(uint160(uint256(keccak256("hevm cheat code"))))`.
-///
-/// This is the same address used by Foundry, ensuring compatibility with
-/// existing contracts that reference `vm` at this hardcoded address.
-pub const VM_ADDRESS: Address = address!("0x7109709ECfa91a80626fF3989D68f67F5b1DD12D");
+/// Calculated as `address(uint160(uint256(keccak256("ripfuzz cheatcode"))))`.
+pub const VM_ADDRESS: Address = address!("0x628dC59F11F72B611132eC40437F125ba1312F08");
 
 #[cfg(test)]
 mod tests {
@@ -16,8 +13,8 @@ mod tests {
     use alloy_primitives::utils::keccak256;
 
     #[test]
-    fn vm_address_matches_hevm_cheat_code_string() {
-        let hash = keccak256(b"hevm cheat code");
+    fn vm_address_matches_ripfuzz_cheatcode_string() {
+        let hash = keccak256(b"ripfuzz cheatcode");
         let expected = Address::from_word(hash);
         assert_eq!(expected, VM_ADDRESS);
     }

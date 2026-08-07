@@ -8,7 +8,7 @@ import "./RVM.sol";
 /// Includes helpers for same-address / different-chain isolation tests
 /// (e.g. a bridge contract deployed at the same address on Ethereum and Polygon).
 contract ForkHarness {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
     /// Shared remote address used for isolation tests (PolyBridger-style).
     address constant BRIDGE = 0x1111111111111111111111111111111111111111;

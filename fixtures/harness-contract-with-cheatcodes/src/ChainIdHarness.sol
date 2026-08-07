@@ -8,7 +8,7 @@ import "./RVM.sol";
 ///         `rvm.chainId` cheatcode. Setup establishes a canonical chain id and
 ///         actions mutate or restore it. Invariants verify deterministic control.
 contract ChainIdHarness {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
     uint256 constant EXPECTED_CHAIN_ID = 42;
 

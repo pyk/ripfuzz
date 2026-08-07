@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import {RVM} from "../src/RVM.sol";
 
 contract CheatcodeEtch {
-    RVM constant rvm = RVM(address(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D));
+    RVM constant rvm = RVM(address(0x628dC59F11F72B611132eC40437F125ba1312F08));
 
     // Runtime bytecode: PUSH1 0x01 PUSH1 0x00 MSTORE PUSH1 0x20 PUSH1 0x00 RETURN
     bytes constant RUNTIME_CODE = hex"6001600052602060006000f3";

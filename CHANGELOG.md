@@ -57,13 +57,30 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- RVM address is now derived from `keccak256("ripfuzz cheatcode")` instead of
+  Foundry's `hevm cheat code`:
+
+  ```text
+  // before (Foundry HEVM)
+  0x7109709ECfa91a80626fF3989D68f67F5b1DD12D
+
+  // after
+  0x628dC59F11F72B611132eC40437F125ba1312F08
+  ```
+
+  Harnesses must point `rvm` at the new address (ripfuzz-std `Harness` already
+  does this).
+
 - `ripfuzz run <HARNESS>` accepts a bare harness name (`Harness`) or a full
   artifact id (`src/Harness.sol:Harness`). When multiple contracts share the
   same name, the command lists the matching full ids to choose from
+
 - Upgraded solc dependency to v0.0.14
+
 - Campaign directory IDs include seconds
   (`.ripfuzz/campaigns/YYYY-MM-DD-HHMMSS-<uuid>/`) so campaigns started in the
   same minute are easier to tell apart
+
 - Fork mode is driven entirely by `vm.fork` in the harness. CLI flags
   `--rpc-url`, `--rpc-block`, `--rpc-retries`, `--rpc-backoff`,
   `--rpc-timeout`, and `--rpc-rate-limit` are removed. Single-arg

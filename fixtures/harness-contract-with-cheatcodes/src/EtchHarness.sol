@@ -10,7 +10,7 @@ import "./AltCounter.sol";
 ///     `rvm.etch` cheatcode. Setup establishes a canonical contract and
 ///     actions mutate or restore it. Invariants verify deterministic control.
 contract EtchHarness {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
     address constant ETCH_ADDR = 0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF;
 

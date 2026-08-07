@@ -6,7 +6,7 @@ import {ICounter} from "./ICounter.sol";
 import {RVM} from "./RVM.sol";
 
 contract HarnessContractWithInterface is RipFuzz {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
     uint256 public latestValue;
     ICounter public counterInterface;
 

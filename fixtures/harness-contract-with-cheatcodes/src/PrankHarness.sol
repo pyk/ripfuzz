@@ -11,7 +11,7 @@ import "./PrankVictim.sol";
 /// explicitly changes or stops the prank.  Invariants verify the
 /// expected sender for each scenario.
 contract PrankHarness {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
     PrankVictim public victim;
 

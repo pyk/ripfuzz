@@ -9,7 +9,7 @@ import "./RVM.sol";
 /// and reads it back via rvm.load. Actions mutate storage; invariants verify
 /// the canonical value is intact.
 contract StorageHarness {
-    RVM constant rvm = RVM(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
     bytes32 constant SLOT = bytes32(uint256(0));
     bytes32 constant EXPECTED = bytes32(uint256(42));
