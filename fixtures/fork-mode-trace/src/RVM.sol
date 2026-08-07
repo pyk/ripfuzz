@@ -9,4 +9,5 @@ interface RVM {
     function prank(address) external;
     function startPrank(address) external;
     function stopPrank() external;
+    function fork(string calldata url, uint256 blockNumber) external;
 }

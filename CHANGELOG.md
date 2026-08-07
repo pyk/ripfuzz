@@ -87,7 +87,16 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   `vm.fork(url, block)` uses built-in defaults (retries 3, backoff 100ms,
   timeout 30s, no rate limit). Override via `vm.fork(url, block, ForkConfig)`
 
+- Removed the library helper `Chain::fork_with_transport`. Tests and campaigns
+  create an empty sandbox and opt into remote state with `vm.fork` only.
+
 ### Fixed
+
+- `vm.fork` now applies the forked block's EVM `SpecId` (and matching mainnet
+  gas params) to the active chain config. Previously only the former
+  `Chain::fork` path did this, so harnesses that called `vm.fork` kept the
+  empty-sandbox hardfork instead of the remote chain's hardfork at that height
+  (opcodes, gas schedule, and blob base-fee fraction).
 
 ## [0.9.0] - 2026-08-06
 

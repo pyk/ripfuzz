@@ -59,6 +59,15 @@ A function that establishes the initial state cloned for every fuzz input. The
 contract **constructor** always runs once at deployment. If a function named
 `setup()` exists, ripfuzz calls it once after deployment.
 
+### Fork
+
+A remote chain snapshot selected with `rvm.fork(url, blockNumber)`. Campaigns
+start as an empty sandbox; forking opts into on-chain state at a pinned block.
+Multiple forks are cached by `(url, block)`. **Remote state is isolated per
+fork**; **harness storage and other local accounts are shared across forks** so
+you can track cross-chain properties (for example value conservation). See
+[fork-mode.md](./fork-mode.md).
+
 ### Fuzzer
 
 A single parallel fuzzing instance that executes function call sequences

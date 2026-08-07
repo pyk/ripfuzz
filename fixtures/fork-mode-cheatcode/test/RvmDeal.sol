@@ -10,8 +10,9 @@ contract RvmDeal {
 
     address public localAddress;
 
-    /// Derive a local address from private key 1 and store it.
+    /// Enter fork mode, then derive a local address from private key 1.
     function setup() external {
+        rvm.fork("mock://test", 25_259_523);
         localAddress = rvm.addr(1);
     }
 

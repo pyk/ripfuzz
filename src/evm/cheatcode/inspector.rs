@@ -13,6 +13,7 @@ use revm::{
         Interpreter, interpreter::EthInterpreter,
     },
     primitives::Address,
+    primitives::hardfork::SpecId,
 };
 
 use crate::evm::cheatcode::calls;
@@ -22,13 +23,14 @@ use crate::evm::cheatcode::{CheatcodeConfig, ExecutionState, VM_ADDRESS};
 use crate::evm::database::DatabaseExt;
 use crate::evm::forkdb::SharedLocalAddressRegistry;
 
-/// Minimal trait to mutate `chain_id` on generic EVM contexts.
+/// Minimal trait to mutate config fields on generic EVM contexts.
 pub trait CfgMut {
     fn set_chain_id(&mut self, chain_id: u64);
+    fn set_spec_and_mainnet_gas_params(&mut self, spec: SpecId);
 }
 
-impl<BLOCK, TX, DB, JOURNAL, CHAIN, LOCAL, SPEC> CfgMut
-    for revm::context::Context<BLOCK, TX, revm::context::CfgEnv<SPEC>, DB, JOURNAL, CHAIN, LOCAL>
+impl<BLOCK, TX, DB, JOURNAL, CHAIN, LOCAL> CfgMut
+    for revm::context::Context<BLOCK, TX, revm::context::CfgEnv<SpecId>, DB, JOURNAL, CHAIN, LOCAL>
 where
     DB: revm::Database,
     JOURNAL: revm::context_interface::JournalTr<Database = DB>,
@@ -36,6 +38,10 @@ where
 {
     fn set_chain_id(&mut self, chain_id: u64) {
         self.cfg.chain_id = chain_id;
+    }
+
+    fn set_spec_and_mainnet_gas_params(&mut self, spec: SpecId) {
+        self.cfg.set_spec_and_mainnet_gas_params(spec);
     }
 }
 

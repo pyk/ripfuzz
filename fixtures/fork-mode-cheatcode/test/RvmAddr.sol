@@ -10,8 +10,9 @@ contract RvmAddr {
 
     address public actor;
 
-    /// Derive an address from private key 1 and store it.
+    /// Enter fork mode, then derive an address from private key 1.
     function setup() external {
+        rvm.fork("mock://test", 25_259_523);
         actor = rvm.addr(1);
     }
 

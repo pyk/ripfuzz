@@ -8,6 +8,11 @@ import {RVM} from "../src/RVM.sol";
 contract RvmChainId {
     RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
+    /// Enter fork mode at the pinned mainnet block used by the test mocks.
+    function setup() external {
+        rvm.fork("mock://test", 25_259_523);
+    }
+
     /// Set chain ID to `value`.
     function setChainId(uint256 value) external {
         rvm.chainId(value);

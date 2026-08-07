@@ -11,9 +11,10 @@ contract RvmLoad {
 
     LocalContract public localContract;
 
-    /// Deploy a new LocalContract whose storage slot 0 holds a known
-    /// value (42).
+    /// Enter fork mode, then deploy a LocalContract whose storage slot 0
+    /// holds a known value (42).
     function setup() external {
+        rvm.fork("mock://test", 25_259_523);
         localContract = new LocalContract();
     }
 

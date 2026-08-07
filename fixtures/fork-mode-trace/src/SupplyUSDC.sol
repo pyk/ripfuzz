@@ -21,6 +21,11 @@ contract SupplyUSDC {
     // Aave V3 Pool Proxy on Base.
     address constant POOL = 0xA238Dd80C259a72e81d7e4664a9801593F98d1c5;
 
+    /// @notice Fork Base mainnet at the pinned block used by the on-disk RPC cache.
+    function setup() external {
+        rvm.fork("https://base-rpc.publicnode.com", 47_664_508);
+    }
+
     /// @notice Supply USDC to the Aave V3 pool.
     function supply() external {
         uint256 amount = 10 * 1e6; // 10 USDC (6 decimals)

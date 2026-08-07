@@ -11,8 +11,9 @@ contract RvmStore {
 
     LocalStoreContract public localContract;
 
-    /// Deploy a new LocalStoreContract.
+    /// Enter fork mode, then deploy a LocalStoreContract.
     function setup() external {
+        rvm.fork("mock://test", 25_259_523);
         localContract = new LocalStoreContract();
     }
 

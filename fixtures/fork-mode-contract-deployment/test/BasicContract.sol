@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {RVM} from "../src/RVM.sol";
+
 /// @notice Regression fixture for a bug where deploying a basic contract
 /// in fork mode caused an unnecessary RPC fetch for the newly created address.
 contract BasicContract {
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
+
     uint256 public value;
 
     constructor() {
+        rvm.fork("mock://test", 25_259_523);
         value = 42;
     }
 

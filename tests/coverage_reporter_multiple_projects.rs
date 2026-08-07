@@ -4,17 +4,15 @@
 //! fork-mode bytecodes and that their source files appear in the
 //! coverage report.
 
+use std::sync::Arc;
+
 use alloy_primitives::Bytes;
 use alloy_sol_types::SolCall;
 use ripfuzz::{
     Artifact, ArtifactId, Chain, ChainConfig, Contract, CoverageReporter, DeployInput,
-    ForkDBConfig, MockTransport, Project, SharedCoverage, Transaction,
+    ForkDBConfig, MockTransport, Project, SetupInput, SharedCoverage, Transaction,
 };
 use serde_json::json;
-
-// ---------------------------------------------------------------------------
-// Mock helpers
-// ---------------------------------------------------------------------------
 
 const BLOCK_NUMBER: u64 = 25_259_523;
 
@@ -55,10 +53,6 @@ fn mock_fork_setup(transport: &MockTransport, url: &str) {
         json!([{"jsonrpc":"2.0","id":0,"result":block_json()}]),
     );
 }
-
-// ---------------------------------------------------------------------------
-// Test
-// ---------------------------------------------------------------------------
 
 #[test]
 fn external_project_coverage_report() {
@@ -104,11 +98,12 @@ fn external_project_coverage_report() {
         ]),
     );
 
-    // Initialise fork chain.
-    let config = ForkDBConfig::new(url).block_number(BLOCK_NUMBER);
-    let mut chain =
-        Chain::fork_with_transport(ChainConfig::default().coverage(true), config, transport)
-            .expect("fork chain must init");
+    // Empty sandbox; harness setup calls rvm.fork.
+    let config = ChainConfig::default()
+        .coverage(true)
+        .with_transport(Arc::new(transport))
+        .with_fork_defaults(ForkDBConfig::new(""));
+    let mut chain = Chain::new(config).expect("empty chain must init");
 
     // Load and deploy the harness contract.
     let handler_project = Project::new("fixtures/multi-project-coverage");
@@ -127,6 +122,11 @@ fn external_project_coverage_report() {
 
     let target = deployment.address.expect("deployment must produce address");
 
+    let setup = chain
+        .setup(SetupInput::new(target))
+        .expect("setup must succeed");
+    assert!(setup.result.success, "setup (rvm.fork) must succeed");
+
     // Execute a call through the handler to the adder.
     let txs = vec![
         Transaction::new(target).calldata(Bytes::from(
@@ -140,9 +140,10 @@ fn external_project_coverage_report() {
     assert_eq!(exec.results.len(), 1);
     assert!(exec.results[0].success, "callAdder must succeed");
 
-    // Build shared coverage from deployment and execution.
+    // Build shared coverage from deployment, setup, and execution.
     let shared = SharedCoverage::new();
     shared.merge(&deployment.coverage);
+    shared.merge(&setup.coverage);
     if let Some(exec_cov) = exec.coverage {
         shared.merge(&exec_cov);
     }

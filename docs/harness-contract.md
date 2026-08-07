@@ -369,16 +369,21 @@ For each fuzz input, ripfuzz performs this exact sequence:
 
 ## Fork Mode
 
-When `--rpc-url` and `--rpc-block` are passed to `ripfuzz run`, the EVM
-initializes its database from a remote Ethereum node at the specified block.
-This lets harness contracts reference live mainnet (or testnet) state, for
-example querying the real USDC contract, while still fuzzing locally.
+Campaigns always start as an empty sandbox. Call `rvm.fork` in `setup` (or an
+action) to opt into remote state at a pinned block:
 
-Fork state is read-only from the RPC perspective: ripfuzz caches every remote
-account, slot, and block hash in memory, writes that cache to disk on campaign
-end, and never persists local EVM mutations (deployments, setup, sequence
-execution) beyond the in-memory `CacheDB`. Because each fuzz input clones the
-post-setup `CacheDB`, local writes are naturally isolated between runs.
+```solidity
+function setup() external {
+    rvm.fork(rvm.getEnv("ETH_RPC_URL"), 21_000_000);
+}
+```
+
+**Remote state is isolated per fork; harness storage is shared across chains.**
+Use harness ghost variables to track value conservation (or other cross-chain
+invariants) while each chain keeps its own remote overlay.
+
+Full reference (API, multi-fork model, conservation examples, cache behavior):
+[fork-mode.md](./fork-mode.md).
 
 ## Configuration
 

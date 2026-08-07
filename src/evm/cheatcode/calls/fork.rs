@@ -109,6 +109,9 @@ where
     ctx.set_block(block_env);
 
     ctx.set_chain_id(env.chain_id);
+    // Match the forked block's hardfork so opcodes and gas params align with
+    // the remote chain at that height (same as the former Chain::fork path).
+    ctx.set_spec_and_mainnet_gas_params(env.spec_id);
     // Keep cheatcode block scratchpad in sync so later txs inherit values.
     state.block.chain_id = Some(U256::from(env.chain_id));
     state.block.number = Some(U256::from(env.block_number));
@@ -259,7 +262,8 @@ mod tests {
     fn fork_in_action_sets_block_env() {
         let transport = MockTransport::default();
         let url = "mock://fork-a";
-        mock_fork_setup(&transport, url, 42, "0x2105", "0x64");
+        // Base Ecotone-era timestamp so SpecId is Cancun (PUSH0-safe for solc prague).
+        mock_fork_setup(&transport, url, 42, "0x2105", "0x65f5e100");
 
         let (mut chain, target) = deploy_with_transport(transport);
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
@@ -296,7 +300,7 @@ mod tests {
         .unwrap();
         assert_eq!(number, U256::from(42));
         assert_eq!(chain_id, U256::from(0x2105));
-        assert_eq!(timestamp, U256::from(0x64));
+        assert_eq!(timestamp, U256::from(0x65f5e100u64));
     }
 
     /// Switching forks must update the active chain id and block independently.
@@ -305,8 +309,9 @@ mod tests {
         let transport = MockTransport::default();
         let url_a = "mock://fork-a";
         let url_b = "mock://fork-b";
-        mock_fork_setup(&transport, url_a, 10, "0x1", "0x10");
-        mock_fork_setup(&transport, url_b, 20, "0x89", "0x20");
+        // Cancun-era timestamps so SpecId stays PUSH0-safe for solc prague bytecode.
+        mock_fork_setup(&transport, url_a, 10, "0x1", "0x65f5e100");
+        mock_fork_setup(&transport, url_b, 20, "0x89", "0x65f5e100");
 
         let (mut chain, target) = deploy_with_transport(transport);
 
@@ -355,6 +360,69 @@ mod tests {
         )
         .unwrap();
         assert_eq!(number, U256::from(10));
+    }
+
+    /// Fuzzer workers clone the post-setup chain. After `rvm.fork`, a clone must
+    /// keep the forked block env, chain id, and remote state cache so handlers
+    /// see the same fork without re-fetching chain_id/block.
+    #[test]
+    fn cloned_chain_preserves_fork_env() {
+        let transport = MockTransport::default();
+        let url = "mock://fork-clone";
+        mock_fork_setup(&transport, url, 42, "0x2105", "0x65f5e100");
+
+        let (mut chain, target) = deploy_with_transport(transport.clone());
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            ForkHarness::actionForkCall::new((url.to_string(), U256::from(42))).abi_encode(),
+        ))];
+        assert!(chain.exec(&txs).unwrap().results[0].success);
+
+        let calls_after_fork = transport.total_calls();
+        assert_eq!(calls_after_fork, 2, "fork init is chain_id + block");
+
+        let mut cloned = chain.clone();
+        assert_eq!(cloned.cfg_env().chain_id, 0x2105);
+        assert_eq!(cloned.block_env().number, U256::from(42));
+        assert_eq!(cloned.block_env().timestamp, U256::from(0x65f5e100u64));
+        assert_eq!(cloned.block_env().basefee, 0);
+        assert_eq!(cloned.block_env().gas_limit, u64::MAX);
+
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                ForkHarness::getBlockNumberCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                ForkHarness::getChainIdCall::new(()).abi_encode(),
+            )),
+            Transaction::new(target).calldata(Bytes::from(
+                ForkHarness::getTimestampCall::new(()).abi_encode(),
+            )),
+        ];
+        let execution = cloned.exec(&txs).unwrap();
+        assert!(
+            execution.results.iter().all(|r| r.success),
+            "cloned chain must execute view calls against the forked env"
+        );
+        let number = ForkHarness::getBlockNumberCall::abi_decode_returns(
+            &execution.results[0].output.clone().unwrap(),
+        )
+        .unwrap();
+        let chain_id = ForkHarness::getChainIdCall::abi_decode_returns(
+            &execution.results[1].output.clone().unwrap(),
+        )
+        .unwrap();
+        let timestamp = ForkHarness::getTimestampCall::abi_decode_returns(
+            &execution.results[2].output.clone().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(number, U256::from(42));
+        assert_eq!(chain_id, U256::from(0x2105));
+        assert_eq!(timestamp, U256::from(0x65f5e100u64));
+        assert_eq!(
+            transport.total_calls(),
+            calls_after_fork,
+            "clone must not re-fetch chain_id/block"
+        );
     }
 
     /// Empty URL must revert.
@@ -428,11 +496,12 @@ mod tests {
 
     fn setup_eth_polygon_forks(transport: &MockTransport) {
         // Ethereum: chain id 1, slot0 = 1, balance = 100
-        mock_fork_setup(transport, URL_ETH, BLOCK_ETH, "0x1", "0x100");
+        // Cancun-era timestamps so SpecId stays PUSH0-safe for solc prague bytecode.
+        mock_fork_setup(transport, URL_ETH, BLOCK_ETH, "0x1", "0x65f5e100");
         mock_bridge_account(transport, URL_ETH, BLOCK_ETH, "0x64", "0x1");
 
         // Polygon: chain id 137, slot0 = 2, balance = 200
-        mock_fork_setup(transport, URL_POLYGON, BLOCK_POLYGON, "0x89", "0x200");
+        mock_fork_setup(transport, URL_POLYGON, BLOCK_POLYGON, "0x89", "0x65f5e100");
         mock_bridge_account(transport, URL_POLYGON, BLOCK_POLYGON, "0xc8", "0x2");
     }
 

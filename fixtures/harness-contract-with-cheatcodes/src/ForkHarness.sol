@@ -6,7 +6,8 @@ import "./RVM.sol";
 /// @notice Exercises `rvm.fork` for single- and multi-fork campaigns.
 ///
 /// Includes helpers for same-address / different-chain isolation tests
-/// (e.g. a bridge contract deployed at the same address on Ethereum and Polygon).
+/// (e.g. a bridge contract deployed at the same address on Ethereum and Polygon)
+/// and for tracking local harness state across forks (value conservation).
 contract ForkHarness {
     RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
 
@@ -20,12 +21,22 @@ contract ForkHarness {
     bytes32 public lastSlot0;
     uint256 public lastBalance;
 
+    /// Ghost / local state that must survive fork switches so campaigns can
+    /// track value conservation across chains (e.g. amount locked on L1 vs
+    /// minted on L2).
+    uint256 public trackedValue;
+    uint256 public totalOutflow;
+    uint256 public totalInflow;
+
     function setup() external {
         // Default setup stays on the empty sandbox so tests can drive forks
         // explicitly from actions.
         lastChainId = block.chainid;
         lastTimestamp = block.timestamp;
         lastBlock = block.number;
+        trackedValue = 0;
+        totalOutflow = 0;
+        totalInflow = 0;
     }
 
     function actionFork(string calldata url, uint256 blockNumber) external {
@@ -83,6 +94,44 @@ contract ForkHarness {
         lastBalance = BRIDGE.balance;
     }
 
+    /// Set local ghost state without forking.
+    function actionSetTracked(uint256 value) external {
+        trackedValue = value;
+    }
+
+    /// Fork, then bump local tracked value. Harness storage must persist when
+    /// later switching to another fork.
+    function actionForkAndBumpTracked(string calldata url, uint256 blockNumber, uint256 delta) external {
+        rvm.fork(url, blockNumber);
+        trackedValue += delta;
+        lastBlock = block.number;
+        lastChainId = block.chainid;
+    }
+
+    /// Record an outflow on the source chain (e.g. lock / burn), then keep the
+    /// cumulative total in harness storage for cross-chain conservation checks.
+    function actionRecordOutflow(string calldata url, uint256 blockNumber, uint256 amount) external {
+        rvm.fork(url, blockNumber);
+        totalOutflow += amount;
+        trackedValue += amount;
+        lastBlock = block.number;
+        lastChainId = block.chainid;
+    }
+
+    /// Record an inflow on the destination chain (e.g. mint / unlock). Local
+    /// totals from the source chain must still be visible after the fork switch.
+    function actionRecordInflow(string calldata url, uint256 blockNumber, uint256 amount) external {
+        rvm.fork(url, blockNumber);
+        totalInflow += amount;
+        lastBlock = block.number;
+        lastChainId = block.chainid;
+    }
+
+    /// Value conservation: every outflow should eventually match inflow.
+    function invariant_conservation() external view {
+        assert(totalOutflow == totalInflow);
+    }
+
     function getBlockNumber() external view returns (uint256) {
         return block.number;
     }
@@ -101,5 +150,17 @@ contract ForkHarness {
 
     function getLastBalance() external view returns (uint256) {
         return lastBalance;
+    }
+
+    function getTrackedValue() external view returns (uint256) {
+        return trackedValue;
+    }
+
+    function getTotalOutflow() external view returns (uint256) {
+        return totalOutflow;
+    }
+
+    function getTotalInflow() external view returns (uint256) {
+        return totalInflow;
     }
 }

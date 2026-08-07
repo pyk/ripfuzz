@@ -1,82 +1,34 @@
-//! Forked chain initialisation helpers (tests and library convenience).
-
-use std::sync::Arc;
-
-use alloy_primitives::U256;
-use anyhow::{Context as _, Result};
-use revm::context_interface::block::BlobExcessGasAndPrice;
-
-use crate::evm::chain::{Chain, ChainConfig};
-use crate::evm::forkdb::{ForkDBConfig, Transport};
-
-impl Chain {
-    /// Create a chain that is already forked (used in tests).
-    ///
-    /// Prefer `vm.fork` from harness code for campaigns. This helper builds an
-    /// empty chain and immediately selects the given fork via the multi-fork
-    /// database layer.
-    pub fn fork_with_transport(
-        chain_config: ChainConfig,
-        forkdb_config: ForkDBConfig,
-        transport: impl Transport + 'static,
-    ) -> Result<Self> {
-        let transport: Arc<dyn Transport> = Arc::new(transport);
-        let chain_config = chain_config
-            .with_fork_defaults(forkdb_config.clone())
-            .with_transport(transport.clone());
-        let mut chain = Self::empty(chain_config);
-
-        let url = forkdb_config.url.clone();
-        let block_number = forkdb_config.block_number;
-        let db = chain.database.as_mut().context("database unavailable")?;
-        let env = db
-            .fork(
-                &url,
-                block_number,
-                forkdb_config,
-                Some(transport),
-                chain.local_registry.clone(),
-            )
-            .context("creating fork")?;
-
-        chain.cfg_env.chain_id = env.chain_id;
-        chain.cfg_env.set_spec_and_mainnet_gas_params(env.spec_id);
-        chain.block_env.number = U256::from(env.block_number);
-        chain.block_env.timestamp = env.timestamp;
-        chain.block_env.beneficiary = env.beneficiary;
-        chain.block_env.difficulty = env.difficulty;
-        chain.block_env.prevrandao = env.prevrandao;
-        chain.block_env.gas_limit = u64::MAX;
-        chain.block_env.basefee = 0;
-        let excess = env.excess_blob_gas.unwrap_or(0);
-        chain.block_env.blob_excess_gas_and_price =
-            Some(BlobExcessGasAndPrice::new_with_spec(excess, env.spec_id));
-
-        chain.cheatcode_state.block.chain_id = Some(U256::from(env.chain_id));
-        chain.cheatcode_state.block.number = Some(U256::from(env.block_number));
-        chain.cheatcode_state.block.timestamp = Some(env.timestamp);
-        chain.cheatcode_state.block.beneficiary = Some(env.beneficiary);
-        chain.cheatcode_state.block.prevrandao = env.prevrandao;
-
-        Ok(chain)
-    }
-}
+//! Fork mode regression tests via `rvm.fork`.
+//!
+//! Campaigns always start as an empty sandbox. These tests pin remote state
+//! through the harness cheatcode rather than a library-side fork helper.
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use alloy_primitives::{Address, B256, U256};
+    use alloy_sol_types::SolCall;
     use revm::DatabaseRef;
     use revm::primitives::Bytes;
     use revm::primitives::hardfork::SpecId;
     use serde_json::json;
 
+    use crate::evm::ChainConfig;
     use crate::evm::Contract;
-    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput, SetupInput};
+    use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput, SetupInput, Transaction};
     use crate::evm::cheatcode::VM_ADDRESS;
     use crate::evm::forkdb::{ForkDBConfig, MockTransport};
     use crate::foundry::{ArtifactId, Project};
 
-    use super::*;
+    alloy_sol_types::sol! {
+        interface ForkHarness {
+            function setup() external;
+            function actionFork(string calldata url, uint256 blockNumber) external;
+            function getBlockNumber() external view returns (uint256);
+            function getChainId() external view returns (uint256);
+        }
+    }
 
     fn mock_fork_setup(
         transport: &MockTransport,
@@ -103,11 +55,45 @@ mod tests {
         );
     }
 
-    /// Chain::fork must seed the default deployer with U256::MAX balance,
-    /// just like Chain::new, so that setup and deployment transactions
-    /// never fail due to insufficient funds.
+    fn load_fork_harness() -> Contract {
+        let project = Project::new("fixtures/harness-contract-with-cheatcodes");
+        let artifacts = project.load_artifacts().unwrap();
+        let artifact_id = ArtifactId::try_from("src/ForkHarness.sol:ForkHarness").unwrap();
+        Contract::try_get(&artifacts, &artifact_id).unwrap()
+    }
+
+    /// Deploy ForkHarness on an empty chain with the given transport.
+    fn deploy_harness(transport: MockTransport) -> (Chain, Address) {
+        let contract = load_fork_harness();
+        let config = ChainConfig::default()
+            .with_transport(Arc::new(transport))
+            .with_fork_defaults(ForkDBConfig::new(""));
+        let mut chain = Chain::new(config).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        let target = deployment.address.unwrap();
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
+        assert!(setup.result.success, "setup must succeed");
+        (chain, target)
+    }
+
+    /// Call `actionFork` and assert success.
+    fn action_fork(chain: &mut Chain, target: Address, url: &str, block: u64) {
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            ForkHarness::actionForkCall::new((url.to_string(), U256::from(block))).abi_encode(),
+        ))];
+        let execution = chain.exec(&txs).unwrap();
+        assert!(
+            execution.results[0].success,
+            "actionFork must succeed: {:?}",
+            execution.results[0].output
+        );
+    }
+
+    /// `rvm.fork` must keep the default deployer at U256::MAX balance so
+    /// setup and deployment transactions never fail due to insufficient funds.
     #[test]
-    fn chain_fork_seeds_deployer_with_max_balance() {
+    fn rvm_fork_keeps_deployer_max_balance() {
         let transport = MockTransport::default();
         let url = "mock://test";
 
@@ -128,10 +114,9 @@ mod tests {
             }),
         );
 
-        let config = ForkDBConfig::new(url).block_number(1);
-        let chain =
-            Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
+        let (mut chain, target) = deploy_harness(transport.clone());
         assert_eq!(chain.deployer(), DEFAULT_DEPLOYER);
+        action_fork(&mut chain, target, url, 1);
 
         let chain_id_payload = json!([
             {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
@@ -142,12 +127,12 @@ mod tests {
         assert_eq!(
             transport.call_count(url, &chain_id_payload),
             1,
-            "Chain::fork must fetch chain_id once"
+            "rvm.fork must fetch chain_id once"
         );
         assert_eq!(
             transport.call_count(url, &block_payload),
             1,
-            "Chain::fork must fetch block once"
+            "rvm.fork must fetch block once"
         );
 
         let db = chain.database().unwrap();
@@ -155,15 +140,14 @@ mod tests {
         assert_eq!(
             info.balance,
             U256::MAX,
-            "deployer must be seeded with U256::MAX in Chain::fork"
+            "deployer must remain U256::MAX after rvm.fork"
         );
     }
 
-    /// Chain::fork must inject a dummy contract at the ripfuzz VM address so
-    /// that Solidity `extcodesize` checks do not revert when a harness contract
-    /// calls cheatcodes during deployment or setup.
+    /// `rvm.fork` must keep non-empty code at the ripfuzz VM address so
+    /// Solidity `extcodesize` checks pass for subsequent cheatcodes.
     #[test]
-    fn chain_fork_injects_vm_address() {
+    fn rvm_fork_keeps_vm_address_code() {
         let transport = MockTransport::default();
         let url = "mock://test";
 
@@ -184,41 +168,23 @@ mod tests {
             }),
         );
 
-        let config = ForkDBConfig::new(url).block_number(1);
-        let chain =
-            Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
-
-        let chain_id_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
-        ]);
-        let block_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_getBlockByNumber","params":[json!("0x1"), json!(false)]}
-        ]);
-        assert_eq!(
-            transport.call_count(url, &chain_id_payload),
-            1,
-            "Chain::fork must fetch chain_id once"
-        );
-        assert_eq!(
-            transport.call_count(url, &block_payload),
-            1,
-            "Chain::fork must fetch block once"
-        );
+        let (mut chain, target) = deploy_harness(transport.clone());
+        action_fork(&mut chain, target, url, 1);
 
         let db = chain.database().unwrap();
         let info = db.basic_ref(VM_ADDRESS).unwrap().unwrap();
         let code = info.code.as_ref().unwrap();
         assert!(
             !code.is_empty(),
-            "Chain::fork must inject non-empty code at VM_ADDRESS so extcodesize checks pass"
+            "rvm.fork must keep non-empty code at VM_ADDRESS"
         );
     }
 
-    /// Regression: Chain::fork must derive the EVM spec from the forked
-    /// block number and timestamp instead of hardcoding AMSTERDAM. A
-    /// mainnet block past Cancun activation must use SpecId::CANCUN.
+    /// Regression: `rvm.fork` must derive the EVM spec from the forked
+    /// block number and timestamp. A mainnet block past Cancun activation
+    /// must use SpecId::CANCUN.
     #[test]
-    fn chain_fork_uses_correct_spec_for_mainnet_cancun() {
+    fn rvm_fork_uses_correct_spec_for_mainnet_cancun() {
         let transport = MockTransport::default();
         let url = "mock://test";
 
@@ -239,9 +205,8 @@ mod tests {
             }),
         );
 
-        let config = ForkDBConfig::new(url).block_number(20_000_000);
-        let chain =
-            Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
+        let (mut chain, target) = deploy_harness(transport);
+        action_fork(&mut chain, target, url, 20_000_000);
         assert_eq!(
             chain.cfg_env().spec,
             SpecId::CANCUN,
@@ -249,11 +214,11 @@ mod tests {
         );
     }
 
-    /// Chain::fork must resolve the correct spec for an OP-stack chain.
+    /// `rvm.fork` must resolve the correct spec for an OP-stack chain.
     /// Base mainnet (chain_id 8453) at the Ecotone timestamp must use
     /// the bundled Cancun spec.
     #[test]
-    fn chain_fork_uses_correct_spec_for_base_mainnet() {
+    fn rvm_fork_uses_correct_spec_for_base_mainnet() {
         let transport = MockTransport::default();
         let url = "mock://test";
 
@@ -274,9 +239,8 @@ mod tests {
             }),
         );
 
-        let config = ForkDBConfig::new(url).block_number(9_000_000);
-        let chain =
-            Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
+        let (mut chain, target) = deploy_harness(transport);
+        action_fork(&mut chain, target, url, 9_000_000);
         assert_eq!(
             chain.cfg_env().spec,
             SpecId::CANCUN,
@@ -284,11 +248,11 @@ mod tests {
         );
     }
 
-    /// Regression: Chain::fork must zero `basefee` so that transactions with
+    /// Regression: `rvm.fork` must zero `basefee` so that transactions with
     /// `gas_price = 0` (the default used by deploy/call) do not fail revm
     /// validation with `GasPriceLessThanBasefee`.
     #[test]
-    fn chain_fork_zeros_basefee() {
+    fn rvm_fork_zeros_basefee() {
         let transport = MockTransport::default();
         let url = "mock://test";
 
@@ -309,14 +273,13 @@ mod tests {
             }),
         );
 
-        let config = ForkDBConfig::new(url).block_number(1);
-        let mut chain =
-            Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
+        let (mut chain, target) = deploy_harness(transport);
+        action_fork(&mut chain, target, url, 1);
 
         assert_eq!(
             chain.block_env().basefee,
             0,
-            "Chain::fork must zero basefee so gas_price=0 transactions validate"
+            "rvm.fork must zero basefee so gas_price=0 transactions validate"
         );
 
         chain.seed_account(Address::ZERO, U256::ZERO).unwrap();
@@ -325,15 +288,15 @@ mod tests {
             .unwrap();
         assert!(
             tx_result.success,
-            "call with gas_price=0 must succeed in fork mode"
+            "call with gas_price=0 must succeed after rvm.fork"
         );
     }
 
-    /// Regression: Chain::fork must cache the fork block hash so that the
+    /// Regression: `rvm.fork` must cache the fork block hash so that the
     /// BLOCKHASH opcode for the fork block number resolves locally instead of
     /// triggering an eth_getBlockByNumber RPC call.
     #[test]
-    fn chain_fork_caches_fork_block_hash() {
+    fn rvm_fork_caches_fork_block_hash() {
         let transport = MockTransport::default();
         let url = "mock://test";
         let fork_hash = B256::from([0xab; 32]);
@@ -355,9 +318,8 @@ mod tests {
             }),
         );
 
-        let config = ForkDBConfig::new(url).block_number(1);
-        let chain =
-            Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
+        let (mut chain, target) = deploy_harness(transport.clone());
+        action_fork(&mut chain, target, url, 1);
         let db = chain.database().unwrap();
 
         let hash = db.block_hash_ref(1).unwrap();
@@ -373,13 +335,10 @@ mod tests {
         );
     }
 
-    /// Regression: Chain::fork must derive the blob base fee update fraction from
-    /// the resolved `SpecId` instead of hardcoding the Cancun mainnet value
-    /// (`3338477`). Forking a Prague block on mainnet should use the Prague
-    /// fraction (`5007716`), which produces a different blob gasprice for the same
-    /// excess blob gas.
+    /// Regression: `rvm.fork` must derive the blob base fee update fraction from
+    /// the resolved `SpecId` instead of hardcoding the Cancun mainnet value.
     #[test]
-    fn chain_fork_uses_spec_aware_blob_fraction() {
+    fn rvm_fork_uses_spec_aware_blob_fraction() {
         let transport = MockTransport::default();
         let url = "mock://test";
 
@@ -401,9 +360,8 @@ mod tests {
             }),
         );
 
-        let config = ForkDBConfig::new(url).block_number(1);
-        let chain =
-            Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
+        let (mut chain, target) = deploy_harness(transport);
+        action_fork(&mut chain, target, url, 1);
         let blob_info = chain.block_env().blob_excess_gas_and_price.unwrap();
 
         assert_eq!(
@@ -416,11 +374,11 @@ mod tests {
         );
     }
 
-    /// Regression: Chain::fork must disable the initcode size limit so that
-    /// large factory contracts or inlined deployment logic that runs during
-    /// forked setup does not revert with MaxInitCodeSizeExceeded.
+    /// Regression: `rvm.fork` must preserve the unlimited initcode size limit
+    /// from the empty sandbox so large factory contracts do not revert with
+    /// MaxInitCodeSizeExceeded.
     #[test]
-    fn chain_fork_allows_unlimited_initcode_size() {
+    fn rvm_fork_preserves_unlimited_initcode_size() {
         let transport = MockTransport::default();
         let url = "mock://test";
 
@@ -441,21 +399,19 @@ mod tests {
             }),
         );
 
-        let config = ForkDBConfig::new(url).block_number(1);
-        let chain =
-            Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
+        let (mut chain, target) = deploy_harness(transport);
+        action_fork(&mut chain, target, url, 1);
         assert_eq!(
             chain.cfg_env().limit_contract_initcode_size,
             Some(usize::MAX),
-            "Chain::fork must disable initcode size limit just like Chain::new"
+            "rvm.fork must preserve unlimited initcode size"
         );
     }
 
-    /// Regression: Chain::fork must validate that the block returned by
-    /// eth_getBlockByNumber matches the requested block number. A lagging node,
-    /// reorg race, or misconfigured proxy could return a different block.
+    /// Regression: `rvm.fork` must validate that the block returned by
+    /// eth_getBlockByNumber matches the requested block number.
     #[test]
-    fn chain_fork_rejects_mismatched_block_number() {
+    fn rvm_fork_rejects_mismatched_block_number() {
         let transport = MockTransport::default();
         let url = "mock://test";
 
@@ -486,28 +442,31 @@ mod tests {
             }}]),
         );
 
-        let config = ForkDBConfig::new(url).block_number(100);
-        let result = Chain::fork_with_transport(ChainConfig::default(), config, transport.clone());
+        let (mut chain, target) = deploy_harness(transport);
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            ForkHarness::actionForkCall::new((url.to_string(), U256::from(100))).abi_encode(),
+        ))];
+        let execution = chain.exec(&txs).unwrap();
         assert!(
-            result.is_err(),
-            "Chain::fork must reject a block whose number does not match the requested height"
+            !execution.results[0].success,
+            "rvm.fork must reject a block whose number does not match the requested height"
         );
-        let err_msg = format!("{:#}", result.unwrap_err());
+        let output = execution.results[0]
+            .output
+            .as_ref()
+            .expect("fork mismatch must return revert data");
+        let msg = String::from_utf8_lossy(output);
         assert!(
-            err_msg.contains("100"),
-            "error message must mention the requested block number: {err_msg}"
-        );
-        assert!(
-            err_msg.contains("1"),
-            "error message must mention the returned block number: {err_msg}"
+            msg.contains("100") && msg.contains("1"),
+            "error must mention requested and returned block numbers: {msg}"
         );
     }
 
-    /// Regression: Chain::fork must set the block gas limit to `u64::MAX`
+    /// Regression: `rvm.fork` must set the block gas limit to `u64::MAX`
     /// so that deployment transactions with gas limit `u64::MAX` do not fail
     /// revm validation with `CallerGasLimitMoreThanBlock`.
     #[test]
-    fn chain_fork_allows_deployment_with_max_gas_limit() {
+    fn rvm_fork_allows_deployment_with_max_gas_limit() {
         let transport = MockTransport::default();
         let url = "mock://test";
 
@@ -530,43 +489,16 @@ mod tests {
             }),
         );
 
-        // Mock the ForkDB response for the harness contract address.
-        let target_addr_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0xb48bd837cb11a87bead45ea4b7ea3164e8af71f2","0x1438f2d"]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":["0xb48bd837cb11a87bead45ea4b7ea3164e8af71f2","0x1438f2d"]},
-            {"jsonrpc":"2.0","id":2,"method":"eth_getCode","params":["0xb48bd837cb11a87bead45ea4b7ea3164e8af71f2","0x1438f2d"]}
-        ]);
-        transport.mock_response(
-            url,
-            &target_addr_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x0"},
-                {"jsonrpc":"2.0","id":1,"result":"0x0"},
-                {"jsonrpc":"2.0","id":2,"result":"0x"}
-            ]),
+        let (mut chain, target) = deploy_harness(transport.clone());
+        action_fork(&mut chain, target, url, 21_204_781);
+
+        assert_eq!(
+            chain.block_env().gas_limit,
+            u64::MAX,
+            "rvm.fork must set block gas limit to u64::MAX"
         );
 
-        // Mock the ForkDB response for Address::ZERO (coinbase).
-        let zero_addr_payload = json!([
-            {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0x0000000000000000000000000000000000000000","0x1438f2d"]},
-            {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":["0x0000000000000000000000000000000000000000","0x1438f2d"]},
-            {"jsonrpc":"2.0","id":2,"method":"eth_getCode","params":["0x0000000000000000000000000000000000000000","0x1438f2d"]}
-        ]);
-        transport.mock_response(
-            url,
-            &zero_addr_payload,
-            json!([
-                {"jsonrpc":"2.0","id":0,"result":"0x0"},
-                {"jsonrpc":"2.0","id":1,"result":"0x0"},
-                {"jsonrpc":"2.0","id":2,"result":"0x"}
-            ]),
-        );
-
-        let config = ForkDBConfig::new(url).block_number(21_204_781);
-        let mut chain =
-            Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
-
-        // Load a simple contract from the fixture project.
+        // Load a simple contract from the fixture project and deploy after fork.
         let project = Project::new("fixtures/harness-contract-deployment");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id =
@@ -576,16 +508,15 @@ mod tests {
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(
             deployment.result.success,
-            "deployment must succeed on forked chain even when the real block has a limited gas limit"
+            "deployment must succeed after rvm.fork even when the real block has a limited gas limit"
         );
     }
 
-    /// Regression: Chain::fork must set the chain_id on all transactions
-    /// (deploy, call, setup) so that revm's `tx_chain_id_check` (enabled by
-    /// default) does not reject the transaction with "invalid chain ID". This is
-    /// especially important for non-mainnet chains like Base (chain_id 8453).
+    /// Regression: after `rvm.fork`, subsequent transactions must use the
+    /// forked chain_id so revm's `tx_chain_id_check` does not reject them.
+    /// Especially important for non-mainnet chains like Base (chain_id 8453).
     #[test]
-    fn chain_fork_deployment_sets_chain_id_on_tx() {
+    fn rvm_fork_deployment_sets_chain_id_on_tx() {
         let transport = MockTransport::default();
         let url = "mock://test";
 
@@ -608,9 +539,8 @@ mod tests {
             }),
         );
 
-        let config = ForkDBConfig::new(url).block_number(9_000_000);
-        let mut chain =
-            Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
+        let (mut chain, target) = deploy_harness(transport);
+        action_fork(&mut chain, target, url, 9_000_000);
 
         // Verify the chain is recognized as Base (non-mainnet chain_id).
         assert_eq!(
@@ -629,7 +559,7 @@ mod tests {
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(
             deployment.result.success,
-            "deployment must succeed on forked chain with non-mainnet chain_id (8453)"
+            "deployment must succeed after rvm.fork with non-mainnet chain_id (8453)"
         );
 
         // --- Setup: verify setup sets chain_id on the TxEnv ---
@@ -644,11 +574,11 @@ mod tests {
             setup_deployment.result.success,
             "deployment of setup fixture must succeed"
         );
-        let target = setup_deployment.address.unwrap();
-        let setup = chain.setup(SetupInput::new(target)).unwrap();
+        let setup_target = setup_deployment.address.unwrap();
+        let setup = chain.setup(SetupInput::new(setup_target)).unwrap();
         assert!(
             setup.result.success,
-            "setup must succeed on forked chain with non-mainnet chain_id (8453)"
+            "setup must succeed after rvm.fork with non-mainnet chain_id (8453)"
         );
     }
 }

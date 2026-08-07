@@ -1,8 +1,10 @@
 //! Regression tests: fork mode contract deployment.
 //!
-//! When chain fork mode is initialized, the Chain is aware of all
+//! When the harness enters fork mode via `rvm.fork`, the Chain is aware of all
 //! addresses created inside the harness contract and skips remote RPC
 //! fetches for them. Only genuine on-chain accounts trigger RPC.
+
+use std::sync::Arc;
 
 use alloy_sol_types::SolCall;
 use revm::primitives::Bytes;
@@ -79,10 +81,12 @@ fn block_json() -> serde_json::Value {
     })
 }
 
-fn fork_chain(transport: &MockTransport, url: &str) -> Chain {
+fn empty_chain(transport: &MockTransport, url: &str) -> Chain {
     mock_fork_setup(transport, url, BLOCK_NUMBER, "0x1", block_json());
-    let config = ForkDBConfig::new(url).block_number(BLOCK_NUMBER);
-    Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap()
+    let config = ChainConfig::default()
+        .with_transport(Arc::new(transport.clone()))
+        .with_fork_defaults(ForkDBConfig::new(""));
+    Chain::new(config).unwrap()
 }
 
 /// Regression test: basic contract deployment must not trigger an RPC
@@ -92,18 +96,23 @@ fn fork_chain(transport: &MockTransport, url: &str) -> Chain {
 fn deploy_basic_contract() {
     let transport = MockTransport::default();
     let url = "mock://test";
-    let mut chain = fork_chain(&transport, url);
+    let mut chain = empty_chain(&transport, url);
 
     let project = Project::new("fixtures/fork-mode-contract-deployment");
     let artifacts = project.load_artifacts().unwrap();
     let artifact_id = ArtifactId::try_from("test/BasicContract.sol:BasicContract").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
-    let baseline = transport.total_calls();
-
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
+
+    // Constructor called rvm.fork: chain_id + block only.
+    let baseline = transport.total_calls();
+    assert_eq!(
+        baseline, 2,
+        "constructor fork must fetch chain_id and block"
+    );
 
     let set_value_calldata = Bytes::from(
         BasicContract::setValueCall::new((alloy_primitives::U256::from(7),)).abi_encode(),
@@ -140,7 +149,7 @@ fn deploy_basic_contract() {
 fn deploy_child_in_constructor() {
     let transport = MockTransport::default();
     let url = "mock://test";
-    let mut chain = fork_chain(&transport, url);
+    let mut chain = empty_chain(&transport, url);
 
     let project = Project::new("fixtures/fork-mode-contract-deployment");
     let artifacts = project.load_artifacts().unwrap();
@@ -148,11 +157,16 @@ fn deploy_child_in_constructor() {
         ArtifactId::try_from("test/DeployChildInConstructor.sol:DeployChildInConstructor").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
-    let baseline = transport.total_calls();
-
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
+
+    // Parent constructor forks, then child constructor re-selects the same fork.
+    let baseline = transport.total_calls();
+    assert_eq!(
+        baseline, 2,
+        "constructor fork must fetch chain_id and block once"
+    );
 
     let set_child_calldata = Bytes::from(
         DeployChildInConstructor::setChildValueCall::new((alloy_primitives::U256::from(7),))
@@ -212,7 +226,7 @@ fn deploy_child_in_constructor() {
 fn deploy_child_in_setup() {
     let transport = MockTransport::default();
     let url = "mock://test";
-    let mut chain = fork_chain(&transport, url);
+    let mut chain = empty_chain(&transport, url);
 
     let project = Project::new("fixtures/fork-mode-contract-deployment");
     let artifacts = project.load_artifacts().unwrap();
@@ -220,11 +234,15 @@ fn deploy_child_in_setup() {
         ArtifactId::try_from("test/DeployChildInSetup.sol:DeployChildInSetup").unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
 
-    let baseline = transport.total_calls();
-
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
+
+    assert_eq!(
+        transport.total_calls(),
+        0,
+        "deploy on empty sandbox must not fetch remote state"
+    );
 
     let setup_fn = contract
         .setup_function
@@ -235,6 +253,9 @@ fn deploy_child_in_setup() {
         .setup(SetupInput::new(target).calldata(setup_data))
         .unwrap();
     assert!(setup_result.result.success, "setup must succeed");
+
+    let baseline = transport.total_calls();
+    assert_eq!(baseline, 2, "setup fork must fetch chain_id and block once");
 
     let set_child_calldata = Bytes::from(
         DeployChildInSetup::setChildValueCall::new((alloy_primitives::U256::from(7),)).abi_encode(),
@@ -293,7 +314,7 @@ fn deploy_child_in_setup() {
 fn deploy_child_in_handler_function() {
     let transport = MockTransport::default();
     let url = "mock://test";
-    let mut chain = fork_chain(&transport, url);
+    let mut chain = empty_chain(&transport, url);
 
     let project = Project::new("fixtures/fork-mode-contract-deployment");
     let artifacts = project.load_artifacts().unwrap();
@@ -301,8 +322,6 @@ fn deploy_child_in_handler_function() {
         ArtifactId::try_from("test/DeployChildInHandlerFunction.sol:DeployChildInHandlerFunction")
             .unwrap();
     let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
-
-    let baseline = transport.total_calls();
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
@@ -317,6 +336,9 @@ fn deploy_child_in_handler_function() {
         .setup(SetupInput::new(target).calldata(setup_data))
         .unwrap();
     assert!(setup_result.result.success, "setup must succeed");
+
+    let baseline = transport.total_calls();
+    assert_eq!(baseline, 2, "setup fork must fetch chain_id and block once");
 
     let create_market_calldata =
         Bytes::from(DeployChildInHandlerFunction::createMarketCall::new(()).abi_encode());

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {RVM} from "../src/RVM.sol";
+
 interface IWETH {
     function decimals() external view returns (uint8);
     function balanceOf(address) external view returns (uint256);
@@ -14,6 +16,8 @@ interface IWETH {
 /// confirm that cached account and storage data is consistent and that no
 /// redundant RPC calls occur after the initial fetches.
 contract InteractWithWETH {
+    RVM constant rvm = RVM(0x628dC59F11F72B611132eC40437F125ba1312F08);
+
     /// Mainnet WETH at block 25_259_523.
     IWETH internal constant WETH = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
@@ -24,6 +28,7 @@ contract InteractWithWETH {
     uint256 internal constant EXPECTED = 1_461_898_164_019_088_870;
 
     constructor() {
+        rvm.fork("mock://test", 25_259_523);
         assert(WETH.decimals() == 18);
     }
 

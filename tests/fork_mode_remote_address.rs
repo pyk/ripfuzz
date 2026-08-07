@@ -1,10 +1,12 @@
 //! Regression test: fork mode remote address.
 //!
-//! When chain fork mode is initialized, a harness contract that reads on-chain
-//! state (e.g. vitalik.eth balance) must receive real fork data via the normal
+//! When the harness calls `rvm.fork`, a contract that reads on-chain state
+//! (e.g. vitalik.eth balance) must receive real fork data via the normal
 //! ForkDB lazy-fetch path and cache the result so that subsequent reads across
 //! constructor, setup, handler function, and invariant function do not trigger
 //! additional RPC calls.
+
+use std::sync::Arc;
 
 use alloy_sol_types::SolCall;
 use ripfuzz::{
@@ -56,6 +58,13 @@ fn block_json() -> serde_json::Value {
     })
 }
 
+fn empty_chain(transport: MockTransport) -> Chain {
+    let config = ChainConfig::default()
+        .with_transport(Arc::new(transport))
+        .with_fork_defaults(ForkDBConfig::new(""));
+    Chain::new(config).unwrap()
+}
+
 alloy_sol_types::sol! {
     interface RemoteAccountBalance {
         function setup() external;
@@ -81,28 +90,17 @@ fn remote_account_balance() {
 
     mock_fork_setup(&transport, url, BLOCK_NUMBER, "0x1", block_json());
 
-    // Fork initialization: 2 HTTP calls (chain_id + block).
     assert_eq!(
         transport.total_calls(),
         0,
-        "no calls before chain fork init"
+        "no calls before harness rvm.fork"
     );
 
-    let config = ForkDBConfig::new(url).block_number(BLOCK_NUMBER);
-    let mut chain =
-        Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
-
-    assert_eq!(
-        transport.total_calls(),
-        2,
-        "fork init must fetch chain_id and block"
-    );
-
-    // vitalik.eth — real on-chain account with balance. The constructor
-    // reads vitalik's balance, which triggers a normal ForkDB RPC fetch.
-    // The CREATE address and coinbase are handled internally (LocalTracker
-    // marks CREATE addresses as local; coinbase is seeded during fork init)
-    // so they do not need mock responses.
+    // vitalik.eth - real on-chain account with balance. The constructor
+    // forks then reads vitalik's balance, which triggers a normal ForkDB RPC
+    // fetch. The CREATE address and coinbase are handled internally
+    // (LocalTracker marks CREATE addresses as local; coinbase is seeded
+    // during fork init) so they do not need mock responses.
     let vitalik_payload = json!([
         {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0xd8da6bf26964af9d7eed9e03e53415d37aa96045","0x1816e03"]},
         {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":["0xd8da6bf26964af9d7eed9e03e53415d37aa96045","0x1816e03"]},
@@ -119,6 +117,8 @@ fn remote_account_balance() {
         ]),
     );
 
+    let mut chain = empty_chain(transport.clone());
+
     let project = Project::new("fixtures/fork-mode-remote-address");
     let artifacts = project.load_artifacts().unwrap();
     let artifact_id =
@@ -128,8 +128,7 @@ fn remote_account_balance() {
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
 
-    // Deployment triggers a single batch RPC for vitalik's account
-    // (getBalance + getTransactionCount + getCode).
+    // Deployment constructor: fork init (chain_id + block) + vitalik account batch.
     assert_eq!(
         transport.total_calls(),
         3,
@@ -189,17 +188,7 @@ fn interact_with_weth() {
     assert_eq!(
         transport.total_calls(),
         0,
-        "no calls before chain fork init"
-    );
-
-    let config = ForkDBConfig::new(url).block_number(BLOCK_NUMBER);
-    let mut chain =
-        Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap();
-
-    assert_eq!(
-        transport.total_calls(),
-        2,
-        "fork init must fetch chain_id and block"
+        "no calls before harness rvm.fork"
     );
 
     // WETH mainnet contract account data at block 25_259_523.
@@ -241,6 +230,8 @@ fn interact_with_weth() {
         json!([{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000001449b4a27c274de6"}]),
     );
 
+    let mut chain = empty_chain(transport.clone());
+
     let project = Project::new("fixtures/fork-mode-remote-address");
     let artifacts = project.load_artifacts().unwrap();
     let artifact_id = ArtifactId::try_from("test/InteractWithWETH.sol:InteractWithWETH").unwrap();
@@ -249,8 +240,7 @@ fn interact_with_weth() {
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
 
-    // Deployment triggers WETH account fetch + decimals storage read
-    // (constructor calls weth.decimals() which does an SLOAD from slot 2).
+    // Deployment constructor: fork init + WETH account + decimals storage.
     assert_eq!(
         transport.total_calls(),
         4,

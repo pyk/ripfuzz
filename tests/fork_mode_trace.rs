@@ -13,7 +13,7 @@ use alloy_sol_types::SolCall;
 use revm::primitives::Bytes;
 use ripfuzz::{
     Artifact, ArtifactId, Chain, ChainConfig, Contract, DeployInput, ForkDBConfig, Project,
-    TraceContext, Transaction,
+    SetupInput, TraceContext, Transaction,
 };
 
 // ---------------------------------------------------------------------------
@@ -59,6 +59,7 @@ const AUSDC_IMPL_ADDRESS: Address =
 
 alloy_sol_types::sol! {
     interface ISupplyUSDC {
+        function setup() external;
         function supply() external;
     }
 }
@@ -115,19 +116,17 @@ fn supply_usdc_to_aave_v3_pool() {
         cache_path.display(),
     );
 
-    let fork_config = ForkDBConfig::new(LIVE_RPC_URL)
-        .block_number(BLOCK_NUMBER)
-        .cache_dir(CACHE_DIR);
-    // Pre-fork via library helper so the harness sees remote Base state at deploy time.
-    // Campaign code should call vm.fork instead; this test exercises the fork DB + trace path.
-    let agent_cfg = ureq::Agent::config_builder()
-        .timeout_global(Some(std::time::Duration::from_millis(
-            fork_config.timeout_ms,
-        )))
-        .build();
-    let agent = ureq::Agent::new_with_config(agent_cfg);
-    let mut chain =
-        Chain::fork_with_transport(ChainConfig::default().trace(true), fork_config, agent).unwrap();
+    // Empty sandbox; harness setup calls rvm.fork with the cache defaults.
+    // LIVE_RPC_URL is only the cache key namespace (must match fixture setup).
+    let _ = LIVE_RPC_URL;
+    let _ = BLOCK_NUMBER;
+    let fork_defaults = ForkDBConfig::new("").cache_dir(CACHE_DIR);
+    let mut chain = Chain::new(
+        ChainConfig::default()
+            .trace(true)
+            .with_fork_defaults(fork_defaults),
+    )
+    .unwrap();
 
     // 1. Deploy harness contract
     let handler_project = Project::new("fixtures/fork-mode-trace");
@@ -141,7 +140,11 @@ fn supply_usdc_to_aave_v3_pool() {
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
 
-    // 2. Execute supply
+    // 2. setup: rvm.fork pins Base state from the on-disk cache
+    let setup = chain.setup(SetupInput::new(target)).unwrap();
+    assert!(setup.result.success, "setup (rvm.fork) must succeed");
+
+    // 3. Execute supply
     let supply_calldata = Bytes::from(ISupplyUSDC::supplyCall::new(()).abi_encode());
     let txs = [Transaction::new(target).calldata(supply_calldata)];
     let exec_output = chain.exec(&txs).unwrap();

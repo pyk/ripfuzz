@@ -10,4 +10,5 @@ interface RVM {
     function deal(address, uint256) external;
     function load(address, bytes32) external returns (bytes32);
     function store(address, bytes32, bytes32) external;
+    function fork(string calldata url, uint256 blockNumber) external;
 }

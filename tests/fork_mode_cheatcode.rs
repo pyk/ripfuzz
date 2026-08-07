@@ -1,7 +1,9 @@
 //! Integration tests: fork mode cheatcodes.
 //!
 //! Verify that cheatcodes (e.g. `rvm.warp`) behave correctly when the
-//! EVM is running in fork mode.
+//! harness enters fork mode via `rvm.fork`.
+
+use std::sync::Arc;
 
 use alloy_sol_types::SolCall;
 use revm::primitives::Bytes;
@@ -13,16 +15,19 @@ use serde_json::json;
 
 alloy_sol_types::sol! {
     interface RvmWarp {
+        function setup() external;
         function warp(uint256 value) external;
         function getBlockTimestamp() external view returns (uint256);
     }
 
     interface RvmRoll {
+        function setup() external;
         function roll(uint256 value) external;
         function getBlockNumber() external view returns (uint256);
     }
 
     interface RvmChainId {
+        function setup() external;
         function setChainId(uint256 value) external;
         function getChainId() external view returns (uint256);
     }
@@ -96,35 +101,48 @@ fn block_json() -> serde_json::Value {
     })
 }
 
-fn fork_chain(transport: &MockTransport, url: &str) -> Chain {
-    mock_fork_setup(transport, url, BLOCK_NUMBER, "0x1", block_json());
-    let config = ForkDBConfig::new(url).block_number(BLOCK_NUMBER);
-    Chain::fork_with_transport(ChainConfig::default(), config, transport.clone()).unwrap()
+fn empty_chain(transport: MockTransport) -> Chain {
+    let config = ChainConfig::default()
+        .with_transport(Arc::new(transport))
+        .with_fork_defaults(ForkDBConfig::new(""));
+    Chain::new(config).unwrap()
+}
+
+fn load_contract(id: &str) -> Contract {
+    let project = Project::new("fixtures/fork-mode-cheatcode");
+    let artifacts = project.load_artifacts().unwrap();
+    let artifact_id = ArtifactId::try_from(id).unwrap();
+    Contract::try_get(&artifacts, &artifact_id).unwrap()
 }
 
 /// Integration test: `rvm.warp` cheatcode must correctly update
 /// `block.timestamp` in fork mode. The deployed harness contract is
-/// local and must not trigger any RPC fetch.
+/// local and must not trigger any RPC fetch beyond fork init.
 #[test]
 fn rvm_warp() {
     let transport = MockTransport::default();
     let url = "mock://test";
-    let mut chain = fork_chain(&transport, url);
+    mock_fork_setup(&transport, url, BLOCK_NUMBER, "0x1", block_json());
 
+    let mut chain = empty_chain(transport.clone());
     assert_eq!(
         transport.total_calls(),
-        2,
-        "fork init must fetch chain_id and block"
+        0,
+        "no RPC calls before harness rvm.fork"
     );
 
-    let project = Project::new("fixtures/fork-mode-cheatcode");
-    let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/RvmWarp.sol:RvmWarp").unwrap();
-    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
-
+    let contract = load_contract("test/RvmWarp.sol:RvmWarp");
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
+
+    let setup = chain.setup(SetupInput::new(target)).unwrap();
+    assert!(setup.result.success, "setup (rvm.fork) must succeed");
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "setup fork must fetch chain_id and block"
+    );
 
     let warp_value = alloy_primitives::U256::from(42);
     let warp_calldata = Bytes::from(RvmWarp::warpCall::new((warp_value,)).abi_encode());
@@ -151,32 +169,31 @@ fn rvm_warp() {
         "block timestamp must equal fork timestamp + warp value"
     );
 
-    assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
+    assert_eq!(transport.total_calls(), 2, "no RPC calls after setup");
 }
 
-/// Integration test: `vm.roll` cheatcode must correctly update
-/// `block.number` in fork mode. The deployed harness contract is
-/// local and must not trigger any RPC fetch.
+/// Integration test: `rvm.roll` cheatcode must correctly update
+/// `block.number` in fork mode.
 #[test]
 fn rvm_roll() {
     let transport = MockTransport::default();
     let url = "mock://test";
-    let mut chain = fork_chain(&transport, url);
+    mock_fork_setup(&transport, url, BLOCK_NUMBER, "0x1", block_json());
 
-    assert_eq!(
-        transport.total_calls(),
-        2,
-        "fork init must fetch chain_id and block"
-    );
-
-    let project = Project::new("fixtures/fork-mode-cheatcode");
-    let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/RvmRoll.sol:RvmRoll").unwrap();
-    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+    let mut chain = empty_chain(transport.clone());
+    let contract = load_contract("test/RvmRoll.sol:RvmRoll");
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
+
+    let setup = chain.setup(SetupInput::new(target)).unwrap();
+    assert!(setup.result.success, "setup (rvm.fork) must succeed");
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "setup fork must fetch chain_id and block"
+    );
 
     let roll_value = alloy_primitives::U256::from(42);
     let roll_calldata = Bytes::from(RvmRoll::rollCall::new((roll_value,)).abi_encode());
@@ -203,32 +220,31 @@ fn rvm_roll() {
         "block number must equal fork block number + roll value"
     );
 
-    assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
+    assert_eq!(transport.total_calls(), 2, "no RPC calls after setup");
 }
 
-/// Integration test: `vm.chainId` cheatcode must correctly update
-/// `block.chainid` in fork mode. The deployed harness contract is
-/// local and must not trigger any RPC fetch.
+/// Integration test: `rvm.chainId` cheatcode must correctly update
+/// `block.chainid` in fork mode.
 #[test]
 fn rvm_chain_id() {
     let transport = MockTransport::default();
     let url = "mock://test";
-    let mut chain = fork_chain(&transport, url);
+    mock_fork_setup(&transport, url, BLOCK_NUMBER, "0x1", block_json());
 
-    assert_eq!(
-        transport.total_calls(),
-        2,
-        "fork init must fetch chain_id and block"
-    );
-
-    let project = Project::new("fixtures/fork-mode-cheatcode");
-    let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/RvmChainId.sol:RvmChainId").unwrap();
-    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+    let mut chain = empty_chain(transport.clone());
+    let contract = load_contract("test/RvmChainId.sol:RvmChainId");
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
     let target = deployment.address.unwrap();
+
+    let setup = chain.setup(SetupInput::new(target)).unwrap();
+    assert!(setup.result.success, "setup (rvm.fork) must succeed");
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "setup fork must fetch chain_id and block"
+    );
 
     let chain_id_value = alloy_primitives::U256::from(1337);
     let set_chain_id_calldata =
@@ -255,31 +271,23 @@ fn rvm_chain_id() {
     .unwrap();
     assert_eq!(
         id, chain_id_value,
-        "chain ID must equal the value set by vm.chainId"
+        "chain ID must equal the value set by rvm.chainId"
     );
 
-    assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
+    assert_eq!(transport.total_calls(), 2, "no RPC calls after setup");
 }
 
-/// Integration test: `vm.addr` cheatcode must correctly derive a local
+/// Integration test: `rvm.addr` cheatcode must correctly derive a local
 /// address in fork mode. The derived address is local and its balance
 /// read must not trigger any RPC fetch.
 #[test]
 fn rvm_addr() {
     let transport = MockTransport::default();
     let url = "mock://test";
-    let mut chain = fork_chain(&transport, url);
+    mock_fork_setup(&transport, url, BLOCK_NUMBER, "0x1", block_json());
 
-    assert_eq!(
-        transport.total_calls(),
-        2,
-        "fork init must fetch chain_id and block"
-    );
-
-    let project = Project::new("fixtures/fork-mode-cheatcode");
-    let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/RvmAddr.sol:RvmAddr").unwrap();
-    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+    let mut chain = empty_chain(transport.clone());
+    let contract = load_contract("test/RvmAddr.sol:RvmAddr");
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
@@ -287,6 +295,11 @@ fn rvm_addr() {
 
     let setup_result = chain.setup(SetupInput::new(target)).unwrap();
     assert!(setup_result.result.success, "setup must succeed");
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "setup fork must fetch chain_id and block"
+    );
 
     let get_balance_calldata = Bytes::from(RvmAddr::getBalanceCall::new(()).abi_encode());
     let txs = [Transaction::new(target).calldata(get_balance_calldata)];
@@ -307,10 +320,10 @@ fn rvm_addr() {
         "derived actor balance must be zero"
     );
 
-    assert_eq!(transport.total_calls(), 2, "no RPC calls after deployment");
+    assert_eq!(transport.total_calls(), 2, "no RPC calls after setup");
 }
 
-/// Integration test: `vm.deal` cheatcode must correctly set account
+/// Integration test: `rvm.deal` cheatcode must correctly set account
 /// balances in fork mode. The local address must not trigger any RPC
 /// fetch, while the remote address (vitalik.eth) requires a single
 /// batched account fetch.
@@ -318,6 +331,7 @@ fn rvm_addr() {
 fn rvm_deal() {
     let transport = MockTransport::default();
     let url = "mock://test";
+    mock_fork_setup(&transport, url, BLOCK_NUMBER, "0x1", block_json());
 
     // Set up the vitalik account batch (balance + nonce + code) that
     // the fork DB fetches when `dealRemoteAddress` touches vitalik.eth
@@ -337,18 +351,8 @@ fn rvm_deal() {
         ]),
     );
 
-    let mut chain = fork_chain(&transport, url);
-
-    assert_eq!(
-        transport.total_calls(),
-        2,
-        "fork init must fetch chain_id and block"
-    );
-
-    let project = Project::new("fixtures/fork-mode-cheatcode");
-    let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/RvmDeal.sol:RvmDeal").unwrap();
-    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+    let mut chain = empty_chain(transport.clone());
+    let contract = load_contract("test/RvmDeal.sol:RvmDeal");
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
@@ -356,6 +360,11 @@ fn rvm_deal() {
 
     let setup_result = chain.setup(SetupInput::new(target)).unwrap();
     assert!(setup_result.result.success, "setup must succeed");
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "setup fork must fetch chain_id and block"
+    );
 
     let deal_local_calldata = Bytes::from(RvmDeal::dealLocalAddressCall::new(()).abi_encode());
     let deal_remote_calldata = Bytes::from(RvmDeal::dealRemoteAddressCall::new(()).abi_encode());
@@ -406,14 +415,13 @@ fn rvm_deal() {
     );
 }
 
-/// Integration test: `vm.load` cheatcode must correctly read storage
-/// from local and remote contracts in fork mode. The local contract
-/// read must not trigger any RPC fetch, while the remote (WETH) read
-/// must trigger a single storage fetch.
+/// Integration test: `rvm.load` cheatcode must correctly read storage
+/// from local and remote contracts in fork mode.
 #[test]
 fn rvm_load() {
     let transport = MockTransport::default();
     let url = "mock://test";
+    mock_fork_setup(&transport, url, BLOCK_NUMBER, "0x1", block_json());
 
     // WETH mainnet contract at block 25_259_523: account batch
     // (balance + nonce + code) and decimals storage slot 2.
@@ -445,18 +453,8 @@ fn rvm_load() {
         json!([{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000000000000000000012"}]),
     );
 
-    let mut chain = fork_chain(&transport, url);
-
-    assert_eq!(
-        transport.total_calls(),
-        2,
-        "fork init must fetch chain_id and block"
-    );
-
-    let project = Project::new("fixtures/fork-mode-cheatcode");
-    let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/RvmLoad.sol:RvmLoad").unwrap();
-    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+    let mut chain = empty_chain(transport.clone());
+    let contract = load_contract("test/RvmLoad.sol:RvmLoad");
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
@@ -464,6 +462,11 @@ fn rvm_load() {
 
     let setup_result = chain.setup(SetupInput::new(target)).unwrap();
     assert!(setup_result.result.success, "setup must succeed");
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "setup fork must fetch chain_id and block"
+    );
 
     let load_local_calldata = Bytes::from(RvmLoad::loadLocalContractCall::new(()).abi_encode());
     let load_remote_calldata = Bytes::from(RvmLoad::loadRemoteContractCall::new(()).abi_encode());
@@ -489,18 +492,17 @@ fn rvm_load() {
     );
 }
 
-/// Integration test: `vm.store` cheatcode must correctly write storage
-/// to local and remote contracts in fork mode. The local contract
-/// write must not trigger any RPC fetch, while the remote (WETH) write
-/// must trigger only the basic account fetch (no storage fetch).
+/// Integration test: `rvm.store` cheatcode must correctly write storage
+/// to local and remote contracts in fork mode.
 #[test]
 fn rvm_store() {
     let transport = MockTransport::default();
     let url = "mock://test";
+    mock_fork_setup(&transport, url, BLOCK_NUMBER, "0x1", block_json());
 
     // WETH mainnet contract at block 25_259_523: account batch
     // (balance + nonce + code). No storage fetch needed because
-    // vm.store writes directly — it never reads from the fork DB.
+    // rvm.store writes directly - it never reads from the fork DB.
     let weth_account_payload = json!([
         {"jsonrpc":"2.0","id":0,"method":"eth_getBalance","params":["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2","0x1816e03"]},
         {"jsonrpc":"2.0","id":1,"method":"eth_getTransactionCount","params":["0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2","0x1816e03"]},
@@ -519,18 +521,8 @@ fn rvm_store() {
         ]),
     );
 
-    let mut chain = fork_chain(&transport, url);
-
-    assert_eq!(
-        transport.total_calls(),
-        2,
-        "fork init must fetch chain_id and block"
-    );
-
-    let project = Project::new("fixtures/fork-mode-cheatcode");
-    let artifacts = project.load_artifacts().unwrap();
-    let artifact_id = ArtifactId::try_from("test/RvmStore.sol:RvmStore").unwrap();
-    let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
+    let mut chain = empty_chain(transport.clone());
+    let contract = load_contract("test/RvmStore.sol:RvmStore");
 
     let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
     assert!(deployment.result.success, "deployment must succeed");
@@ -538,6 +530,11 @@ fn rvm_store() {
 
     let setup_result = chain.setup(SetupInput::new(target)).unwrap();
     assert!(setup_result.result.success, "setup must succeed");
+    assert_eq!(
+        transport.total_calls(),
+        2,
+        "setup fork must fetch chain_id and block"
+    );
 
     let store_local_calldata = Bytes::from(RvmStore::storeLocalContractCall::new(()).abi_encode());
     let store_remote_calldata =
@@ -560,6 +557,6 @@ fn rvm_store() {
     assert_eq!(
         transport.total_calls(),
         3,
-        "3 RPC calls: chain_id, block, WETH account batch (no storage fetch)"
+        "3 RPC calls: chain_id, block, and WETH account batch"
     );
 }
