@@ -409,29 +409,12 @@ pub fn run(args: Args) -> Result<()> {
 
     // Create test chain (empty sandbox; harnesses call vm.fork to opt into remote state).
     // RPC retries/timeout/etc. use ForkDBConfig defaults; override via vm.fork(..., ForkConfig).
-    console.begin("spawning test chain ...")?;
     let fork_defaults = ForkDBConfig::new("").cache_dir(ripfuzz_dir(&project_path).join("cache"));
     let chain_config = ChainConfig::new(&project_path)
         .with_compiled_contracts(compiled_contracts)
         .with_fork_defaults(fork_defaults)
         .coverage(true);
-    let mut chain = match Chain::new(chain_config) {
-        Ok(c) => c,
-        Err(e) => {
-            console.end_fail("spawning test chain failed")?;
-            console.print_line(format!("{e:#}"))?;
-            return Err(e);
-        }
-    };
-    console.update("spawned test chain")?;
-    console.end()?;
-    console.print_line(format!(
-        "    chain id        : {}\n    evm version     : {}\n    block number    : {}\n    block timestamp : {}",
-        chain.cfg_env().chain_id,
-        chain.cfg_env().spec.to_string().to_lowercase(),
-        chain.block_env().number,
-        chain.block_env().timestamp,
-    ))?;
+    let mut chain = Chain::new(chain_config)?;
 
     // Deploy harness contract
     let contract_name = &harness_contract.artifact_id.name;

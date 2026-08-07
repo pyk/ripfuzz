@@ -90,6 +90,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - Removed the library helper `Chain::fork_with_transport`. Tests and campaigns
   create an empty sandbox and opt into remote state with `vm.fork` only.
 
+- Removed the startup log for spawning the test chain (including empty-sandbox
+  chain id, EVM version, block number, and timestamp). Empty vs fork is decided
+  at runtime by `vm.fork`, so those defaults were misleading
+
 ### Fixed
 
 - `vm.fork` now applies the forked block's EVM `SpecId` (and matching mainnet
