@@ -9,6 +9,7 @@
 <p align="center">
   <a href="https://crates.io/crates/ripfuzz"><img src="https://img.shields.io/crates/v/ripfuzz.svg?colorA=00f&colorB=fff&style=flat&logo=rust" alt="Crates.io"></a>
   <a href="https://crates.io/crates/ripfuzz"><img src="https://img.shields.io/crates/d/ripfuzz?colorA=00f&colorB=fff&style=flat&logo=rust" alt="Downloads"></a>
+  <a href="https://docs.rs/ripfuzz/latest/ripfuzz/"><img src="https://img.shields.io/badge/latest-a?colorA=00f&colorB=fff&style=flat&logo=rust&label=docs.rs"></a>
   <a href="/LICENSE"><img src="https://img.shields.io/github/license/pyk/ripfuzz?colorA=00f&colorB=fff&style=flat" alt="MIT License"></a>
 </p>
 
