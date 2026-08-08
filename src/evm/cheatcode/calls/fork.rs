@@ -2,13 +2,18 @@
 
 use std::sync::Arc;
 
+use alloy_primitives::Address;
 use revm::{
+    DatabaseCommit, Journal, JournalEntry,
     context::{BlockEnv, ContextSetters},
     context_interface::block::BlobExcessGasAndPrice,
     context_interface::{ContextTr, JournalTr},
     primitives::U256,
+    state::EvmState,
 };
 
+use crate::evm::chain::DEFAULT_DEPLOYER;
+use crate::evm::cheatcode::VM_ADDRESS;
 use crate::evm::cheatcode::inspector::CfgMut;
 use crate::evm::cheatcode::{outcome, state::ExecutionState};
 use crate::evm::database::{Database, DatabaseError, ForkEnv};
@@ -33,6 +38,7 @@ pub fn fork<CTX>(
 where
     CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut,
     CTX::Db: AsForkDatabase,
+    CTX::Journal: CommitRemoteBeforeForkSwitch,
 {
     fork_with_options(ctx, state, url, block_number, ForkOptions::default())
 }
@@ -48,6 +54,7 @@ pub fn fork_with_options<CTX>(
 where
     CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut,
     CTX::Db: AsForkDatabase,
+    CTX::Journal: CommitRemoteBeforeForkSwitch,
 {
     if url.is_empty() {
         return Some(outcome::revert("fork: empty RPC URL"));
@@ -82,6 +89,20 @@ where
 
     let transport = state.transport.clone();
     let registry = state.local_registry.clone();
+
+    // Before switching overlays mid-transaction, commit remote journaled state
+    // to the currently active fork and drop those accounts from the journal.
+    // Otherwise tx-end commit lands only on the post-switch fork and earlier
+    // `rvm.store` / `rvm.deal` mutations are lost (or leak to the wrong chain).
+    // Local accounts stay journaled so harness storage remains shared.
+    let needs_remote_commit = !ctx.journal().db().is_active_fork(url, block);
+    if needs_remote_commit {
+        let registry_for_commit = registry.clone();
+        ctx.journal_mut()
+            .commit_remote_before_fork_switch(&move |addr| {
+                addr == DEFAULT_DEPLOYER || addr == VM_ADDRESS || registry_for_commit.is_local(addr)
+            });
+    }
 
     let env = match ctx
         .journal_mut()
@@ -124,6 +145,8 @@ where
 
 /// Trait implemented by [`Database`] so the fork cheatcode can switch backends.
 pub trait AsForkDatabase {
+    fn is_active_fork(&self, url: &str, block_number: u64) -> bool;
+
     fn fork(
         &mut self,
         url: &str,
@@ -135,6 +158,10 @@ pub trait AsForkDatabase {
 }
 
 impl AsForkDatabase for Database {
+    fn is_active_fork(&self, url: &str, block_number: u64) -> bool {
+        Database::is_active_fork(self, url, block_number)
+    }
+
     fn fork(
         &mut self,
         url: &str,
@@ -144,6 +171,74 @@ impl AsForkDatabase for Database {
         local_registry: SharedLocalAddressRegistry,
     ) -> Result<ForkEnv, DatabaseError> {
         Database::fork(self, url, block_number, config, transport, local_registry)
+    }
+}
+
+/// Commit remote journaled mutations onto the active fork overlay before a
+/// mid-transaction fork switch, and drop those accounts from the in-memory
+/// journal so they are reloaded from the selected fork.
+///
+/// Local (persistent) accounts stay in the journal so harness storage continues
+/// to be shared across forks.
+pub trait CommitRemoteBeforeForkSwitch {
+    fn commit_remote_before_fork_switch(&mut self, is_persistent: &dyn Fn(Address) -> bool);
+}
+
+impl CommitRemoteBeforeForkSwitch for Journal<Database> {
+    fn commit_remote_before_fork_switch(&mut self, is_persistent: &dyn Fn(Address) -> bool) {
+        let remote_addrs: Vec<Address> = self
+            .inner
+            .state
+            .keys()
+            .copied()
+            .filter(|addr| !is_persistent(*addr))
+            .collect();
+
+        if remote_addrs.is_empty() {
+            return;
+        }
+
+        let mut remote_changes = EvmState::default();
+        for addr in &remote_addrs {
+            if let Some(account) = self.inner.state.remove(addr) {
+                remote_changes.insert(*addr, account);
+            }
+        }
+
+        if !remote_changes.is_empty() {
+            self.database.commit(remote_changes);
+        }
+
+        // Journal entry reverts use `.unwrap()` on state lookups. Drop entries
+        // that touch remote accounts so a later call revert cannot panic after
+        // those accounts were removed from the journaled state.
+        self.inner
+            .journal
+            .retain(|entry| journal_entry_is_persistent(entry, is_persistent));
+    }
+}
+
+fn journal_entry_is_persistent(
+    entry: &JournalEntry,
+    is_persistent: &dyn Fn(Address) -> bool,
+) -> bool {
+    match entry {
+        JournalEntry::AccountWarmed { address }
+        | JournalEntry::AccountTouched { address }
+        | JournalEntry::BalanceChange { address, .. }
+        | JournalEntry::NonceChange { address, .. }
+        | JournalEntry::NonceBump { address }
+        | JournalEntry::AccountCreated { address, .. }
+        | JournalEntry::StorageChanged { address, .. }
+        | JournalEntry::StorageWarmed { address, .. }
+        | JournalEntry::TransientStorageChange { address, .. }
+        | JournalEntry::CodeChange { address } => is_persistent(*address),
+        JournalEntry::AccountDestroyed {
+            address, target, ..
+        } => is_persistent(*address) && is_persistent(*target),
+        JournalEntry::BalanceTransfer { from, to, .. } => {
+            is_persistent(*from) && is_persistent(*to)
+        }
     }
 }
 
@@ -176,6 +271,20 @@ mod tests {
                 string calldata url,
                 uint256 blockNumber,
                 uint256 value
+            ) external;
+            function actionForkStoreThenSwitch(
+                string calldata urlA,
+                uint256 blockA,
+                bytes32 value,
+                string calldata urlB,
+                uint256 blockB
+            ) external;
+            function actionForkDealThenSwitch(
+                string calldata urlA,
+                uint256 blockA,
+                uint256 value,
+                string calldata urlB,
+                uint256 blockB
             ) external;
             function actionReadBridge() external;
             function getBlockNumber() external view returns (uint256);
@@ -727,6 +836,159 @@ mod tests {
             read_last_balance(&mut chain, target),
             U256::from(999),
             "ethereum deal mutation must persist after switching back"
+        );
+    }
+
+    /// Mid-transaction `vm.fork` switch must keep a prior `vm.store` on the
+    /// previous fork and must not leak it onto the destination fork.
+    ///
+    /// Flow (single transaction via `actionForkStoreThenSwitch`):
+    /// 1. fork(Ethereum)
+    /// 2. store bridge slot0 = 99
+    /// 3. load confirms 99 (same-tx journal is visible -> `lastSlot0`)
+    /// 4. fork(Polygon)  // switch mid-tx; leave active on Polygon
+    ///
+    /// Then in a later transaction:
+    /// 5. fork(Ethereum) again -> slot0 must still be 99
+    /// 6. fork(Polygon) -> slot0 must stay at remote original 2
+    #[test]
+    fn mid_transaction_fork_switch_preserves_prior_fork_store() {
+        let transport = MockTransport::default();
+        setup_eth_polygon_forks(&transport);
+        let (mut chain, target) = deploy_with_transport(transport);
+
+        let mutated = alloy_primitives::FixedBytes::from(U256::from(99).to_be_bytes());
+        let polygon_remote = alloy_primitives::FixedBytes::from(U256::from(2).to_be_bytes());
+
+        // One transaction: store on Ethereum, then switch to Polygon.
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                ForkHarness::actionForkStoreThenSwitchCall::new((
+                    URL_ETH.to_string(),
+                    U256::from(BLOCK_ETH),
+                    mutated,
+                    URL_POLYGON.to_string(),
+                    U256::from(BLOCK_POLYGON),
+                ))
+                .abi_encode(),
+            )),
+        ];
+        assert!(
+            chain.exec(&txs).unwrap().results[0].success,
+            "mid-tx store+switch must succeed"
+        );
+
+        // Same-tx load before the switch was recorded into lastSlot0.
+        assert_eq!(
+            read_last_slot0(&mut chain, target),
+            mutated,
+            "store must be visible in the same transaction before the fork switch"
+        );
+
+        // Active fork is Polygon after the mid-tx switch.
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            ForkHarness::getChainIdCall::new(()).abi_encode(),
+        ))];
+        let execution = chain.exec(&txs).unwrap();
+        assert!(execution.results[0].success);
+        let chain_id = ForkHarness::getChainIdCall::abi_decode_returns(
+            &execution.results[0].output.clone().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            chain_id,
+            U256::from(0x89),
+            "active fork after mid-tx switch must be polygon"
+        );
+
+        // Switch back to Ethereum in a new transaction and re-read.
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                ForkHarness::actionForkCall::new((URL_ETH.to_string(), U256::from(BLOCK_ETH)))
+                    .abi_encode(),
+            )),
+        ];
+        assert!(chain.exec(&txs).unwrap().results[0].success);
+
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            ForkHarness::actionReadBridgeCall::new(()).abi_encode(),
+        ))];
+        assert!(chain.exec(&txs).unwrap().results[0].success);
+
+        assert_eq!(
+            read_last_slot0(&mut chain, target),
+            mutated,
+            "ethereum store must survive mid-tx fork switch"
+        );
+
+        // Polygon must keep its remote original (no leak from ethereum store).
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                ForkHarness::actionForkAndReadBridgeCall::new((
+                    URL_POLYGON.to_string(),
+                    U256::from(BLOCK_POLYGON),
+                ))
+                .abi_encode(),
+            )),
+        ];
+        assert!(chain.exec(&txs).unwrap().results[0].success);
+        assert_eq!(
+            read_last_slot0(&mut chain, target),
+            polygon_remote,
+            "polygon must not receive ethereum mid-tx store"
+        );
+    }
+
+    /// Mid-transaction `vm.fork` switch must keep a prior `vm.deal` on the
+    /// previous fork.
+    #[test]
+    fn mid_transaction_fork_switch_preserves_prior_fork_deal() {
+        let transport = MockTransport::default();
+        setup_eth_polygon_forks(&transport);
+        let (mut chain, target) = deploy_with_transport(transport);
+
+        let mutated = U256::from(999);
+
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                ForkHarness::actionForkDealThenSwitchCall::new((
+                    URL_ETH.to_string(),
+                    U256::from(BLOCK_ETH),
+                    mutated,
+                    URL_POLYGON.to_string(),
+                    U256::from(BLOCK_POLYGON),
+                ))
+                .abi_encode(),
+            )),
+        ];
+        assert!(
+            chain.exec(&txs).unwrap().results[0].success,
+            "mid-tx deal+switch must succeed"
+        );
+
+        assert_eq!(
+            read_last_balance(&mut chain, target),
+            mutated,
+            "deal must be visible in the same transaction before the fork switch"
+        );
+
+        let txs = vec![
+            Transaction::new(target).calldata(Bytes::from(
+                ForkHarness::actionForkCall::new((URL_ETH.to_string(), U256::from(BLOCK_ETH)))
+                    .abi_encode(),
+            )),
+        ];
+        assert!(chain.exec(&txs).unwrap().results[0].success);
+
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            ForkHarness::actionReadBridgeCall::new(()).abi_encode(),
+        ))];
+        assert!(chain.exec(&txs).unwrap().results[0].success);
+
+        assert_eq!(
+            read_last_balance(&mut chain, target),
+            mutated,
+            "ethereum deal must survive mid-tx fork switch"
         );
     }
 

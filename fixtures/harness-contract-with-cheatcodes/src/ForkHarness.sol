@@ -88,6 +88,44 @@ contract ForkHarness {
         lastBalance = BRIDGE.balance;
     }
 
+    /// Store on fork A, then switch to fork B inside the same transaction.
+    ///
+    /// The store is visible before the switch (`lastSlot0`) and must also
+    /// persist on fork A after later selecting A again.
+    function actionForkStoreThenSwitch(
+        string calldata urlA,
+        uint256 blockA,
+        bytes32 value,
+        string calldata urlB,
+        uint256 blockB
+    ) external {
+        rvm.fork(urlA, blockA);
+        rvm.store(BRIDGE, bytes32(uint256(0)), value);
+        // Same-tx check: journaled write is visible before switching forks.
+        lastSlot0 = rvm.load(BRIDGE, bytes32(uint256(0)));
+        rvm.fork(urlB, blockB);
+        lastBlock = block.number;
+        lastChainId = block.chainid;
+    }
+
+    /// Deal on fork A, then switch to fork B inside the same transaction.
+    ///
+    /// Same mid-tx persistence guarantee as `actionForkStoreThenSwitch`.
+    function actionForkDealThenSwitch(
+        string calldata urlA,
+        uint256 blockA,
+        uint256 value,
+        string calldata urlB,
+        uint256 blockB
+    ) external {
+        rvm.fork(urlA, blockA);
+        rvm.deal(BRIDGE, value);
+        lastBalance = BRIDGE.balance;
+        rvm.fork(urlB, blockB);
+        lastBlock = block.number;
+        lastChainId = block.chainid;
+    }
+
     /// Read bridge slot 0 on the currently active fork (no re-fork).
     function actionReadBridge() external {
         lastSlot0 = rvm.load(BRIDGE, bytes32(uint256(0)));

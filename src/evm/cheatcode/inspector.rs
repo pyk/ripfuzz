@@ -236,6 +236,7 @@ impl<CTX: ContextTr<Block = BlockEnv, Tx = TxEnv> + ContextSetters + CfgMut>
     revm::inspector::Inspector<CTX, EthInterpreter> for Inspector
 where
     CTX::Db: DatabaseExt + AsForkDatabase,
+    CTX::Journal: calls::fork::CommitRemoteBeforeForkSwitch,
 {
     fn initialize_interp(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
     }

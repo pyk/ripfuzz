@@ -213,6 +213,23 @@ impl Database {
         }
     }
 
+    /// Returns true when `(url, block_number)` is already the active multi-fork.
+    ///
+    /// Empty (sandbox) databases always return false so the first `vm.fork`
+    /// still runs the mid-tx journal commit path when needed.
+    pub fn is_active_fork(&self, url: &str, block_number: u64) -> bool {
+        match self {
+            Self::Empty(_) => false,
+            Self::Multi(multi) => {
+                let key = ForkKey {
+                    url_hash: url_hash(url),
+                    block_number,
+                };
+                multi.active == key && multi.forks.contains_key(&key)
+            }
+        }
+    }
+
     /// Create or select a fork and make it active.
     ///
     /// Local accounts (deployer, VM, and addresses in `local_registry`) are

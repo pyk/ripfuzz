@@ -16,11 +16,17 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- Mid-transaction `rvm.fork` switches no longer drop or leak remote state
+  written earlier in the same transaction (for example `rvm.store` / `rvm.deal`
+  on fork A then `rvm.fork` to B). Journaled remote mutations now commit to the
+  active fork overlay before the switch; local harness accounts stay shared
+  across forks.
+
 ## [0.9.1] - 2026-08-07
 
 ### Added
 
-- `vm.getEnv` cheatcode to read environment variables as strings:
+- `rvm.getEnv` cheatcode to read environment variables as strings:
 
   ```solidity
   function getEnv(string calldata key) external returns (string memory value);
@@ -38,10 +44,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   The two-argument form returns `defaultValue` when the key is missing.
 
 - Automatic `.env` loading from the project directory (defaults to the current
-  working directory). Values are available to `vm.getEnv`. Existing process
+  working directory). Values are available to `rvm.getEnv`. Existing process
   environment variables take precedence over `.env`.
 
-- `vm.fork` cheatcode to create or select a remote chain fork:
+- `rvm.fork` cheatcode to create or select a remote chain fork:
 
   ```solidity
   struct ForkConfig {
@@ -56,13 +62,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
       external;
   ```
 
-  Campaigns always start as an empty sandbox. Call `vm.fork` in `setup` or
+  Campaigns always start as an empty sandbox. Call `rvm.fork` in `setup` or
   action modifiers to opt into remote state. Multiple forks are cached and
-  selected by `(url, block)`. Local accounts (harness, deployer, `vm.addr`
+  selected by `(url, block)`. Local accounts (harness, deployer, `rvm.addr`
   results) persist across switches. Remote state is isolated per fork, so the
   same address on two chains (e.g. a bridge on Ethereum and Polygon) keeps
   independent storage and balances. Coverage is keyed by bytecode hash, not
-  address. Single-arg `vm.fork` defaults: retries 3, backoff 100ms, timeout
+  address. Single-arg `rvm.fork` defaults: retries 3, backoff 100ms, timeout
   30s, no rate limit (same as the former CLI defaults).
 
 ### Changed
@@ -91,24 +97,24 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   (`.ripfuzz/campaigns/YYYY-MM-DD-HHMMSS-<uuid>/`) so campaigns started in the
   same minute are easier to tell apart
 
-- Fork mode is driven entirely by `vm.fork` in the harness. CLI flags
+- Fork mode is driven entirely by `rvm.fork` in the harness. CLI flags
   `--rpc-url`, `--rpc-block`, `--rpc-retries`, `--rpc-backoff`,
   `--rpc-timeout`, and `--rpc-rate-limit` are removed. Single-arg
-  `vm.fork(url, block)` uses built-in defaults (retries 3, backoff 100ms,
-  timeout 30s, no rate limit). Override via `vm.fork(url, block, ForkConfig)`
+  `rvm.fork(url, block)` uses built-in defaults (retries 3, backoff 100ms,
+  timeout 30s, no rate limit). Override via `rvm.fork(url, block, ForkConfig)`
 
 - Removed the library helper `Chain::fork_with_transport`. Tests and campaigns
-  create an empty sandbox and opt into remote state with `vm.fork` only.
+  create an empty sandbox and opt into remote state with `rvm.fork` only.
 
 - Removed the startup log for spawning the test chain (including empty-sandbox
   chain id, EVM version, block number, and timestamp). Empty vs fork is decided
-  at runtime by `vm.fork`, so those defaults were misleading
+  at runtime by `rvm.fork`, so those defaults were misleading
 
 ### Fixed
 
-- `vm.fork` now applies the forked block's EVM `SpecId` (and matching mainnet
+- `rvm.fork` now applies the forked block's EVM `SpecId` (and matching mainnet
   gas params) to the active chain config. Previously only the former
-  `Chain::fork` path did this, so harnesses that called `vm.fork` kept the
+  `Chain::fork` path did this, so harnesses that called `rvm.fork` kept the
   empty-sandbox hardfork instead of the remote chain's hardfork at that height
   (opcodes, gas schedule, and blob base-fee fraction).
 

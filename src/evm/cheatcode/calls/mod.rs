@@ -108,6 +108,7 @@ pub fn dispatch<CTX>(
 where
     CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut,
     CTX::Db: DatabaseExt + fork::AsForkDatabase,
+    CTX::Journal: fork::CommitRemoteBeforeForkSwitch,
 {
     match call {
         // Block
