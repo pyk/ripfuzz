@@ -24,33 +24,39 @@ reproduction.
 
 ## Features
 
-- **Coverage-guided fuzzing**: steer inputs toward unexplored code using
-  per-PC edges, call-stack depths, revert paths, and jump destinations.
-- **Parallel fuzzing**: one fuzzer per CPU core by default, sharing a
-  coverage-guided corpus and metrics across all workers.
+- **Coverage-guided fuzzing**: automatically steer inputs toward unexplored
+  code using per-PC edges, call-stack depths, revert paths, and jump
+  destinations.
+- **Mutational fuzzing**: evolve existing corpus entries by inserting,
+  removing, swapping, or replacing calls and regenerating their arguments, so
+  exploration builds on what already found interesting behavior instead of
+  starting from scratch.
+- **Parallel fuzzing**: scale across all available CPU cores by default, with
+  every worker sharing a coverage-guided corpus and metrics.
 - **Lightning fast shrinker**: minimize any failed assertion down to the fewest
   calls that still reproduce it, with shrinking running in parallel across
   multiple workers.
-- **Stateful call sequences**: each fuzz input is a sequence of handler calls
-  (up to 100 by default), so violations of protocol invariants that only emerge
-  through the interaction of multiple calls can be reached instead of just
-  single-transaction edge cases.
-- **Invariant checking**: run protocol invariants after every call sequence and
-  report any violation as a bug.
-- **Multi-chain fork mode**: opt into remote chain state with the `rvm.fork`
-  cheatcode, with per-fork isolation and harness storage shared across chains
-  for cross-chain invariants.
+- **Stateful call sequences**: explore sequences of up to 100 handler calls per
+  input, reaching violations of protocol invariants that only emerge through
+  the interaction of multiple calls rather than single-transaction edge cases.
+- **Invariant testing**: automatically validate your invariants at both the
+  function level and the protocol level, with every generated call sequence
+  checked and any violation reported as a bug.
+- **Multi-chain fork mode**: fuzz against live on-chain state with per-fork
+  isolation and harness storage shared across chains for cross-chain
+  invariants.
 - **Cheatcodes**: manipulate accounts, balances, block context, storage, and
-  bytecode from inside the harness, plus environment access and opt-in `ffi`,
-  via [ripfuzz-std](https://github.com/pyk/ripfuzz-std).
-- **Persistent corpus**: keep interesting sequences between runs, and replay
-  them when a new campaign starts.
-- **Coverage reports**: per-campaign reports with line and function coverage
-  resolved from source maps.
-- **Execution traces**: full traces of deployment, setup, and every generated
-  call sequence, saved with the campaign.
-- **Reproducible runs**: every campaign can be replayed exactly, either from a
-  provided seed or from the one printed at start.
+  bytecode from inside the harness, plus environment access, via
+  [ripfuzz-std](https://github.com/pyk/ripfuzz-std).
+- **Persistent corpus**: keep interesting sequences between runs and replay
+  them when a new campaign starts, so previous discoveries accelerate future
+  campaigns.
+- **Coverage reports**: get per-campaign line and function coverage resolved
+  from source maps, so you can see exactly which code was executed.
+- **Execution traces**: follow full traces of deployment, setup, and every
+  generated call sequence, saved with the campaign for post-run analysis.
+- **Reproducible runs**: replay any campaign exactly, either from a provided
+  seed or from the one printed at start.
 
 ## Installation
 
