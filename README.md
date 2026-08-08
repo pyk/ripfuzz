@@ -94,7 +94,7 @@ Write a harness contract with handler functions (any `external`/`public`
 function) and invariants (functions prefixed with `invariant_`), then run:
 
 ```bash
-ripfuzz run src/Harness.sol:Harness
+ripfuzz run SomeHarness
 ```
 
 For cheatcodes, fork mode, and a full harness reference, see
