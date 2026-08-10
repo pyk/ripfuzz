@@ -81,6 +81,7 @@ pub struct CampaignStats<'a> {
     corpus: &'a SharedCorpus,
     handler_functions: &'a [alloy_json_abi::Function],
     invariant_functions: &'a [alloy_json_abi::Function],
+    max_functions: &'a [alloy_json_abi::Function],
 }
 
 impl<'a> CampaignStats<'a> {
@@ -90,12 +91,14 @@ impl<'a> CampaignStats<'a> {
         corpus: &'a SharedCorpus,
         handler_functions: &'a [alloy_json_abi::Function],
         invariant_functions: &'a [alloy_json_abi::Function],
+        max_functions: &'a [alloy_json_abi::Function],
     ) -> Self {
         Self {
             shared_coverage,
             corpus,
             handler_functions,
             invariant_functions,
+            max_functions,
         }
     }
 
@@ -224,6 +227,34 @@ impl<'a> CampaignStats<'a> {
             }
         }
 
+        if !self.max_functions.is_empty() {
+            output.push_str(&format!(
+                "\n\n    ⊕ max functions ({})",
+                self.max_functions.len()
+            ));
+            let max_labels: Vec<String> = self
+                .max_functions
+                .iter()
+                .map(|f| f.name.to_string())
+                .collect();
+            let max_width = max_labels.iter().map(|l| l.len()).max().unwrap_or(0);
+            for (func, label) in self.max_functions.iter().zip(max_labels.iter()) {
+                let sig = func.signature();
+                let metrics = function_metrics
+                    .iter()
+                    .find(|(s, _)| s == &sig)
+                    .map(|(_, m)| *m)
+                    .unwrap_or_default();
+                output.push_str(&format!(
+                    "\n    {:max_width$} : {:>8} calls {:>10} gas {:>8} reverts",
+                    label,
+                    kmb(metrics.calls),
+                    giga_gas(metrics.gas),
+                    kmb(metrics.reverts),
+                ));
+            }
+        }
+
         output
     }
 }
@@ -308,7 +339,7 @@ mod tests {
     fn campaign_progress_preserves_key_stats() {
         let coverage = SharedCoverage::new();
         let corpus = SharedCorpus::new(CorpusConfig::new(""));
-        let stats = CampaignStats::new(&coverage, &corpus, &[], &[]);
+        let stats = CampaignStats::new(&coverage, &corpus, &[], &[], &[]);
 
         let line = stats.progress(&snapshot());
 

@@ -198,6 +198,11 @@ impl Call {
         self.function.selector()
     }
 
+    /// Human-readable JSON representation of the call arguments.
+    pub fn args_json(&self) -> serde_json::Value {
+        dyn_value_to_json(&self.args)
+    }
+
     /// Encode this call as EVM calldata (selector + ABI-encoded args).
     pub fn calldata(&self) -> Bytes {
         let args = self.args.abi_encode_params();

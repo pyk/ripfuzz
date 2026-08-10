@@ -17,6 +17,10 @@ pub use fuzzer::{
     FailedAssertion, FunctionMetricsSnapshot, Fuzzer, FuzzerConfig, FuzzerOutput,
     SharedFailedAssertions, SharedMetrics, Snapshot,
 };
+pub use max::{
+    MaxBestItem, MaxFuzzer, MaxFuzzerConfig, MaxFuzzerCorpus, MaxFuzzerOutput, MaxObjective,
+    MaxResult, MaxShrinker, MaxShrinkerConfig, MaxShrinkerCorpus, MaxShrinkerOutput,
+};
 pub use shrinker::{Shrinker, ShrinkerConfig, ShrinkerOutput};
 
 pub mod commands;
@@ -28,4 +32,5 @@ mod evm;
 mod formatter;
 mod foundry;
 mod fuzzer;
+mod max;
 mod shrinker;

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use alloy_primitives::Address;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use revm::primitives::{Bytes, U256};
 use tracing::{debug, instrument};
@@ -26,6 +26,10 @@ use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
 use crate::fuzzer::{Fuzzer, FuzzerConfig, SharedFailedAssertions, SharedMetrics};
 use crate::logger;
+use crate::max::{
+    MaxFuzzer, MaxFuzzerConfig, MaxFuzzerCorpus, MaxObjective, MaxResult, MaxShrinker,
+    MaxShrinkerConfig, MaxShrinkerCorpus,
+};
 use crate::shrinker::{Shrinker, ShrinkerConfig};
 
 #[derive(Debug, Parser)]
@@ -180,6 +184,11 @@ pub struct Args {
     #[arg(long = "fail-on-revert", help_heading = "Fuzzing Parameters")]
     pub fail_on_revert: bool,
 
+    /// Run in max mode: maximize `max_*` functions instead of checking
+    /// invariants. Invariant mode and max mode are mutually exclusive.
+    #[arg(long = "max-mode", help_heading = "Fuzzing Parameters")]
+    pub max_mode: bool,
+
     /// Additional Foundry projects whose build artifacts are loaded for
     /// coverage and trace resolution.
     ///
@@ -309,7 +318,11 @@ pub fn run(args: Args) -> Result<()> {
     };
 
     // Resolve project path
-    let project_path = args.project_path.map(Ok).unwrap_or_else(env::current_dir)?;
+    let project_path = args
+        .project_path
+        .clone()
+        .map(Ok)
+        .unwrap_or_else(env::current_dir)?;
 
     // Load project `.env` so `vm.getEnv` can read those values.
     let dotenv_path = load_dotenv(&project_path)?;
@@ -533,6 +546,7 @@ pub fn run(args: Args) -> Result<()> {
     let literals = ExtractedLiterals::from_artifacts(&build_artifacts);
     let base_corpus_dir = args
         .corpus_dir
+        .clone()
         .unwrap_or_else(|| ripfuzz_dir(&project_path).join("corpus"));
     let corpus_dir = SharedCorpus::dir_for(&base_corpus_dir, &harness_contract.artifact_id);
     let corpus_config = CorpusConfig::new(corpus_dir)
@@ -572,11 +586,16 @@ pub fn run(args: Args) -> Result<()> {
 
     if replay_count > 0 {
         console.begin(format!("replaying {replay_count} corpus items ..."))?;
+        let replay_invariants = if args.max_mode {
+            Vec::new()
+        } else {
+            harness_contract.invariant_functions.clone()
+        };
         if let Err(e) = CorpusReplayer::new(shared_coverage.clone())
             .shared_corpus(corpus.clone())
             .chain(chain.clone())
             .deployed_address(deployed_address)
-            .invariant_functions(harness_contract.invariant_functions.clone())
+            .invariant_functions(replay_invariants)
             .caller(args.deployer_address)
             .replay()
         {
@@ -599,6 +618,33 @@ pub fn run(args: Args) -> Result<()> {
             "total jumps",
             formatter::num(shared_coverage.jump_count() as u64)
         ))?;
+    }
+
+    if args.max_mode {
+        if harness_contract.max_functions.is_empty() {
+            console.print_fail("max mode requires at least one `max_*` function in the harness")?;
+            console.print_line(
+                "harness contract must declare at least one `max_*` function in --max-mode",
+            )?;
+            return Err(anyhow::anyhow!(
+                "harness contract must declare at least one `max_*` function in --max-mode"
+            ));
+        }
+        return run_max_campaign(MaxCampaign {
+            args: &args,
+            console: &mut console,
+            project: &project,
+            chain: &chain,
+            harness_contract: &harness_contract,
+            deployed_address,
+            campaign_id: &campaign_id,
+            campaign_seed,
+            build_artifacts: &build_artifacts,
+            external_artifacts: &external_artifacts,
+            corpus,
+            shared_coverage,
+            literals,
+        });
     }
 
     // Initialize shared metrics across all fuzzer threads.
@@ -663,6 +709,7 @@ pub fn run(args: Args) -> Result<()> {
         &corpus,
         &harness_contract.handler_functions,
         &harness_contract.invariant_functions,
+        &[],
     );
 
     while handles.iter().any(|(_, h)| !h.is_finished()) {
@@ -955,6 +1002,330 @@ pub fn run(args: Args) -> Result<()> {
     Ok(())
 }
 
+/// Shared context for a max-mode campaign.
+struct MaxCampaign<'a, W> {
+    args: &'a Args,
+    console: &'a mut Console<W>,
+    project: &'a Project,
+    chain: &'a Chain,
+    harness_contract: &'a Contract,
+    deployed_address: Address,
+    campaign_id: &'a str,
+    campaign_seed: u64,
+    build_artifacts: &'a HashMap<ArtifactId, Artifact>,
+    external_artifacts: &'a [Artifact],
+    corpus: SharedCorpus,
+    shared_coverage: SharedCoverage,
+    literals: ExtractedLiterals,
+}
+
+fn run_max_campaign<W: std::io::Write>(campaign: MaxCampaign<'_, W>) -> Result<()> {
+    let MaxCampaign {
+        args,
+        console,
+        project,
+        chain,
+        harness_contract,
+        deployed_address,
+        campaign_id,
+        campaign_seed,
+        build_artifacts,
+        external_artifacts,
+        corpus,
+        shared_coverage,
+        literals,
+    } = campaign;
+    let contract_name = &harness_contract.artifact_id.name;
+
+    ensure!(
+        !harness_contract.max_functions.is_empty(),
+        "harness contract must declare at least one `max_*` function when --max-mode is enabled"
+    );
+
+    let all_function_signatures: Vec<String> = harness_contract
+        .handler_functions
+        .iter()
+        .chain(harness_contract.max_functions.iter())
+        .map(|f| f.signature())
+        .collect();
+    let shared_metrics = SharedMetrics::new(all_function_signatures.clone());
+    let shutdown_signal = Arc::new(AtomicBool::new(false));
+
+    let objectives: Vec<MaxObjective> = harness_contract
+        .max_functions
+        .iter()
+        .cloned()
+        .map(MaxObjective::new)
+        .collect();
+    let fuzzer_corpus = MaxFuzzerCorpus::new(corpus.clone(), objectives.len());
+
+    let fuzzers = args.threads;
+    let timeout = args.timeout_secs.map(std::time::Duration::from_secs);
+    let fuzzers_u64 = fuzzers as u64;
+    let base_runs = args.max_runs / fuzzers_u64;
+    let remainder = (args.max_runs % fuzzers_u64) as usize;
+
+    let initial_config = MaxFuzzerConfig::new()
+        .chain(chain.clone())
+        .target_address(deployed_address)
+        .shared_corpus(fuzzer_corpus.clone())
+        .shared_coverage(shared_coverage.clone())
+        .shared_metrics(shared_metrics.clone())
+        .shutdown_signal(shutdown_signal.clone())
+        .caller(args.deployer_address)
+        .objectives(objectives.clone())
+        .gas_limit(args.gas_limit)
+        .timeout(timeout);
+
+    let mut handles = Vec::with_capacity(fuzzers);
+    for fuzzer_id in 0..fuzzers {
+        let local_max_runs = if fuzzer_id < remainder {
+            base_runs + 1
+        } else {
+            base_runs
+        };
+        let seed = campaign_seed.wrapping_add(fuzzer_id as u64);
+        // checkrs: allow(clone_in_loops)
+        let mut config = initial_config.clone();
+        config.max_runs = local_max_runs;
+        config.seed = seed;
+
+        let fuzzer = MaxFuzzer::new(config);
+        let handle = std::thread::spawn(move || fuzzer.run());
+        handles.push((fuzzer_id, handle));
+    }
+
+    console.print(format!(
+        "max fuzzing {contract_name} with {fuzzers} threads"
+    ))?;
+
+    let stats_ctx = formatter::CampaignStats::new(
+        &shared_coverage,
+        &corpus,
+        &harness_contract.handler_functions,
+        &[],
+        &harness_contract.max_functions,
+    );
+
+    while handles.iter().any(|(_, h)| !h.is_finished()) {
+        if let Some(snapshot) = shared_metrics.try_snapshot() {
+            console.print_progress(stats_ctx.progress(&snapshot))?;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    for (fuzzer_id, handle) in handles {
+        match handle.join() {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => {
+                tracing::error!(fuzzer_id, %e, "max fuzzer failed");
+            }
+            Err(e) => {
+                tracing::error!(fuzzer_id, ?e, "max fuzzer panicked");
+            }
+        }
+    }
+
+    console.print_success(format!("fuzzed {contract_name} with {fuzzers} threads"))?;
+    let function_metrics = shared_metrics.function_metrics();
+    let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
+    console.print_line(stats)?;
+    console.new_line()?;
+
+    let best_items = fuzzer_corpus.best_items();
+    let shrink_config = CorpusConfig::new(PathBuf::new())
+        .handler_functions(harness_contract.handler_functions.clone())
+        .max_calls(args.max_calls)
+        .literals(literals.clone());
+    let shrink_threads = args.shrink_threads.unwrap_or(args.threads);
+    let shrink_timeout = args.shrink_timeout_secs.map(std::time::Duration::from_secs);
+
+    let mut results = Vec::new();
+    for (index, best) in best_items.into_iter().enumerate() {
+        let Some(best) = best else {
+            continue;
+        };
+        // checkrs: allow(clone_in_loops)
+        let objective = objectives[index].clone();
+        // checkrs: allow(clone_in_loops)
+        let shrink_config = shrink_config.clone();
+        // checkrs: allow(clone_in_loops)
+        let corpus = corpus.clone();
+        let shrink_corpus = MaxShrinkerCorpus::new(best.item, best.value, shrink_config, corpus);
+
+        let runs_per_result = args.shrink_runs.max(1);
+        let shrinkers_u64 = shrink_threads as u64;
+        let base_shrink_runs = (runs_per_result / shrinkers_u64).max(1);
+        let shrink_remainder = (runs_per_result % shrinkers_u64) as usize;
+        let shrinker_shutdown = Arc::new(AtomicBool::new(false));
+        // checkrs: allow(clone_in_loops)
+        let shrinker_metrics = SharedMetrics::new(all_function_signatures.clone());
+
+        let mut shrinker_handles = Vec::with_capacity(shrink_threads);
+        for shrinker_id in 0..shrink_threads {
+            let local_max_runs = if shrinker_id < shrink_remainder {
+                base_shrink_runs + 1
+            } else {
+                base_shrink_runs
+            };
+            let seed = campaign_seed
+                .wrapping_add(shrinker_id as u64)
+                .wrapping_add(2000 + index as u64 * 1000);
+            // checkrs: allow(clone_in_loops)
+            let shrinker_chain = chain.clone();
+            // checkrs: allow(clone_in_loops)
+            let shrinker_corpus = shrink_corpus.clone();
+            // checkrs: allow(clone_in_loops)
+            let shrinker_shutdown = shrinker_shutdown.clone();
+            // checkrs: allow(clone_in_loops)
+            let shrinker_objective = objective.clone();
+            let shrinker_config = MaxShrinkerConfig::new()
+                .chain(shrinker_chain)
+                .target_address(deployed_address)
+                .shared_corpus(shrinker_corpus)
+                .shutdown_signal(shrinker_shutdown)
+                .objective(shrinker_objective)
+                .max_runs(local_max_runs)
+                .timeout(shrink_timeout)
+                .seed(seed)
+                // checkrs: allow(clone_in_loops)
+                .shared_metrics(shrinker_metrics.clone())
+                .gas_limit(args.gas_limit)
+                .caller(args.deployer_address);
+            let shrinker = MaxShrinker::new(shrinker_config);
+            let handle = std::thread::spawn(move || shrinker.run());
+            shrinker_handles.push(handle);
+        }
+
+        let initial_calls = shrink_corpus.item().item.calls.len();
+        console.print(format!(
+            "shrinking max {} from {} calls with {} threads",
+            objective.function.name,
+            formatter::num(initial_calls as u64),
+            formatter::num(shrink_threads as u64)
+        ))?;
+        while shrinker_handles.iter().any(|h| !h.is_finished()) {
+            if let Some(snapshot) = shrinker_metrics.try_snapshot() {
+                let current_calls = shrink_corpus.item().item.calls.len();
+                console.print_progress(formatter::shrinker_progress(
+                    &snapshot,
+                    initial_calls,
+                    current_calls,
+                ))?;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        for handle in shrinker_handles {
+            match handle.join() {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    tracing::error!(%e, "max shrinker failed");
+                }
+                Err(e) => {
+                    tracing::error!(?e, "max shrinker panicked");
+                }
+            }
+        }
+
+        let shrunk = shrink_corpus.item();
+        let shrunk_calls = shrunk.item.calls.len();
+        console.print_success(format!(
+            "shrank max {} from {} to {} calls with {} threads",
+            objective.function.name,
+            formatter::num(initial_calls as u64),
+            formatter::num(shrunk_calls as u64),
+            formatter::num(shrink_threads as u64)
+        ))?;
+        console.new_line()?;
+        results.push(MaxResult {
+            objective,
+            value: shrunk.value,
+            item: shrunk.item,
+        });
+    }
+
+    if results.is_empty() {
+        console.print_fail("no max value improved above 0")?;
+    } else {
+        for result in &results {
+            console.print_line(format!(
+                "    max {} = {}",
+                result.objective.function.name, result.value
+            ))?;
+            console.print_line(result.format_call_sequence())?;
+            console.new_line()?;
+        }
+    }
+
+    // Re-run each shrunk item with the chain tracer enabled.
+    for (index, result) in results.iter().enumerate() {
+        // checkrs: allow(clone_in_loops)
+        let mut trace_chain = chain.clone();
+        trace_chain.set_trace(true);
+
+        let mut transactions: Vec<Transaction> = result
+            .item
+            .calls
+            .iter()
+            .map(|call| call.into_transaction(deployed_address))
+            .collect();
+        transactions.push(result.objective.transaction(
+            deployed_address,
+            args.deployer_address,
+            args.gas_limit,
+        ));
+
+        let exec = trace_chain.exec(&transactions)?;
+
+        if let Some(trace) = exec.trace {
+            console.begin(format!("writing max trace {} ...", index + 1))?;
+            let trace_file = write_trace_to_file(
+                &trace,
+                project,
+                campaign_id,
+                deployed_address,
+                contract_name,
+                chain,
+                &format!("trace-max-{}.log", index + 1),
+            )?;
+            console.update(format!("max trace {}: {}", index + 1, trace_file.display()))?;
+            console.end()?;
+        }
+    }
+
+    let mut artifacts: Vec<Artifact> = build_artifacts.values().cloned().collect();
+    artifacts.extend(external_artifacts.iter().cloned());
+    let n = artifacts.len();
+    console.begin(format!(
+        "generating coverage reports for {n} build artifacts ..."
+    ))?;
+    match write_coverage_report(
+        project,
+        campaign_id,
+        &shared_coverage,
+        harness_contract,
+        artifacts,
+    ) {
+        Ok(files) => {
+            console.update(format!(
+                "generated coverage reports for {n} build artifacts"
+            ))?;
+            console.end()?;
+            for (file, pct) in files {
+                console.print_line(format!("    [{pct:.2}%] {}", file.display()))?;
+            }
+        }
+        Err(e) => {
+            console.end_fail("failed to generate coverage reports")?;
+            tracing::error!(%e, "failed to generate coverage reports");
+        }
+    }
+
+    console.print("ripfuzz out. see ya")?;
+    Ok(())
+}
+
 fn write_coverage_report(
     project: &Project,
     campaign_id: &str,
@@ -1053,6 +1424,7 @@ mod tests {
             ffi: false,
             force: false,
             fail_on_revert: false,
+            max_mode: false,
             external_projects: Vec::new(),
             shrink_runs: 1,
             shrink_timeout_secs: None,
@@ -1116,6 +1488,77 @@ mod tests {
         assert_eq!(
             count_after_first, count_after_second,
             "corpus should not grow after bug is already found"
+        );
+    }
+
+    /// Max mode must find a positive max value and persist the improving
+    /// sequence to the corpus.
+    #[test]
+    fn max_mode_finds_positive_value() {
+        let tmp = tempfile::tempdir().unwrap();
+        let corpus_dir = tmp.path().join("corpus");
+
+        let mut args = make_args(corpus_dir.clone());
+        args.harness = "src/MaxBasic.sol:MaxBasic".to_owned();
+        args.project_path = Some(PathBuf::from("fixtures/max-mode"));
+        args.max_mode = true;
+        args.max_runs = 1000;
+        args.max_calls = 4;
+        args.shrink_runs = 500;
+
+        run(args).expect("max mode run should succeed");
+        assert!(
+            count_corpus_files(&corpus_dir) > 0,
+            "max mode should persist improving sequences to the corpus"
+        );
+    }
+
+    /// Max mode must ignore invariant functions entirely.
+    #[test]
+    fn max_mode_ignores_invariants() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut args = make_args(tmp.path().join("corpus"));
+        args.harness = "src/MaxMixed.sol:MaxMixed".to_owned();
+        args.project_path = Some(PathBuf::from("fixtures/max-mode"));
+        args.max_mode = true;
+        args.max_runs = 200;
+        args.max_calls = 4;
+        args.shrink_runs = 100;
+
+        run(args).expect("max mode must succeed even when invariants would fail");
+    }
+
+    /// Invariant mode must ignore max functions and still report assertion
+    /// failures from the same harness.
+    #[test]
+    fn invariant_mode_reports_mixed_harness_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut args = make_args(tmp.path().join("corpus"));
+        args.harness = "src/MaxMixed.sol:MaxMixed".to_owned();
+        args.project_path = Some(PathBuf::from("fixtures/max-mode"));
+        args.max_mode = false;
+        args.max_runs = 200;
+        args.max_calls = 4;
+        args.shrink_runs = 100;
+
+        run(args).expect("invariant mode run should succeed");
+    }
+
+    /// Max mode without any `max_*` function must fail with a clear error.
+    #[test]
+    fn max_mode_requires_max_functions() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut args = make_args(tmp.path().join("corpus"));
+        args.max_mode = true;
+        args.max_runs = 100;
+
+        let err = run(args).expect_err("max mode without max functions must fail");
+        assert!(
+            err.to_string().contains("at least one `max_*` function"),
+            "unexpected error: {err}"
         );
     }
 }

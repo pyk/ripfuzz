@@ -44,6 +44,8 @@ shrunk and reported separately.
 - **Invariant testing**: automatically validate your invariants at both the
   function level and the protocol level, with every generated call sequence
   checked and any violation reported as a bug.
+- **Max mode**: maximize `max_*` harness functions and shrink the best sequence, when the
+  impact matters more than an invariant violation.
 - **Multi-chain fork mode**: fuzz against live on-chain state with per-fork
   isolation and harness storage shared across chains for cross-chain
   invariants.
@@ -96,6 +98,13 @@ function) and invariants (functions prefixed with `invariant_`), then run:
 
 ```bash
 ripfuzz run SomeHarness
+```
+
+To maximize a value instead of checking invariants, declare a read-only
+`max_*` function returning `uint256` and run with `--max-mode`:
+
+```bash
+ripfuzz run --max-mode SomeHarness
 ```
 
 For cheatcodes, fork mode, and a full harness reference, see

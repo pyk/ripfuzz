@@ -30,6 +30,28 @@ executes it in the same EVM loop. If an invariant reverts with a Solidity
 `assert` failure (`Panic(0x01)`), the fuzzer records a failed assertion. The
 return value, if any, is ignored. Synonyms: **invariant**, **property test**.
 
+### Max Function
+
+A Solidity function whose `uint256` return value ripfuzz maximizes in **max
+mode**. It must:
+
+- start with the prefix `max_`
+- take no arguments
+- return a single `uint256`
+- be `pure` or `view`
+
+Ripfuzz calls every max function after each handler call in the sequence and
+keeps the highest value plus the shortest prefix that produced it. Reverted or
+empty results score `0`. A value above `0` is the finding. Synonyms:
+**objective**, **optimization test** (Medusa).
+
+### Max Mode
+
+The `--max-mode` campaign mode. Max mode and **invariant mode** are mutually
+exclusive: ripfuzz maximizes `max_*` functions and never runs `invariant_*`
+functions (and vice versa). Best sequences are shrunk while preserving their
+value, reported with the maximum value, and written to the corpus for reuse.
+
 ### Function-Level Invariant
 
 A property that arises from the execution of a **specific function**. It
@@ -49,9 +71,10 @@ exceed `MAX_DEPOSIT_AMOUNT`.
 ### Handler Function
 
 Any external or public function in the harness contract that is *not* a setup
-or invariant function. Ripfuzz calls these with randomly-generated arguments to
-mutate contract state. A single fuzz input is a **sequence of function calls**.
-Synonyms: **function call**, **target function** (Foundry, Echidna).
+or invariant or max function. Ripfuzz calls these with randomly-generated
+arguments to mutate contract state. A single fuzz input is a **sequence of
+function calls**. Synonyms: **function call**, **target function** (Foundry,
+Echidna).
 
 ### Setup Function
 
@@ -74,6 +97,13 @@ A single parallel fuzzing instance that executes function call sequences
 against a cloned contract state and reports new coverage or failed assertions
 to the campaign manager. By default ripfuzz spawns one fuzzer per available CPU
 core.
+
+### Max Fuzzer
+
+A single parallel fuzzing instance in **max mode**. It executes handler calls
+followed by every `max_*` function call, merges coverage, and records the
+highest value plus the shortest handler prefix that produced it for each max
+function.
 
 ### Campaign Result
 
@@ -99,6 +129,13 @@ copies of the current smallest failing sequence, executes each on a fresh chain
 clone, and replaces the shared item if the mutated sequence is still failing
 and strictly smaller. The goal is to produce a minimal reproduction that
 triggers the same assertion panic with the fewest possible calls.
+
+### Max Shrinker
+
+A per-thread worker that minimizes the best sequence of a **max function**. It
+draws mutated copies of the current best sequence, executes each followed by
+the max function call, and accepts the candidate when it preserves or improves
+the stored value and shrinks the sequence.
 
 ## Coverage Terms
 

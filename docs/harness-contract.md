@@ -5,13 +5,18 @@ This document is the reference for writing a Solidity contract that
 
 ## Overview
 
-A ripfuzz harness contract is a normal Solidity contract with **three kinds of
+A ripfuzz harness contract is a normal Solidity contract with **four kinds of
 functions**:
 
 1. **Setup Functions**: initialize state before fuzzing begins
 2. **Handler Functions**: function calls the fuzzer can make to mutate state
 3. **Invariant Functions**: invariants the fuzzer checks after every call
    sequence
+4. **Max Functions**: read-only values the fuzzer maximizes in `--max-mode`
+
+Invariant mode and max mode are mutually exclusive. In invariant mode, `max_*`
+functions are ignored as handlers; in max mode, `invariant_*` functions are
+never run.
 
 ## Using ripfuzz-std
 
@@ -329,11 +334,54 @@ contract VaultHarness {
         totalDeposits -= amount;
     }
 
-    function invariant_TotalWithinLimit() external {
+function invariant_TotalWithinLimit() external {
         assert(totalDeposits <= MAX_DEPOSIT);
     }
 }
 ```
+
+## Max Functions
+
+Max functions turn a harness value into a maximization objective. They must:
+
+- start with the prefix `max_`
+- take no arguments
+- return a single `uint256`
+- be `pure` or `view`
+
+Run the campaign with `--max-mode` to maximize them:
+
+```solidity
+contract ProfitHarness {
+    uint256 public assets;
+    uint256 public debt;
+
+    function setAssets(uint256 amount) external {
+        assets = amount;
+    }
+
+    function setDebt(uint256 amount) external {
+        debt = amount;
+    }
+
+    function max_profit() external view returns (uint256) {
+        return assets > debt ? assets - debt : 0;
+    }
+}
+```
+
+```bash
+ripfuzz run --max-mode ProfitHarness
+```
+
+Ripfuzz calls every max function after each handler call and keeps the highest
+value plus the shortest handler prefix that produced it. After the campaign it
+shrinks each best sequence while preserving its value, reports the maximum
+value with the call sequence, and writes the result to the corpus.
+
+Max functions never fail. A value above `0` is the finding: the harness ended
+in a state where the maximized quantity is positive (for example attacker
+profit after repaying a flash loan).
 
 ## Fuzzing Lifecycle
 

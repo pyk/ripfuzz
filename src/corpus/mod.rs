@@ -15,6 +15,7 @@ pub use config::CorpusConfig;
 pub use extractor::ExtractedLiterals;
 pub use failed_item::SharedFailedCorpusItem;
 pub use item::Item;
+pub use random::{RandomDynSolValue, random_uint};
 
 pub use replayer::CorpusReplayer;
 pub use shared::{CorpusStats, SharedCorpus, Stats};

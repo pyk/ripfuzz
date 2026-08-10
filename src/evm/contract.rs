@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use alloy_dyn_abi::{DynSolType, Specifier};
 use alloy_json_abi::{Function, JsonAbi, StateMutability};
 use anyhow::{Context, Result, bail, ensure};
 
@@ -24,6 +25,8 @@ pub struct Contract {
     pub handler_functions: Vec<Function>,
     /// Invariant functions checked after every call sequence.
     pub invariant_functions: Vec<Function>,
+    /// Max functions whose return values are maximized in `--max-mode`.
+    pub max_functions: Vec<Function>,
     /// Optional setup function called once after deployment.
     pub setup_function: Option<Function>,
     /// Hex-encoded initcode used to deploy the contract.
@@ -52,6 +55,7 @@ impl Contract {
 
         let mut handler_functions = Vec::new();
         let mut invariant_functions = Vec::new();
+        let mut max_functions = Vec::new();
         let mut setup_function = None;
 
         for func in all_functions {
@@ -68,6 +72,31 @@ impl Contract {
                     func.inputs.len()
                 );
                 invariant_functions.push(func);
+                continue;
+            }
+
+            if func.name.starts_with("max_") {
+                ensure!(
+                    func.inputs.is_empty(),
+                    "max function `{}` must have no arguments, but has {}",
+                    func.name,
+                    func.inputs.len()
+                );
+                ensure!(
+                    func.outputs.len() == 1
+                        && func.outputs[0].resolve().ok() == Some(DynSolType::Uint(256)),
+                    "max function `{}` must return a single uint256 value",
+                    func.name
+                );
+                ensure!(
+                    matches!(
+                        func.state_mutability,
+                        StateMutability::View | StateMutability::Pure
+                    ),
+                    "max function `{}` must be view or pure",
+                    func.name
+                );
+                max_functions.push(func);
                 continue;
             }
 
@@ -105,6 +134,7 @@ impl Contract {
             abi: contract.abi.clone(),
             handler_functions,
             invariant_functions,
+            max_functions,
             setup_function,
             initcode,
             libraries,
@@ -206,6 +236,13 @@ mod tests {
 
     fn load_fixture(contract_id: &str) -> Result<Contract> {
         let project = Project::new("fixtures/harness-contract-validation");
+        let artifacts = project.load_artifacts()?;
+        let id = ArtifactId::try_from(contract_id)?;
+        Contract::try_get(&artifacts, &id)
+    }
+
+    fn load_max_fixture(contract_id: &str) -> Result<Contract> {
+        let project = Project::new("fixtures/max-mode");
         let artifacts = project.load_artifacts()?;
         let id = ArtifactId::try_from(contract_id)?;
         Contract::try_get(&artifacts, &id)
@@ -369,6 +406,74 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("harness contract must not have duplicate function names")
+        );
+    }
+
+    // 12. Max functions are extracted and excluded from handlers
+
+    #[test]
+    fn max_functions_are_extracted() {
+        let contract = load_max_fixture("src/MaxBasic.sol:MaxBasic").unwrap();
+        assert_eq!(contract.max_functions.len(), 1);
+        assert!(contract.max_functions.iter().any(|f| f.name == "max_value"));
+        assert!(
+            !contract
+                .handler_functions
+                .iter()
+                .any(|f| f.name == "max_value"),
+            "max functions must not be treated as handlers"
+        );
+    }
+
+    #[test]
+    fn multiple_max_functions_are_extracted() {
+        let contract = load_max_fixture("src/MaxMultiple.sol:MaxMultiple").unwrap();
+        assert_eq!(contract.max_functions.len(), 2);
+        assert!(contract.max_functions.iter().any(|f| f.name == "max_a"));
+        assert!(contract.max_functions.iter().any(|f| f.name == "max_b"));
+    }
+
+    #[test]
+    fn invariant_and_max_functions_stay_separate() {
+        let contract = load_max_fixture("src/MaxMixed.sol:MaxMixed").unwrap();
+        assert_eq!(contract.invariant_functions.len(), 1);
+        assert_eq!(contract.max_functions.len(), 1);
+        assert!(
+            contract
+                .invariant_functions
+                .iter()
+                .any(|f| f.name == "invariant_value_is_zero")
+        );
+        assert!(contract.max_functions.iter().any(|f| f.name == "max_value"));
+    }
+
+    // 13. Max function signature validation
+
+    #[test]
+    fn max_with_args_fails() {
+        let err = load_max_fixture("src/InvalidMaxWithArgs.sol:InvalidMaxWithArgs").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("max function `max_value` must have no arguments")
+        );
+    }
+
+    #[test]
+    fn max_wrong_return_fails() {
+        let err =
+            load_max_fixture("src/InvalidMaxWrongReturn.sol:InvalidMaxWrongReturn").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("max function `max_value` must return a single uint256 value")
+        );
+    }
+
+    #[test]
+    fn max_non_view_fails() {
+        let err = load_max_fixture("src/InvalidMaxNonView.sol:InvalidMaxNonView").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("max function `max_value` must be view or pure")
         );
     }
 }
