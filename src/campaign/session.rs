@@ -10,7 +10,7 @@ use anyhow::{Context, Result, ensure};
 use revm::primitives::Bytes;
 use tracing::{debug, error, info, warn};
 
-use crate::campaign::{CampaignKind, phase};
+use crate::campaign::CampaignKind;
 use crate::commands::run::Args;
 use crate::corpus::{CorpusConfig, CorpusReplayer, ExtractedLiterals, SharedCorpus};
 use crate::evm::{
@@ -149,14 +149,16 @@ impl CampaignSession {
         }
 
         // Build project
+        info!("[*] building foundry project ...");
         let project = Project::new(&project_path);
         let build_opts = BuildOptions::new().force(args.force);
-        phase("building foundry project", || project.build(build_opts))?;
+        project.build(build_opts)?;
 
         // Load build artifacts
-        let build_artifacts = phase("loading build artifacts", || project.load_artifacts())?;
+        info!("[*] loading build artifacts ...");
+        let build_artifacts = project.load_artifacts()?;
         info!(
-            "loaded {} build artifacts",
+            "[+] loaded {} build artifacts",
             formatter::num(build_artifacts.len() as u64)
         );
 
@@ -186,15 +188,10 @@ impl CampaignSession {
         }
 
         // Resolve the harness (bare name or full artifact id) then load it.
-        let harness_id = phase(
-            &format!("loading harness contract {}", args.harness),
-            || ArtifactId::resolve(&args.harness, &build_artifacts),
-        )?;
-        let harness_contract = phase(
-            &format!("loading harness contract {}", harness_id.name),
-            || Contract::try_get(&build_artifacts, &harness_id),
-        )?;
-        info!("loaded {} as harness contract", harness_id.name);
+        info!("[*] loading harness contract {} ...", args.harness);
+        let harness_id = ArtifactId::resolve(&args.harness, &build_artifacts)?;
+        let harness_contract = Contract::try_get(&build_artifacts, &harness_id)?;
+        info!("[+] loaded {} as harness contract", harness_id.name);
 
         // Max mode is entered automatically whenever the harness declares at
         // least one `max_*` function. Invariant mode is the default otherwise.

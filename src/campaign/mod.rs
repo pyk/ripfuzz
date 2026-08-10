@@ -1,17 +1,15 @@
 //! Campaign orchestration for invariant testing and maximization runs.
 
 use std::thread::JoinHandle;
-use std::time::Instant;
 
 use anyhow::Result;
-use tracing::{error, info, instrument};
+use tracing::instrument;
 
 pub use crate::campaign::invariant::InvariantCampaign;
 pub use crate::campaign::max::MaxCampaign;
 pub use crate::campaign::session::CampaignSession;
 
 use crate::commands::run::Args;
-use crate::formatter;
 
 mod invariant;
 mod max;
@@ -35,21 +33,6 @@ pub fn run(args: Args) -> Result<()> {
         CampaignKind::Invariant => InvariantCampaign::new(session)?.run(),
         CampaignKind::Max => MaxCampaign::new(session)?.run(),
     }
-}
-
-/// Log the start and finish of a campaign phase.
-pub fn phase<T>(name: &str, f: impl FnOnce() -> Result<T>) -> Result<T> {
-    info!("[*] {name} ...");
-    let started = Instant::now();
-    let result = f();
-    match &result {
-        Ok(_) => info!(
-            "[+] {name} in {}",
-            formatter::duration(started.elapsed().as_secs_f64())
-        ),
-        Err(error) => error!("[!] {name} failed: {error:#}"),
-    }
-    result
 }
 
 /// Split `total` runs evenly across `workers`, one item per worker.
