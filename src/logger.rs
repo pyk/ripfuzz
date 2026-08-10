@@ -1,10 +1,10 @@
 //! Logging setup for the Ripfuzz CLI.
 //!
-//! Provides a [`tracing`] subscriber that writes default formatted output
-//! to a log file.
+//! Installs a compact stderr layer and, unless disabled, a file layer.
 
 use std::fs;
 use std::fs::File;
+use std::io::IsTerminal;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -16,8 +16,13 @@ use tracing_subscriber::prelude::*;
 
 /// Initialize the global tracing subscriber.
 ///
-/// Writes formatted events to `log_file` at the given verbosity `level`.
-pub fn init(log_file: &Path, level: tracing::Level) -> Result<()> {
+/// Terminal output is written to stderr as message-only lines. When
+/// `disable_log` is false, a formatted log file is also written at `log_file`.
+pub fn init(disable_log: bool, log_file: &Path, level: tracing::Level) -> Result<()> {
+    if disable_log {
+        return Ok(());
+    }
+
     if let Some(parent) = log_file.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -32,13 +37,21 @@ pub fn init(log_file: &Path, level: tracing::Level) -> Result<()> {
         tracing::Level::TRACE => EnvFilter::new("trace"),
     };
 
-    let layer = fmt::layer()
+    let stderr_layer = fmt::layer()
+        .with_ansi(std::io::stderr().is_terminal())
+        .with_target(false)
+        .without_time()
+        .with_level(false)
+        .with_writer(std::io::stderr);
+
+    let file_layer = fmt::layer()
         .with_ansi(false)
         .with_writer(Mutex::new(file))
         .with_span_events(FmtSpan::CLOSE);
 
     tracing_subscriber::registry()
-        .with(layer.with_filter(filter))
+        .with(stderr_layer.with_filter(filter.clone()))
+        .with(file_layer.with_filter(filter))
         .try_init()?;
 
     Ok(())

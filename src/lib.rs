@@ -26,7 +26,7 @@ pub use shrinker::{Shrinker, ShrinkerConfig, ShrinkerOutput};
 pub mod commands;
 pub mod logger;
 
-mod console;
+mod campaign;
 mod corpus;
 mod evm;
 mod formatter;

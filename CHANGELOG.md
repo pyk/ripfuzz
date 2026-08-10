@@ -21,9 +21,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - Upgraded solc dependency to v0.1.0
 - Fuzzer and shrinker progress now logs one compact line every 3 seconds, with
   the full statistics printed after the phase finishes
+- Terminal status output is now written through `tracing` instead of a separate
+  console layer; `--disable-log` disables all log output (terminal and campaign
+  log file)
 - Campaign mode is now selected automatically: a harness that declares a
   `max_*` function runs in max mode, which supports exactly one max function
-  and rejects `invariant_*` functions; the `--max-mode` flag was removed
+  and rejects `invariant_*` functions.
 
 ### Fixed
 
