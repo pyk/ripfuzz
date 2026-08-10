@@ -631,32 +631,20 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     let contract_name = &harness_contract.artifact_id.name;
-    console.begin(format!(
-        "fuzzing {contract_name} with {fuzzers} threads ..."
-    ))?;
-    console.new_line()?;
+    console.print(format!("fuzzing {contract_name} with {fuzzers} threads"))?;
 
-    // Print initial stats immediately so the user sees the dashboard
-    // right after the title line, then refresh every 100ms.
+    // Print a compact progress line every 3 seconds, then a full stats
+    // summary after all fuzzer threads finish.
     let stats_ctx = formatter::CampaignStats::new(
         &shared_coverage,
         &corpus,
         &harness_contract.handler_functions,
         &harness_contract.invariant_functions,
     );
-    let mut snapshot = shared_metrics.aggregate();
-    let mut function_metrics = shared_metrics.function_metrics();
-    let mut stats = stats_ctx.format(&snapshot, &function_metrics);
-    console.print_clearable(stats)?;
-    let mut last_print = std::time::Instant::now();
 
     while handles.iter().any(|(_, h)| !h.is_finished()) {
-        snapshot = shared_metrics.aggregate();
-        if last_print.elapsed().as_millis() >= 100 {
-            function_metrics = shared_metrics.function_metrics();
-            stats = stats_ctx.format(&snapshot, &function_metrics);
-            console.print_clearable(stats)?;
-            last_print = std::time::Instant::now();
+        if let Some(snapshot) = shared_metrics.try_snapshot() {
+            console.print_progress(stats_ctx.progress(&snapshot))?;
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
@@ -677,8 +665,7 @@ pub fn run(args: Args) -> Result<()> {
     }
 
     if all_failures.is_empty() {
-        console.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
-        console.clear_and_end()?;
+        console.print_success(format!("fuzzed {contract_name} with {fuzzers} threads"))?;
         let function_metrics = shared_metrics.function_metrics();
         let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
         console.print_line(stats)?;
@@ -724,8 +711,7 @@ pub fn run(args: Args) -> Result<()> {
         .context("no failures found")?;
 
     let initial_calls = smallest_failure.item.calls.len();
-    console.set_message(format!("fuzzed {contract_name} with {fuzzers} threads"));
-    console.clear_and_end()?;
+    console.print_success(format!("fuzzed {contract_name} with {fuzzers} threads"))?;
     let function_metrics = shared_metrics.function_metrics();
     let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
     console.print_line(stats)?;
@@ -809,34 +795,20 @@ pub fn run(args: Args) -> Result<()> {
         shrinker_handles.push(handle);
     }
 
-    console.begin(format!(
+    console.print(format!(
         "shrinking {} calls with {} threads",
         formatter::num(initial_calls as u64),
         formatter::num(shrink_threads as u64)
     ))?;
     while shrinker_handles.iter().any(|h| !h.is_finished()) {
-        let snapshot = shrinker_metrics.aggregate();
-        let elapsed_secs = snapshot.elapsed.as_secs_f64();
-        let calls_per_sec = if elapsed_secs > 0.0 {
-            (snapshot.calls as f64 / elapsed_secs) as u64
-        } else {
-            0
-        };
-        let gas_per_sec = if elapsed_secs > 0.0 {
-            (snapshot.gas as f64 / elapsed_secs) as u64
-        } else {
-            0
-        };
-        console.update_with_elapsed(
-            format!(
-                "shrinking: {} threads {} runs {} calls/s {} gas/s",
-                formatter::num(shrink_threads as u64),
-                formatter::num(snapshot.runs),
-                formatter::num(calls_per_sec),
-                formatter::num(gas_per_sec),
-            ),
-            elapsed_secs,
-        )?;
+        if let Some(snapshot) = shrinker_metrics.try_snapshot() {
+            let current_calls = shared_failed_item.item().calls.len();
+            console.print_progress(formatter::shrinker_progress(
+                &snapshot,
+                initial_calls,
+                current_calls,
+            ))?;
+        }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
@@ -856,14 +828,20 @@ pub fn run(args: Args) -> Result<()> {
     let shrunk_item = shared_failed_item.item();
     let shrunk_calls = shrunk_item.calls.len();
     let shrunk_call_word = if shrunk_calls == 1 { "call" } else { "calls" };
-    console.set_message(format!(
+    console.print_success(format!(
         "shrank {} calls to {} {} with {} threads",
         formatter::num(initial_calls as u64),
         formatter::num(shrunk_calls as u64),
         shrunk_call_word,
         formatter::num(shrink_threads as u64)
-    ));
-    console.end()?;
+    ))?;
+    let snapshot = shrinker_metrics.aggregate();
+    console.print_line(formatter::shrinker_summary(
+        &snapshot,
+        initial_calls,
+        shrunk_calls,
+    ))?;
+    console.new_line()?;
 
     // Re-run the shrunk item with the chain tracer enabled.
     let mut trace_chain = chain.clone();

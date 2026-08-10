@@ -25,7 +25,6 @@ pub struct Console<W> {
     is_terminal: bool,
     start: Option<Instant>,
     message: Option<String>,
-    last_lines: usize,
     /// Overrides the real elapsed time in tests.
     elapsed: Option<Duration>,
     /// When true, all output methods are no-ops.
@@ -38,7 +37,6 @@ impl<W> std::fmt::Debug for Console<W> {
             .field("is_terminal", &self.is_terminal)
             .field("start", &self.start)
             .field("message", &self.message)
-            .field("last_lines", &self.last_lines)
             .field("elapsed", &self.elapsed)
             .field("disabled", &self.disabled)
             .finish_non_exhaustive()
@@ -74,7 +72,6 @@ impl<W: Write> Console<W> {
             is_terminal,
             start: None,
             message: None,
-            last_lines: 0,
             elapsed: None,
             disabled: false,
         }
@@ -113,6 +110,20 @@ impl<W: Write> Console<W> {
         writeln!(self.output, "{prefix} {message}")
     }
 
+    /// Print a one-off success line.
+    ///
+    /// The line is prefixed with a dim `[+]` and always terminated with a
+    /// newline.
+    pub fn print_success(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+        let message = message.as_ref();
+        info!("{message}");
+        if self.disabled {
+            return Ok(());
+        }
+        let prefix = self.success_prefix();
+        writeln!(self.output, "{prefix} {message}")
+    }
+
     /// Print a line without any status prefix.
     pub fn print_line(&mut self, message: impl AsRef<str>) -> io::Result<()> {
         if self.disabled {
@@ -121,78 +132,27 @@ impl<W: Write> Console<W> {
         writeln!(self.output, "{message}", message = message.as_ref())
     }
 
-    /// Replace the stored message without writing to the output.
-    pub fn set_message(&mut self, message: impl AsRef<str>) {
-        if self.disabled {
-            return;
-        }
-        self.message = Some(message.as_ref().into());
-    }
-
-    /// Write a newline in terminal mode (no-op otherwise).
+    /// Write a blank line.
     pub fn new_line(&mut self) -> io::Result<()> {
         if self.disabled {
             return Ok(());
         }
-        if self.is_terminal {
-            writeln!(self.output)?;
-        }
-        Ok(())
+        writeln!(self.output)
     }
 
-    /// Print a multi-line message, replacing the previous one in terminal mode.
-    pub fn print_clearable(&mut self, message: impl AsRef<str>) -> io::Result<()> {
+    /// Print a periodic progress line.
+    ///
+    /// The line is prefixed with a dim `[~]` and always terminated with a
+    /// newline. Unlike [`Self::update`], this never replaces a previous line.
+    pub fn print_progress(&mut self, message: impl AsRef<str>) -> io::Result<()> {
         if self.disabled {
             return Ok(());
         }
-        let message = message.as_ref();
-        let prev_lines = self.last_lines;
-        if self.is_terminal && prev_lines > 0 {
-            write!(self.output, "\r\x1b[K")?;
-            for _ in 0..prev_lines - 1 {
-                write!(self.output, "\x1b[A\r\x1b[K")?;
-            }
-            write!(self.output, "\x1b[A")?;
-        }
-        writeln!(self.output, "{message}")?;
-        self.last_lines = message.matches('\n').count() + 1;
-        Ok(())
-    }
-
-    /// End the current status, clearing any multi-line output and replacing the
-    /// title line with the success message.
-    pub fn clear_and_end(&mut self) -> io::Result<()> {
-        if self.disabled {
-            self.message = None;
-            self.start = None;
-            self.elapsed = None;
-            self.last_lines = 0;
-            return Ok(());
-        }
-        let (Some(message), Some(start)) = (self.message.take(), self.start.take()) else {
-            return Ok(());
-        };
-        let elapsed = self.elapsed.take().unwrap_or_else(|| start.elapsed());
-        let seconds = elapsed.as_secs_f64();
-        let clear_lines = self.last_lines;
-        self.last_lines = 0;
-
-        if self.is_terminal {
-            if clear_lines > 0 {
-                write!(self.output, "\r\x1b[K")?;
-                for _ in 0..clear_lines + 1 {
-                    write!(self.output, "\x1b[A\r\x1b[K")?;
-                }
-            } else {
-                write!(self.output, "\x1b[A\r\x1b[K")?;
-            }
-        }
-
-        let prefix = self.success_prefix();
+        let prefix = self.progress_prefix();
         writeln!(
             self.output,
-            "{prefix} {message} in {}",
-            formatter::duration(seconds),
+            "{prefix} {message}",
+            message = message.as_ref()
         )
     }
 
@@ -238,37 +198,6 @@ impl<W: Write> Console<W> {
             write!(self.output, "{REPLACE_LINE}")?;
             let prefix = self.start_prefix();
             write!(self.output, "{prefix} {message}")?;
-        }
-        Ok(())
-    }
-
-    /// Replace the current line with a progress message that includes a dimmed
-    /// elapsed-time suffix.
-    ///
-    /// The elapsed time is rendered as `[{secs:.1}s]` in dim colour. The stored
-    /// message is the base text (without the suffix) so that [`Self::end`] can
-    /// append its own final timestamp without duplication.
-    pub fn update_with_elapsed(
-        &mut self,
-        message: impl AsRef<str>,
-        elapsed_secs: f64,
-    ) -> io::Result<()> {
-        if self.disabled {
-            return Ok(());
-        }
-        let message = message.as_ref();
-        if self.start.is_none() {
-            return Ok(());
-        }
-        self.message = Some(message.into());
-        if self.is_terminal {
-            write!(self.output, "{REPLACE_LINE}")?;
-            let prefix = self.start_prefix();
-            write!(
-                self.output,
-                "{prefix} {message} {DIM}[{}]{RESET}",
-                formatter::duration(elapsed_secs),
-            )?;
         }
         Ok(())
     }
@@ -340,6 +269,14 @@ impl<W: Write> Console<W> {
             format!("{DIM}[+]{RESET}")
         } else {
             "[+]".into()
+        }
+    }
+
+    fn progress_prefix(&self) -> String {
+        if self.is_terminal {
+            format!("{DIM}[~]{RESET}")
+        } else {
+            "[~]".into()
         }
     }
 
@@ -529,5 +466,48 @@ mod tests {
         let mut console = Console::with_writer(&mut buf, false);
         console.end_fail("failed to deploy contract").unwrap();
         assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn console_print_success() {
+        let mut buf = Vec::new();
+        let mut console = Console::with_writer(&mut buf, true);
+        console.print_success("done").unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        let prefix = format!("{DIM}[+]{RESET}");
+        assert_eq!(output, format!("{prefix} done\n"));
+    }
+
+    #[test]
+    fn console_print_progress_terminal() {
+        let mut buf = Vec::new();
+        let mut console = Console::with_writer(&mut buf, true);
+        console.print_progress("fuzzing | 1,234 runs").unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        let prefix = format!("{DIM}[~]{RESET}");
+        assert_eq!(output, format!("{prefix} fuzzing | 1,234 runs\n"));
+    }
+
+    #[test]
+    fn console_print_progress_non_terminal() {
+        let mut buf = Vec::new();
+        let mut console = Console::with_writer(&mut buf, false);
+        console.print_progress("fuzzing | 1,234 runs").unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(output, "[~] fuzzing | 1,234 runs\n");
+    }
+
+    #[test]
+    fn console_new_line_writes_blank_line() {
+        let mut buf = Vec::new();
+        let mut console = Console::with_writer(&mut buf, false);
+        console.print_line("stats").unwrap();
+        console.new_line().unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(output, "stats\n\n");
     }
 }

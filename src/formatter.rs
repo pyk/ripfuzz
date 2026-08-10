@@ -99,6 +99,38 @@ impl<'a> CampaignStats<'a> {
         }
     }
 
+    /// Format a one-line fuzzing progress update.
+    ///
+    /// Keeps the campaign-level numbers that matter while fuzzing: runs,
+    /// calls, elapsed time, throughput, coverage, and corpus size.
+    pub fn progress(&self, snapshot: &Snapshot) -> String {
+        let elapsed_secs = snapshot.elapsed.as_secs_f64();
+        let calls_per_sec = if elapsed_secs > 0.0 {
+            (snapshot.calls as f64 / elapsed_secs) as u64
+        } else {
+            0
+        };
+        let gas_per_sec = if elapsed_secs > 0.0 {
+            (snapshot.gas as f64 / elapsed_secs) as u64
+        } else {
+            0
+        };
+
+        format!(
+            "fuzzing · {} runs · {} calls · {} · {} c/s · {} · cov {}e/{}d/{}r/{}j · {} corpus",
+            num(snapshot.runs),
+            num(snapshot.calls),
+            duration(elapsed_secs),
+            num(calls_per_sec),
+            giga_gas(gas_per_sec) + "/s",
+            num(self.shared_coverage.edge_count() as u64),
+            num(self.shared_coverage.depth_count() as u64),
+            num(self.shared_coverage.revert_count() as u64),
+            num(self.shared_coverage.jump_count() as u64),
+            num(self.corpus.stats().item_count as u64),
+        )
+    }
+
     /// Format the multi-line fuzzing statistics block.
     pub fn format(
         &self,
@@ -193,5 +225,124 @@ impl<'a> CampaignStats<'a> {
         }
 
         output
+    }
+}
+
+/// Format a one-line shrinker progress update.
+///
+/// Keeps the campaign-level numbers plus the current size of the smallest
+/// failing sequence so researchers can see shrinking progress.
+pub fn shrinker_progress(
+    snapshot: &Snapshot,
+    initial_calls: usize,
+    current_calls: usize,
+) -> String {
+    let elapsed_secs = snapshot.elapsed.as_secs_f64();
+    let calls_per_sec = if elapsed_secs > 0.0 {
+        (snapshot.calls as f64 / elapsed_secs) as u64
+    } else {
+        0
+    };
+    let gas_per_sec = if elapsed_secs > 0.0 {
+        (snapshot.gas as f64 / elapsed_secs) as u64
+    } else {
+        0
+    };
+
+    format!(
+        "shrinking · {} runs · {} calls · {} · {} c/s · {} · {} → {} calls",
+        num(snapshot.runs),
+        num(snapshot.calls),
+        duration(elapsed_secs),
+        num(calls_per_sec),
+        giga_gas(gas_per_sec) + "/s",
+        num(initial_calls as u64),
+        num(current_calls as u64),
+    )
+}
+
+/// Format the multi-line shrinker statistics block shown after shrinking.
+pub fn shrinker_summary(snapshot: &Snapshot, initial_calls: usize, current_calls: usize) -> String {
+    let elapsed_secs = snapshot.elapsed.as_secs_f64();
+    let calls_per_sec = if elapsed_secs > 0.0 {
+        (snapshot.calls as f64 / elapsed_secs) as u64
+    } else {
+        0
+    };
+    let gas_per_sec = if elapsed_secs > 0.0 {
+        (snapshot.gas as f64 / elapsed_secs) as u64
+    } else {
+        0
+    };
+
+    format!(
+        "\n    ⊕ shrinker stats\n    total runs   : {}\n    total calls  : {}\n    elapsed time : {}\n\n    ⊕ throughput\n    call/s : {}\n    gas/s  : {}\n\n    ⊕ shrink progress\n    initial calls : {}\n    final calls   : {}",
+        num(snapshot.runs),
+        num(snapshot.calls),
+        duration(elapsed_secs),
+        num(calls_per_sec),
+        giga_gas(gas_per_sec),
+        num(initial_calls as u64),
+        num(current_calls as u64),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::corpus::{CorpusConfig, SharedCorpus};
+    use crate::evm::SharedCoverage;
+
+    fn snapshot() -> Snapshot {
+        Snapshot {
+            elapsed: Duration::from_secs_f64(2.0),
+            runs: 1_234,
+            calls: 56_789,
+            gas: 2_000_000_000,
+        }
+    }
+
+    #[test]
+    fn campaign_progress_preserves_key_stats() {
+        let coverage = SharedCoverage::new();
+        let corpus = SharedCorpus::new(CorpusConfig::new(""));
+        let stats = CampaignStats::new(&coverage, &corpus, &[], &[]);
+
+        let line = stats.progress(&snapshot());
+
+        assert!(line.contains("1,234 runs"), "{line}");
+        assert!(line.contains("56,789 calls"), "{line}");
+        assert!(line.contains("2.00s"), "{line}");
+        assert!(line.contains("28,394 c/s"), "{line}");
+        assert!(line.contains("1.00 G/s"), "{line}");
+        assert!(line.contains("cov 0e/0d/0r/0j"), "{line}");
+        assert!(line.contains("0 corpus"), "{line}");
+    }
+
+    #[test]
+    fn shrinker_progress_shows_current_size() {
+        let line = shrinker_progress(&snapshot(), 36, 3);
+
+        assert!(line.contains("1,234 runs"), "{line}");
+        assert!(line.contains("56,789 calls"), "{line}");
+        assert!(line.contains("2.00s"), "{line}");
+        assert!(line.contains("28,394 c/s"), "{line}");
+        assert!(line.contains("1.00 G/s"), "{line}");
+        assert!(line.contains("36 → 3 calls"), "{line}");
+    }
+
+    #[test]
+    fn shrinker_summary_includes_initial_and_final() {
+        let summary = shrinker_summary(&snapshot(), 36, 3);
+
+        assert!(summary.contains("1,234"), "{summary}");
+        assert!(summary.contains("56,789"), "{summary}");
+        assert!(summary.contains("2.00s"), "{summary}");
+        assert!(summary.contains("28,394"), "{summary}");
+        assert!(summary.contains("1.00 G"), "{summary}");
+        assert!(summary.contains("initial calls : 36"), "{summary}");
+        assert!(summary.contains("final calls   : 3"), "{summary}");
     }
 }

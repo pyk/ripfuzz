@@ -13,6 +13,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 ### Changed
 
 - Upgraded solc dependency to v0.1.0
+- Fuzzer and shrinker progress now logs one compact line every 3 seconds, with
+  the full statistics printed after the phase finishes
 
 ### Fixed
 
