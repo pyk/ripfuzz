@@ -6,7 +6,7 @@ pragma solidity 0.8.28;
 /// This is invalid: `max_value()` puts the harness in max mode automatically,
 /// and max mode rejects `invariant_*` functions.
 contract MaxMixed {
-    uint256 public value;
+    uint256 internal value;
 
     function set(uint256 x) external {
         value = x;

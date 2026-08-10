@@ -7,7 +7,7 @@ pragma solidity 0.8.28;
 /// for `max_value()` is the shortest prefix ending in `set()`, and the shrinker
 /// must remove the trailing `clear()`.
 contract MaxMidSequence {
-    uint256 public value;
+    uint256 internal value;
 
     function set(uint256 x) external {
         value = x;

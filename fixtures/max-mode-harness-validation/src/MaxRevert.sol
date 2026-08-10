@@ -6,7 +6,7 @@ pragma solidity 0.8.28;
 /// Reverted max calls must decode as the minimum score (`0`), so only a
 /// sequence that calls `set()` can improve the maximum.
 contract MaxRevert {
-    uint256 public value;
+    uint256 internal value;
 
     function set(uint256 x) external {
         value = x;

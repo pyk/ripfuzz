@@ -6,8 +6,8 @@ pragma solidity 0.8.28;
 /// This is invalid for ripfuzz: max mode supports exactly one `max_*`
 /// function.
 contract MaxMultiple {
-    uint256 public a;
-    uint256 public b;
+    uint256 internal a;
+    uint256 internal b;
 
     function setA(uint256 x) external {
         a = x;

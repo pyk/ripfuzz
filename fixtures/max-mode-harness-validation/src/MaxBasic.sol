@@ -6,7 +6,7 @@ pragma solidity 0.8.28;
 /// The max objective is `max_value()`: it returns the stored value, so the
 /// fuzzer must call `set()` with a large input to improve the maximum.
 contract MaxBasic {
-    uint256 public value;
+    uint256 internal value;
 
     function set(uint256 x) external {
         value = x;
