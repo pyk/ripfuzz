@@ -21,7 +21,8 @@
 Solidity smart contracts. Point it at a harness contract and it generates
 stateful call sequences, steers toward new EVM coverage, checks your invariants
 after every sequence, and shrinks any `assert` panic it finds into a minimal
-reproduction.
+reproduction. Distinct failed assertions are deduplicated, and each one is
+shrunk and reported separately.
 
 ## Features
 
@@ -34,9 +35,9 @@ reproduction.
   starting from scratch.
 - **Parallel fuzzing**: scale across all available CPU cores by default, with
   every worker sharing a coverage-guided corpus and metrics.
-- **Lightning fast shrinker**: minimize any failed assertion down to the fewest
-  calls that still reproduce it, with shrinking running in parallel across
-  multiple workers.
+- **Lightning fast shrinker**: minimize each distinct failed assertion down to
+  the fewest calls that still reproduce it, with shrinking running in parallel
+  across multiple workers.
 - **Stateful call sequences**: explore sequences of up to 100 handler calls per
   input, reaching violations of protocol invariants that only emerge through
   the interaction of multiple calls rather than single-transaction edge cases.

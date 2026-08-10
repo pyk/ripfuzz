@@ -11,6 +11,7 @@ use alloy_primitives::Address;
 use crate::corpus::{CorpusConfig, SharedCorpus};
 use crate::evm;
 use crate::evm::SharedCoverage;
+use crate::fuzzer::SharedFailedAssertions;
 use crate::fuzzer::metrics::SharedMetrics;
 
 /// Per-fuzzer configuration configured via a fluent builder API.
@@ -22,6 +23,7 @@ pub struct FuzzerConfig {
     pub shared_corpus: SharedCorpus,
     pub shared_coverage: SharedCoverage,
     pub shared_metrics: SharedMetrics,
+    pub shared_failed_assertions: SharedFailedAssertions,
     pub shutdown_signal: Arc<AtomicBool>,
     pub caller: Address,
     pub invariant_functions: Vec<Function>,
@@ -41,6 +43,7 @@ impl FuzzerConfig {
             shared_corpus: SharedCorpus::new(CorpusConfig::new(PathBuf::new())),
             shared_coverage: SharedCoverage::new(),
             shared_metrics: SharedMetrics::new(Vec::new()),
+            shared_failed_assertions: SharedFailedAssertions::new(1),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             caller: evm::DEFAULT_DEPLOYER,
             invariant_functions: Vec::new(),
@@ -84,6 +87,12 @@ impl FuzzerConfig {
     /// Set the shared metrics.
     pub fn shared_metrics(mut self, value: SharedMetrics) -> Self {
         self.shared_metrics = value;
+        self
+    }
+
+    /// Set the shared failed assertion collector.
+    pub fn shared_failed_assertions(mut self, value: SharedFailedAssertions) -> Self {
+        self.shared_failed_assertions = value;
         self
     }
 

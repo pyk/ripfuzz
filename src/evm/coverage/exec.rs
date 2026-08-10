@@ -10,12 +10,18 @@ use crate::evm::coverage::edge::DEPTH_TRACKED_PCS;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExecutionCoverage {
     pub contracts: HashMap<B256, ExecutionContractCoverage>,
+    /// PCs identifying Solidity `assert` panics, in execution order.
+    ///
+    /// The recorded PC is the taken jump that entered the shared panic routine
+    /// when one is available, falling back to the panic PC itself.
+    pub panic_pcs: Vec<(B256, usize)>,
 }
 
 impl ExecutionCoverage {
     pub fn new() -> Self {
         Self {
             contracts: HashMap::new(),
+            panic_pcs: Vec::new(),
         }
     }
 
@@ -23,6 +29,7 @@ impl ExecutionCoverage {
         for coverage in self.contracts.values_mut() {
             coverage.clear();
         }
+        self.panic_pcs.clear();
     }
 }
 

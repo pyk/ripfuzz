@@ -24,7 +24,7 @@ use crate::evm::{
 };
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
-use crate::fuzzer::{Fuzzer, FuzzerConfig, SharedMetrics};
+use crate::fuzzer::{Fuzzer, FuzzerConfig, SharedFailedAssertions, SharedMetrics};
 use crate::logger;
 use crate::shrinker::{Shrinker, ShrinkerConfig};
 
@@ -82,6 +82,17 @@ pub struct Args {
         help_heading = "Campaign Limits"
     )]
     pub max_runs: u64,
+
+    /// Maximum number of distinct failed assertions to collect before stopping
+    /// the fuzzing campaign.
+    #[arg(
+        long = "max-failures",
+        default_value = "1",
+        value_parser = Args::parse_max_failures,
+        value_name = "N",
+        help_heading = "Campaign Limits"
+    )]
+    pub max_failures: usize,
 
     /// Timeout in seconds for the entire fuzzing campaign.
     #[arg(
@@ -202,6 +213,16 @@ impl Args {
             .map_err(|e| format!("invalid thread count: {e}"))?;
         if n == 0 {
             return Err("threads must be at least 1".into());
+        }
+        Ok(n)
+    }
+
+    fn parse_max_failures(s: &str) -> Result<usize, String> {
+        let n = s
+            .parse::<usize>()
+            .map_err(|e| format!("invalid max-failures value: {e}"))?;
+        if n == 0 {
+            return Err("max-failures must be at least 1".into());
         }
         Ok(n)
     }
@@ -588,6 +609,7 @@ pub fn run(args: Args) -> Result<()> {
         .map(|f| f.signature())
         .collect();
     let shared_metrics = SharedMetrics::new(all_function_signatures.clone());
+    let shared_failed_assertions = SharedFailedAssertions::new(args.max_failures);
 
     // Initialize shared shutdown signal across all fuzzer threads.
     let shutdown_signal = Arc::new(AtomicBool::new(false));
@@ -605,6 +627,7 @@ pub fn run(args: Args) -> Result<()> {
         .shared_corpus(corpus.clone())
         .shared_coverage(shared_coverage.clone())
         .shared_metrics(shared_metrics.clone())
+        .shared_failed_assertions(shared_failed_assertions.clone())
         .shutdown_signal(shutdown_signal.clone())
         .invariant_functions(harness_contract.invariant_functions.clone())
         .caller(args.deployer_address)
@@ -649,12 +672,9 @@ pub fn run(args: Args) -> Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
-    let mut all_failures = Vec::new();
     for (fuzzer_id, handle) in handles {
         match handle.join() {
-            Ok(Ok(result)) => {
-                all_failures.extend(result.failures);
-            }
+            Ok(Ok(_)) => {}
             Ok(Err(e)) => {
                 tracing::error!(fuzzer_id, %e, "fuzzer failed");
             }
@@ -664,7 +684,8 @@ pub fn run(args: Args) -> Result<()> {
         }
     }
 
-    if all_failures.is_empty() {
+    let failed_assertions = shared_failed_assertions.items();
+    if failed_assertions.is_empty() {
         console.print_success(format!("fuzzed {contract_name} with {fuzzers} threads"))?;
         let function_metrics = shared_metrics.function_metrics();
         let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
@@ -705,25 +726,9 @@ pub fn run(args: Args) -> Result<()> {
         return Ok(());
     }
 
-    let smallest_failure = all_failures
-        .iter()
-        .min_by_key(|f| f.item.calls.len())
-        .context("no failures found")?;
+    let shrink_threads = args.shrink_threads.unwrap_or(args.threads);
+    let shrink_timeout = args.shrink_timeout_secs.map(std::time::Duration::from_secs);
 
-    let initial_calls = smallest_failure.item.calls.len();
-    console.print_success(format!("fuzzed {contract_name} with {fuzzers} threads"))?;
-    let function_metrics = shared_metrics.function_metrics();
-    let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
-    console.print_line(stats)?;
-    console.new_line()?;
-    console.print_fail(format!(
-        "found failed assertions in {} corpus items",
-        all_failures.len()
-    ))?;
-
-    // Combine the smallest failing item with invariants so the shrinker
-    // operates on a single corpus item and never appends invariants.
-    let mut combined_calls = smallest_failure.item.calls.clone();
     let invariant_calls: Vec<Call> = harness_contract
         .invariant_functions
         .iter()
@@ -735,8 +740,6 @@ pub fn run(args: Args) -> Result<()> {
             caller: args.deployer_address,
         })
         .collect();
-    combined_calls.extend(invariant_calls);
-    let combined_item = Item::from(combined_calls);
 
     // Include both handler and invariant functions so the shrinker can
     // generate replacement calls for any position in the sequence.
@@ -751,131 +754,173 @@ pub fn run(args: Args) -> Result<()> {
         .handler_functions(all_functions)
         .max_calls(args.max_calls)
         .literals(literals);
-    let shared_failed_item = SharedFailedCorpusItem::new(combined_item, failed_corpus_config);
 
-    // Spawn shrinker threads.
-    let shrink_threads = args.shrink_threads.unwrap_or(args.threads);
-    let shrink_timeout = args.shrink_timeout_secs.map(std::time::Duration::from_secs);
-    let shrinker_shutdown = Arc::new(AtomicBool::new(false));
-    let shrinker_metrics = SharedMetrics::new(all_function_signatures);
-
-    let shrinkers_u64 = shrink_threads as u64;
-    let base_shrink_runs = args.shrink_runs / shrinkers_u64;
-    let shrink_remainder = (args.shrink_runs % shrinkers_u64) as usize;
-
-    let mut shrinker_handles = Vec::with_capacity(shrink_threads);
-    for shrinker_id in 0..shrink_threads {
-        let local_max_runs = if shrinker_id < shrink_remainder {
-            base_shrink_runs + 1
-        } else {
-            base_shrink_runs
-        };
-        let seed = campaign_seed
-            .wrapping_add(shrinker_id as u64)
-            .wrapping_add(1000);
-        // checkrs: allow(clone_in_loops)
-        let shrinker_chain = chain.clone();
-        // checkrs: allow(clone_in_loops)
-        let shrinker_shared_item = shared_failed_item.clone();
-        // checkrs: allow(clone_in_loops)
-        let shrinker_shutdown = shrinker_shutdown.clone();
-        let shrinker_config = ShrinkerConfig::new()
-            .chain(shrinker_chain)
-            .target_address(deployed_address)
-            .shared_failed_item(shrinker_shared_item)
-            .shutdown_signal(shrinker_shutdown)
-            .max_runs(local_max_runs)
-            .timeout(shrink_timeout)
-            .seed(seed)
-            // checkrs: allow(clone_in_loops)
-            .shared_metrics(shrinker_metrics.clone())
-            .fail_on_revert(args.fail_on_revert);
-        let shrinker = Shrinker::new(shrinker_config);
-        let handle = std::thread::spawn(move || shrinker.run());
-        shrinker_handles.push(handle);
-    }
-
-    console.print(format!(
-        "shrinking {} calls with {} threads",
-        formatter::num(initial_calls as u64),
-        formatter::num(shrink_threads as u64)
-    ))?;
-    while shrinker_handles.iter().any(|h| !h.is_finished()) {
-        if let Some(snapshot) = shrinker_metrics.try_snapshot() {
-            let current_calls = shared_failed_item.item().calls.len();
-            console.print_progress(formatter::shrinker_progress(
-                &snapshot,
-                initial_calls,
-                current_calls,
-            ))?;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-
-    for handle in shrinker_handles {
-        match handle.join() {
-            Ok(Ok(_)) => {}
-            Ok(Err(e)) => {
-                tracing::error!(%e, "shrinker failed");
-            }
-            Err(e) => {
-                tracing::error!(?e, "shrinker panicked");
-            }
-        }
-    }
-
-    // Retrieve the smallest item found by the shrinkers.
-    let shrunk_item = shared_failed_item.item();
-    let shrunk_calls = shrunk_item.calls.len();
-    let shrunk_call_word = if shrunk_calls == 1 { "call" } else { "calls" };
-    console.print_success(format!(
-        "shrank {} calls to {} {} with {} threads",
-        formatter::num(initial_calls as u64),
-        formatter::num(shrunk_calls as u64),
-        shrunk_call_word,
-        formatter::num(shrink_threads as u64)
-    ))?;
-    let snapshot = shrinker_metrics.aggregate();
-    console.print_line(formatter::shrinker_summary(
-        &snapshot,
-        initial_calls,
-        shrunk_calls,
-    ))?;
+    console.print_success(format!("fuzzed {contract_name} with {fuzzers} threads"))?;
+    let function_metrics = shared_metrics.function_metrics();
+    let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
+    console.print_line(stats)?;
     console.new_line()?;
+    let assertion_word = if failed_assertions.len() == 1 {
+        "assertion"
+    } else {
+        "assertions"
+    };
+    console.print_fail(format!(
+        "found {} distinct failed {assertion_word}",
+        failed_assertions.len()
+    ))?;
 
-    // Re-run the shrunk item with the chain tracer enabled.
-    let mut trace_chain = chain.clone();
-    trace_chain.set_trace(true);
+    let runs_per_assertion = (args.shrink_runs / failed_assertions.len() as u64).max(1);
+    let mut shrunk_assertions = Vec::with_capacity(failed_assertions.len());
 
-    let transactions: Vec<Transaction> = shrunk_item
-        .calls
-        .iter()
-        .map(|call| call.into_transaction(deployed_address))
-        .collect();
+    for (assertion_index, assertion) in failed_assertions.iter().enumerate() {
+        let assertion_number = assertion_index + 1;
+        let initial_calls = assertion.item.calls.len();
 
-    let exec = trace_chain.exec(&transactions)?;
+        // Combine the failing item with invariants so the shrinker operates
+        // on a single corpus item and never appends invariants.
+        // checkrs: allow(clone_in_loops)
+        let mut combined_calls = assertion.item.calls.clone();
+        // checkrs: allow(clone_in_loops)
+        combined_calls.extend(invariant_calls.clone());
+        let combined_item = Item::from(combined_calls);
+        let shared_failed_item =
+            // checkrs: allow(clone_in_loops)
+            SharedFailedCorpusItem::new(combined_item, failed_corpus_config.clone());
 
-    // TODO(pyk): assert that trace should exists; do not use if else
-    if let Some(trace) = exec.trace {
-        console.begin("writing trace file ...")?;
-        let trace_file = match write_trace_to_file(
-            &trace,
-            &project,
-            &project_path,
-            &campaign_id,
-            deployed_address,
-            contract_name,
-            &chain,
-        ) {
-            Ok(f) => f,
-            Err(e) => {
-                console.end_fail("writing trace file failed")?;
-                console.print_line(format!("{e:#}"))?;
-                return Err(e);
+        let shrinker_shutdown = Arc::new(AtomicBool::new(false));
+        // checkrs: allow(clone_in_loops)
+        let shrinker_metrics = SharedMetrics::new(all_function_signatures.clone());
+
+        let shrinkers_u64 = shrink_threads as u64;
+        let base_shrink_runs = runs_per_assertion / shrinkers_u64;
+        let shrink_remainder = (runs_per_assertion % shrinkers_u64) as usize;
+
+        let mut shrinker_handles = Vec::with_capacity(shrink_threads);
+        for shrinker_id in 0..shrink_threads {
+            let local_max_runs = if shrinker_id < shrink_remainder {
+                base_shrink_runs + 1
+            } else {
+                base_shrink_runs
+            };
+            let seed = campaign_seed
+                .wrapping_add(shrinker_id as u64)
+                .wrapping_add(1000 + assertion_index as u64 * 1000);
+            // checkrs: allow(clone_in_loops)
+            let shrinker_chain = chain.clone();
+            // checkrs: allow(clone_in_loops)
+            let shrinker_shared_item = shared_failed_item.clone();
+            // checkrs: allow(clone_in_loops)
+            let shrinker_shutdown = shrinker_shutdown.clone();
+            let shrinker_config = ShrinkerConfig::new()
+                .chain(shrinker_chain)
+                .target_address(deployed_address)
+                .shared_failed_item(shrinker_shared_item)
+                .shutdown_signal(shrinker_shutdown)
+                .max_runs(local_max_runs)
+                .timeout(shrink_timeout)
+                .seed(seed)
+                // checkrs: allow(clone_in_loops)
+                .shared_metrics(shrinker_metrics.clone())
+                .fail_on_revert(args.fail_on_revert);
+            let shrinker = Shrinker::new(shrinker_config);
+            let handle = std::thread::spawn(move || shrinker.run());
+            shrinker_handles.push(handle);
+        }
+
+        console.print(format!(
+            "shrinking assertion {assertion_number}/{} from {} calls with {} threads",
+            failed_assertions.len(),
+            formatter::num(initial_calls as u64),
+            formatter::num(shrink_threads as u64)
+        ))?;
+        while shrinker_handles.iter().any(|h| !h.is_finished()) {
+            if let Some(snapshot) = shrinker_metrics.try_snapshot() {
+                let current_calls = shared_failed_item.item().calls.len();
+                console.print_progress(formatter::shrinker_progress(
+                    &snapshot,
+                    initial_calls,
+                    current_calls,
+                ))?;
             }
-        };
-        console.update(format!("trace: {}", trace_file.display()))?;
-        console.end()?;
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        for handle in shrinker_handles {
+            match handle.join() {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    tracing::error!(%e, "shrinker failed");
+                }
+                Err(e) => {
+                    tracing::error!(?e, "shrinker panicked");
+                }
+            }
+        }
+
+        let shrunk_item = shared_failed_item.item();
+        let shrunk_calls = shrunk_item.calls.len();
+        console.print_success(format!(
+            "shrank assertion {assertion_number}/{} from {} to {} calls with {} threads",
+            failed_assertions.len(),
+            formatter::num(initial_calls as u64),
+            formatter::num(shrunk_calls as u64),
+            formatter::num(shrink_threads as u64)
+        ))?;
+        let snapshot = shrinker_metrics.aggregate();
+        console.print_line(formatter::shrinker_summary(
+            &snapshot,
+            initial_calls,
+            shrunk_calls,
+        ))?;
+        console.new_line()?;
+        shrunk_assertions.push((assertion_number, shrunk_item));
+    }
+
+    // Re-run each shrunk item with the chain tracer enabled.
+    for (assertion_number, shrunk_item) in &shrunk_assertions {
+        // checkrs: allow(clone_in_loops)
+        let mut trace_chain = chain.clone();
+        trace_chain.set_trace(true);
+
+        let transactions: Vec<Transaction> = shrunk_item
+            .calls
+            .iter()
+            .map(|call| call.into_transaction(deployed_address))
+            .collect();
+
+        let exec = trace_chain.exec(&transactions)?;
+
+        // TODO(pyk): assert that trace should exists; do not use if else
+        if let Some(trace) = exec.trace {
+            console.begin(format!("writing trace {assertion_number} ..."))?;
+            let trace_name = if failed_assertions.len() == 1 {
+                "trace.log".to_owned()
+            } else {
+                format!("trace-{assertion_number}.log")
+            };
+            let trace_file = match write_trace_to_file(
+                &trace,
+                &project,
+                &campaign_id,
+                deployed_address,
+                contract_name,
+                &chain,
+                &trace_name,
+            ) {
+                Ok(f) => f,
+                Err(e) => {
+                    console.end_fail("writing trace file failed")?;
+                    console.print_line(format!("{e:#}"))?;
+                    return Err(e);
+                }
+            };
+            console.update(format!(
+                "trace {assertion_number}: {}",
+                trace_file.display()
+            ))?;
+            console.end()?;
+        }
     }
 
     let mut artifacts: Vec<Artifact> = build_artifacts.values().cloned().collect();
@@ -906,6 +951,7 @@ pub fn run(args: Args) -> Result<()> {
         }
     }
 
+    console.print("ripfuzz out. see ya")?;
     Ok(())
 }
 
@@ -945,21 +991,21 @@ fn write_coverage_report(
 fn write_trace_to_file(
     trace: &Trace,
     project: &Project,
-    project_path: impl AsRef<Path>,
     campaign_id: &str,
     deployed_address: Address,
     contract_name: &str,
     chain: &Chain,
+    trace_file_name: &str,
 ) -> Result<PathBuf> {
     let mut ctx = TraceContext::from_project(project)?.with_label(deployed_address, contract_name);
     for (addr, label) in chain.labels() {
         ctx = ctx.with_label(*addr, label);
     }
-    let trace_dir = ripfuzz_dir(&project_path)
+    let trace_dir = ripfuzz_dir(&project.path)
         .join("campaigns")
         .join(campaign_id);
     fs::create_dir_all(&trace_dir)?;
-    let trace_file = trace_dir.join("trace.log");
+    let trace_file = trace_dir.join(trace_file_name);
     let trace_str = trace.display_with(&ctx);
     fs::write(&trace_file, format!("{trace_str}"))?;
     Ok(trace_file)
@@ -996,6 +1042,7 @@ mod tests {
             deployer_address: DEFAULT_DEPLOYER,
             threads: 1,
             max_runs: 10000,
+            max_failures: 1,
             timeout_secs: None,
             gas_limit: 12_500_000,
             max_calls: 32,

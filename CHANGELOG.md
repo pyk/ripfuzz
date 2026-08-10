@@ -10,6 +10,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `--max-failures N` to collect up to N distinct failed assertions before
+  stopping the campaign, with each one shrunk and reported separately
+
 ### Changed
 
 - Upgraded solc dependency to v0.1.0

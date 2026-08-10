@@ -79,7 +79,8 @@ core.
 
 The aggregated output of a fuzzing campaign, including the total number of
 iterations executed across all fuzzers and any failed assertions (assert
-panics) discovered.
+panics) discovered. Distinct failed assertions are deduplicated and each one is
+minimized separately.
 
 ### Failed Assertion
 
@@ -92,11 +93,12 @@ other reasons do not produce a failed assertion. Synonyms: **objective**,
 ### Shrinker
 
 A per-thread worker that minimizes a failing corpus item after a failed
-assertion is discovered. The shrinker draws mutated copies of the current
-smallest failing sequence, executes each on a fresh chain clone, and replaces
-the shared item if the mutated sequence is still failing and strictly smaller.
-The goal is to produce a minimal reproduction that triggers the same assertion
-panic with the fewest possible calls.
+assertion is discovered. When a campaign collects multiple distinct failed
+assertions, the shrinker minimizes each one independently. It draws mutated
+copies of the current smallest failing sequence, executes each on a fresh chain
+clone, and replaces the shared item if the mutated sequence is still failing
+and strictly smaller. The goal is to produce a minimal reproduction that
+triggers the same assertion panic with the fewest possible calls.
 
 ## Coverage Terms
 

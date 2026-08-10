@@ -20,8 +20,8 @@ use alloy_primitives::Address;
 use anyhow::{Context, Result};
 use tracing::{debug, instrument};
 
+pub use crate::fuzzer::assertions::{FailedAssertion, SharedFailedAssertions};
 pub use crate::fuzzer::config::FuzzerConfig;
-pub use crate::fuzzer::failed_assertion::FailedAssertion;
 pub use crate::fuzzer::metrics::{FunctionMetricsSnapshot, SharedMetrics, Snapshot};
 pub use crate::fuzzer::output::FuzzerOutput;
 
@@ -29,8 +29,8 @@ use crate::corpus::{Call, SharedCorpus};
 use crate::evm;
 use crate::evm::SharedCoverage;
 
+mod assertions;
 mod config;
-mod failed_assertion;
 mod metrics;
 mod output;
 
@@ -44,6 +44,7 @@ pub struct Fuzzer {
     shared_corpus: SharedCorpus,
     shared_coverage: SharedCoverage,
     shared_metrics: SharedMetrics,
+    shared_failed_assertions: SharedFailedAssertions,
     shutdown_signal: Arc<AtomicBool>,
     caller: Address,
     invariant_functions: Vec<Function>,
@@ -63,6 +64,7 @@ impl Fuzzer {
             shared_corpus: config.shared_corpus,
             shared_coverage: config.shared_coverage,
             shared_metrics: config.shared_metrics,
+            shared_failed_assertions: config.shared_failed_assertions,
             shutdown_signal: config.shutdown_signal,
             caller: config.caller,
             invariant_functions: config.invariant_functions,
@@ -137,6 +139,7 @@ impl Fuzzer {
 
             // Update shared coverage and shared corpus
             let coverage = exec.coverage.take().context("coverage expected")?;
+            let failure_pc = coverage.panic_pcs.first().copied();
             let coverage_update = self.shared_coverage.merge(&coverage);
             let interesting = coverage_update.is_interesting();
             debug!(
@@ -151,6 +154,17 @@ impl Fuzzer {
                 "coverage merge"
             );
             let has_failure = exec.has_failure(self.fail_on_revert);
+            let failure_index = if has_failure {
+                exec.results.iter().position(|r| {
+                    if self.fail_on_revert {
+                        !r.success
+                    } else {
+                        r.is_assert_failure()
+                    }
+                })
+            } else {
+                None
+            };
 
             let gas_sum = exec.results.iter().map(|r| r.gas_used).sum::<u64>();
 
@@ -181,8 +195,19 @@ impl Fuzzer {
                         // checkrs: allow(clone_in_loops)
                         .add_item(item.clone())
                         .context("failed to add corpus item")?;
-                    self.shutdown_signal.store(true, Ordering::Relaxed);
-                    local_failures.push(FailedAssertion { transactions, item });
+                    let failure = FailedAssertion {
+                        transactions,
+                        item,
+                        failure_index,
+                        failure_pc,
+                    };
+                    // checkrs: allow(clone_in_loops)
+                    if self.shared_failed_assertions.try_add(failure.clone()) {
+                        local_failures.push(failure);
+                    }
+                    if self.shared_failed_assertions.is_full() {
+                        self.shutdown_signal.store(true, Ordering::Relaxed);
+                    }
                 }
                 (true, false) => {
                     self.shared_corpus
@@ -190,8 +215,19 @@ impl Fuzzer {
                         .context("failed to add corpus item")?;
                 }
                 (false, true) => {
-                    self.shutdown_signal.store(true, Ordering::Relaxed);
-                    local_failures.push(FailedAssertion { transactions, item });
+                    let failure = FailedAssertion {
+                        transactions,
+                        item,
+                        failure_index,
+                        failure_pc,
+                    };
+                    // checkrs: allow(clone_in_loops)
+                    if self.shared_failed_assertions.try_add(failure.clone()) {
+                        local_failures.push(failure);
+                    }
+                    if self.shared_failed_assertions.is_full() {
+                        self.shutdown_signal.store(true, Ordering::Relaxed);
+                    }
                 }
                 (false, false) => {}
             }
@@ -232,6 +268,8 @@ mod tests {
         let failure = FailedAssertion {
             transactions,
             item: Item::from(vec![]),
+            failure_index: None,
+            failure_pc: None,
         };
 
         let output = failure.format(&contract);

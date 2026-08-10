@@ -1,6 +1,11 @@
 //! Result produced by a single fuzzer thread.
+//!
+//! `failures` contains only the distinct failed assertions that this thread
+//! added to the shared
+//! [`SharedFailedAssertions`](crate::fuzzer::SharedFailedAssertions) collector.
+//! Use the shared collector for the campaign-wide view.
 
-use crate::fuzzer::failed_assertion::FailedAssertion;
+use crate::fuzzer::FailedAssertion;
 
 /// Result produced by a single fuzzer thread.
 #[derive(Debug, Clone)]
