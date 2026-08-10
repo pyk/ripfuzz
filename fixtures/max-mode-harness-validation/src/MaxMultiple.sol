@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-/// A harness contract with two independent max objectives.
+/// A harness contract with two `max_*` functions.
 ///
-/// `max_a()` and `max_b()` are tracked separately, so improving one must not
-/// affect the other.
+/// This is invalid for ripfuzz: max mode supports exactly one `max_*`
+/// function.
 contract MaxMultiple {
     uint256 public a;
     uint256 public b;

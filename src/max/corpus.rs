@@ -22,25 +22,25 @@ pub struct MaxBestItem {
 #[derive(Debug)]
 struct MaxFuzzerCorpusInner {
     corpus: SharedCorpus,
-    best: RwLock<Vec<Option<MaxBestItem>>>,
+    best: RwLock<Option<MaxBestItem>>,
 }
 
 /// Thread-safe corpus used by max fuzzer threads.
 ///
 /// Wraps the coverage-guided corpus and tracks the best value and sequence for
-/// every max objective. Cloning is cheap (shares the same inner state).
+/// the max objective. Cloning is cheap (shares the same inner state).
 #[derive(Debug, Clone)]
 pub struct MaxFuzzerCorpus {
     inner: Arc<MaxFuzzerCorpusInner>,
 }
 
 impl MaxFuzzerCorpus {
-    /// Create a fuzzer corpus for `objective_count` max objectives.
-    pub fn new(corpus: SharedCorpus, objective_count: usize) -> Self {
+    /// Create a fuzzer corpus for a single max objective.
+    pub fn new(corpus: SharedCorpus) -> Self {
         Self {
             inner: Arc::new(MaxFuzzerCorpusInner {
                 corpus,
-                best: RwLock::new((0..objective_count).map(|_| None).collect()),
+                best: RwLock::new(None),
             }),
         }
     }
@@ -55,25 +55,19 @@ impl MaxFuzzerCorpus {
         self.inner.corpus.add_item(item)
     }
 
-    /// Record a new best value for `objective_index`.
+    /// Record a new best value.
     ///
     /// Returns `true` when the value improved the stored best. The improving
     /// prefix is added to the shared corpus so later campaigns mutate from it.
-    pub fn record_improvement(
-        &self,
-        objective_index: usize,
-        value: U256,
-        item: Item,
-    ) -> Result<bool> {
+    pub fn record_improvement(&self, value: U256, item: Item) -> Result<bool> {
         let improved = {
             let mut best = self.inner.best.write();
-            let slot = &mut best[objective_index];
-            let improved = match slot {
+            let improved = match best.as_ref() {
                 Some(current) => value > current.value,
                 None => value > U256::ZERO,
             };
             if improved {
-                *slot = Some(MaxBestItem {
+                *best = Some(MaxBestItem {
                     value,
                     item: item.clone(),
                 });
@@ -88,8 +82,8 @@ impl MaxFuzzerCorpus {
         Ok(improved)
     }
 
-    /// Snapshot the best item for every objective.
-    pub fn best_items(&self) -> Vec<Option<MaxBestItem>> {
+    /// Snapshot the best item for the max objective.
+    pub fn best_item(&self) -> Option<MaxBestItem> {
         self.inner.best.read().clone()
     }
 
@@ -291,65 +285,28 @@ mod tests {
     fn record_improvement_tracks_and_persists_best() {
         let tmp = tempfile::tempdir().unwrap();
         let corpus = SharedCorpus::new(CorpusConfig::new(tmp.path().join("corpus")));
-        let fuzzer_corpus = MaxFuzzerCorpus::new(corpus, 1);
+        let fuzzer_corpus = MaxFuzzerCorpus::new(corpus);
         let item = Item::from(vec![empty_call()]);
 
         assert!(
             !fuzzer_corpus
-                .record_improvement(0, U256::ZERO, item.clone())
+                .record_improvement(U256::ZERO, item.clone())
                 .unwrap()
         );
         assert!(
             fuzzer_corpus
-                .record_improvement(0, U256::from(5), item.clone())
+                .record_improvement(U256::from(5), item.clone())
                 .unwrap()
         );
         assert!(
             !fuzzer_corpus
-                .record_improvement(0, U256::from(3), item)
+                .record_improvement(U256::from(3), item)
                 .unwrap()
         );
 
-        let best = fuzzer_corpus.best_items();
-        let best = best[0].as_ref().expect("best must be recorded");
+        let best = fuzzer_corpus.best_item().expect("best must be recorded");
         assert_eq!(best.value, U256::from(5));
         assert_eq!(best.item.calls.len(), 1);
-    }
-
-    #[test]
-    fn record_improvement_tracks_objectives_independently() {
-        let tmp = tempfile::tempdir().unwrap();
-        let corpus = SharedCorpus::new(CorpusConfig::new(tmp.path().join("corpus")));
-        let fuzzer_corpus = MaxFuzzerCorpus::new(corpus, 2);
-        let item_a = Item::from(vec![empty_call()]);
-        let item_b = Item::from(vec![empty_call()]);
-
-        assert!(
-            fuzzer_corpus
-                .record_improvement(0, U256::from(5), item_a.clone())
-                .unwrap()
-        );
-        assert!(
-            fuzzer_corpus
-                .record_improvement(1, U256::from(7), item_b.clone())
-                .unwrap()
-        );
-        assert!(
-            !fuzzer_corpus
-                .record_improvement(0, U256::from(3), item_a.clone())
-                .unwrap()
-        );
-        assert!(
-            fuzzer_corpus
-                .record_improvement(1, U256::from(9), item_b)
-                .unwrap()
-        );
-
-        let best = fuzzer_corpus.best_items();
-        let best_a = best[0].as_ref().expect("best for max_a must be recorded");
-        let best_b = best[1].as_ref().expect("best for max_b must be recorded");
-        assert_eq!(best_a.value, U256::from(5));
-        assert_eq!(best_b.value, U256::from(9));
     }
 
     #[test]

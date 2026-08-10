@@ -3,9 +3,8 @@ pragma solidity 0.8.28;
 
 /// A harness contract that declares both invariant and max functions.
 ///
-/// In invariant mode `max_value()` must not be treated as a handler, and the
-/// invariant fails on any nonzero value. In max mode the invariant must be
-/// ignored and `max_value()` is maximized instead.
+/// This is invalid: `max_value()` puts the harness in max mode automatically,
+/// and max mode rejects `invariant_*` functions.
 contract MaxMixed {
     uint256 public value;
 

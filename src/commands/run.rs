@@ -27,7 +27,7 @@ use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
 use crate::fuzzer::{Fuzzer, FuzzerConfig, SharedFailedAssertions, SharedMetrics};
 use crate::logger;
 use crate::max::{
-    MaxFuzzer, MaxFuzzerConfig, MaxFuzzerCorpus, MaxObjective, MaxResult, MaxShrinker,
+    MaxBestItem, MaxFuzzer, MaxFuzzerConfig, MaxFuzzerCorpus, MaxObjective, MaxResult, MaxShrinker,
     MaxShrinkerConfig, MaxShrinkerCorpus,
 };
 use crate::shrinker::{Shrinker, ShrinkerConfig};
@@ -184,11 +184,6 @@ pub struct Args {
     #[arg(long = "fail-on-revert", help_heading = "Fuzzing Parameters")]
     pub fail_on_revert: bool,
 
-    /// Run in max mode: maximize `max_*` functions instead of checking
-    /// invariants. Invariant mode and max mode are mutually exclusive.
-    #[arg(long = "max-mode", help_heading = "Fuzzing Parameters")]
-    pub max_mode: bool,
-
     /// Additional Foundry projects whose build artifacts are loaded for
     /// coverage and trace resolution.
     ///
@@ -292,6 +287,47 @@ fn load_dotenv(dir: impl AsRef<Path>) -> Result<Option<PathBuf>> {
         Err(e) if e.not_found() => Ok(None),
         Err(e) => Err(e).with_context(|| format!("failed to load {}", path.display())),
     }
+}
+
+/// Validate a harness that enters max mode.
+///
+/// Max mode is entered automatically when the harness declares at least one
+/// `max_*` function. It supports exactly one max function and cannot be
+/// combined with `invariant_*` functions.
+fn validate_harness_mode(harness: &Contract) -> Result<()> {
+    if harness.max_functions.is_empty() {
+        return Ok(());
+    }
+
+    let max_names = harness
+        .max_functions
+        .iter()
+        .map(|f| format!("`{}`", f.name))
+        .collect::<Vec<String>>()
+        .join(", ");
+    ensure!(
+        harness.max_functions.len() == 1,
+        "max mode supports exactly one `max_*` function, but harness `{}` declares {}: {}",
+        harness.artifact_id.name,
+        harness.max_functions.len(),
+        max_names
+    );
+
+    let invariant_names = harness
+        .invariant_functions
+        .iter()
+        .map(|f| format!("`{}`", f.name))
+        .collect::<Vec<String>>()
+        .join(", ");
+    ensure!(
+        harness.invariant_functions.is_empty(),
+        "harness `{}` enters max mode via {} but also declares `invariant_*` function(s): {}; max mode does not support invariants",
+        harness.artifact_id.name,
+        max_names,
+        invariant_names
+    );
+
+    Ok(())
 }
 
 #[instrument(skip(args), fields(harness = ?args.harness, threads = args.threads, max_runs = args.max_runs))]
@@ -424,6 +460,15 @@ pub fn run(args: Args) -> Result<()> {
     };
     console.update(format!("loaded {} as harness contract", harness_id.name))?;
     console.end()?;
+
+    // Max mode is entered automatically whenever the harness declares at
+    // least one `max_*` function. Invariant mode is the default otherwise.
+    let max_mode = !harness_contract.max_functions.is_empty();
+    if max_mode && let Err(e) = validate_harness_mode(&harness_contract) {
+        console.print_fail("harness contract is not valid for max mode")?;
+        console.print_line(format!("{e:#}"))?;
+        return Err(e);
+    }
 
     // TODO(pyk): Create InitcodeRegistry
     // Build compiled-contract registry for vm.getCode
@@ -586,7 +631,7 @@ pub fn run(args: Args) -> Result<()> {
 
     if replay_count > 0 {
         console.begin(format!("replaying {replay_count} corpus items ..."))?;
-        let replay_invariants = if args.max_mode {
+        let replay_invariants = if max_mode {
             Vec::new()
         } else {
             harness_contract.invariant_functions.clone()
@@ -620,16 +665,7 @@ pub fn run(args: Args) -> Result<()> {
         ))?;
     }
 
-    if args.max_mode {
-        if harness_contract.max_functions.is_empty() {
-            console.print_fail("max mode requires at least one `max_*` function in the harness")?;
-            console.print_line(
-                "harness contract must declare at least one `max_*` function in --max-mode",
-            )?;
-            return Err(anyhow::anyhow!(
-                "harness contract must declare at least one `max_*` function in --max-mode"
-            ));
-        }
+    if max_mode {
         return run_max_campaign(MaxCampaign {
             args: &args,
             console: &mut console,
@@ -1019,6 +1055,21 @@ struct MaxCampaign<'a, W> {
     literals: ExtractedLiterals,
 }
 
+/// Context for shrinking a single max result.
+struct MaxShrinkContext<'a, W> {
+    args: &'a Args,
+    console: &'a mut Console<W>,
+    all_function_signatures: Vec<String>,
+    objective: MaxObjective,
+    corpus: SharedCorpus,
+    chain: &'a Chain,
+    deployed_address: Address,
+    campaign_seed: u64,
+    shrink_config: CorpusConfig,
+    shrink_threads: usize,
+    shrink_timeout: Option<std::time::Duration>,
+}
+
 fn run_max_campaign<W: std::io::Write>(campaign: MaxCampaign<'_, W>) -> Result<()> {
     let MaxCampaign {
         args,
@@ -1037,11 +1088,6 @@ fn run_max_campaign<W: std::io::Write>(campaign: MaxCampaign<'_, W>) -> Result<(
     } = campaign;
     let contract_name = &harness_contract.artifact_id.name;
 
-    ensure!(
-        !harness_contract.max_functions.is_empty(),
-        "harness contract must declare at least one `max_*` function when --max-mode is enabled"
-    );
-
     let all_function_signatures: Vec<String> = harness_contract
         .handler_functions
         .iter()
@@ -1051,13 +1097,14 @@ fn run_max_campaign<W: std::io::Write>(campaign: MaxCampaign<'_, W>) -> Result<(
     let shared_metrics = SharedMetrics::new(all_function_signatures.clone());
     let shutdown_signal = Arc::new(AtomicBool::new(false));
 
-    let objectives: Vec<MaxObjective> = harness_contract
-        .max_functions
-        .iter()
-        .cloned()
-        .map(MaxObjective::new)
-        .collect();
-    let fuzzer_corpus = MaxFuzzerCorpus::new(corpus.clone(), objectives.len());
+    let objective = MaxObjective::new(
+        harness_contract
+            .max_functions
+            .first()
+            .context("max mode requires exactly one `max_*` function")?
+            .clone(),
+    );
+    let fuzzer_corpus = MaxFuzzerCorpus::new(corpus.clone());
 
     let fuzzers = args.threads;
     let timeout = args.timeout_secs.map(std::time::Duration::from_secs);
@@ -1073,7 +1120,7 @@ fn run_max_campaign<W: std::io::Write>(campaign: MaxCampaign<'_, W>) -> Result<(
         .shared_metrics(shared_metrics.clone())
         .shutdown_signal(shutdown_signal.clone())
         .caller(args.deployer_address)
-        .objectives(objectives.clone())
+        .objective(objective.clone())
         .gas_limit(args.gas_limit)
         .timeout(timeout);
 
@@ -1132,7 +1179,6 @@ fn run_max_campaign<W: std::io::Write>(campaign: MaxCampaign<'_, W>) -> Result<(
     console.print_line(stats)?;
     console.new_line()?;
 
-    let best_items = fuzzer_corpus.best_items();
     let shrink_config = CorpusConfig::new(PathBuf::new())
         .handler_functions(harness_contract.handler_functions.clone())
         .max_calls(args.max_calls)
@@ -1141,108 +1187,23 @@ fn run_max_campaign<W: std::io::Write>(campaign: MaxCampaign<'_, W>) -> Result<(
     let shrink_timeout = args.shrink_timeout_secs.map(std::time::Duration::from_secs);
 
     let mut results = Vec::new();
-    for (index, best) in best_items.into_iter().enumerate() {
-        let Some(best) = best else {
-            continue;
-        };
-        // checkrs: allow(clone_in_loops)
-        let objective = objectives[index].clone();
-        // checkrs: allow(clone_in_loops)
-        let shrink_config = shrink_config.clone();
-        // checkrs: allow(clone_in_loops)
-        let corpus = corpus.clone();
-        let shrink_corpus = MaxShrinkerCorpus::new(best.item, best.value, shrink_config, corpus);
-
-        let runs_per_result = args.shrink_runs.max(1);
-        let shrinkers_u64 = shrink_threads as u64;
-        let base_shrink_runs = (runs_per_result / shrinkers_u64).max(1);
-        let shrink_remainder = (runs_per_result % shrinkers_u64) as usize;
-        let shrinker_shutdown = Arc::new(AtomicBool::new(false));
-        // checkrs: allow(clone_in_loops)
-        let shrinker_metrics = SharedMetrics::new(all_function_signatures.clone());
-
-        let mut shrinker_handles = Vec::with_capacity(shrink_threads);
-        for shrinker_id in 0..shrink_threads {
-            let local_max_runs = if shrinker_id < shrink_remainder {
-                base_shrink_runs + 1
-            } else {
-                base_shrink_runs
-            };
-            let seed = campaign_seed
-                .wrapping_add(shrinker_id as u64)
-                .wrapping_add(2000 + index as u64 * 1000);
-            // checkrs: allow(clone_in_loops)
-            let shrinker_chain = chain.clone();
-            // checkrs: allow(clone_in_loops)
-            let shrinker_corpus = shrink_corpus.clone();
-            // checkrs: allow(clone_in_loops)
-            let shrinker_shutdown = shrinker_shutdown.clone();
-            // checkrs: allow(clone_in_loops)
-            let shrinker_objective = objective.clone();
-            let shrinker_config = MaxShrinkerConfig::new()
-                .chain(shrinker_chain)
-                .target_address(deployed_address)
-                .shared_corpus(shrinker_corpus)
-                .shutdown_signal(shrinker_shutdown)
-                .objective(shrinker_objective)
-                .max_runs(local_max_runs)
-                .timeout(shrink_timeout)
-                .seed(seed)
-                // checkrs: allow(clone_in_loops)
-                .shared_metrics(shrinker_metrics.clone())
-                .gas_limit(args.gas_limit)
-                .caller(args.deployer_address);
-            let shrinker = MaxShrinker::new(shrinker_config);
-            let handle = std::thread::spawn(move || shrinker.run());
-            shrinker_handles.push(handle);
-        }
-
-        let initial_calls = shrink_corpus.item().item.calls.len();
-        console.print(format!(
-            "shrinking max {} from {} calls with {} threads",
-            objective.function.name,
-            formatter::num(initial_calls as u64),
-            formatter::num(shrink_threads as u64)
-        ))?;
-        while shrinker_handles.iter().any(|h| !h.is_finished()) {
-            if let Some(snapshot) = shrinker_metrics.try_snapshot() {
-                let current_calls = shrink_corpus.item().item.calls.len();
-                console.print_progress(formatter::shrinker_progress(
-                    &snapshot,
-                    initial_calls,
-                    current_calls,
-                ))?;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-
-        for handle in shrinker_handles {
-            match handle.join() {
-                Ok(Ok(_)) => {}
-                Ok(Err(e)) => {
-                    tracing::error!(%e, "max shrinker failed");
-                }
-                Err(e) => {
-                    tracing::error!(?e, "max shrinker panicked");
-                }
-            }
-        }
-
-        let shrunk = shrink_corpus.item();
-        let shrunk_calls = shrunk.item.calls.len();
-        console.print_success(format!(
-            "shrank max {} from {} to {} calls with {} threads",
-            objective.function.name,
-            formatter::num(initial_calls as u64),
-            formatter::num(shrunk_calls as u64),
-            formatter::num(shrink_threads as u64)
-        ))?;
-        console.new_line()?;
-        results.push(MaxResult {
-            objective,
-            value: shrunk.value,
-            item: shrunk.item,
-        });
+    if let Some(best) = fuzzer_corpus.best_item() {
+        results.push(shrink_max_result(
+            MaxShrinkContext {
+                args,
+                console,
+                all_function_signatures,
+                objective: objective.clone(),
+                corpus,
+                chain,
+                deployed_address,
+                campaign_seed,
+                shrink_config: shrink_config.clone(),
+                shrink_threads,
+                shrink_timeout,
+            },
+            best,
+        )?);
     }
 
     if results.is_empty() {
@@ -1324,6 +1285,119 @@ fn run_max_campaign<W: std::io::Write>(campaign: MaxCampaign<'_, W>) -> Result<(
 
     console.print("ripfuzz out. see ya")?;
     Ok(())
+}
+
+/// Shrink the best max result and report it to the console.
+fn shrink_max_result<W: std::io::Write>(
+    context: MaxShrinkContext<'_, W>,
+    best: MaxBestItem,
+) -> Result<MaxResult> {
+    let MaxShrinkContext {
+        args,
+        console,
+        all_function_signatures,
+        objective,
+        corpus,
+        chain,
+        deployed_address,
+        campaign_seed,
+        shrink_config,
+        shrink_threads,
+        shrink_timeout,
+    } = context;
+    let shrink_corpus = MaxShrinkerCorpus::new(best.item, best.value, shrink_config, corpus);
+
+    let runs_per_result = args.shrink_runs.max(1);
+    let shrinkers_u64 = shrink_threads as u64;
+    let base_shrink_runs = (runs_per_result / shrinkers_u64).max(1);
+    let shrink_remainder = (runs_per_result % shrinkers_u64) as usize;
+    let shrinker_shutdown = Arc::new(AtomicBool::new(false));
+    // checkrs: allow(clone_in_loops)
+    let shrinker_metrics = SharedMetrics::new(all_function_signatures);
+
+    let mut shrinker_handles = Vec::with_capacity(shrink_threads);
+    for shrinker_id in 0..shrink_threads {
+        let local_max_runs = if shrinker_id < shrink_remainder {
+            base_shrink_runs + 1
+        } else {
+            base_shrink_runs
+        };
+        let seed = campaign_seed
+            .wrapping_add(shrinker_id as u64)
+            .wrapping_add(2000);
+        // checkrs: allow(clone_in_loops)
+        let shrinker_chain = chain.clone();
+        // checkrs: allow(clone_in_loops)
+        let shrinker_corpus = shrink_corpus.clone();
+        // checkrs: allow(clone_in_loops)
+        let shrinker_shutdown = shrinker_shutdown.clone();
+        // checkrs: allow(clone_in_loops)
+        let shrinker_objective = objective.clone();
+        let shrinker_config = MaxShrinkerConfig::new()
+            .chain(shrinker_chain)
+            .target_address(deployed_address)
+            .shared_corpus(shrinker_corpus)
+            .shutdown_signal(shrinker_shutdown)
+            .objective(shrinker_objective)
+            .max_runs(local_max_runs)
+            .timeout(shrink_timeout)
+            .seed(seed)
+            // checkrs: allow(clone_in_loops)
+            .shared_metrics(shrinker_metrics.clone())
+            .gas_limit(args.gas_limit)
+            .caller(args.deployer_address);
+        let shrinker = MaxShrinker::new(shrinker_config);
+        let handle = std::thread::spawn(move || shrinker.run());
+        shrinker_handles.push(handle);
+    }
+
+    let initial_calls = shrink_corpus.item().item.calls.len();
+    console.print(format!(
+        "shrinking max {} from {} calls with {} threads",
+        objective.function.name,
+        formatter::num(initial_calls as u64),
+        formatter::num(shrink_threads as u64)
+    ))?;
+    while shrinker_handles.iter().any(|h| !h.is_finished()) {
+        if let Some(snapshot) = shrinker_metrics.try_snapshot() {
+            let current_calls = shrink_corpus.item().item.calls.len();
+            console.print_progress(formatter::shrinker_progress(
+                &snapshot,
+                initial_calls,
+                current_calls,
+            ))?;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    for handle in shrinker_handles {
+        match handle.join() {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => {
+                tracing::error!(%e, "max shrinker failed");
+            }
+            Err(e) => {
+                tracing::error!(?e, "max shrinker panicked");
+            }
+        }
+    }
+
+    let shrunk = shrink_corpus.item();
+    let shrunk_calls = shrunk.item.calls.len();
+    console.print_success(format!(
+        "shrank max {} from {} to {} calls with {} threads",
+        objective.function.name,
+        formatter::num(initial_calls as u64),
+        formatter::num(shrunk_calls as u64),
+        formatter::num(shrink_threads as u64)
+    ))?;
+    console.new_line()?;
+
+    Ok(MaxResult {
+        objective,
+        value: shrunk.value,
+        item: shrunk.item,
+    })
 }
 
 fn write_coverage_report(
@@ -1424,7 +1498,6 @@ mod tests {
             ffi: false,
             force: false,
             fail_on_revert: false,
-            max_mode: false,
             external_projects: Vec::new(),
             shrink_runs: 1,
             shrink_timeout_secs: None,
@@ -1488,77 +1561,6 @@ mod tests {
         assert_eq!(
             count_after_first, count_after_second,
             "corpus should not grow after bug is already found"
-        );
-    }
-
-    /// Max mode must find a positive max value and persist the improving
-    /// sequence to the corpus.
-    #[test]
-    fn max_mode_finds_positive_value() {
-        let tmp = tempfile::tempdir().unwrap();
-        let corpus_dir = tmp.path().join("corpus");
-
-        let mut args = make_args(corpus_dir.clone());
-        args.harness = "src/MaxBasic.sol:MaxBasic".to_owned();
-        args.project_path = Some(PathBuf::from("fixtures/max-mode"));
-        args.max_mode = true;
-        args.max_runs = 1000;
-        args.max_calls = 4;
-        args.shrink_runs = 500;
-
-        run(args).expect("max mode run should succeed");
-        assert!(
-            count_corpus_files(&corpus_dir) > 0,
-            "max mode should persist improving sequences to the corpus"
-        );
-    }
-
-    /// Max mode must ignore invariant functions entirely.
-    #[test]
-    fn max_mode_ignores_invariants() {
-        let tmp = tempfile::tempdir().unwrap();
-
-        let mut args = make_args(tmp.path().join("corpus"));
-        args.harness = "src/MaxMixed.sol:MaxMixed".to_owned();
-        args.project_path = Some(PathBuf::from("fixtures/max-mode"));
-        args.max_mode = true;
-        args.max_runs = 200;
-        args.max_calls = 4;
-        args.shrink_runs = 100;
-
-        run(args).expect("max mode must succeed even when invariants would fail");
-    }
-
-    /// Invariant mode must ignore max functions and still report assertion
-    /// failures from the same harness.
-    #[test]
-    fn invariant_mode_reports_mixed_harness_failure() {
-        let tmp = tempfile::tempdir().unwrap();
-
-        let mut args = make_args(tmp.path().join("corpus"));
-        args.harness = "src/MaxMixed.sol:MaxMixed".to_owned();
-        args.project_path = Some(PathBuf::from("fixtures/max-mode"));
-        args.max_mode = false;
-        args.max_runs = 200;
-        args.max_calls = 4;
-        args.shrink_runs = 100;
-
-        run(args).expect("invariant mode run should succeed");
-    }
-
-    /// Max mode without any `max_*` function must fail with a clear error.
-    #[test]
-    fn max_mode_requires_max_functions() {
-        let tmp = tempfile::tempdir().unwrap();
-
-        let mut args = make_args(tmp.path().join("corpus"));
-        args.max_mode = true;
-        args.max_runs = 100;
-
-        let err = run(args).expect_err("max mode without max functions must fail");
-        assert!(
-            err.to_string().contains("at least one `max_*` function"),
-            "unexpected error: {err}"
         );
     }
 }

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use alloy_json_abi::Function;
 use alloy_primitives::{Address, U256};
 use anyhow::{Context, Result};
 use tracing::{debug, instrument};
@@ -28,7 +29,7 @@ pub struct MaxFuzzerConfig {
     pub shared_metrics: SharedMetrics,
     pub shutdown_signal: Arc<AtomicBool>,
     pub caller: Address,
-    pub objectives: Vec<MaxObjective>,
+    pub objective: Option<MaxObjective>,
     pub max_runs: u64,
     pub gas_limit: u64,
     pub timeout: Option<Duration>,
@@ -41,15 +42,14 @@ impl MaxFuzzerConfig {
             seed: 0,
             chain: evm::Chain::default(),
             target_address: Address::ZERO,
-            shared_corpus: MaxFuzzerCorpus::new(
-                SharedCorpus::new(CorpusConfig::new(PathBuf::new())),
-                0,
-            ),
+            shared_corpus: MaxFuzzerCorpus::new(SharedCorpus::new(CorpusConfig::new(
+                PathBuf::new(),
+            ))),
             shared_coverage: SharedCoverage::new(),
             shared_metrics: SharedMetrics::new(Vec::new()),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             caller: evm::DEFAULT_DEPLOYER,
-            objectives: Vec::new(),
+            objective: None,
             max_runs: 0,
             gas_limit: 12_500_000,
             timeout: None,
@@ -104,9 +104,9 @@ impl MaxFuzzerConfig {
         self
     }
 
-    /// Set the max objectives to maximize.
-    pub fn objectives(mut self, value: Vec<MaxObjective>) -> Self {
-        self.objectives = value;
+    /// Set the max objective to maximize.
+    pub fn objective(mut self, value: MaxObjective) -> Self {
+        self.objective = Some(value);
         self
     }
 
@@ -136,7 +136,7 @@ impl Default for MaxFuzzerConfig {
 }
 
 /// Per-thread fuzzer that executes call sequences and tracks the maximum value
-/// returned by every max objective.
+/// returned by the max objective.
 ///
 /// Created via [`MaxFuzzerConfig`] and run via [`MaxFuzzer::run`].
 #[derive(Debug)]
@@ -148,7 +148,7 @@ pub struct MaxFuzzer {
     shared_metrics: SharedMetrics,
     shutdown_signal: Arc<AtomicBool>,
     caller: Address,
-    objectives: Vec<MaxObjective>,
+    objective: MaxObjective,
     max_runs: u64,
     gas_limit: u64,
     timeout: Option<Duration>,
@@ -166,7 +166,7 @@ impl MaxFuzzer {
             shared_metrics: config.shared_metrics,
             shutdown_signal: config.shutdown_signal,
             caller: config.caller,
-            objectives: config.objectives,
+            objective: config.objective.unwrap_or_else(default_objective),
             max_runs: config.max_runs,
             gas_limit: config.gas_limit,
             timeout: config.timeout,
@@ -176,7 +176,7 @@ impl MaxFuzzer {
 
     /// Run the fuzzer for up to `max_runs` iterations on a single thread.
     ///
-    /// Each iteration executes a handler call followed by every max objective
+    /// Each iteration executes a handler call followed by the max objective
     /// call, so a shorter prefix that first achieves a new maximum is recorded
     /// as the best sequence.
     #[instrument(skip(self), fields(max_runs = self.max_runs))]
@@ -186,14 +186,9 @@ impl MaxFuzzer {
         let mut total_calls = 0u64;
         let mut total_gas = 0u64;
 
-        let objective_transactions: Vec<Transaction> = self
-            .objectives
-            .iter()
-            .map(|objective| {
-                objective.transaction(self.target_address, self.caller, self.gas_limit)
-            })
-            .collect();
-        let stride = 1 + objective_transactions.len();
+        let objective_transaction =
+            self.objective
+                .transaction(self.target_address, self.caller, self.gas_limit);
 
         for _ in 0..self.max_runs {
             if self.shutdown_signal.load(Ordering::Relaxed) {
@@ -208,8 +203,7 @@ impl MaxFuzzer {
             }
 
             let item = self.shared_corpus.next_item(&mut self.rng);
-            let (calls_count, gas_sum) =
-                self.evaluate_item(&item, &objective_transactions, stride)?;
+            let (calls_count, gas_sum) = self.evaluate_item(&item, &objective_transaction)?;
             total_calls += calls_count;
             total_gas += gas_sum;
             self.shared_metrics.record(calls_count, gas_sum);
@@ -223,24 +217,23 @@ impl MaxFuzzer {
         })
     }
 
-    /// Execute one corpus item and record the best value for every objective.
+    /// Execute one corpus item and record the best value for the objective.
     ///
-    /// Each handler call is followed by every max objective call, so a shorter
+    /// Each handler call is followed by the max objective call, so a shorter
     /// prefix that first achieves a new maximum is recorded as the best
     /// sequence. Returns `(calls, gas)` for the executed transactions.
     fn evaluate_item(
         &self,
         item: &Item,
-        objective_transactions: &[Transaction],
-        stride: usize,
+        objective_transaction: &Transaction,
     ) -> Result<(u64, u64)> {
         // checkrs: allow(clone_in_loops)
         let mut fresh_chain = self.chain.clone();
 
-        let mut transactions = Vec::with_capacity(item.calls.len() * stride);
-        for call in &item.calls {
-            transactions.push(call.into_transaction(self.target_address));
-            transactions.extend(objective_transactions.iter().cloned());
+        let stride = 2;
+        let mut transactions = vec![objective_transaction.clone(); item.calls.len() * stride];
+        for (i, call) in item.calls.iter().enumerate() {
+            transactions[i * stride] = call.into_transaction(self.target_address);
         }
 
         let mut exec = fresh_chain.exec(&transactions)?;
@@ -257,33 +250,28 @@ impl MaxFuzzer {
                 handler_reverts,
             );
 
-            for (j, objective) in self.objectives.iter().enumerate() {
-                let result = &exec.results[i * stride + 1 + j];
-                let reverts = if result.success { 0 } else { 1 };
-                self.shared_metrics.record_function(
-                    &objective.function.signature(),
-                    1,
-                    result.gas_used,
-                    reverts,
-                );
+            let result = &exec.results[i * stride + 1];
+            let reverts = if result.success { 0 } else { 1 };
+            self.shared_metrics.record_function(
+                &self.objective.function.signature(),
+                1,
+                result.gas_used,
+                reverts,
+            );
 
-                let (improved, improved_value) = match objective.decode(result) {
-                    Some(value) => {
-                        let prefix = Item::from(item.calls[..=i].to_vec());
-                        (
-                            self.shared_corpus.record_improvement(j, value, prefix)?,
-                            value,
-                        )
-                    }
-                    None => (false, U256::ZERO),
-                };
-                if improved {
-                    debug!(
-                        objective = %objective.function.name,
-                        %improved_value,
-                        "max value improved"
-                    );
+            let (improved, improved_value) = match self.objective.decode(result) {
+                Some(value) => {
+                    let prefix = Item::from(item.calls[..=i].to_vec());
+                    (self.shared_corpus.record_improvement(value, prefix)?, value)
                 }
+                None => (false, U256::ZERO),
+            };
+            if improved {
+                debug!(
+                    objective = %self.objective.function.name,
+                    %improved_value,
+                    "max value improved"
+                );
             }
         }
 
@@ -295,6 +283,15 @@ impl MaxFuzzer {
         let gas_sum = exec.results.iter().map(|r| r.gas_used).sum::<u64>();
         Ok((calls_count, gas_sum))
     }
+}
+
+fn default_objective() -> MaxObjective {
+    MaxObjective::new(Function {
+        name: String::from("max_value"),
+        inputs: Vec::new(),
+        outputs: Vec::new(),
+        state_mutability: alloy_json_abi::StateMutability::View,
+    })
 }
 
 #[cfg(test)]
@@ -318,14 +315,16 @@ mod tests {
     use super::*;
 
     fn load_contract(id: &str) -> Contract {
-        let project = Project::new("fixtures/max-mode");
+        let project = Project::new("fixtures/max-mode-harness-validation");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()
     }
 
     fn deployed(contract: &Contract) -> (Chain, Address) {
-        let mut chain = Chain::new(ChainConfig::new("fixtures/max-mode").coverage(true)).unwrap();
+        let mut chain =
+            Chain::new(ChainConfig::new("fixtures/max-mode-harness-validation").coverage(true))
+                .unwrap();
         let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         (chain, deployment.address.unwrap())
@@ -355,7 +354,7 @@ mod tests {
         chain: Chain,
         target_address: Address,
         shared_corpus: MaxFuzzerCorpus,
-        objectives: Vec<MaxObjective>,
+        objective: MaxObjective,
     ) -> MaxFuzzerConfig {
         MaxFuzzerConfig::new()
             .chain(chain)
@@ -365,16 +364,13 @@ mod tests {
             .shared_metrics(SharedMetrics::new(Vec::new()))
             .shutdown_signal(Arc::new(AtomicBool::new(false)))
             .caller(DEFAULT_DEPLOYER)
-            .objectives(objectives)
+            .objective(objective)
             .max_runs(0)
             .gas_limit(12_500_000)
     }
 
-    fn objective_transactions(objectives: &[MaxObjective], target: Address) -> Vec<Transaction> {
-        objectives
-            .iter()
-            .map(|objective| objective.transaction(target, DEFAULT_DEPLOYER, 12_500_000))
-            .collect()
+    fn objective_transaction(objective: &MaxObjective, target: Address) -> Transaction {
+        objective.transaction(target, DEFAULT_DEPLOYER, 12_500_000)
     }
 
     fn uint_arg(value: U256) -> DynSolValue {
@@ -391,16 +387,15 @@ mod tests {
         let clear = handler(&contract, "clear");
         let (chain, target) = deployed(&contract);
 
-        let objectives = vec![objective(&contract, "max_value")];
-        let objective_txs = objective_transactions(&objectives, target);
-        let stride = 1 + objective_txs.len();
+        let objective = objective(&contract, "max_value");
+        let objective_tx = objective_transaction(&objective, target);
 
         let tmp = tempfile::tempdir().unwrap();
         let config = CorpusConfig::new(tmp.path().join("corpus"))
             .handler_functions(contract.handler_functions.clone())
             .max_calls(4);
-        let corpus = MaxFuzzerCorpus::new(SharedCorpus::new(config), objectives.len());
-        let fuzzer = MaxFuzzer::new(fuzzer_config(chain, target, corpus.clone(), objectives));
+        let corpus = MaxFuzzerCorpus::new(SharedCorpus::new(config));
+        let fuzzer = MaxFuzzer::new(fuzzer_config(chain, target, corpus.clone(), objective));
 
         let item = Item::from(vec![
             Call {
@@ -414,60 +409,11 @@ mod tests {
                 ..Default::default()
             },
         ]);
-        fuzzer.evaluate_item(&item, &objective_txs, stride).unwrap();
+        fuzzer.evaluate_item(&item, &objective_tx).unwrap();
 
-        let best_items = corpus.best_items();
-        let best = best_items[0].as_ref().expect("best must be recorded");
+        let best = corpus.best_item().expect("best must be recorded");
         assert_eq!(best.value, U256::from(7));
         assert_eq!(best.item.calls.len(), 1);
         assert_eq!(best.item.calls[0].function.name, "set");
-    }
-
-    /// Each handler call is followed by every objective call, and each
-    /// objective keeps its own best value and prefix.
-    #[test]
-    fn evaluate_item_tracks_multiple_objectives_independently() {
-        let contract = load_contract("src/MaxMultiple.sol:MaxMultiple");
-        let set_a = handler(&contract, "setA");
-        let set_b = handler(&contract, "setB");
-        let (chain, target) = deployed(&contract);
-
-        let objectives = vec![objective(&contract, "max_a"), objective(&contract, "max_b")];
-        let objective_txs = objective_transactions(&objectives, target);
-        let stride = 1 + objective_txs.len();
-
-        let tmp = tempfile::tempdir().unwrap();
-        let config = CorpusConfig::new(tmp.path().join("corpus"))
-            .handler_functions(contract.handler_functions.clone())
-            .max_calls(4);
-        let corpus = MaxFuzzerCorpus::new(SharedCorpus::new(config), objectives.len());
-        let fuzzer = MaxFuzzer::new(fuzzer_config(chain, target, corpus.clone(), objectives));
-
-        let item = Item::from(vec![
-            Call {
-                function: set_a,
-                args: DynSolValue::Tuple(vec![uint_arg(U256::from(5))]),
-                ..Default::default()
-            },
-            Call {
-                function: set_b,
-                args: DynSolValue::Tuple(vec![uint_arg(U256::from(7))]),
-                ..Default::default()
-            },
-        ]);
-        fuzzer.evaluate_item(&item, &objective_txs, stride).unwrap();
-
-        let best = corpus.best_items();
-        let best_a = best[0].as_ref().expect("best for max_a must be recorded");
-        let best_b = best[1].as_ref().expect("best for max_b must be recorded");
-
-        assert_eq!(best_a.value, U256::from(5));
-        assert_eq!(best_a.item.calls.len(), 1);
-        assert_eq!(best_a.item.calls[0].function.name, "setA");
-
-        assert_eq!(best_b.value, U256::from(7));
-        assert_eq!(best_b.item.calls.len(), 2);
-        assert_eq!(best_b.item.calls[0].function.name, "setA");
-        assert_eq!(best_b.item.calls[1].function.name, "setB");
     }
 }

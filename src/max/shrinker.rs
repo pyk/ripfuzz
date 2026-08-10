@@ -253,7 +253,7 @@ mod tests {
     use crate::max::shrinker::{MaxShrinker, MaxShrinkerConfig};
 
     fn load_contract(id: &str) -> Contract {
-        let project = Project::new("fixtures/max-mode");
+        let project = Project::new("fixtures/max-mode-harness-validation");
         let artifacts = project.load_artifacts().unwrap();
         let artifact_id = ArtifactId::try_from(id).unwrap();
         Contract::try_get(&artifacts, &artifact_id).unwrap()

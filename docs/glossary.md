@@ -40,16 +40,18 @@ mode**. It must:
 - return a single `uint256`
 - be `pure` or `view`
 
-Ripfuzz calls every max function after each handler call in the sequence and
+Ripfuzz calls the max function after each handler call in the sequence and
 keeps the highest value plus the shortest prefix that produced it. Reverted or
 empty results score `0`. A value above `0` is the finding. Synonyms:
 **objective**, **optimization test** (Medusa).
 
 ### Max Mode
 
-The `--max-mode` campaign mode. Max mode and **invariant mode** are mutually
-exclusive: ripfuzz maximizes `max_*` functions and never runs `invariant_*`
-functions (and vice versa). Best sequences are shrunk while preserving their
+The campaign mode entered automatically when a harness declares a `max_*`
+function. Max mode and **invariant mode** are mutually exclusive: ripfuzz
+maximizes the `max_*` function and never runs `invariant_*` functions. Max mode
+supports exactly one `max_*` function and rejects harnesses that also declare
+`invariant_*` functions. Best sequences are shrunk while preserving their
 value, reported with the maximum value, and written to the corpus for reuse.
 
 ### Function-Level Invariant
@@ -101,9 +103,8 @@ core.
 ### Max Fuzzer
 
 A single parallel fuzzing instance in **max mode**. It executes handler calls
-followed by every `max_*` function call, merges coverage, and records the
-highest value plus the shortest handler prefix that produced it for each max
-function.
+followed by the `max_*` function call, merges coverage, and records the highest
+value plus the shortest handler prefix that produced it.
 
 ### Campaign Result
 

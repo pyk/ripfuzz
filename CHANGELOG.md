@@ -12,9 +12,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 - `--max-failures N` to collect up to N distinct failed assertions before
   stopping the campaign, with each one shrunk and reported separately
-- `--max-mode` to maximize the `uint256` return value of `max_*` harness
-  functions instead of checking invariants, with the best sequence shrunk and
-  reported per objective
 - `max_*` harness functions: read-only, no-argument functions returning
   `uint256`; reverted or empty results score `0`, and any value above `0` is
   the finding
@@ -24,6 +21,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - Upgraded solc dependency to v0.1.0
 - Fuzzer and shrinker progress now logs one compact line every 3 seconds, with
   the full statistics printed after the phase finishes
+- Campaign mode is now selected automatically: a harness that declares a
+  `max_*` function runs in max mode, which supports exactly one max function
+  and rejects `invariant_*` functions; the `--max-mode` flag was removed
 
 ### Fixed
 

@@ -25,7 +25,7 @@ pub struct Contract {
     pub handler_functions: Vec<Function>,
     /// Invariant functions checked after every call sequence.
     pub invariant_functions: Vec<Function>,
-    /// Max functions whose return values are maximized in `--max-mode`.
+    /// Max functions whose return values are maximized in max mode.
     pub max_functions: Vec<Function>,
     /// Optional setup function called once after deployment.
     pub setup_function: Option<Function>,
@@ -242,7 +242,7 @@ mod tests {
     }
 
     fn load_max_fixture(contract_id: &str) -> Result<Contract> {
-        let project = Project::new("fixtures/max-mode");
+        let project = Project::new("fixtures/max-mode-harness-validation");
         let artifacts = project.load_artifacts()?;
         let id = ArtifactId::try_from(contract_id)?;
         Contract::try_get(&artifacts, &id)

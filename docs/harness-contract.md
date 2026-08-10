@@ -12,11 +12,12 @@ functions**:
 2. **Handler Functions**: function calls the fuzzer can make to mutate state
 3. **Invariant Functions**: invariants the fuzzer checks after every call
    sequence
-4. **Max Functions**: read-only values the fuzzer maximizes in `--max-mode`
+4. **Max Functions**: read-only values the fuzzer maximizes
 
-Invariant mode and max mode are mutually exclusive. In invariant mode, `max_*`
-functions are ignored as handlers; in max mode, `invariant_*` functions are
-never run.
+Declaring a `max_*` function automatically puts the harness in max mode;
+otherwise ripfuzz runs in invariant mode. The two modes are mutually exclusive:
+max mode supports exactly one `max_*` function and rejects harnesses that also
+declare `invariant_*` functions.
 
 ## Using ripfuzz-std
 
@@ -349,7 +350,7 @@ Max functions turn a harness value into a maximization objective. They must:
 - return a single `uint256`
 - be `pure` or `view`
 
-Run the campaign with `--max-mode` to maximize them:
+Declaring a `max_*` function puts the harness in max mode automatically:
 
 ```solidity
 contract ProfitHarness {
@@ -371,13 +372,16 @@ contract ProfitHarness {
 ```
 
 ```bash
-ripfuzz run --max-mode ProfitHarness
+ripfuzz run ProfitHarness
 ```
 
-Ripfuzz calls every max function after each handler call and keeps the highest
-value plus the shortest handler prefix that produced it. After the campaign it
-shrinks each best sequence while preserving its value, reports the maximum
-value with the call sequence, and writes the result to the corpus.
+Max mode supports exactly one `max_*` function per harness and cannot be
+combined with `invariant_*` functions; ripfuzz fails with a clear error if
+either rule is violated. It calls the max function after each handler call and
+keeps the highest value plus the shortest handler prefix that produced it.
+After the campaign it shrinks the best sequence while preserving its value,
+reports the maximum value with the call sequence, and writes the result to the
+corpus.
 
 Max functions never fail. A value above `0` is the finding: the harness ended
 in a state where the maximized quantity is positive (for example attacker
