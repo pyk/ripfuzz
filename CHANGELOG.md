@@ -21,7 +21,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 - Trace output now hangs each frame's children and call context, log, storage,
   and result lines directly under the frame's name, so subtrees stay aligned
-  regardless of gas amount.
+  regardless of gas amount; the `--- Call #N ---` header is replaced by a `[N]`
+  counter on the root frame line.
 - `--fail-on-revert` is replaced by `--stop-on-revert`: any reverted
   transaction stops the campaign in both invariant and maxxing mode, the whole
   trace is dumped into the campaign log (both the log file and stderr) as a

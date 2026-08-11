@@ -93,7 +93,7 @@ fn invariant_campaign_stop_on_revert_dumps_trace_into_log() {
         "campaign log must report the stop:\n{log}"
     );
     assert!(
-        log.contains("[REVERT]"),
+        log.contains("[revert]"),
         "campaign log must contain the reverted trace:\n{log}"
     );
     assert!(
@@ -105,7 +105,7 @@ fn invariant_campaign_stop_on_revert_dumps_trace_into_log() {
     let trace = std::fs::read_to_string(campaign_dir.join("trace.log"))
         .unwrap_or_else(|_| panic!("trace file must exist in {}", campaign_dir.display()));
     assert!(
-        trace.contains("[REVERT]"),
+        trace.contains("[revert]"),
         "trace file must contain the reverted trace:\n{trace}"
     );
     assert!(

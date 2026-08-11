@@ -470,13 +470,9 @@ impl<'a> fmt::Display for TraceDisplay<'a> {
             if i > 0 {
                 writeln!(f)?;
             }
-            // Call header with counter and revert indicator.
-            if root.success {
-                writeln!(f, "--- Call #{} ---", i + 1)?;
-            } else {
-                writeln!(f, "--- Call #{} [REVERT] ---", i + 1)?;
-            }
-            self.write_frame(f, root, None, &[])?;
+            // The root frame line carries the 1-based call counter; the
+            // revert outcome is visible in its result line.
+            self.write_frame(f, root, None, &[], Some(i + 1))?;
         }
 
         let mut logs = Vec::new();
@@ -514,21 +510,27 @@ impl<'a> TraceDisplay<'a> {
         frame: &CallFrame,
         parent: Option<&CallFrame>,
         ancestor_cols: &[usize],
+        call_index: Option<usize>,
     ) -> fmt::Result {
         // Frame line prefix: vertical bars at each ancestor's children
         // column, then the branch glyph at this frame's own column (the
-        // parent's children column).
+        // parent's children column). Root frames carry the call counter.
         let branch_col = ancestor_cols.last().copied();
         let mut prefix = String::new();
         if let Some(col) = branch_col {
             Self::append_tree_prefix(&mut prefix, &ancestor_cols[..ancestor_cols.len() - 1], col);
             prefix.push_str("├─ ");
+        } else if let Some(index) = call_index {
+            prefix.push_str(&format!("[{index}] "));
         }
 
         // Column at which this frame's name starts; children and
         // pseudo-children branch under it.
         let gas_len = frame.gas_used.to_string().len();
-        let name_col = branch_col.map_or(gas_len + 3, |col| col + gas_len + 6);
+        let name_col = match branch_col {
+            Some(col) => col + gas_len + 6,
+            None => prefix.len() + gas_len + 3,
+        };
 
         // Write the frame line
         let label = {
@@ -657,7 +659,7 @@ impl<'a> TraceDisplay<'a> {
         let mut child_cols = ancestor_cols.to_vec();
         child_cols.push(name_col);
         for child in &frame.children {
-            self.write_frame(f, child, Some(frame), &child_cols)?;
+            self.write_frame(f, child, Some(frame), &child_cols, None)?;
         }
 
         // Write logs as pseudo-children

@@ -1,11 +1,10 @@
---- Call #1 ---
-[140078] → new LogEvents@0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22
-         ├─  call context:
-         │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
-         │   @ msg.value: 0
-         │   @ block.timestamp: 1438269988
-         │   @ block.number: 1
-         └─ ← [return] 106 bytes of code
+[1] [140078] → new LogEvents@0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22
+             ├─  call context:
+             │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
+             │   @ msg.value: 0
+             │   @ block.timestamp: 1438269988
+             │   @ block.number: 1
+             └─ ← [return] 106 bytes of code
 
 Logs:
   simple log
