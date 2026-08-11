@@ -343,7 +343,7 @@ function invariant_TotalWithinLimit() external {
 
 ## Max Functions
 
-Max functions turn a harness value into a maximization objective. They must:
+Max functions turn a harness value into a maxxing objective. They must:
 
 - start with the prefix `max_`
 - take no arguments

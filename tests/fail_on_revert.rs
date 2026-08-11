@@ -1,5 +1,5 @@
 //! `--fail-on-revert` across both campaign modes: invariant and
-//! maximization.
+//! maxxing.
 //!
 //! A reverted handler call must be reported as a failed assertion, shrunk,
 //! and traced, and the campaign must stop at the first failure regardless of

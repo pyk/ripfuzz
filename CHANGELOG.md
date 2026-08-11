@@ -27,9 +27,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - Campaign mode is now selected automatically: a harness that declares a
   `max_*` function runs in max mode, which supports exactly one max function
   and rejects `invariant_*` functions.
-- Renamed the maximization campaign type from `MaxCampaign` to
-  `MaximizationCampaign`; its module moved from `campaigns::max` to
-  `campaigns::maximization`.
+- Renamed the maxxing campaign type from `MaxCampaign` to `MaxxingCampaign`;
+  its module moved from `campaigns::max` to `campaigns::maxxing`.
 
 ### Fixed
 

@@ -1,4 +1,4 @@
-//! Campaign orchestration for invariant and maximization campaigns.
+//! Campaign orchestration for invariant and maxxing campaigns.
 
 use std::thread::JoinHandle;
 
@@ -6,13 +6,13 @@ use anyhow::Result;
 use tracing::instrument;
 
 pub use crate::campaigns::invariant::InvariantCampaign;
-pub use crate::campaigns::maximization::MaximizationCampaign;
+pub use crate::campaigns::maxxing::MaxxingCampaign;
 pub use crate::campaigns::session::CampaignSession;
 
 use crate::commands::run::Args;
 
 mod invariant;
-mod maximization;
+mod maxxing;
 mod session;
 
 /// Campaign mode selected by the harness contract.
@@ -31,7 +31,7 @@ pub fn run(args: Args) -> Result<()> {
     let session = CampaignSession::new(args)?;
     match session.kind {
         CampaignKind::Invariant => InvariantCampaign::new(session)?.run(),
-        CampaignKind::Max => MaximizationCampaign::new(session)?.run(),
+        CampaignKind::Max => MaxxingCampaign::new(session)?.run(),
     }
 }
 

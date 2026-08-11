@@ -1,4 +1,4 @@
-//! Maximization campaign: maximize a single `max_*` function's return value.
+//! Maxxing campaign: maximize a single `max_*` function's return value.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,18 +18,18 @@ use crate::max::{
 };
 use crate::shrinker::{Shrinker, ShrinkerConfig};
 
-/// Maximization campaign.
-pub struct MaximizationCampaign {
+/// Maxxing campaign.
+pub struct MaxxingCampaign {
     session: CampaignSession,
     objective: MaxObjective,
 }
 
-impl MaximizationCampaign {
-    /// Create a maximization campaign from a prepared session.
+impl MaxxingCampaign {
+    /// Create a maxxing campaign from a prepared session.
     pub fn new(session: CampaignSession) -> Result<Self> {
         ensure!(
             session.kind == CampaignKind::Max,
-            "cannot run a maximization campaign on an invariant-mode harness"
+            "cannot run a maxxing campaign on an invariant-mode harness"
         );
         let objective = MaxObjective::new(
             session
