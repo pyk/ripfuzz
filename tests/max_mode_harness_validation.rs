@@ -40,7 +40,7 @@ fn make_args(corpus_dir: impl AsRef<Path>) -> Args {
         disable_log: true,
         ffi: false,
         force: false,
-        fail_on_revert: false,
+        stop_on_revert: false,
         external_projects: Vec::new(),
         shrink_runs: 500,
         shrink_timeout_secs: None,

@@ -158,9 +158,10 @@ pub struct Args {
     #[arg(long = "force", help_heading = "Foundry")]
     pub force: bool,
 
-    /// Treat any transaction revert as a failed assertion.
-    #[arg(long = "fail-on-revert", help_heading = "Fuzzing Parameters")]
-    pub fail_on_revert: bool,
+    /// Stop the campaign on the first reverted transaction and dump the whole
+    /// trace into the log (file and stderr) instead of shrinking it.
+    #[arg(long = "stop-on-revert", help_heading = "Fuzzing Parameters")]
+    pub stop_on_revert: bool,
 
     /// Additional Foundry projects whose build artifacts are loaded for
     /// coverage and trace resolution.
@@ -300,7 +301,7 @@ mod tests {
             disable_log: true,
             ffi: false,
             force: false,
-            fail_on_revert: false,
+            stop_on_revert: false,
             external_projects: Vec::new(),
             shrink_runs: 1,
             shrink_timeout_secs: None,

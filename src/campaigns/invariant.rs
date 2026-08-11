@@ -13,7 +13,7 @@ use crate::corpus::{Call, CorpusConfig, Item, SharedFailedCorpusItem};
 use crate::evm::Transaction;
 use crate::formatter;
 use crate::fuzzers::{
-    InvariantFuzzer, InvariantFuzzerConfig, SharedFailedAssertions, SharedMetrics,
+    InvariantFuzzer, InvariantFuzzerConfig, SharedFailedAssertions, SharedMetrics, SharedStopEvent,
 };
 use crate::shrinkers::{InvariantShrinker, InvariantShrinkerConfig};
 
@@ -44,10 +44,8 @@ impl InvariantCampaign {
             .map(|f| f.signature())
             .collect();
         let shared_metrics = SharedMetrics::new(all_function_signatures.clone());
-        let shared_failed_assertions = SharedFailedAssertions::for_campaign(
-            session.args.max_failures,
-            session.args.fail_on_revert,
-        );
+        let shared_failed_assertions = SharedFailedAssertions::new(session.args.max_failures);
+        let shared_stop_event = SharedStopEvent::new();
         let shutdown_signal = Arc::new(AtomicBool::new(false));
 
         let fuzzers = session.args.threads;
@@ -63,12 +61,13 @@ impl InvariantCampaign {
             .shared_coverage(session.shared_coverage.clone())
             .shared_metrics(shared_metrics.clone())
             .shared_failed_assertions(shared_failed_assertions.clone())
+            .shared_stop_event(shared_stop_event.clone())
             .shutdown_signal(shutdown_signal.clone())
             .invariant_functions(session.harness_contract.invariant_functions.clone())
             .caller(session.args.deployer_address)
             .gas_limit(session.args.gas_limit)
             .timeout(timeout)
-            .fail_on_revert(session.args.fail_on_revert);
+            .stop_on_revert(session.args.stop_on_revert);
 
         let mut handles = Vec::with_capacity(fuzzers);
         for (fuzzer_id, local_max_runs) in split_runs(session.args.max_runs, fuzzers).enumerate() {
@@ -113,6 +112,20 @@ impl InvariantCampaign {
                     error!(fuzzer_id, ?e, "fuzzer panicked");
                 }
             }
+        }
+
+        // Stop-on-revert: dump the whole trace into the log (file and
+        // stderr) and skip the shrinking phase entirely.
+        if let Some(event) = shared_stop_event.get() {
+            error!("[!] a transaction reverted; stopping the campaign (--stop-on-revert)");
+            if let Err(e) = session.dump_trace_sequence(&event.transactions) {
+                error!("[!] failed to dump the revert trace: {e:#}");
+            }
+            if let Err(e) = session.write_coverage_report() {
+                error!("[!] failed to generate coverage reports: {e:#}");
+            }
+            info!("[*] ripfuzz out. see ya");
+            return Ok(());
         }
 
         let failed_assertions = shared_failed_assertions.items();
@@ -224,8 +237,7 @@ impl InvariantCampaign {
                     .timeout(shrink_timeout)
                     .seed(seed)
                     // checkrs: allow(clone_in_loops)
-                    .shared_metrics(shrinker_metrics.clone())
-                    .fail_on_revert(session.args.fail_on_revert);
+                    .shared_metrics(shrinker_metrics.clone());
                 let shrinker = InvariantShrinker::new(shrinker_config);
                 let handle = std::thread::spawn(move || shrinker.run());
                 shrinker_handles.push(handle);

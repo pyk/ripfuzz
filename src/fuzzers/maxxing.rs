@@ -15,8 +15,7 @@ use crate::evm;
 use crate::evm::{SharedCoverage, Transaction, TransactionResult};
 use crate::fuzzers::engine::{EngineConfig, FuzzStrategy, Fuzzer};
 use crate::fuzzers::{
-    FailedAssertion, MaxObjective, MaxxingFuzzerCorpus, MaxxingFuzzerOutput,
-    SharedFailedAssertions, SharedMetrics,
+    MaxObjective, MaxxingFuzzerCorpus, MaxxingFuzzerOutput, SharedMetrics, SharedStopEvent,
 };
 
 /// Per-fuzzer configuration for max mode, configured via a fluent builder API.
@@ -28,14 +27,14 @@ pub struct MaxxingFuzzerConfig {
     pub shared_corpus: MaxxingFuzzerCorpus,
     pub shared_coverage: SharedCoverage,
     pub shared_metrics: SharedMetrics,
-    pub shared_failed_assertions: SharedFailedAssertions,
+    pub shared_stop_event: SharedStopEvent,
     pub shutdown_signal: Arc<AtomicBool>,
     pub caller: Address,
     pub objective: Option<MaxObjective>,
     pub max_runs: u64,
     pub gas_limit: u64,
     pub timeout: Option<Duration>,
-    pub fail_on_revert: bool,
+    pub stop_on_revert: bool,
 }
 
 impl MaxxingFuzzerConfig {
@@ -50,14 +49,14 @@ impl MaxxingFuzzerConfig {
             ))),
             shared_coverage: SharedCoverage::new(),
             shared_metrics: SharedMetrics::new(Vec::new()),
-            shared_failed_assertions: SharedFailedAssertions::new(1),
+            shared_stop_event: SharedStopEvent::new(),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             caller: evm::DEFAULT_DEPLOYER,
             objective: None,
             max_runs: 0,
             gas_limit: 12_500_000,
             timeout: None,
-            fail_on_revert: false,
+            stop_on_revert: false,
         }
     }
 
@@ -97,16 +96,15 @@ impl MaxxingFuzzerConfig {
         self
     }
 
-    /// Set the shared failed assertion collection.
-    pub fn shared_failed_assertions(mut self, value: SharedFailedAssertions) -> Self {
-        self.shared_failed_assertions = value;
+    /// Set the shared stop-on-revert event holder.
+    pub fn shared_stop_event(mut self, value: SharedStopEvent) -> Self {
+        self.shared_stop_event = value;
         self
     }
 
-    /// Set whether any reverted transaction should be treated as a failed
-    /// assertion.
-    pub fn fail_on_revert(mut self, value: bool) -> Self {
-        self.fail_on_revert = value;
+    /// Set whether the campaign stops on the first reverted transaction.
+    pub fn stop_on_revert(mut self, value: bool) -> Self {
+        self.stop_on_revert = value;
         self
     }
 
@@ -170,14 +168,14 @@ impl MaxxingFuzzer {
             shared_corpus,
             shared_coverage,
             shared_metrics,
-            shared_failed_assertions,
+            shared_stop_event,
             shutdown_signal,
             caller,
             objective,
             max_runs,
             gas_limit,
             timeout,
-            fail_on_revert,
+            stop_on_revert,
         } = config;
         let strategy =
             MaxxingStrategy::new(shared_corpus, objective.unwrap_or_else(default_objective));
@@ -188,13 +186,14 @@ impl MaxxingFuzzer {
                 target_address,
                 shared_coverage,
                 shared_metrics,
-                shared_failed_assertions,
+                shared_failed_assertions: None,
+                shared_stop_event,
                 shutdown_signal,
                 caller,
                 max_runs,
                 gas_limit,
                 timeout,
-                fail_on_revert,
+                stop_on_revert,
             },
             strategy,
         ))
@@ -290,8 +289,6 @@ impl FuzzStrategy for MaxxingStrategy {
         }
         Ok(())
     }
-
-    fn note_failure(&mut self, _failure: FailedAssertion) {}
 
     fn add_interesting(&self, item: Item) -> Result<()> {
         self.corpus.add_coverage_item(item)

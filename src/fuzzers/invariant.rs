@@ -24,7 +24,7 @@ use crate::evm;
 use crate::evm::{SharedCoverage, Transaction, TransactionResult};
 use crate::fuzzers::engine::{EngineConfig, FuzzStrategy, Fuzzer};
 use crate::fuzzers::{
-    FailedAssertion, InvariantFuzzerOutput, SharedFailedAssertions, SharedMetrics,
+    InvariantFuzzerOutput, SharedFailedAssertions, SharedMetrics, SharedStopEvent,
 };
 
 /// Per-fuzzer configuration for invariant mode, configured via a fluent
@@ -38,13 +38,14 @@ pub struct InvariantFuzzerConfig {
     pub shared_coverage: SharedCoverage,
     pub shared_metrics: SharedMetrics,
     pub shared_failed_assertions: SharedFailedAssertions,
+    pub shared_stop_event: SharedStopEvent,
     pub shutdown_signal: Arc<AtomicBool>,
     pub caller: Address,
     pub invariant_functions: Vec<Function>,
     pub max_runs: u64,
     pub gas_limit: u64,
     pub timeout: Option<Duration>,
-    pub fail_on_revert: bool,
+    pub stop_on_revert: bool,
 }
 
 impl InvariantFuzzerConfig {
@@ -58,13 +59,14 @@ impl InvariantFuzzerConfig {
             shared_coverage: SharedCoverage::new(),
             shared_metrics: SharedMetrics::new(Vec::new()),
             shared_failed_assertions: SharedFailedAssertions::new(1),
+            shared_stop_event: SharedStopEvent::new(),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             caller: evm::DEFAULT_DEPLOYER,
             invariant_functions: Vec::new(),
             max_runs: 0,
             gas_limit: 12_500_000,
             timeout: None,
-            fail_on_revert: false,
+            stop_on_revert: false,
         }
     }
 
@@ -146,9 +148,15 @@ impl InvariantFuzzerConfig {
         self
     }
 
-    /// Set whether any revert should be treated as a failure.
-    pub fn fail_on_revert(mut self, value: bool) -> Self {
-        self.fail_on_revert = value;
+    /// Set the shared stop-on-revert event holder.
+    pub fn shared_stop_event(mut self, value: SharedStopEvent) -> Self {
+        self.shared_stop_event = value;
+        self
+    }
+
+    /// Set whether the campaign stops on the first reverted transaction.
+    pub fn stop_on_revert(mut self, value: bool) -> Self {
+        self.stop_on_revert = value;
         self
     }
 }
@@ -176,13 +184,14 @@ impl InvariantFuzzer {
             shared_coverage,
             shared_metrics,
             shared_failed_assertions,
+            shared_stop_event,
             shutdown_signal,
             caller,
             invariant_functions,
             max_runs,
             gas_limit,
             timeout,
-            fail_on_revert,
+            stop_on_revert,
         } = config;
         let strategy = InvariantStrategy::new(shared_corpus, invariant_functions, caller);
         Self(Fuzzer::new(
@@ -192,13 +201,14 @@ impl InvariantFuzzer {
                 target_address,
                 shared_coverage,
                 shared_metrics,
-                shared_failed_assertions,
+                shared_failed_assertions: Some(shared_failed_assertions),
+                shared_stop_event,
                 shutdown_signal,
                 caller,
                 max_runs,
                 gas_limit,
                 timeout,
-                fail_on_revert,
+                stop_on_revert,
             },
             strategy,
         ))
@@ -219,7 +229,6 @@ impl InvariantFuzzer {
 struct InvariantStrategy {
     corpus: SharedCorpus,
     invariant_calls: Vec<Call>,
-    failures: Vec<FailedAssertion>,
 }
 
 impl InvariantStrategy {
@@ -237,7 +246,6 @@ impl InvariantStrategy {
         Self {
             corpus,
             invariant_calls,
-            failures: Vec::new(),
         }
     }
 }
@@ -285,10 +293,6 @@ impl FuzzStrategy for InvariantStrategy {
         Ok(())
     }
 
-    fn note_failure(&mut self, failure: FailedAssertion) {
-        self.failures.push(failure);
-    }
-
     fn add_interesting(&self, item: Item) -> Result<()> {
         self.corpus
             .add_item(item)
@@ -298,7 +302,6 @@ impl FuzzStrategy for InvariantStrategy {
     fn output(self, runs: u64, total_calls: u64, total_gas: u64) -> InvariantFuzzerOutput {
         InvariantFuzzerOutput {
             runs,
-            failures: self.failures,
             total_calls,
             total_gas,
         }

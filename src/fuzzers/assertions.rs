@@ -116,16 +116,6 @@ impl SharedFailedAssertions {
         }
     }
 
-    /// Create the collection for a campaign.
-    ///
-    /// With `fail_on_revert` the campaign stops at the first failure
-    /// regardless of `max_failures`; otherwise up to `max_failures` distinct
-    /// assertions are collected.
-    pub fn for_campaign(max_failures: usize, fail_on_revert: bool) -> Self {
-        let capacity = if fail_on_revert { 1 } else { max_failures };
-        Self::new(capacity)
-    }
-
     /// Add a failed assertion if it is distinct and the collection is not full.
     ///
     /// Returns `true` when the failed assertion was newly inserted.

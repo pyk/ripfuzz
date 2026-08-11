@@ -33,10 +33,6 @@ pub struct InvariantShrinkerConfig {
     pub max_runs: u64,
     pub timeout: Option<Duration>,
     pub shared_metrics: SharedMetrics,
-    pub fail_on_revert: bool,
-    /// Objective transaction interleaved after every call (max-mode stride-2
-    /// layout), when the failing sequence is executed by the max fuzzer.
-    pub objective_transaction: Option<Transaction>,
 }
 
 impl InvariantShrinkerConfig {
@@ -54,8 +50,6 @@ impl InvariantShrinkerConfig {
             max_runs: 0,
             timeout: None,
             shared_metrics: SharedMetrics::new(Vec::new()),
-            fail_on_revert: false,
-            objective_transaction: None,
         }
     }
 
@@ -106,23 +100,6 @@ impl InvariantShrinkerConfig {
         self.shared_metrics = value;
         self
     }
-
-    /// Set whether any revert should be treated as a failure.
-    pub fn fail_on_revert(mut self, value: bool) -> Self {
-        self.fail_on_revert = value;
-        self
-    }
-
-    /// Set the objective transaction interleaved after every call.
-    ///
-    /// When set, each candidate executes as `[call, objective, call,
-    /// objective, ...]` (max-mode stride-2 layout) and the failure check runs
-    /// on the full sequence, so objective-call reverts are preserved while
-    /// shrinking.
-    pub fn objective_transaction(mut self, value: Option<Transaction>) -> Self {
-        self.objective_transaction = value;
-        self
-    }
 }
 
 impl Default for InvariantShrinkerConfig {
@@ -151,13 +128,9 @@ impl InvariantShrinker {
             max_runs,
             timeout,
             shared_metrics,
-            fail_on_revert,
-            objective_transaction,
         } = config;
         let strategy = InvariantStrategy {
             shared_failed_corpus,
-            objective_transaction,
-            fail_on_revert,
         };
         Self(Shrinker::new(
             EngineConfig {
@@ -188,8 +161,6 @@ impl InvariantShrinker {
 #[derive(Debug)]
 struct InvariantStrategy {
     shared_failed_corpus: SharedFailedCorpusItem,
-    objective_transaction: Option<Transaction>,
-    fail_on_revert: bool,
 }
 
 impl ShrinkStrategy for InvariantStrategy {
@@ -200,25 +171,14 @@ impl ShrinkStrategy for InvariantStrategy {
     }
 
     fn sequence(&self, item: &Item, target: Address) -> Vec<Transaction> {
-        let mut transactions: Vec<Transaction> = item
-            .calls
+        item.calls
             .iter()
             .map(|call| call.into_transaction(target))
-            .collect();
-        if let Some(objective_transaction) = &self.objective_transaction {
-            let mut interleaved = Vec::with_capacity(transactions.len() * 2);
-            for transaction in transactions {
-                interleaved.push(transaction);
-                // checkrs: allow(clone_in_loops)
-                interleaved.push(objective_transaction.clone());
-            }
-            transactions = interleaved;
-        }
-        transactions
+            .collect()
     }
 
     fn observe(&self, item: Item, exec: &ExecOutput) -> Result<()> {
-        if exec.has_failure(self.fail_on_revert) {
+        if !exec.panic_transactions.is_empty() {
             self.shared_failed_corpus.replace_item(item);
         }
         Ok(())

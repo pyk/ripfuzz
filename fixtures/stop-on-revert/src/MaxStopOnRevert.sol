@@ -3,10 +3,10 @@ pragma solidity 0.8.28;
 
 /// A max-mode harness whose handler always reverts.
 ///
-/// Every generated sequence fails on its first call, so with
-/// `--fail-on-revert` the campaign must stop at the first failure and report
-/// it instead of running to completion with zero failed assertions.
-contract MaxFailOnRevert {
+/// Every generated sequence reverts on its first call, so with
+/// `--stop-on-revert` the campaign must stop at the first revert and dump the
+/// whole trace into the log instead of running to completion.
+contract MaxStopOnRevert {
     uint256 internal value;
 
     function revert_always() external {

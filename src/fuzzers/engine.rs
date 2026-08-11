@@ -4,14 +4,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, B256};
 use anyhow::{Context, Result};
 use tracing::{debug, instrument};
 
 use crate::corpus::Item;
 use crate::evm;
 use crate::evm::{SharedCoverage, Transaction, TransactionResult};
-use crate::fuzzers::{FailedAssertion, SharedFailedAssertions, SharedMetrics};
+use crate::fuzzers::{
+    FailedAssertion, SharedFailedAssertions, SharedMetrics, SharedStopEvent, StopEvent,
+};
 
 /// Common fuzzer configuration shared by every mode.
 #[derive(Debug)]
@@ -21,13 +23,18 @@ pub(super) struct EngineConfig {
     pub target_address: Address,
     pub shared_coverage: SharedCoverage,
     pub shared_metrics: SharedMetrics,
-    pub shared_failed_assertions: SharedFailedAssertions,
+    /// Failed assertion collector. `None` in modes that do not track
+    /// assertions (maxxing).
+    pub shared_failed_assertions: Option<SharedFailedAssertions>,
+    pub shared_stop_event: SharedStopEvent,
     pub shutdown_signal: Arc<AtomicBool>,
     pub caller: Address,
     pub max_runs: u64,
     pub gas_limit: u64,
     pub timeout: Option<Duration>,
-    pub fail_on_revert: bool,
+    /// Stop the campaign on the first reverted transaction instead of
+    /// continuing to fuzz.
+    pub stop_on_revert: bool,
 }
 
 /// What differs between fuzzing modes: input selection, sequence layout,
@@ -55,9 +62,6 @@ pub(super) trait FuzzStrategy {
         results: &[TransactionResult],
         metrics: &SharedMetrics,
     ) -> Result<()>;
-
-    /// Keep a failed assertion for the thread output, if the mode tracks them.
-    fn note_failure(&mut self, failure: FailedAssertion);
 
     /// Store an item that produced new coverage.
     fn add_interesting(&self, item: Item) -> Result<()>;
@@ -139,15 +143,9 @@ impl<S: FuzzStrategy> Fuzzer<S> {
                 interesting,
                 "coverage merge"
             );
-            let has_failure = exec.has_failure(self.config.fail_on_revert);
+            let has_failure = !exec.panic_transactions.is_empty();
             let failure_index = if has_failure {
-                exec.results.iter().position(|r| {
-                    if self.config.fail_on_revert {
-                        !r.success
-                    } else {
-                        r.is_assert_failure()
-                    }
-                })
+                exec.results.iter().position(|r| r.is_assert_failure())
             } else {
                 None
             };
@@ -162,31 +160,30 @@ impl<S: FuzzStrategy> Fuzzer<S> {
             total_gas += gas_sum;
             runs += 1;
 
+            // Stop-on-revert: any reverted transaction halts the campaign.
+            // The failing sequence is re-run with tracing afterwards so the
+            // whole trace can be dumped into the log.
+            if self.config.stop_on_revert && exec.results.iter().any(|r| !r.success) {
+                self.config
+                    .shared_stop_event
+                    .set(StopEvent { transactions });
+                self.config.shutdown_signal.store(true, Ordering::Relaxed);
+                break;
+            }
+
             // Dispatch item: move into corpus / failures, cloning only when
             // both conditions are true.
             match (interesting, has_failure) {
                 (true, true) => {
                     // checkrs: allow(clone_in_loops)
                     self.strategy.add_interesting(item.clone())?;
-                    let failure = FailedAssertion {
-                        transactions,
-                        item,
-                        failure_index,
-                        failure_pc,
-                    };
-                    self.note_failure(failure);
+                    self.note_failure(transactions, item, failure_index, failure_pc);
                 }
                 (true, false) => {
                     self.strategy.add_interesting(item)?;
                 }
                 (false, true) => {
-                    let failure = FailedAssertion {
-                        transactions,
-                        item,
-                        failure_index,
-                        failure_pc,
-                    };
-                    self.note_failure(failure);
+                    self.note_failure(transactions, item, failure_index, failure_pc);
                 }
                 (false, false) => {}
             }
@@ -195,18 +192,25 @@ impl<S: FuzzStrategy> Fuzzer<S> {
         Ok(self.strategy.output(runs, total_calls, total_gas))
     }
 
-    /// Record a failure in the shared collector and stop the campaign when it
-    /// is full.
-    fn note_failure(&mut self, failure: FailedAssertion) {
-        // checkrs: allow(clone_in_loops)
-        if self
-            .config
-            .shared_failed_assertions
-            .try_add(failure.clone())
-        {
-            self.strategy.note_failure(failure);
-        }
-        if self.config.shared_failed_assertions.is_full() {
+    /// Record an assertion failure in the shared collector and stop the
+    /// campaign when the collector is full.
+    fn note_failure(
+        &mut self,
+        transactions: Vec<Transaction>,
+        item: Item,
+        failure_index: Option<usize>,
+        failure_pc: Option<(B256, usize)>,
+    ) {
+        let Some(shared_failed_assertions) = &self.config.shared_failed_assertions else {
+            return;
+        };
+        let failure = FailedAssertion {
+            transactions,
+            item,
+            failure_index,
+            failure_pc,
+        };
+        if shared_failed_assertions.try_add(failure) && shared_failed_assertions.is_full() {
             self.config.shutdown_signal.store(true, Ordering::Relaxed);
         }
     }

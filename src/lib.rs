@@ -16,7 +16,8 @@ pub use foundry::{Artifact, ArtifactId, BuildOptions, Project};
 pub use fuzzers::{
     FailedAssertion, FunctionMetricsSnapshot, InvariantFuzzer, InvariantFuzzerConfig,
     InvariantFuzzerOutput, MaxBestItem, MaxObjective, MaxxingFuzzer, MaxxingFuzzerConfig,
-    MaxxingFuzzerCorpus, MaxxingFuzzerOutput, SharedFailedAssertions, SharedMetrics, Snapshot,
+    MaxxingFuzzerCorpus, MaxxingFuzzerOutput, SharedFailedAssertions, SharedMetrics,
+    SharedStopEvent, Snapshot, StopEvent,
 };
 pub use shrinkers::{
     InvariantShrinker, InvariantShrinkerConfig, InvariantShrinkerOutput, MaxxingResult,

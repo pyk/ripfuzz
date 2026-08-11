@@ -85,8 +85,7 @@ fn run_fuzzer(
         .caller(DEFAULT_DEPLOYER)
         .gas_limit(12_500_000)
         .max_runs(max_runs)
-        .seed(seed)
-        .fail_on_revert(false);
+        .seed(seed);
 
     let fuzzer = InvariantFuzzer::new(config);
     fuzzer.run().unwrap();
@@ -102,7 +101,10 @@ fn assert_still_fails(chain: &Chain, target: Address, item: &Item) {
         .collect();
     let mut verify_chain = chain.clone();
     let exec = verify_chain.exec(&transactions).unwrap();
-    assert!(exec.has_failure(false), "shrunk item must still fail");
+    assert!(
+        !exec.panic_transactions.is_empty(),
+        "shrunk item must still fail"
+    );
 }
 
 #[test]
@@ -237,8 +239,7 @@ fn multi_fail_each_assertion_shrinks_to_minimal_sequence() {
             .shutdown_signal(Arc::new(AtomicBool::new(false)))
             .max_runs(200)
             .seed(42)
-            .shared_metrics(SharedMetrics::new(signatures.clone()))
-            .fail_on_revert(false);
+            .shared_metrics(SharedMetrics::new(signatures.clone()));
 
         InvariantShrinker::new(config).run().unwrap();
         let shrunk = shared_failed_item.item();

@@ -11,6 +11,7 @@ pub use crate::fuzzers::maxxing::{MaxxingFuzzer, MaxxingFuzzerConfig};
 pub use crate::fuzzers::metrics::{FunctionMetricsSnapshot, SharedMetrics, Snapshot};
 pub use crate::fuzzers::objective::MaxObjective;
 pub use crate::fuzzers::output::{InvariantFuzzerOutput, MaxxingFuzzerOutput};
+pub use crate::fuzzers::stop::{SharedStopEvent, StopEvent};
 
 mod assertions;
 mod corpus;
@@ -20,3 +21,4 @@ mod maxxing;
 mod metrics;
 mod objective;
 mod output;
+mod stop;

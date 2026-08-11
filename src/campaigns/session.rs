@@ -15,7 +15,7 @@ use crate::commands::run::Args;
 use crate::corpus::{CorpusConfig, CorpusReplayer, ExtractedLiterals, SharedCorpus};
 use crate::evm::{
     Chain, ChainConfig, Contract, CoverageReporter, DeployInput, ForkDBConfig, SetupInput,
-    SharedCoverage, Trace, TraceContext,
+    SharedCoverage, Trace, TraceContext, Transaction,
 };
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
@@ -424,11 +424,7 @@ impl CampaignSession {
 
     /// Write a trace for the current campaign and return its path.
     pub fn write_trace(&self, trace: &Trace, file_name: &str) -> Result<PathBuf> {
-        let mut ctx = TraceContext::from_project(&self.project)?
-            .with_label(self.deployed_address, self.contract_name());
-        for (addr, label) in self.chain.labels() {
-            ctx = ctx.with_label(*addr, label);
-        }
+        let ctx = self.trace_context()?;
         let trace_dir = ripfuzz_dir(&self.project.path)
             .join("campaigns")
             .join(&self.campaign_id);
@@ -437,6 +433,31 @@ impl CampaignSession {
         let trace_str = trace.display_with(&ctx);
         fs::write(&trace_file, format!("{trace_str}"))?;
         Ok(trace_file)
+    }
+
+    /// Re-run `transactions` with tracing enabled and dump the whole trace
+    /// into the campaign log, both the log file and stderr.
+    pub fn dump_trace_sequence(&self, transactions: &[Transaction]) -> Result<()> {
+        let mut trace_chain = self.chain.clone();
+        trace_chain.set_trace(true);
+        let exec = trace_chain.exec(transactions)?;
+        let trace = exec.trace.context("trace expected after re-run")?;
+        let ctx = self.trace_context()?;
+        for line in format!("{}", trace.display_with(&ctx)).lines() {
+            error!("    {line}");
+        }
+        Ok(())
+    }
+
+    /// Trace context for the current campaign: project artifacts plus chain
+    /// labels.
+    fn trace_context(&self) -> Result<TraceContext> {
+        let mut ctx = TraceContext::from_project(&self.project)?
+            .with_label(self.deployed_address, self.contract_name());
+        for (addr, label) in self.chain.labels() {
+            ctx = ctx.with_label(*addr, label);
+        }
+        Ok(ctx)
     }
 
     /// Generate coverage reports for the current campaign.

@@ -692,7 +692,7 @@ mod tests {
     }
 
     /// Calls to addresses with no bytecode must annotate the empty account path
-    /// so --fail-on-revert traces are actionable (e.g. forgot rvm.fork).
+    /// so --stop-on-revert traces are actionable (e.g. forgot rvm.fork).
     #[test]
     fn call_empty_account_trace() {
         let contract = load_fixture("src/CallEmptyAccount.sol:CallEmptyAccount");

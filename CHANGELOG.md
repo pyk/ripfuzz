@@ -10,14 +10,21 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
-- `--max-failures N` to collect up to N distinct failed assertions before
-  stopping the campaign, with each one shrunk and reported separately
+- `--max-failures N` to collect up to N distinct failed assertions (invariant
+  mode only) before stopping the campaign, with each one shrunk and reported
+  separately
 - `max_*` harness functions: read-only, no-argument functions returning
   `uint256`; reverted or empty results score `0`, and any value above `0` is
   the finding
 
 ### Changed
 
+- `--fail-on-revert` is replaced by `--stop-on-revert`: any reverted
+  transaction stops the campaign in both invariant and maxxing mode, and the
+  whole trace is dumped into the campaign log (both the log file and stderr)
+  instead of being shrunk
+- Maxxing campaigns no longer track failed assertions; max-mode sequences never
+  enter the shrinker on a revert
 - Upgraded solc dependency to v0.1.0
 - Fuzzer and shrinker progress now logs one compact line every 3 seconds, with
   the full statistics printed after the phase finishes
@@ -45,11 +52,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - Fork transport JSON-RPC request/response payloads are logged at `debug`
   instead of `info`, so default `--log-level info` runs no longer flood the
   terminal with full payload lines for every round trip.
-- `--fail-on-revert` now works in max mode: a reverted transaction in a max
-  sequence (handler or `max_*` call) is reported as a failed assertion, shrunk,
-  traced, and written to the campaign directory (`trace-max-fail.log`). The
-  campaign stops at the first failure regardless of `--max-failures`, matching
-  invariant mode.
 
 ## [0.9.1] - 2026-08-07
 

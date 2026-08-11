@@ -3,9 +3,9 @@ pragma solidity 0.8.28;
 
 /// An invariant-mode harness whose handler always reverts.
 ///
-/// With `--fail-on-revert` the campaign must stop at the first failure and
-/// report it instead of running to completion with zero failed assertions.
-contract InvariantFailOnRevert {
+/// With `--stop-on-revert` the campaign must stop at the first revert and
+/// dump the whole trace into the log instead of running to completion.
+contract InvariantStopOnRevert {
     uint256 internal constant MAX = 100;
     uint256 internal value;
 
