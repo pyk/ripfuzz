@@ -1,5 +1,5 @@
-//! Invariant testing campaign: validate invariants across generated call
-//! sequences and shrink every distinct failed assertion.
+//! Invariant campaign: validate invariants across generated call sequences
+//! and shrink every distinct failed assertion.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use crate::formatter;
 use crate::fuzzer::{Fuzzer, FuzzerConfig, SharedFailedAssertions, SharedMetrics};
 use crate::shrinker::{Shrinker, ShrinkerConfig};
 
-/// Invariant testing campaign.
+/// Invariant campaign.
 pub struct InvariantCampaign {
     session: CampaignSession,
 }

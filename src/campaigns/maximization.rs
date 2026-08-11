@@ -19,17 +19,17 @@ use crate::max::{
 use crate::shrinker::{Shrinker, ShrinkerConfig};
 
 /// Maximization campaign.
-pub struct MaxCampaign {
+pub struct MaximizationCampaign {
     session: CampaignSession,
     objective: MaxObjective,
 }
 
-impl MaxCampaign {
-    /// Create a max campaign from a prepared session.
+impl MaximizationCampaign {
+    /// Create a maximization campaign from a prepared session.
     pub fn new(session: CampaignSession) -> Result<Self> {
         ensure!(
             session.kind == CampaignKind::Max,
-            "cannot run a max campaign on an invariant-mode harness"
+            "cannot run a maximization campaign on an invariant-mode harness"
         );
         let objective = MaxObjective::new(
             session
