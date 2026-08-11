@@ -9,9 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use alloy_primitives::{Address, B256};
 use ripfuzz::{
     ArtifactId, Chain, ChainConfig, Contract, CorpusConfig, DEFAULT_DEPLOYER, DeployInput,
-    FailedAssertion, InvariantFuzzer, InvariantFuzzerConfig, Item, Project, SharedCorpus,
-    SharedCoverage, SharedFailedAssertions, SharedFailedCorpusItem, SharedMetrics, Shrinker,
-    ShrinkerConfig, Transaction,
+    FailedAssertion, InvariantFuzzer, InvariantFuzzerConfig, InvariantShrinker,
+    InvariantShrinkerConfig, Item, Project, SharedCorpus, SharedCoverage, SharedFailedAssertions,
+    SharedFailedCorpusItem, SharedMetrics, Transaction,
 };
 
 const PROJECT: &str = "fixtures/max-failures";
@@ -230,7 +230,7 @@ fn multi_fail_each_assertion_shrinks_to_minimal_sequence() {
             assertion.item.clone(),
             CorpusConfig::new(PathBuf::new()).handler_functions(all_functions.clone()),
         );
-        let config = ShrinkerConfig::new()
+        let config = InvariantShrinkerConfig::new()
             .chain(chain.clone())
             .target_address(target)
             .shared_failed_item(shared_failed_item.clone())
@@ -240,7 +240,7 @@ fn multi_fail_each_assertion_shrinks_to_minimal_sequence() {
             .shared_metrics(SharedMetrics::new(signatures.clone()))
             .fail_on_revert(false);
 
-        Shrinker::new(config).run().unwrap();
+        InvariantShrinker::new(config).run().unwrap();
         let shrunk = shared_failed_item.item();
         assert_eq!(
             shrunk.calls.len(),

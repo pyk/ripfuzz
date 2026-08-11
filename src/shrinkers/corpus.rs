@@ -1,4 +1,4 @@
-//! Shared corpus state for max-mode shrinking.
+//! Shared corpus state for maxxing-mode shrinking.
 
 use std::sync::Arc;
 
@@ -14,14 +14,14 @@ use crate::corpus::{
 
 /// A single max result being shrunk, shared across shrinker threads.
 #[derive(Debug, Clone)]
-pub struct MaxShrinkerItem {
+pub struct MaxxingShrinkerItem {
     pub value: U256,
     pub item: Item,
 }
 
 #[derive(Debug)]
-struct MaxShrinkerCorpusInner {
-    current: RwLock<MaxShrinkerItem>,
+struct MaxxingShrinkerCorpusInner {
+    current: RwLock<MaxxingShrinkerItem>,
     handler_functions: Vec<alloy_json_abi::Function>,
     literals: ExtractedLiterals,
     corpus: SharedCorpus,
@@ -31,17 +31,17 @@ struct MaxShrinkerCorpusInner {
 ///
 /// Cloning is cheap (shares the same inner state).
 #[derive(Debug, Clone)]
-pub struct MaxShrinkerCorpus {
-    inner: Arc<MaxShrinkerCorpusInner>,
+pub struct MaxxingShrinkerCorpus {
+    inner: Arc<MaxxingShrinkerCorpusInner>,
 }
 
-impl MaxShrinkerCorpus {
+impl MaxxingShrinkerCorpus {
     /// Create a shrinker corpus from a best item and a
     /// [`CorpusConfig`](crate::corpus::CorpusConfig).
     pub fn new(item: Item, value: U256, config: CorpusConfig, corpus: SharedCorpus) -> Self {
         Self {
-            inner: Arc::new(MaxShrinkerCorpusInner {
-                current: RwLock::new(MaxShrinkerItem { value, item }),
+            inner: Arc::new(MaxxingShrinkerCorpusInner {
+                current: RwLock::new(MaxxingShrinkerItem { value, item }),
                 handler_functions: config.handler_functions,
                 literals: config.literals,
                 corpus,
@@ -50,7 +50,7 @@ impl MaxShrinkerCorpus {
     }
 
     /// Return a cloned snapshot of the current best item.
-    pub fn item(&self) -> MaxShrinkerItem {
+    pub fn item(&self) -> MaxxingShrinkerItem {
         self.inner.current.read().clone()
     }
 
@@ -71,7 +71,7 @@ impl MaxShrinkerCorpus {
         let improves = value > current.value;
         let shrinks = value >= current.value && item.calls.len() < current.item.calls.len();
         if improves || shrinks {
-            *current = MaxShrinkerItem {
+            *current = MaxxingShrinkerItem {
                 value,
                 item: item.clone(),
             };
@@ -209,7 +209,7 @@ mod tests {
             .handler_functions(functions.clone())
             .max_calls(4);
         let seed_item = Item::from(vec![empty_call(), empty_call()]);
-        let shrink_corpus = MaxShrinkerCorpus::new(seed_item, U256::from(5), config, corpus);
+        let shrink_corpus = MaxxingShrinkerCorpus::new(seed_item, U256::from(5), config, corpus);
 
         // Smaller with the same value is accepted.
         let smaller = Item::from(vec![empty_call()]);

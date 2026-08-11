@@ -122,22 +122,23 @@ as a bug and adds it to the set of objectives. Reverts caused by `require` or
 other reasons do not produce a failed assertion. Synonyms: **objective**,
 **bug**.
 
-### Shrinker
+### Invariant Shrinker
 
-A per-thread worker that minimizes a failing corpus item after a failed
-assertion is discovered. When a campaign collects multiple distinct failed
-assertions, the shrinker minimizes each one independently. It draws mutated
-copies of the current smallest failing sequence, executes each on a fresh chain
-clone, and replaces the shared item if the mutated sequence is still failing
-and strictly smaller. The goal is to produce a minimal reproduction that
-triggers the same assertion panic with the fewest possible calls.
+A per-thread worker (the `InvariantShrinker`) that minimizes a failing corpus
+item after a failed assertion is discovered. When a campaign collects multiple
+distinct failed assertions, the shrinker minimizes each one independently. It
+draws mutated copies of the current smallest failing sequence, executes each on
+a fresh chain clone, and replaces the shared item if the mutated sequence is
+still failing and strictly smaller. The goal is to produce a minimal
+reproduction that triggers the same assertion panic with the fewest possible
+calls.
 
-### Max Shrinker
+### Maxxing Shrinker
 
-A per-thread worker that minimizes the best sequence of a **max function**. It
-draws mutated copies of the current best sequence, executes each followed by
-the max function call, and accepts the candidate when it preserves or improves
-the stored value and shrinks the sequence.
+A per-thread worker (the `MaxxingShrinker`) that minimizes the best sequence of
+a **max function**. It draws mutated copies of the current best sequence,
+executes each followed by the max function call, and accepts the candidate when
+it preserves or improves the stored value and shrinks the sequence.
 
 ## Coverage Terms
 

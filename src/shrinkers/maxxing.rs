@@ -1,29 +1,28 @@
-//! Per-thread shrinker for max-mode results.
+//! Per-thread shrinker for maxxing-mode results.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use alloy_json_abi::Function;
 use alloy_primitives::{Address, U256};
 use anyhow::{Context, Result};
-use tracing::instrument;
 
 use crate::corpus::{CorpusConfig, Item, SharedCorpus};
 use crate::evm;
-use crate::evm::Transaction;
-use crate::fuzzers::MaxObjective;
-use crate::fuzzers::SharedMetrics;
-use crate::max::corpus::MaxShrinkerCorpus;
-use crate::max::output::MaxShrinkerOutput;
+use crate::evm::{ExecOutput, Transaction};
+use crate::fuzzers::{MaxObjective, SharedMetrics};
+use crate::shrinkers::engine::{EngineConfig, ShrinkStrategy, Shrinker};
+use crate::shrinkers::{MaxxingShrinkerCorpus, MaxxingShrinkerOutput};
 
-/// Per-shrinker configuration for max mode, configured via a fluent builder API.
+/// Per-shrinker configuration for maxxing mode, configured via a fluent
+/// builder API.
 #[derive(Clone, Debug)]
-pub struct MaxShrinkerConfig {
+pub struct MaxxingShrinkerConfig {
     pub seed: u64,
     pub chain: evm::Chain,
     pub target_address: Address,
-    pub shared_corpus: MaxShrinkerCorpus,
+    pub shared_corpus: MaxxingShrinkerCorpus,
     pub shutdown_signal: Arc<AtomicBool>,
     pub objective: Option<MaxObjective>,
     pub max_runs: u64,
@@ -33,14 +32,14 @@ pub struct MaxShrinkerConfig {
     pub caller: Address,
 }
 
-impl MaxShrinkerConfig {
+impl MaxxingShrinkerConfig {
     /// Create a new empty config.
     pub fn new() -> Self {
         Self {
             seed: 0,
             chain: evm::Chain::default(),
             target_address: Address::ZERO,
-            shared_corpus: MaxShrinkerCorpus::new(
+            shared_corpus: MaxxingShrinkerCorpus::new(
                 Item::from(vec![]),
                 U256::ZERO,
                 CorpusConfig::new(""),
@@ -75,7 +74,7 @@ impl MaxShrinkerConfig {
     }
 
     /// Set the shared shrinker corpus.
-    pub fn shared_corpus(mut self, value: MaxShrinkerCorpus) -> Self {
+    pub fn shared_corpus(mut self, value: MaxxingShrinkerCorpus) -> Self {
         self.shared_corpus = value;
         self
     }
@@ -123,46 +122,54 @@ impl MaxShrinkerConfig {
     }
 }
 
-impl Default for MaxShrinkerConfig {
+impl Default for MaxxingShrinkerConfig {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Per-thread shrinker that minimizes a max result while preserving its value.
+/// Per-thread shrinker that minimizes a maxxing result while preserving its
+/// value.
 ///
-/// Created via [`MaxShrinkerConfig`] and run via [`MaxShrinker::run`].
+/// Created via [`MaxxingShrinkerConfig`] and run via
+/// [`MaxxingShrinker::run`].
 #[derive(Debug)]
-pub struct MaxShrinker {
-    chain: evm::Chain,
-    target_address: Address,
-    shared_corpus: MaxShrinkerCorpus,
-    shutdown_signal: Arc<AtomicBool>,
-    objective: MaxObjective,
-    max_runs: u64,
-    timeout: Option<Duration>,
-    shared_metrics: SharedMetrics,
-    gas_limit: u64,
-    caller: Address,
-    rng: fastrand::Rng,
-}
+pub struct MaxxingShrinker(Shrinker<MaxxingStrategy>);
 
-impl MaxShrinker {
-    /// Create a new max shrinker with the given config.
-    pub fn new(config: MaxShrinkerConfig) -> Self {
-        Self {
-            chain: config.chain,
-            target_address: config.target_address,
-            shared_corpus: config.shared_corpus,
-            shutdown_signal: config.shutdown_signal,
-            objective: config.objective.unwrap_or_else(default_objective),
-            max_runs: config.max_runs,
-            timeout: config.timeout,
-            shared_metrics: config.shared_metrics,
-            gas_limit: config.gas_limit,
-            caller: config.caller,
-            rng: fastrand::Rng::with_seed(config.seed),
-        }
+impl MaxxingShrinker {
+    /// Create a new maxxing shrinker with the given config.
+    pub fn new(config: MaxxingShrinkerConfig) -> Self {
+        let MaxxingShrinkerConfig {
+            seed,
+            chain,
+            target_address,
+            shared_corpus,
+            shutdown_signal,
+            objective,
+            max_runs,
+            timeout,
+            shared_metrics,
+            gas_limit,
+            caller,
+        } = config;
+        let strategy = MaxxingStrategy {
+            shared_corpus,
+            objective: objective.unwrap_or_else(default_objective),
+            caller,
+            gas_limit,
+        };
+        Self(Shrinker::new(
+            EngineConfig {
+                seed,
+                chain,
+                target_address,
+                shutdown_signal,
+                max_runs,
+                timeout,
+                shared_metrics,
+            },
+            strategy,
+        ))
     }
 
     /// Run the shrinker for up to `max_runs` iterations on a single thread.
@@ -170,60 +177,56 @@ impl MaxShrinker {
     /// Each iteration draws a mutated copy of the current best item, executes
     /// it followed by the max objective call, and accepts the candidate when it
     /// preserves or improves the stored value and shrinks the sequence.
-    #[instrument(skip(self), fields(max_runs = self.max_runs))]
-    pub fn run(mut self) -> Result<MaxShrinkerOutput> {
-        let start = Instant::now();
-        let mut runs = 0u64;
-        let mut total_calls = 0u64;
-        let mut total_gas = 0u64;
+    pub fn run(self) -> Result<MaxxingShrinkerOutput> {
+        self.0.run()
+    }
+}
 
-        for _ in 0..self.max_runs {
-            if self.shutdown_signal.load(Ordering::Relaxed) {
-                break;
-            }
-            let should_break = match self.timeout {
-                Some(t) => start.elapsed() > t,
-                None => false,
-            };
-            if should_break {
-                break;
-            }
+/// Maxxing-mode strategy: keep the smallest candidate that preserves or
+/// improves the stored objective value.
+#[derive(Debug)]
+struct MaxxingStrategy {
+    shared_corpus: MaxxingShrinkerCorpus,
+    objective: MaxObjective,
+    caller: Address,
+    gas_limit: u64,
+}
 
-            let item = self.shared_corpus.next_item(&mut self.rng);
-            // checkrs: allow(clone_in_loops)
-            let mut fresh_chain = self.chain.clone();
+impl ShrinkStrategy for MaxxingStrategy {
+    type Output = MaxxingShrinkerOutput;
 
-            let mut transactions: Vec<Transaction> = item
-                .calls
-                .iter()
-                .map(|call| call.into_transaction(self.target_address))
-                .collect();
-            transactions.push(self.objective.transaction(
-                self.target_address,
-                self.caller,
-                self.gas_limit,
-            ));
+    fn next_item(&self, rng: &mut fastrand::Rng) -> Item {
+        self.shared_corpus.next_item(rng)
+    }
 
-            let exec = fresh_chain.exec(&transactions)?;
-            let calls_count = transactions.len() as u64;
-            let gas_sum = exec.results.iter().map(|r| r.gas_used).sum::<u64>();
-            total_calls += calls_count;
-            total_gas += gas_sum;
-            self.shared_metrics.record(calls_count, gas_sum);
-            runs += 1;
+    fn sequence(&self, item: &Item, target: Address) -> Vec<Transaction> {
+        let mut transactions: Vec<Transaction> = item
+            .calls
+            .iter()
+            .map(|call| call.into_transaction(target))
+            .collect();
+        transactions.push(
+            self.objective
+                .transaction(target, self.caller, self.gas_limit),
+        );
+        transactions
+    }
 
-            let value = self
-                .objective
-                .decode(exec.results.last().context("max call result missing")?)
-                .unwrap_or_default();
-            self.shared_corpus.accept(item, value);
-        }
+    fn observe(&self, item: Item, exec: &ExecOutput) -> Result<()> {
+        let value = self
+            .objective
+            .decode(exec.results.last().context("max call result missing")?)
+            .unwrap_or_default();
+        self.shared_corpus.accept(item, value);
+        Ok(())
+    }
 
-        Ok(MaxShrinkerOutput {
+    fn output(self, runs: u64, total_calls: u64, total_gas: u64) -> MaxxingShrinkerOutput {
+        MaxxingShrinkerOutput {
             runs,
             total_calls,
             total_gas,
-        })
+        }
     }
 }
 
@@ -247,10 +250,8 @@ mod tests {
     use crate::corpus::{Call, CorpusConfig, Item, SharedCorpus};
     use crate::evm::{Chain, ChainConfig, Contract, DEFAULT_DEPLOYER, DeployInput};
     use crate::foundry::{ArtifactId, Project};
-    use crate::fuzzers::MaxObjective;
-    use crate::fuzzers::SharedMetrics;
-    use crate::max::corpus::MaxShrinkerCorpus;
-    use crate::max::shrinker::{MaxShrinker, MaxShrinkerConfig};
+    use crate::fuzzers::{MaxObjective, SharedMetrics};
+    use crate::shrinkers::{MaxxingShrinker, MaxxingShrinkerConfig, MaxxingShrinkerCorpus};
 
     fn load_contract(id: &str) -> Contract {
         let project = Project::new("fixtures/max-mode-harness-validation");
@@ -260,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn max_shrinker_removes_trailing_clear() {
+    fn maxxing_shrinker_removes_trailing_clear() {
         let contract = load_contract("src/MaxMidSequence.sol:MaxMidSequence");
         let set = contract
             .handler_functions
@@ -303,9 +304,9 @@ mod tests {
         let config = CorpusConfig::new(tmp.path().join("corpus"))
             .handler_functions(contract.handler_functions.clone())
             .max_calls(4);
-        let shrink_corpus = MaxShrinkerCorpus::new(item, U256::from(7), config, corpus);
+        let shrink_corpus = MaxxingShrinkerCorpus::new(item, U256::from(7), config, corpus);
 
-        let shrinker_config = MaxShrinkerConfig::new()
+        let shrinker_config = MaxxingShrinkerConfig::new()
             .chain(chain)
             .target_address(target)
             .shared_corpus(shrink_corpus.clone())
@@ -317,7 +318,7 @@ mod tests {
             .gas_limit(12_500_000)
             .caller(DEFAULT_DEPLOYER);
 
-        let shrinker = MaxShrinker::new(shrinker_config);
+        let shrinker = MaxxingShrinker::new(shrinker_config);
         shrinker.run().unwrap();
 
         let final_item = shrink_corpus.item();

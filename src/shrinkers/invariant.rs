@@ -1,127 +1,235 @@
 //! Per-thread shrinker that minimizes a failing corpus item.
 //!
-//! [`Shrinker`] draws a mutated copy of the current smallest failing
+//! [`InvariantShrinker`] draws a mutated copy of the current smallest failing
 //! item, executes it on a fresh chain clone, and replaces the shared item if
 //! the mutated sequence is still failing and strictly smaller.
 //!
-//! [`Shrinker`] is configured via [`ShrinkerConfig`] and runs directly
-//! on a cloned chain.
+//! [`InvariantShrinker`] is configured via [`InvariantShrinkerConfig`] and
+//! runs directly on a cloned chain.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use alloy_primitives::Address;
 use anyhow::Result;
-use tracing::instrument;
 
-pub use crate::shrinker::config::ShrinkerConfig;
-pub use crate::shrinker::output::ShrinkerOutput;
-
-use crate::corpus::SharedFailedCorpusItem;
+use crate::corpus::{CorpusConfig, Item, SharedFailedCorpusItem};
 use crate::evm;
-use crate::evm::Transaction;
+use crate::evm::{ExecOutput, Transaction};
 use crate::fuzzers::SharedMetrics;
+use crate::shrinkers::InvariantShrinkerOutput;
+use crate::shrinkers::engine::{EngineConfig, ShrinkStrategy, Shrinker};
 
-mod config;
-mod output;
+/// Per-shrinker configuration for invariant mode, configured via a fluent
+/// builder API.
+#[derive(Clone, Debug)]
+pub struct InvariantShrinkerConfig {
+    pub seed: u64,
+    pub chain: evm::Chain,
+    pub target_address: Address,
+    pub shared_failed_corpus: SharedFailedCorpusItem,
+    pub shutdown_signal: Arc<AtomicBool>,
+    pub max_runs: u64,
+    pub timeout: Option<Duration>,
+    pub shared_metrics: SharedMetrics,
+    pub fail_on_revert: bool,
+    /// Objective transaction interleaved after every call (max-mode stride-2
+    /// layout), when the failing sequence is executed by the max fuzzer.
+    pub objective_transaction: Option<Transaction>,
+}
+
+impl InvariantShrinkerConfig {
+    /// Create a new empty config.
+    pub fn new() -> Self {
+        Self {
+            seed: 0,
+            chain: evm::Chain::default(),
+            target_address: Address::ZERO,
+            shared_failed_corpus: SharedFailedCorpusItem::new(
+                Item::from(vec![]),
+                CorpusConfig::new(""),
+            ),
+            shutdown_signal: Arc::new(AtomicBool::new(false)),
+            max_runs: 0,
+            timeout: None,
+            shared_metrics: SharedMetrics::new(Vec::new()),
+            fail_on_revert: false,
+            objective_transaction: None,
+        }
+    }
+
+    /// Set the RNG seed.
+    pub fn seed(mut self, value: u64) -> Self {
+        self.seed = value;
+        self
+    }
+
+    /// Set the chain snapshot.
+    pub fn chain(mut self, value: evm::Chain) -> Self {
+        self.chain = value;
+        self
+    }
+
+    /// Set the harness contract address.
+    pub fn target_address(mut self, value: Address) -> Self {
+        self.target_address = value;
+        self
+    }
+
+    /// Set the shared failed corpus item.
+    pub fn shared_failed_item(mut self, value: SharedFailedCorpusItem) -> Self {
+        self.shared_failed_corpus = value;
+        self
+    }
+
+    /// Set the shared shutdown signal.
+    pub fn shutdown_signal(mut self, value: Arc<AtomicBool>) -> Self {
+        self.shutdown_signal = value;
+        self
+    }
+
+    /// Set the maximum number of runs.
+    pub fn max_runs(mut self, value: u64) -> Self {
+        self.max_runs = value;
+        self
+    }
+
+    /// Set the timeout.
+    pub fn timeout(mut self, value: Option<Duration>) -> Self {
+        self.timeout = value;
+        self
+    }
+
+    /// Set the shared metrics.
+    pub fn shared_metrics(mut self, value: SharedMetrics) -> Self {
+        self.shared_metrics = value;
+        self
+    }
+
+    /// Set whether any revert should be treated as a failure.
+    pub fn fail_on_revert(mut self, value: bool) -> Self {
+        self.fail_on_revert = value;
+        self
+    }
+
+    /// Set the objective transaction interleaved after every call.
+    ///
+    /// When set, each candidate executes as `[call, objective, call,
+    /// objective, ...]` (max-mode stride-2 layout) and the failure check runs
+    /// on the full sequence, so objective-call reverts are preserved while
+    /// shrinking.
+    pub fn objective_transaction(mut self, value: Option<Transaction>) -> Self {
+        self.objective_transaction = value;
+        self
+    }
+}
+
+impl Default for InvariantShrinkerConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Per-thread shrinker that executes mutated call sequences and keeps the
 /// smallest item that still triggers a failed assertion.
 ///
-/// Created via [`Shrinker::new`] and run via [`Shrinker::run`].
+/// Created via [`InvariantShrinkerConfig`] and run via
+/// [`InvariantShrinker::run`].
 #[derive(Debug)]
-pub struct Shrinker {
-    chain: evm::Chain,
-    target_address: Address,
-    shared_failed_corpus: SharedFailedCorpusItem,
-    shutdown_signal: Arc<AtomicBool>,
-    max_runs: u64,
-    timeout: Option<Duration>,
-    shared_metrics: SharedMetrics,
-    fail_on_revert: bool,
-    objective_transaction: Option<Transaction>,
-    rng: fastrand::Rng,
-}
+pub struct InvariantShrinker(Shrinker<InvariantStrategy>);
 
-impl Shrinker {
-    /// Create a new shrinker with the given config.
-    pub fn new(config: ShrinkerConfig) -> Self {
-        Self {
-            chain: config.chain,
-            target_address: config.target_address,
-            shared_failed_corpus: config.shared_failed_corpus,
-            shutdown_signal: config.shutdown_signal,
-            max_runs: config.max_runs,
-            timeout: config.timeout,
-            shared_metrics: config.shared_metrics,
-            fail_on_revert: config.fail_on_revert,
-            objective_transaction: config.objective_transaction,
-            rng: fastrand::Rng::with_seed(config.seed),
-        }
+impl InvariantShrinker {
+    /// Create a new invariant shrinker with the given config.
+    pub fn new(config: InvariantShrinkerConfig) -> Self {
+        let InvariantShrinkerConfig {
+            seed,
+            chain,
+            target_address,
+            shared_failed_corpus,
+            shutdown_signal,
+            max_runs,
+            timeout,
+            shared_metrics,
+            fail_on_revert,
+            objective_transaction,
+        } = config;
+        let strategy = InvariantStrategy {
+            shared_failed_corpus,
+            objective_transaction,
+            fail_on_revert,
+        };
+        Self(Shrinker::new(
+            EngineConfig {
+                seed,
+                chain,
+                target_address,
+                shutdown_signal,
+                max_runs,
+                timeout,
+                shared_metrics,
+            },
+            strategy,
+        ))
     }
 
     /// Run the shrinker for up to `max_runs` iterations on a single thread.
     ///
-    /// Each iteration draws a mutated copy of the current smallest failing item,
-    /// executes it on a fresh chain clone, and replaces the shared item if the
-    /// mutated sequence is still failing and strictly smaller.
-    #[instrument(skip(self), fields(max_runs = self.max_runs))]
-    pub fn run(mut self) -> Result<ShrinkerOutput> {
-        let start = Instant::now();
-        let mut runs = 0u64;
-        let mut total_calls = 0u64;
-        let mut total_gas = 0u64;
+    /// Each iteration draws a mutated copy of the current smallest failing
+    /// item, executes it on a fresh chain clone, and replaces the shared item
+    /// if the mutated sequence is still failing and strictly smaller.
+    pub fn run(self) -> Result<InvariantShrinkerOutput> {
+        self.0.run()
+    }
+}
 
-        for _ in 0..self.max_runs {
-            if self.shutdown_signal.load(Ordering::Relaxed) {
-                break;
+/// Invariant-mode strategy: keep the smallest candidate that still triggers a
+/// failed assertion.
+#[derive(Debug)]
+struct InvariantStrategy {
+    shared_failed_corpus: SharedFailedCorpusItem,
+    objective_transaction: Option<Transaction>,
+    fail_on_revert: bool,
+}
+
+impl ShrinkStrategy for InvariantStrategy {
+    type Output = InvariantShrinkerOutput;
+
+    fn next_item(&self, rng: &mut fastrand::Rng) -> Item {
+        self.shared_failed_corpus.next_item(rng)
+    }
+
+    fn sequence(&self, item: &Item, target: Address) -> Vec<Transaction> {
+        let mut transactions: Vec<Transaction> = item
+            .calls
+            .iter()
+            .map(|call| call.into_transaction(target))
+            .collect();
+        if let Some(objective_transaction) = &self.objective_transaction {
+            let mut interleaved = Vec::with_capacity(transactions.len() * 2);
+            for transaction in transactions {
+                interleaved.push(transaction);
+                // checkrs: allow(clone_in_loops)
+                interleaved.push(objective_transaction.clone());
             }
-            let should_break = match self.timeout {
-                Some(t) => start.elapsed() > t,
-                None => false,
-            };
-            if should_break {
-                break;
-            }
-
-            let item = self.shared_failed_corpus.next_item(&mut self.rng);
-            // checkrs: allow(clone_in_loops)
-            let mut fresh_chain = self.chain.clone();
-            let mut transactions: Vec<Transaction> = item
-                .calls
-                .iter()
-                .map(|call| call.into_transaction(self.target_address))
-                .collect();
-            if let Some(objective_transaction) = &self.objective_transaction {
-                let mut interleaved = Vec::with_capacity(transactions.len() * 2);
-                for transaction in transactions {
-                    interleaved.push(transaction);
-                    // checkrs: allow(clone_in_loops)
-                    interleaved.push(objective_transaction.clone());
-                }
-                transactions = interleaved;
-            }
-            let calls_count = transactions.len();
-
-            let exec = fresh_chain.exec(&transactions)?;
-            let gas_sum = exec.results.iter().map(|r| r.gas_used).sum::<u64>();
-
-            total_calls += calls_count as u64;
-            total_gas += gas_sum;
-            self.shared_metrics.record(calls_count as u64, gas_sum);
-            runs += 1;
-
-            if exec.has_failure(self.fail_on_revert) {
-                self.shared_failed_corpus.replace_item(item);
-            }
+            transactions = interleaved;
         }
+        transactions
+    }
 
-        Ok(ShrinkerOutput {
+    fn observe(&self, item: Item, exec: &ExecOutput) -> Result<()> {
+        if exec.has_failure(self.fail_on_revert) {
+            self.shared_failed_corpus.replace_item(item);
+        }
+        Ok(())
+    }
+
+    fn output(self, runs: u64, total_calls: u64, total_gas: u64) -> InvariantShrinkerOutput {
+        InvariantShrinkerOutput {
             runs,
             total_calls,
             total_gas,
-        })
+        }
     }
 }
 
@@ -139,7 +247,7 @@ mod tests {
     use crate::evm::{Chain, ChainConfig, DEFAULT_DEPLOYER, DeployInput, SetupInput, Transaction};
     use crate::foundry::{ArtifactId, Project};
     use crate::fuzzers::SharedMetrics;
-    use crate::shrinker::{Shrinker, ShrinkerConfig};
+    use crate::shrinkers::{InvariantShrinker, InvariantShrinkerConfig};
 
     fn load_contract(id: &str) -> Contract {
         let project = Project::new("fixtures/harness-contract-with-invariants");
@@ -189,7 +297,7 @@ mod tests {
         let corpus_config = CorpusConfig::new("").handler_functions(all_functions);
         let shared_failed_item = SharedFailedCorpusItem::new(item, corpus_config);
 
-        let shrinker_config = ShrinkerConfig::new()
+        let shrinker_config = InvariantShrinkerConfig::new()
             .chain(chain)
             .target_address(target)
             .shared_failed_item(shared_failed_item.clone())
@@ -198,7 +306,7 @@ mod tests {
             .seed(42)
             .shared_metrics(SharedMetrics::new(signatures));
 
-        let shrinker = Shrinker::new(shrinker_config);
+        let shrinker = InvariantShrinker::new(shrinker_config);
         shrinker.run().unwrap();
 
         shared_failed_item.item()

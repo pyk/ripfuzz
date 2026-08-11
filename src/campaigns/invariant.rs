@@ -15,7 +15,7 @@ use crate::formatter;
 use crate::fuzzers::{
     InvariantFuzzer, InvariantFuzzerConfig, SharedFailedAssertions, SharedMetrics,
 };
-use crate::shrinker::{Shrinker, ShrinkerConfig};
+use crate::shrinkers::{InvariantShrinker, InvariantShrinkerConfig};
 
 /// Invariant campaign.
 pub struct InvariantCampaign {
@@ -215,7 +215,7 @@ impl InvariantCampaign {
                 let shrinker_shared_item = shared_failed_item.clone();
                 // checkrs: allow(clone_in_loops)
                 let shrinker_shutdown = shrinker_shutdown.clone();
-                let shrinker_config = ShrinkerConfig::new()
+                let shrinker_config = InvariantShrinkerConfig::new()
                     .chain(shrinker_chain)
                     .target_address(session.deployed_address)
                     .shared_failed_item(shrinker_shared_item)
@@ -226,7 +226,7 @@ impl InvariantCampaign {
                     // checkrs: allow(clone_in_loops)
                     .shared_metrics(shrinker_metrics.clone())
                     .fail_on_revert(session.args.fail_on_revert);
-                let shrinker = Shrinker::new(shrinker_config);
+                let shrinker = InvariantShrinker::new(shrinker_config);
                 let handle = std::thread::spawn(move || shrinker.run());
                 shrinker_handles.push(handle);
             }

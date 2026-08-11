@@ -15,8 +15,10 @@ use crate::fuzzers::{
     FailedAssertion, MaxBestItem, MaxObjective, MaxxingFuzzer, MaxxingFuzzerConfig,
     MaxxingFuzzerCorpus, SharedFailedAssertions, SharedMetrics,
 };
-use crate::max::{MaxResult, MaxShrinker, MaxShrinkerConfig, MaxShrinkerCorpus};
-use crate::shrinker::{Shrinker, ShrinkerConfig};
+use crate::shrinkers::{
+    InvariantShrinker, InvariantShrinkerConfig, MaxxingResult, MaxxingShrinker,
+    MaxxingShrinkerConfig, MaxxingShrinkerCorpus,
+};
 
 /// Maxxing campaign.
 pub struct MaxxingCampaign {
@@ -245,7 +247,7 @@ impl MaxxingCampaign {
     }
 
     /// Shrink the best max result and report it.
-    fn shrink_max(&mut self, best: MaxBestItem) -> Result<MaxResult> {
+    fn shrink_max(&mut self, best: MaxBestItem) -> Result<MaxxingResult> {
         let objective = self.objective.clone();
         let session = &mut self.session;
 
@@ -267,8 +269,12 @@ impl MaxxingCampaign {
             .shrink_timeout_secs
             .map(std::time::Duration::from_secs);
 
-        let shrink_corpus =
-            MaxShrinkerCorpus::new(best.item, best.value, shrink_config, session.corpus.clone());
+        let shrink_corpus = MaxxingShrinkerCorpus::new(
+            best.item,
+            best.value,
+            shrink_config,
+            session.corpus.clone(),
+        );
 
         let runs_per_result = session.args.shrink_runs.max(1);
         let shrinker_shutdown = Arc::new(AtomicBool::new(false));
@@ -290,7 +296,7 @@ impl MaxxingCampaign {
             let shrinker_shutdown = shrinker_shutdown.clone();
             // checkrs: allow(clone_in_loops)
             let shrinker_objective = objective.clone();
-            let shrinker_config = MaxShrinkerConfig::new()
+            let shrinker_config = MaxxingShrinkerConfig::new()
                 .chain(shrinker_chain)
                 .target_address(session.deployed_address)
                 .shared_corpus(shrinker_corpus)
@@ -303,7 +309,7 @@ impl MaxxingCampaign {
                 .shared_metrics(shrinker_metrics.clone())
                 .gas_limit(session.args.gas_limit)
                 .caller(session.args.deployer_address);
-            let shrinker = MaxShrinker::new(shrinker_config);
+            let shrinker = MaxxingShrinker::new(shrinker_config);
             let handle = std::thread::spawn(move || shrinker.run());
             shrinker_handles.push(handle);
         }
@@ -348,7 +354,7 @@ impl MaxxingCampaign {
             formatter::num(shrink_threads as u64)
         );
 
-        Ok(MaxResult {
+        Ok(MaxxingResult {
             objective,
             value: shrunk.value,
             item: shrunk.item,
@@ -436,7 +442,7 @@ impl MaxxingCampaign {
                 let shrinker_shutdown = shrinker_shutdown.clone();
                 // checkrs: allow(clone_in_loops)
                 let shrinker_objective_transaction = objective_transaction.clone();
-                let shrinker_config = ShrinkerConfig::new()
+                let shrinker_config = InvariantShrinkerConfig::new()
                     .chain(shrinker_chain)
                     .target_address(session.deployed_address)
                     .shared_failed_item(shrinker_shared_item)
@@ -448,7 +454,7 @@ impl MaxxingCampaign {
                     .shared_metrics(shrinker_metrics.clone())
                     .fail_on_revert(session.args.fail_on_revert)
                     .objective_transaction(Some(shrinker_objective_transaction));
-                let shrinker = Shrinker::new(shrinker_config);
+                let shrinker = InvariantShrinker::new(shrinker_config);
                 let handle = std::thread::spawn(move || shrinker.run());
                 shrinker_handles.push(handle);
             }

@@ -18,8 +18,10 @@ pub use fuzzers::{
     InvariantFuzzerOutput, MaxBestItem, MaxObjective, MaxxingFuzzer, MaxxingFuzzerConfig,
     MaxxingFuzzerCorpus, MaxxingFuzzerOutput, SharedFailedAssertions, SharedMetrics, Snapshot,
 };
-pub use max::{MaxResult, MaxShrinker, MaxShrinkerConfig, MaxShrinkerCorpus, MaxShrinkerOutput};
-pub use shrinker::{Shrinker, ShrinkerConfig, ShrinkerOutput};
+pub use shrinkers::{
+    InvariantShrinker, InvariantShrinkerConfig, InvariantShrinkerOutput, MaxxingResult,
+    MaxxingShrinker, MaxxingShrinkerConfig, MaxxingShrinkerCorpus, MaxxingShrinkerOutput,
+};
 
 pub mod commands;
 pub mod logger;
@@ -30,5 +32,4 @@ mod evm;
 mod formatter;
 mod foundry;
 mod fuzzers;
-mod max;
-mod shrinker;
+mod shrinkers;

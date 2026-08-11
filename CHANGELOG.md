@@ -29,6 +29,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   and rejects `invariant_*` functions.
 - Renamed the maxxing campaign type from `MaxCampaign` to `MaxxingCampaign`.
 - Fuzzer types now live under `fuzzers`.
+- Shrinker types now live under `shrinkers`: `Shrinker` is renamed to
+  `InvariantShrinker` and `MaxShrinker` to `MaxxingShrinker`; the `max` module
+  was removed.
 
 ### Fixed
 
