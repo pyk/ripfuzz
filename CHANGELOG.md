@@ -24,11 +24,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   regardless of gas amount; the `--- Call #N ---` header is replaced by a `[N]`
   counter on the root frame line.
 - `--fail-on-revert` is replaced by `--stop-on-revert`: any reverted
-  transaction stops the campaign in both invariant and maxxing mode, the whole
-  trace is dumped into the campaign log (both the log file and stderr) as a
-  single error message and written to `trace.log`, the final error names the
-  campaign log and trace file paths, and the campaign exits with a failure
-  instead of shrinking
+  transaction stops the campaign in both invariant and maxxing mode, the full
+  trace is written to `fulltrace.log`, the error message carries a compact
+  trace (call context and storage changes omitted) to the campaign log and
+  stderr, the final error names the campaign log and trace file paths, and the
+  campaign exits with a failure instead of shrinking
 - Maxxing campaigns no longer track failed assertions; max-mode sequences never
   enter the shrinker on a revert
 - Upgraded solc dependency to v0.1.0

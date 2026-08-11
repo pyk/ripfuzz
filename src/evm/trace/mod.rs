@@ -379,6 +379,17 @@ impl Trace {
     /// Return a [`Display`](fmt::Display)-able view of this trace using the
     /// given [`TraceContext`] for labels and ABI decoding.
     pub fn display_with<'a>(&'a self, ctx: &'a TraceContext) -> TraceDisplay<'a> {
+        self.display_impl(ctx, false)
+    }
+
+    /// Return a compact [`Display`](fmt::Display)-able view of this trace:
+    /// call context and storage changes are omitted. Used for stderr output,
+    /// where the full trace would be too noisy.
+    pub fn display_compact_with<'a>(&'a self, ctx: &'a TraceContext) -> TraceDisplay<'a> {
+        self.display_impl(ctx, true)
+    }
+
+    fn display_impl<'a>(&'a self, ctx: &'a TraceContext, compact: bool) -> TraceDisplay<'a> {
         let mut labels = HashMap::new();
         for root in &self.roots {
             Self::collect_create_labels(root, ctx, &mut labels);
@@ -389,6 +400,7 @@ impl Trace {
             trace: self,
             ctx,
             labels,
+            compact,
         }
     }
 
@@ -462,6 +474,8 @@ pub struct TraceDisplay<'a> {
     trace: &'a Trace,
     ctx: &'a TraceContext,
     labels: HashMap<Address, String>,
+    /// Omit call context and storage changes.
+    compact: bool,
 }
 
 impl<'a> fmt::Display for TraceDisplay<'a> {
@@ -588,68 +602,71 @@ impl<'a> TraceDisplay<'a> {
             )?;
         }
 
-        // Build prefixes for call context / call context changes
-        let mut meta_prefix = String::new();
-        Self::append_tree_prefix(&mut meta_prefix, ancestor_cols, name_col);
-        meta_prefix.push_str("├─ ");
+        // Call context is omitted in compact traces.
+        if !self.compact {
+            // Build prefixes for call context / call context changes
+            let mut meta_prefix = String::new();
+            Self::append_tree_prefix(&mut meta_prefix, ancestor_cols, name_col);
+            meta_prefix.push_str("├─ ");
 
-        let mut meta_detail_prefix = String::new();
-        Self::append_tree_prefix(&mut meta_detail_prefix, ancestor_cols, name_col);
-        meta_detail_prefix.push_str("│   ");
+            let mut meta_detail_prefix = String::new();
+            Self::append_tree_prefix(&mut meta_detail_prefix, ancestor_cols, name_col);
+            meta_detail_prefix.push_str("│   ");
 
-        // Compute which fields differ from the parent (if any).
-        match parent {
-            None => {
-                // Root frame: show full call context.
-                writeln!(f, "{meta_prefix} call context:")?;
-                let caller_label = self
-                    .labels
-                    .get(&frame.caller)
-                    .map(|s| s.as_str())
-                    .or_else(|| self.ctx.get_label(&frame.caller))
-                    .map(|s| format!("{s} [{}]", frame.caller.to_checksum(None)))
-                    .unwrap_or_else(|| frame.caller.to_checksum(None));
-                writeln!(f, "{meta_detail_prefix}@ msg.sender: {caller_label}")?;
-                writeln!(f, "{meta_detail_prefix}@ msg.value: {}", frame.value)?;
-                writeln!(
-                    f,
-                    "{meta_detail_prefix}@ block.timestamp: {}",
-                    frame.timestamp
-                )?;
-                writeln!(f, "{meta_detail_prefix}@ block.number: {}", frame.number)?;
-            }
-            Some(parent_frame) => {
-                // Child frame: only show fields that differ from the parent.
-                let sender_diff = frame.caller != parent_frame.caller;
-                let value_diff = frame.value != parent_frame.value;
-                let timestamp_diff = frame.timestamp != parent_frame.timestamp;
-                let number_diff = frame.number != parent_frame.number;
-                let any_diff = sender_diff || value_diff || timestamp_diff || number_diff;
+            // Compute which fields differ from the parent (if any).
+            match parent {
+                None => {
+                    // Root frame: show full call context.
+                    writeln!(f, "{meta_prefix} call context:")?;
+                    let caller_label = self
+                        .labels
+                        .get(&frame.caller)
+                        .map(|s| s.as_str())
+                        .or_else(|| self.ctx.get_label(&frame.caller))
+                        .map(|s| format!("{s} [{}]", frame.caller.to_checksum(None)))
+                        .unwrap_or_else(|| frame.caller.to_checksum(None));
+                    writeln!(f, "{meta_detail_prefix}@ msg.sender: {caller_label}")?;
+                    writeln!(f, "{meta_detail_prefix}@ msg.value: {}", frame.value)?;
+                    writeln!(
+                        f,
+                        "{meta_detail_prefix}@ block.timestamp: {}",
+                        frame.timestamp
+                    )?;
+                    writeln!(f, "{meta_detail_prefix}@ block.number: {}", frame.number)?;
+                }
+                Some(parent_frame) => {
+                    // Child frame: only show fields that differ from the parent.
+                    let sender_diff = frame.caller != parent_frame.caller;
+                    let value_diff = frame.value != parent_frame.value;
+                    let timestamp_diff = frame.timestamp != parent_frame.timestamp;
+                    let number_diff = frame.number != parent_frame.number;
+                    let any_diff = sender_diff || value_diff || timestamp_diff || number_diff;
 
-                if any_diff {
-                    writeln!(f, "{meta_prefix} call context changes:")?;
-                    if sender_diff {
-                        let caller_label = self
-                            .labels
-                            .get(&frame.caller)
-                            .map(|s| s.as_str())
-                            .or_else(|| self.ctx.get_label(&frame.caller))
-                            .map(|s| format!("{s} [{}]", frame.caller.to_checksum(None)))
-                            .unwrap_or_else(|| frame.caller.to_checksum(None));
-                        writeln!(f, "{meta_detail_prefix}@ msg.sender: {caller_label}")?;
-                    }
-                    if value_diff {
-                        writeln!(f, "{meta_detail_prefix}@ msg.value: {}", frame.value)?;
-                    }
-                    if timestamp_diff {
-                        writeln!(
-                            f,
-                            "{meta_detail_prefix}@ block.timestamp: {}",
-                            frame.timestamp
-                        )?;
-                    }
-                    if number_diff {
-                        writeln!(f, "{meta_detail_prefix}@ block.number: {}", frame.number)?;
+                    if any_diff {
+                        writeln!(f, "{meta_prefix} call context changes:")?;
+                        if sender_diff {
+                            let caller_label = self
+                                .labels
+                                .get(&frame.caller)
+                                .map(|s| s.as_str())
+                                .or_else(|| self.ctx.get_label(&frame.caller))
+                                .map(|s| format!("{s} [{}]", frame.caller.to_checksum(None)))
+                                .unwrap_or_else(|| frame.caller.to_checksum(None));
+                            writeln!(f, "{meta_detail_prefix}@ msg.sender: {caller_label}")?;
+                        }
+                        if value_diff {
+                            writeln!(f, "{meta_detail_prefix}@ msg.value: {}", frame.value)?;
+                        }
+                        if timestamp_diff {
+                            writeln!(
+                                f,
+                                "{meta_detail_prefix}@ block.timestamp: {}",
+                                frame.timestamp
+                            )?;
+                        }
+                        if number_diff {
+                            writeln!(f, "{meta_detail_prefix}@ block.number: {}", frame.number)?;
+                        }
                     }
                 }
             }
@@ -675,12 +692,16 @@ impl<'a> TraceDisplay<'a> {
             writeln!(f, "{log_prefix}emit {name}({args})")?;
         }
 
-        // Write storage changes as pseudo-children
-        let actual_changes: Vec<&StorageChange> = frame
-            .storage_changes
-            .iter()
-            .filter(|c| c.old_value != c.new_value)
-            .collect();
+        // Write storage changes as pseudo-children; omitted in compact traces.
+        let actual_changes: Vec<&StorageChange> = if self.compact {
+            Vec::new()
+        } else {
+            frame
+                .storage_changes
+                .iter()
+                .filter(|c| c.old_value != c.new_value)
+                .collect()
+        };
         if !actual_changes.is_empty() {
             let mut storage_prefix = String::new();
             Self::append_tree_prefix(&mut storage_prefix, ancestor_cols, name_col);

@@ -114,13 +114,13 @@ impl InvariantCampaign {
             }
         }
 
-        // Stop-on-revert: log the whole trace as a single multi-line error
-        // message, write it to a trace file, and fail the campaign
-        // immediately.
+        // Stop-on-revert: log a single multi-line error message carrying the
+        // compact trace, write the full trace to a trace file, and fail the
+        // campaign immediately.
         if let Some(event) = shared_stop_event.get() {
-            match session.trace_sequence_to_file(&event.transactions, "trace.log") {
-                Ok((trace_file, trace)) => {
-                    error!("A transaction reverted.\n\n{trace}");
+            match session.trace_sequence_to_file(&event.transactions, "fulltrace.log") {
+                Ok(report) => {
+                    error!("A transaction reverted.\n\n{}", report.compact);
                     let log = session
                         .log_file
                         .as_ref()
@@ -128,7 +128,7 @@ impl InvariantCampaign {
                         .unwrap_or_default();
                     return Err(anyhow::anyhow!(
                         "campaign stopped by --stop-on-revert\n    trace: {}{}",
-                        trace_file.display(),
+                        report.file.display(),
                         log
                     ));
                 }

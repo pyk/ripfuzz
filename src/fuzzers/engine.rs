@@ -169,7 +169,7 @@ impl<S: FuzzStrategy> Fuzzer<S> {
                     .results
                     .iter()
                     .position(|r| !r.success)
-                    .expect("a reverted transaction exists");
+                    .context("a reverted transaction exists")?;
                 self.config.shared_stop_event.set(StopEvent {
                     transactions: transactions.into_iter().take(stop_index + 1).collect(),
                 });

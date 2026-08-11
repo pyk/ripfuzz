@@ -1,6 +1,7 @@
 //! `--stop-on-revert` in invariant mode: a reverted handler call stops the
-//! campaign, dumps the whole trace into the campaign log (both the log file
-//! and stderr), and writes it to `trace.log` instead of shrinking.
+//! campaign, writes the full trace to `fulltrace.log`, and dumps a compact
+//! trace (call context and storage changes omitted) into the campaign log
+//! and stderr instead of shrinking.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -51,8 +52,9 @@ fn campaign_dirs(project: &str) -> HashSet<PathBuf> {
 }
 
 /// A reverted handler in an invariant-mode sequence must stop the campaign,
-/// dump the whole trace into the log, write it to `trace.log`, and name both
-/// file paths in the final error. The campaign must not shrink.
+/// write the full trace to `fulltrace.log`, dump the compact trace into the
+/// log, and name both file paths in the final error. The campaign must not
+/// shrink.
 #[test]
 fn invariant_campaign_stop_on_revert_dumps_trace_into_log() {
     let tmp = tempfile::tempdir().unwrap();
@@ -82,7 +84,7 @@ fn invariant_campaign_stop_on_revert_dumps_trace_into_log() {
         "error must name the log file: {err_str}"
     );
     assert!(
-        err_str.contains("trace.log"),
+        err_str.contains("fulltrace.log"),
         "error must name the trace file: {err_str}"
     );
 
@@ -100,13 +102,22 @@ fn invariant_campaign_stop_on_revert_dumps_trace_into_log() {
         log.contains("revert_always"),
         "campaign log must contain the reverted call:\n{log}"
     );
+    assert!(
+        !log.contains("call context"),
+        "campaign log must carry the compact trace without call context:\n{log}"
+    );
 
-    // The trace must also be written to its own file next to the log.
-    let trace = std::fs::read_to_string(campaign_dir.join("trace.log"))
+    // The trace must also be written to its own file next to the log, in
+    // full with call context.
+    let trace = std::fs::read_to_string(campaign_dir.join("fulltrace.log"))
         .unwrap_or_else(|_| panic!("trace file must exist in {}", campaign_dir.display()));
     assert!(
         trace.contains("[revert]"),
         "trace file must contain the reverted trace:\n{trace}"
+    );
+    assert!(
+        trace.contains("call context"),
+        "trace file must contain the full trace with call context:\n{trace}"
     );
     assert_eq!(
         trace.matches("revert_always").count(),

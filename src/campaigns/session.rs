@@ -87,6 +87,13 @@ fn validate_harness_mode(harness: &Contract) -> Result<()> {
     Ok(())
 }
 
+/// A re-run transaction sequence: the trace file holding the full trace and
+/// the compact trace (call context and storage changes omitted) for stderr.
+pub struct TraceReport {
+    pub file: PathBuf,
+    pub compact: String,
+}
+
 /// Shared state for one campaign, built once and consumed by a campaign type.
 pub struct CampaignSession {
     pub args: Args,
@@ -426,26 +433,31 @@ impl CampaignSession {
         Ok(trace_file)
     }
 
-    /// Re-run `transactions` with tracing enabled, format the whole trace as
-    /// a single string, and write it to `file_name` in the campaign
-    /// directory. Returns the trace file path and the formatted trace.
+    /// Re-run `transactions` with tracing enabled, write the full trace to
+    /// `file_name` in the campaign directory, and return the trace file path
+    /// together with a compact rendering (call context and storage changes
+    /// omitted) for stderr output.
     pub fn trace_sequence_to_file(
         &self,
         transactions: &[Transaction],
         file_name: &str,
-    ) -> Result<(PathBuf, String)> {
+    ) -> Result<TraceReport> {
         let mut trace_chain = self.chain.clone();
         trace_chain.set_trace(true);
         let exec = trace_chain.exec(transactions)?;
         let trace = exec.trace.context("trace expected after re-run")?;
         let ctx = self.trace_context()?;
-        let trace_str = format!("{}", trace.display_with(&ctx));
+        let full = format!("{}", trace.display_with(&ctx));
+        let compact = format!("{}", trace.display_compact_with(&ctx));
 
         let trace_dir = campaign_dir(&self.project.path, &self.campaign_id);
         fs::create_dir_all(&trace_dir)?;
         let trace_file = trace_dir.join(file_name);
-        fs::write(&trace_file, &trace_str)?;
-        Ok((trace_file, trace_str))
+        fs::write(&trace_file, &full)?;
+        Ok(TraceReport {
+            file: trace_file,
+            compact,
+        })
     }
 
     /// Trace context for the current campaign: project artifacts plus chain
