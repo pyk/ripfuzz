@@ -13,14 +13,12 @@ pub use evm::{
     TransactionResult,
 };
 pub use foundry::{Artifact, ArtifactId, BuildOptions, Project};
-pub use fuzzer::{
-    FailedAssertion, FunctionMetricsSnapshot, Fuzzer, FuzzerConfig, FuzzerOutput,
-    SharedFailedAssertions, SharedMetrics, Snapshot,
+pub use fuzzers::{
+    FailedAssertion, FunctionMetricsSnapshot, InvariantFuzzer, InvariantFuzzerConfig,
+    InvariantFuzzerOutput, MaxBestItem, MaxObjective, MaxxingFuzzer, MaxxingFuzzerConfig,
+    MaxxingFuzzerCorpus, MaxxingFuzzerOutput, SharedFailedAssertions, SharedMetrics, Snapshot,
 };
-pub use max::{
-    MaxBestItem, MaxFuzzer, MaxFuzzerConfig, MaxFuzzerCorpus, MaxFuzzerOutput, MaxObjective,
-    MaxResult, MaxShrinker, MaxShrinkerConfig, MaxShrinkerCorpus, MaxShrinkerOutput,
-};
+pub use max::{MaxResult, MaxShrinker, MaxShrinkerConfig, MaxShrinkerCorpus, MaxShrinkerOutput};
 pub use shrinker::{Shrinker, ShrinkerConfig, ShrinkerOutput};
 
 pub mod commands;
@@ -31,6 +29,6 @@ mod corpus;
 mod evm;
 mod formatter;
 mod foundry;
-mod fuzzer;
+mod fuzzers;
 mod max;
 mod shrinker;

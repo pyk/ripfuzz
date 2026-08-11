@@ -21,7 +21,7 @@ pub use crate::shrinker::output::ShrinkerOutput;
 use crate::corpus::SharedFailedCorpusItem;
 use crate::evm;
 use crate::evm::Transaction;
-use crate::fuzzer::SharedMetrics;
+use crate::fuzzers::SharedMetrics;
 
 mod config;
 mod output;
@@ -138,7 +138,7 @@ mod tests {
     use crate::evm::Contract;
     use crate::evm::{Chain, ChainConfig, DEFAULT_DEPLOYER, DeployInput, SetupInput, Transaction};
     use crate::foundry::{ArtifactId, Project};
-    use crate::fuzzer::SharedMetrics;
+    use crate::fuzzers::SharedMetrics;
     use crate::shrinker::{Shrinker, ShrinkerConfig};
 
     fn load_contract(id: &str) -> Contract {

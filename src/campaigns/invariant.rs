@@ -12,7 +12,9 @@ use crate::campaigns::{CampaignKind, CampaignSession, split_runs, wait_for_worke
 use crate::corpus::{Call, CorpusConfig, Item, SharedFailedCorpusItem};
 use crate::evm::Transaction;
 use crate::formatter;
-use crate::fuzzer::{Fuzzer, FuzzerConfig, SharedFailedAssertions, SharedMetrics};
+use crate::fuzzers::{
+    InvariantFuzzer, InvariantFuzzerConfig, SharedFailedAssertions, SharedMetrics,
+};
 use crate::shrinker::{Shrinker, ShrinkerConfig};
 
 /// Invariant campaign.
@@ -54,7 +56,7 @@ impl InvariantCampaign {
             .timeout_secs
             .map(std::time::Duration::from_secs);
 
-        let initial_config = FuzzerConfig::new()
+        let initial_config = InvariantFuzzerConfig::new()
             .chain(session.chain.clone())
             .target_address(session.deployed_address)
             .shared_corpus(session.corpus.clone())
@@ -76,7 +78,7 @@ impl InvariantCampaign {
             config.max_runs = local_max_runs;
             config.seed = seed;
 
-            let fuzzer = Fuzzer::new(config);
+            let fuzzer = InvariantFuzzer::new(config);
             let handle = std::thread::spawn(move || fuzzer.run());
             handles.push((fuzzer_id, handle));
         }

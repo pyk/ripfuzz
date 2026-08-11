@@ -28,7 +28,7 @@ pub struct SharedFailedCorpusItem {
 
 impl SharedFailedCorpusItem {
     /// Create a new shared failed corpus item from a seed item and a
-    /// [`CorpusConfig`](crate::fuzzer::CorpusConfig).
+    /// [`CorpusConfig`](crate::corpus::CorpusConfig).
     pub fn new(item: Item, config: CorpusConfig) -> Self {
         Self {
             inner: Arc::new(SharedFailedCorpusItemInner {

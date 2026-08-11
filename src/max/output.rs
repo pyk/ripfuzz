@@ -1,17 +1,9 @@
-//! Output types for max-mode fuzzing and shrinking.
+//! Output types for maxxing-mode shrinking and results.
 
 use alloy_primitives::U256;
 
 use crate::corpus::Item;
-use crate::max::objective::MaxObjective;
-
-/// Result produced by a single max fuzzer thread.
-#[derive(Debug, Clone)]
-pub struct MaxFuzzerOutput {
-    pub runs: u64,
-    pub total_calls: u64,
-    pub total_gas: u64,
-}
+use crate::fuzzers::MaxObjective;
 
 /// Result produced by a single max shrinker thread.
 #[derive(Debug, Clone)]

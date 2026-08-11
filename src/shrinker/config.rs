@@ -9,7 +9,7 @@ use alloy_primitives::Address;
 use crate::corpus::{CorpusConfig, Item, SharedFailedCorpusItem};
 use crate::evm;
 use crate::evm::Transaction;
-use crate::fuzzer::SharedMetrics;
+use crate::fuzzers::SharedMetrics;
 
 /// Per-shrinker configuration configured via a fluent builder API.
 #[derive(Clone, Debug)]

@@ -1,30 +1,31 @@
-//! Per-thread fuzzer for max mode.
+//! Per-thread fuzzer for maxxing campaigns.
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use alloy_json_abi::Function;
 use alloy_primitives::{Address, U256};
-use anyhow::{Context, Result};
-use tracing::{debug, instrument};
+use anyhow::Result;
+use tracing::debug;
 
 use crate::corpus::{CorpusConfig, Item, SharedCorpus};
 use crate::evm;
-use crate::evm::{SharedCoverage, Transaction};
-use crate::fuzzer::{FailedAssertion, SharedFailedAssertions, SharedMetrics};
-use crate::max::corpus::MaxFuzzerCorpus;
-use crate::max::objective::MaxObjective;
-use crate::max::output::MaxFuzzerOutput;
+use crate::evm::{SharedCoverage, Transaction, TransactionResult};
+use crate::fuzzers::engine::{EngineConfig, FuzzStrategy, Fuzzer};
+use crate::fuzzers::{
+    FailedAssertion, MaxObjective, MaxxingFuzzerCorpus, MaxxingFuzzerOutput,
+    SharedFailedAssertions, SharedMetrics,
+};
 
 /// Per-fuzzer configuration for max mode, configured via a fluent builder API.
 #[derive(Clone, Debug)]
-pub struct MaxFuzzerConfig {
+pub struct MaxxingFuzzerConfig {
     pub seed: u64,
     pub chain: evm::Chain,
     pub target_address: Address,
-    pub shared_corpus: MaxFuzzerCorpus,
+    pub shared_corpus: MaxxingFuzzerCorpus,
     pub shared_coverage: SharedCoverage,
     pub shared_metrics: SharedMetrics,
     pub shared_failed_assertions: SharedFailedAssertions,
@@ -37,14 +38,14 @@ pub struct MaxFuzzerConfig {
     pub fail_on_revert: bool,
 }
 
-impl MaxFuzzerConfig {
+impl MaxxingFuzzerConfig {
     /// Create a new empty config.
     pub fn new() -> Self {
         Self {
             seed: 0,
             chain: evm::Chain::default(),
             target_address: Address::ZERO,
-            shared_corpus: MaxFuzzerCorpus::new(SharedCorpus::new(CorpusConfig::new(
+            shared_corpus: MaxxingFuzzerCorpus::new(SharedCorpus::new(CorpusConfig::new(
                 PathBuf::new(),
             ))),
             shared_coverage: SharedCoverage::new(),
@@ -79,7 +80,7 @@ impl MaxFuzzerConfig {
     }
 
     /// Set the shared corpus.
-    pub fn shared_corpus(mut self, value: MaxFuzzerCorpus) -> Self {
+    pub fn shared_corpus(mut self, value: MaxxingFuzzerCorpus) -> Self {
         self.shared_corpus = value;
         self
     }
@@ -146,7 +147,7 @@ impl MaxFuzzerConfig {
     }
 }
 
-impl Default for MaxFuzzerConfig {
+impl Default for MaxxingFuzzerConfig {
     fn default() -> Self {
         Self::new()
     }
@@ -155,44 +156,48 @@ impl Default for MaxFuzzerConfig {
 /// Per-thread fuzzer that executes call sequences and tracks the maximum value
 /// returned by the max objective.
 ///
-/// Created via [`MaxFuzzerConfig`] and run via [`MaxFuzzer::run`].
+/// Created via [`MaxxingFuzzerConfig`] and run via [`MaxxingFuzzer::run`].
 #[derive(Debug)]
-pub struct MaxFuzzer {
-    chain: evm::Chain,
-    target_address: Address,
-    shared_corpus: MaxFuzzerCorpus,
-    shared_coverage: SharedCoverage,
-    shared_metrics: SharedMetrics,
-    shared_failed_assertions: SharedFailedAssertions,
-    shutdown_signal: Arc<AtomicBool>,
-    caller: Address,
-    objective: MaxObjective,
-    max_runs: u64,
-    gas_limit: u64,
-    timeout: Option<Duration>,
-    fail_on_revert: bool,
-    rng: fastrand::Rng,
-}
+pub struct MaxxingFuzzer(Fuzzer<MaxxingStrategy>);
 
-impl MaxFuzzer {
-    /// Create a new max fuzzer with the given config.
-    pub fn new(config: MaxFuzzerConfig) -> Self {
-        Self {
-            chain: config.chain,
-            target_address: config.target_address,
-            shared_corpus: config.shared_corpus,
-            shared_coverage: config.shared_coverage,
-            shared_metrics: config.shared_metrics,
-            shared_failed_assertions: config.shared_failed_assertions,
-            shutdown_signal: config.shutdown_signal,
-            caller: config.caller,
-            objective: config.objective.unwrap_or_else(default_objective),
-            max_runs: config.max_runs,
-            gas_limit: config.gas_limit,
-            timeout: config.timeout,
-            fail_on_revert: config.fail_on_revert,
-            rng: fastrand::Rng::with_seed(config.seed),
-        }
+impl MaxxingFuzzer {
+    /// Create a new maxxing fuzzer with the given config.
+    pub fn new(config: MaxxingFuzzerConfig) -> Self {
+        let MaxxingFuzzerConfig {
+            seed,
+            chain,
+            target_address,
+            shared_corpus,
+            shared_coverage,
+            shared_metrics,
+            shared_failed_assertions,
+            shutdown_signal,
+            caller,
+            objective,
+            max_runs,
+            gas_limit,
+            timeout,
+            fail_on_revert,
+        } = config;
+        let strategy =
+            MaxxingStrategy::new(shared_corpus, objective.unwrap_or_else(default_objective));
+        Self(Fuzzer::new(
+            EngineConfig {
+                seed,
+                chain,
+                target_address,
+                shared_coverage,
+                shared_metrics,
+                shared_failed_assertions,
+                shutdown_signal,
+                caller,
+                max_runs,
+                gas_limit,
+                timeout,
+                fail_on_revert,
+            },
+            strategy,
+        ))
     }
 
     /// Run the fuzzer for up to `max_runs` iterations on a single thread.
@@ -200,93 +205,68 @@ impl MaxFuzzer {
     /// Each iteration executes a handler call followed by the max objective
     /// call, so a shorter prefix that first achieves a new maximum is recorded
     /// as the best sequence.
-    #[instrument(skip(self), fields(max_runs = self.max_runs))]
-    pub fn run(mut self) -> Result<MaxFuzzerOutput> {
-        let start = Instant::now();
-        let mut runs = 0u64;
-        let mut total_calls = 0u64;
-        let mut total_gas = 0u64;
+    pub fn run(self) -> Result<MaxxingFuzzerOutput> {
+        self.0.run()
+    }
+}
 
-        let objective_transaction =
-            self.objective
-                .transaction(self.target_address, self.caller, self.gas_limit);
+/// Maxxing-mode strategy: interleave the objective call after every handler
+/// call and record the highest value with its shortest prefix.
+#[derive(Debug)]
+struct MaxxingStrategy {
+    corpus: MaxxingFuzzerCorpus,
+    objective: MaxObjective,
+}
 
-        for _ in 0..self.max_runs {
-            if self.shutdown_signal.load(Ordering::Relaxed) {
-                break;
-            }
-            let should_break = match self.timeout {
-                Some(t) => start.elapsed() > t,
-                None => false,
-            };
-            if should_break {
-                break;
-            }
+impl MaxxingStrategy {
+    fn new(corpus: MaxxingFuzzerCorpus, objective: MaxObjective) -> Self {
+        Self { corpus, objective }
+    }
+}
 
-            let item = self.shared_corpus.next_item(&mut self.rng);
-            let (calls_count, gas_sum) = self.evaluate_item(&item, &objective_transaction)?;
-            total_calls += calls_count;
-            total_gas += gas_sum;
-            self.shared_metrics.record(calls_count, gas_sum);
-            runs += 1;
-        }
+impl FuzzStrategy for MaxxingStrategy {
+    type Output = MaxxingFuzzerOutput;
 
-        Ok(MaxFuzzerOutput {
-            runs,
-            total_calls,
-            total_gas,
-        })
+    fn next_item(&self, rng: &mut fastrand::Rng) -> Item {
+        self.corpus.next_item(rng)
     }
 
-    /// Execute one corpus item and record the best value for the objective.
-    ///
-    /// Each handler call is followed by the max objective call, so a shorter
-    /// prefix that first achieves a new maximum is recorded as the best
-    /// sequence. Returns `(calls, gas)` for the executed transactions.
-    fn evaluate_item(
+    fn sequence(
         &self,
         item: &Item,
-        objective_transaction: &Transaction,
-    ) -> Result<(u64, u64)> {
-        // checkrs: allow(clone_in_loops)
-        let mut fresh_chain = self.chain.clone();
-
+        target: Address,
+        caller: Address,
+        gas_limit: u64,
+    ) -> Vec<Transaction> {
+        let objective_transaction = self.objective.transaction(target, caller, gas_limit);
         let stride = 2;
-        let mut transactions = vec![objective_transaction.clone(); item.calls.len() * stride];
+        let mut transactions = vec![objective_transaction; item.calls.len() * stride];
         for (i, call) in item.calls.iter().enumerate() {
-            transactions[i * stride] = call.into_transaction(self.target_address);
+            transactions[i * stride] = call.into_transaction(target);
         }
+        transactions
+    }
 
-        let mut exec = fresh_chain.exec(&transactions)?;
-        let coverage = exec.coverage.take().context("coverage expected")?;
-        let failure_pc = coverage.panic_pcs.first().copied();
-        let coverage_update = self.shared_coverage.merge(&coverage);
-        let has_failure = exec.has_failure(self.fail_on_revert);
-        let failure_index = if has_failure {
-            exec.results.iter().position(|r| {
-                if self.fail_on_revert {
-                    !r.success
-                } else {
-                    r.is_assert_failure()
-                }
-            })
-        } else {
-            None
-        };
-
+    fn observe(
+        &self,
+        item: &Item,
+        results: &[TransactionResult],
+        metrics: &SharedMetrics,
+    ) -> Result<()> {
+        let stride = 2;
         for (i, call) in item.calls.iter().enumerate() {
-            let handler_result = &exec.results[i * stride];
+            let handler_result = &results[i * stride];
             let handler_reverts = if handler_result.success { 0 } else { 1 };
-            self.shared_metrics.record_function(
+            metrics.record_function(
                 &call.function.signature(),
                 1,
                 handler_result.gas_used,
                 handler_reverts,
             );
 
-            let result = &exec.results[i * stride + 1];
+            let result = &results[i * stride + 1];
             let reverts = if result.success { 0 } else { 1 };
-            self.shared_metrics.record_function(
+            metrics.record_function(
                 &self.objective.function.signature(),
                 1,
                 result.gas_used,
@@ -296,7 +276,7 @@ impl MaxFuzzer {
             let (improved, improved_value) = match self.objective.decode(result) {
                 Some(value) => {
                     let prefix = Item::from(item.calls[..=i].to_vec());
-                    (self.shared_corpus.record_improvement(value, prefix)?, value)
+                    (self.corpus.record_improvement(value, prefix)?, value)
                 }
                 None => (false, U256::ZERO),
             };
@@ -308,30 +288,21 @@ impl MaxFuzzer {
                 );
             }
         }
+        Ok(())
+    }
 
-        let calls_count = transactions.len() as u64;
-        let gas_sum = exec.results.iter().map(|r| r.gas_used).sum::<u64>();
+    fn note_failure(&mut self, _failure: FailedAssertion) {}
 
-        if has_failure {
-            let failure = FailedAssertion {
-                transactions,
-                item: item.clone(),
-                failure_index,
-                failure_pc,
-            };
-            // checkrs: allow(clone_in_loops)
-            if self.shared_failed_assertions.try_add(failure)
-                && self.shared_failed_assertions.is_full()
-            {
-                self.shutdown_signal.store(true, Ordering::Relaxed);
-            }
+    fn add_interesting(&self, item: Item) -> Result<()> {
+        self.corpus.add_coverage_item(item)
+    }
+
+    fn output(self, runs: u64, total_calls: u64, total_gas: u64) -> MaxxingFuzzerOutput {
+        MaxxingFuzzerOutput {
+            runs,
+            total_calls,
+            total_gas,
         }
-
-        if coverage_update.is_interesting() {
-            self.shared_corpus.add_coverage_item(item.clone())?;
-        }
-
-        Ok((calls_count, gas_sum))
     }
 }
 
@@ -346,21 +317,14 @@ fn default_objective() -> MaxObjective {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
-
     use alloy_dyn_abi::DynSolValue;
     use alloy_json_abi::Function;
     use alloy_primitives::{Address, U256};
 
     use crate::corpus::{Call, CorpusConfig, Item, SharedCorpus};
-    use crate::evm::{
-        Chain, ChainConfig, Contract, DEFAULT_DEPLOYER, DeployInput, SharedCoverage, Transaction,
-    };
+    use crate::evm::{Chain, ChainConfig, Contract, DEFAULT_DEPLOYER, DeployInput};
     use crate::foundry::{ArtifactId, Project};
-    use crate::fuzzer::SharedMetrics;
-    use crate::max::corpus::MaxFuzzerCorpus;
-    use crate::max::objective::MaxObjective;
+    use crate::fuzzers::{MaxObjective, MaxxingFuzzerCorpus, SharedMetrics};
 
     use super::*;
 
@@ -400,29 +364,6 @@ mod tests {
         )
     }
 
-    fn fuzzer_config(
-        chain: Chain,
-        target_address: Address,
-        shared_corpus: MaxFuzzerCorpus,
-        objective: MaxObjective,
-    ) -> MaxFuzzerConfig {
-        MaxFuzzerConfig::new()
-            .chain(chain)
-            .target_address(target_address)
-            .shared_corpus(shared_corpus)
-            .shared_coverage(SharedCoverage::new())
-            .shared_metrics(SharedMetrics::new(Vec::new()))
-            .shutdown_signal(Arc::new(AtomicBool::new(false)))
-            .caller(DEFAULT_DEPLOYER)
-            .objective(objective)
-            .max_runs(0)
-            .gas_limit(12_500_000)
-    }
-
-    fn objective_transaction(objective: &MaxObjective, target: Address) -> Transaction {
-        objective.transaction(target, DEFAULT_DEPLOYER, 12_500_000)
-    }
-
     fn uint_arg(value: U256) -> DynSolValue {
         DynSolValue::Uint(value, 256)
     }
@@ -431,21 +372,20 @@ mod tests {
     /// maximum, so a trailing call that destroys the value is not part of the
     /// best sequence.
     #[test]
-    fn evaluate_item_records_shortest_improving_prefix() {
+    fn records_shortest_improving_prefix() {
         let contract = load_contract("src/MaxMidSequence.sol:MaxMidSequence");
         let set = handler(&contract, "set");
         let clear = handler(&contract, "clear");
         let (chain, target) = deployed(&contract);
 
         let objective = objective(&contract, "max_value");
-        let objective_tx = objective_transaction(&objective, target);
 
         let tmp = tempfile::tempdir().unwrap();
         let config = CorpusConfig::new(tmp.path().join("corpus"))
             .handler_functions(contract.handler_functions.clone())
             .max_calls(4);
-        let corpus = MaxFuzzerCorpus::new(SharedCorpus::new(config));
-        let fuzzer = MaxFuzzer::new(fuzzer_config(chain, target, corpus.clone(), objective));
+        let corpus = MaxxingFuzzerCorpus::new(SharedCorpus::new(config));
+        let strategy = MaxxingStrategy::new(corpus.clone(), objective);
 
         let item = Item::from(vec![
             Call {
@@ -459,7 +399,11 @@ mod tests {
                 ..Default::default()
             },
         ]);
-        fuzzer.evaluate_item(&item, &objective_tx).unwrap();
+        let transactions = strategy.sequence(&item, target, DEFAULT_DEPLOYER, 12_500_000);
+        let mut fresh_chain = chain.clone();
+        let exec = fresh_chain.exec(&transactions).unwrap();
+        let metrics = SharedMetrics::new(Vec::new());
+        strategy.observe(&item, &exec.results, &metrics).unwrap();
 
         let best = corpus.best_item().expect("best must be recorded");
         assert_eq!(best.value, U256::from(7));

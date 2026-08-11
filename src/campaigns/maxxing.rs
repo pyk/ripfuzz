@@ -11,11 +11,11 @@ use crate::campaigns::{CampaignKind, CampaignSession, split_runs, wait_for_worke
 use crate::corpus::{CorpusConfig, Item, SharedFailedCorpusItem};
 use crate::evm::Transaction;
 use crate::formatter;
-use crate::fuzzer::{FailedAssertion, SharedFailedAssertions, SharedMetrics};
-use crate::max::{
-    MaxBestItem, MaxFuzzer, MaxFuzzerConfig, MaxFuzzerCorpus, MaxObjective, MaxResult, MaxShrinker,
-    MaxShrinkerConfig, MaxShrinkerCorpus,
+use crate::fuzzers::{
+    FailedAssertion, MaxBestItem, MaxObjective, MaxxingFuzzer, MaxxingFuzzerConfig,
+    MaxxingFuzzerCorpus, SharedFailedAssertions, SharedMetrics,
 };
+use crate::max::{MaxResult, MaxShrinker, MaxShrinkerConfig, MaxShrinkerCorpus};
 use crate::shrinker::{Shrinker, ShrinkerConfig};
 
 /// Maxxing campaign.
@@ -59,7 +59,7 @@ impl MaxxingCampaign {
         );
         let shutdown_signal = Arc::new(AtomicBool::new(false));
 
-        let fuzzer_corpus = MaxFuzzerCorpus::new(self.session.corpus.clone());
+        let fuzzer_corpus = MaxxingFuzzerCorpus::new(self.session.corpus.clone());
 
         let fuzzers = self.session.args.threads;
         let timeout = self
@@ -68,7 +68,7 @@ impl MaxxingCampaign {
             .timeout_secs
             .map(std::time::Duration::from_secs);
 
-        let initial_config = MaxFuzzerConfig::new()
+        let initial_config = MaxxingFuzzerConfig::new()
             .chain(self.session.chain.clone())
             .target_address(self.session.deployed_address)
             .shared_corpus(fuzzer_corpus.clone())
@@ -92,7 +92,7 @@ impl MaxxingCampaign {
             config.max_runs = local_max_runs;
             config.seed = seed;
 
-            let fuzzer = MaxFuzzer::new(config);
+            let fuzzer = MaxxingFuzzer::new(config);
             let handle = std::thread::spawn(move || fuzzer.run());
             handles.push((fuzzer_id, handle));
         }

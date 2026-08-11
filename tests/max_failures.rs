@@ -9,9 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use alloy_primitives::{Address, B256};
 use ripfuzz::{
     ArtifactId, Chain, ChainConfig, Contract, CorpusConfig, DEFAULT_DEPLOYER, DeployInput,
-    FailedAssertion, Fuzzer, FuzzerConfig, Item, Project, SharedCorpus, SharedCoverage,
-    SharedFailedAssertions, SharedFailedCorpusItem, SharedMetrics, Shrinker, ShrinkerConfig,
-    Transaction,
+    FailedAssertion, InvariantFuzzer, InvariantFuzzerConfig, Item, Project, SharedCorpus,
+    SharedCoverage, SharedFailedAssertions, SharedFailedCorpusItem, SharedMetrics, Shrinker,
+    ShrinkerConfig, Transaction,
 };
 
 const PROJECT: &str = "fixtures/max-failures";
@@ -73,7 +73,7 @@ fn run_fuzzer(
     let shared_failed_assertions = SharedFailedAssertions::new(max_failures);
     let shutdown = Arc::new(AtomicBool::new(false));
 
-    let config = FuzzerConfig::new()
+    let config = InvariantFuzzerConfig::new()
         .chain(chain)
         .target_address(target)
         .shared_corpus(corpus)
@@ -88,7 +88,7 @@ fn run_fuzzer(
         .seed(seed)
         .fail_on_revert(false);
 
-    let fuzzer = Fuzzer::new(config);
+    let fuzzer = InvariantFuzzer::new(config);
     fuzzer.run().unwrap();
 
     (shutdown, shared_failed_assertions.items())

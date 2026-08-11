@@ -93,18 +93,19 @@ fork**; **harness storage and other local accounts are shared across forks** so
 you can track cross-chain properties (for example value conservation). See
 [fork-mode.md](./fork-mode.md).
 
-### Fuzzer
+### Invariant Fuzzer
 
-A single parallel fuzzing instance that executes function call sequences
-against a cloned contract state and reports new coverage or failed assertions
-to the campaign manager. By default ripfuzz spawns one fuzzer per available CPU
-core.
+A single parallel fuzzing instance (the `InvariantFuzzer`) that executes
+function call sequences against a cloned contract state and reports new
+coverage or failed assertions to the campaign manager. By default ripfuzz
+spawns one fuzzer per available CPU core.
 
-### Max Fuzzer
+### Maxxing Fuzzer
 
-A single parallel fuzzing instance in **max mode**. It executes handler calls
-followed by the `max_*` function call, merges coverage, and records the highest
-value plus the shortest handler prefix that produced it.
+A single parallel fuzzing instance in **max mode** (the `MaxxingFuzzer`). It
+executes handler calls followed by the `max_*` function call, merges coverage,
+and records the highest value plus the shortest handler prefix that produced
+it.
 
 ### Campaign Result
 

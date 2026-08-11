@@ -12,9 +12,9 @@ use tracing::instrument;
 use crate::corpus::{CorpusConfig, Item, SharedCorpus};
 use crate::evm;
 use crate::evm::Transaction;
-use crate::fuzzer::SharedMetrics;
+use crate::fuzzers::MaxObjective;
+use crate::fuzzers::SharedMetrics;
 use crate::max::corpus::MaxShrinkerCorpus;
-use crate::max::objective::MaxObjective;
 use crate::max::output::MaxShrinkerOutput;
 
 /// Per-shrinker configuration for max mode, configured via a fluent builder API.
@@ -247,9 +247,9 @@ mod tests {
     use crate::corpus::{Call, CorpusConfig, Item, SharedCorpus};
     use crate::evm::{Chain, ChainConfig, Contract, DEFAULT_DEPLOYER, DeployInput};
     use crate::foundry::{ArtifactId, Project};
-    use crate::fuzzer::SharedMetrics;
+    use crate::fuzzers::MaxObjective;
+    use crate::fuzzers::SharedMetrics;
     use crate::max::corpus::MaxShrinkerCorpus;
-    use crate::max::objective::MaxObjective;
     use crate::max::shrinker::{MaxShrinker, MaxShrinkerConfig};
 
     fn load_contract(id: &str) -> Contract {

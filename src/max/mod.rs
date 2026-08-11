@@ -1,18 +1,14 @@
-//! Max mode: maximize the `uint256` return value of `max_*` harness functions.
+//! Max-mode shrinking: minimize the best `max_*` result while preserving its
+//! value.
 //!
-//! In max mode ripfuzz does not check invariants. Instead it executes handler
-//! calls followed by the `max_*` function, keeps the highest value and the
-//! shortest prefix that produced it, then shrinks the best sequence while
-//! preserving its value.
+//! The maxxing fuzzer records the highest `max_*` return value and the
+//! shortest prefix that produced it (see [`crate::fuzzers::MaxxingFuzzer`]);
+//! this module shrinks that best sequence while keeping its value.
 
-pub use corpus::{MaxBestItem, MaxFuzzerCorpus, MaxShrinkerCorpus};
-pub use fuzzer::{MaxFuzzer, MaxFuzzerConfig};
-pub use objective::MaxObjective;
-pub use output::{MaxFuzzerOutput, MaxResult, MaxShrinkerOutput};
+pub use corpus::MaxShrinkerCorpus;
+pub use output::{MaxResult, MaxShrinkerOutput};
 pub use shrinker::{MaxShrinker, MaxShrinkerConfig};
 
 mod corpus;
-mod fuzzer;
-mod objective;
 mod output;
 mod shrinker;

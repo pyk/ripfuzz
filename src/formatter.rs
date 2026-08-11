@@ -5,7 +5,7 @@ use alloy_primitives::utils::format_ether;
 
 use crate::corpus::SharedCorpus;
 use crate::evm::SharedCoverage;
-use crate::fuzzer::{FunctionMetricsSnapshot, Snapshot};
+use crate::fuzzers::{FunctionMetricsSnapshot, Snapshot};
 
 /// Format a number with comma-separated thousands.
 pub fn num(n: u64) -> String {

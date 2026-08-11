@@ -1,4 +1,4 @@
-//! Shared corpus state for max-mode fuzzing and shrinking.
+//! Shared corpus state for max-mode shrinking.
 
 use std::sync::Arc;
 
@@ -11,87 +11,6 @@ use parking_lot::RwLock;
 use crate::corpus::{
     Call, CorpusConfig, ExtractedLiterals, Item, RandomDynSolValue, SharedCorpus, random_uint,
 };
-
-/// The best sequence found so far for one max objective.
-#[derive(Debug, Clone)]
-pub struct MaxBestItem {
-    pub value: U256,
-    pub item: Item,
-}
-
-#[derive(Debug)]
-struct MaxFuzzerCorpusInner {
-    corpus: SharedCorpus,
-    best: RwLock<Option<MaxBestItem>>,
-}
-
-/// Thread-safe corpus used by max fuzzer threads.
-///
-/// Wraps the coverage-guided corpus and tracks the best value and sequence for
-/// the max objective. Cloning is cheap (shares the same inner state).
-#[derive(Debug, Clone)]
-pub struct MaxFuzzerCorpus {
-    inner: Arc<MaxFuzzerCorpusInner>,
-}
-
-impl MaxFuzzerCorpus {
-    /// Create a fuzzer corpus for a single max objective.
-    pub fn new(corpus: SharedCorpus) -> Self {
-        Self {
-            inner: Arc::new(MaxFuzzerCorpusInner {
-                corpus,
-                best: RwLock::new(None),
-            }),
-        }
-    }
-
-    /// Return the next corpus item for execution.
-    pub fn next_item(&self, rng: &mut fastrand::Rng) -> Item {
-        self.inner.corpus.next_item(rng)
-    }
-
-    /// Add a coverage-interesting sequence to the shared corpus.
-    pub fn add_coverage_item(&self, item: Item) -> Result<()> {
-        self.inner.corpus.add_item(item)
-    }
-
-    /// Record a new best value.
-    ///
-    /// Returns `true` when the value improved the stored best. The improving
-    /// prefix is added to the shared corpus so later campaigns mutate from it.
-    pub fn record_improvement(&self, value: U256, item: Item) -> Result<bool> {
-        let improved = {
-            let mut best = self.inner.best.write();
-            let improved = match best.as_ref() {
-                Some(current) => value > current.value,
-                None => value > U256::ZERO,
-            };
-            if improved {
-                *best = Some(MaxBestItem {
-                    value,
-                    item: item.clone(),
-                });
-            }
-            improved
-        };
-
-        if improved {
-            self.inner.corpus.add_item(item)?;
-        }
-
-        Ok(improved)
-    }
-
-    /// Snapshot the best item for the max objective.
-    pub fn best_item(&self) -> Option<MaxBestItem> {
-        self.inner.best.read().clone()
-    }
-
-    /// Access the underlying coverage corpus.
-    pub fn corpus(&self) -> &SharedCorpus {
-        &self.inner.corpus
-    }
-}
 
 /// A single max result being shrunk, shared across shrinker threads.
 #[derive(Debug, Clone)]
@@ -279,34 +198,6 @@ mod tests {
             args: DynSolValue::Tuple(vec![]),
             ..Default::default()
         }
-    }
-
-    #[test]
-    fn record_improvement_tracks_and_persists_best() {
-        let tmp = tempfile::tempdir().unwrap();
-        let corpus = SharedCorpus::new(CorpusConfig::new(tmp.path().join("corpus")));
-        let fuzzer_corpus = MaxFuzzerCorpus::new(corpus);
-        let item = Item::from(vec![empty_call()]);
-
-        assert!(
-            !fuzzer_corpus
-                .record_improvement(U256::ZERO, item.clone())
-                .unwrap()
-        );
-        assert!(
-            fuzzer_corpus
-                .record_improvement(U256::from(5), item.clone())
-                .unwrap()
-        );
-        assert!(
-            !fuzzer_corpus
-                .record_improvement(U256::from(3), item)
-                .unwrap()
-        );
-
-        let best = fuzzer_corpus.best_item().expect("best must be recorded");
-        assert_eq!(best.value, U256::from(5));
-        assert_eq!(best.item.calls.len(), 1);
     }
 
     #[test]
