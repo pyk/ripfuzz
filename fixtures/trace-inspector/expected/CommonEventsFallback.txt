@@ -1,0 +1,14 @@
+[1] [135368] → new CommonEventsFallback@0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22
+             ├─  call context:
+             │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
+             │   @ msg.value: 0
+             │   @ block.timestamp: 1438269988
+             │   @ block.number: 1
+             ├─ emit Transfer(from: 0x0000000000000000000000000000000000000000, to: 0x000000000000000000000000000000000000bEEF, value: 1000)
+             ├─ emit Approval(owner: 0x0000000000000000000000000000000000000000, spender: 0x000000000000000000000000000000000000bEEF, value: 1000)
+             ├─ emit ApprovalForAll(owner: 0x0000000000000000000000000000000000000000, operator: 0x000000000000000000000000000000000000cafE, approved: true)
+             ├─ emit Deposit(dst: 0x000000000000000000000000000000000000cafE, wad: 1000000000000000000)
+             ├─ emit Withdrawal(src: 0x000000000000000000000000000000000000cafE, wad: 500000000000000000)
+             ├─ emit OwnershipTransferred(previousOwner: 0x0000000000000000000000000000000000000000, newOwner: 0x000000000000000000000000000000000000cafE)
+             ├─ emit Log(0x00000000000000000000000000000000000000000000000000000000000003e8)
+             └─ ← [return] 106 bytes of code

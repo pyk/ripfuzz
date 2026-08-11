@@ -495,6 +495,39 @@ mod tests {
         );
     }
 
+    /// Logs emitted via assembly with no event declaration in any artifact
+    /// ABI must decode through the common standard events (ERC20
+    /// Transfer/Approval). The context carries no project ABIs, so the
+    /// fallback is the only way these logs can be named.
+    #[test]
+    fn common_events_fallback_trace() {
+        let contract = load_fixture("src/CommonEventsFallback.sol:CommonEventsFallback");
+
+        let mut ctx = TraceContext::new();
+
+        let mut chain = Chain::empty(ChainConfig::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+
+        let root = &deployment.trace.roots[0];
+        let deploy_address = root.address.unwrap();
+
+        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+
+        let formatted = format!("{}", deployment.trace.display_with(&ctx));
+        let expected =
+            fs::read_to_string("fixtures/trace-inspector/expected/CommonEventsFallback.txt")
+                .unwrap_or_else(
+                    |_| panic!("expected file not found. actual output:\n{formatted}",),
+                );
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "trace output must match expected"
+        );
+    }
+
     #[test]
     fn log_events_trace() {
         let contract = load_fixture("src/LogEvents.sol:LogEvents");

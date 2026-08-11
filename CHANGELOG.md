@@ -50,6 +50,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- Trace logs from contracts whose interface omits event declarations (for
+  example a minimal `IERC20`) now fall back to standard events: ERC20
+  `Transfer`/`Approval`, ERC721 `ApprovalForAll`, WETH9 `Deposit`/`Withdrawal`,
+  and Ownable `OwnershipTransferred` decode with a name and arguments instead
+  of raw `emit Log(0x...)` lines
 - Build artifacts are loaded once per campaign: trace contexts reuse the
   already-loaded artifacts instead of re-reading the build output directory,
   which duplicated the artifact parse errors in the log

@@ -4,6 +4,7 @@
 //! then provides lookup methods used by [`Trace::display_with`](crate::evm::trace::Trace::display_with).
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use alloy_dyn_abi::{DynSolEvent, DynSolType, DynSolValue};
 use alloy_json_abi::{EventParam, InternalType, JsonAbi, Param};
@@ -1184,63 +1185,74 @@ impl TraceContext {
         }
 
         let topic_0 = topics[0];
-        for abi in &self.abis {
+        if let Some((name, args)) = self.decode_known_event(topic_0, log) {
+            return (Some(name), args);
+        }
+        (None, format!("0x{}", hex::encode(data)))
+    }
+
+    /// Decode a log whose topic0 matches an event declared in the project
+    /// artifacts or in the common standard events (ERC20, ERC721, WETH9,
+    /// Ownable). Returns `None` when no known event matches.
+    fn decode_known_event(
+        &self,
+        topic_0: B256,
+        log: &revm::primitives::Log,
+    ) -> Option<(String, String)> {
+        for abi in self.abis.iter().chain(common_event_abis()) {
             for event in abi.events() {
-                if event.selector() == topic_0 {
-                    // checkrs: allow(clone_in_loops)
-                    let name = event.name.clone();
-                    let indexed: Vec<DynSolType> = event
-                        .inputs
-                        .iter()
-                        .filter(|p| p.indexed)
-                        .filter_map(|p| DynSolType::parse(&p.selector_type()).ok())
-                        .collect();
-                    let body: Vec<DynSolType> = event
-                        .inputs
-                        .iter()
-                        .filter(|p| !p.indexed)
-                        .filter_map(|p| DynSolType::parse(&p.selector_type()).ok())
-                        .collect();
-                    let body = DynSolType::Tuple(body);
-                    let Some(dyn_event) = DynSolEvent::new(Some(topic_0), indexed, body) else {
-                        return (Some(name), "...".into());
-                    };
-                    match dyn_event.decode_log_data(&log.data) {
-                        Ok(decoded) => {
-                            let mut args = Vec::new();
-                            let mut indexed_idx = 0;
-                            let mut body_idx = 0;
-                            for param in &event.inputs {
-                                if param.indexed {
-                                    if let Some(val) = decoded.indexed.get(indexed_idx) {
-                                        args.push(format!(
-                                            "{}: {}",
-                                            param.name(),
-                                            format_abi_value(val, param, &self.labels)
-                                        ));
-                                        indexed_idx += 1;
-                                    }
-                                } else {
-                                    if let Some(val) = decoded.body.get(body_idx) {
-                                        args.push(format!(
-                                            "{}: {}",
-                                            param.name(),
-                                            format_abi_value(val, param, &self.labels)
-                                        ));
-                                        body_idx += 1;
-                                    }
+                if event.selector() != topic_0 {
+                    continue;
+                }
+                // checkrs: allow(clone_in_loops)
+                let name = event.name.clone();
+                let indexed: Vec<DynSolType> = event
+                    .inputs
+                    .iter()
+                    .filter(|p| p.indexed)
+                    .filter_map(|p| DynSolType::parse(&p.selector_type()).ok())
+                    .collect();
+                let body: Vec<DynSolType> = event
+                    .inputs
+                    .iter()
+                    .filter(|p| !p.indexed)
+                    .filter_map(|p| DynSolType::parse(&p.selector_type()).ok())
+                    .collect();
+                let body = DynSolType::Tuple(body);
+                let Some(dyn_event) = DynSolEvent::new(Some(topic_0), indexed, body) else {
+                    return Some((name, "...".into()));
+                };
+                match dyn_event.decode_log_data(&log.data) {
+                    Ok(decoded) => {
+                        let mut args = Vec::new();
+                        let mut indexed_idx = 0;
+                        let mut body_idx = 0;
+                        for param in &event.inputs {
+                            if param.indexed {
+                                if let Some(val) = decoded.indexed.get(indexed_idx) {
+                                    args.push(format!(
+                                        "{}: {}",
+                                        param.name(),
+                                        format_abi_value(val, param, &self.labels)
+                                    ));
+                                    indexed_idx += 1;
                                 }
+                            } else if let Some(val) = decoded.body.get(body_idx) {
+                                args.push(format!(
+                                    "{}: {}",
+                                    param.name(),
+                                    format_abi_value(val, param, &self.labels)
+                                ));
+                                body_idx += 1;
                             }
-                            return (Some(name), args.join(", "));
                         }
-                        Err(_) => {
-                            return (Some(name), "...".into());
-                        }
+                        return Some((name, args.join(", ")));
                     }
+                    Err(_) => return Some((name, "...".into())),
                 }
             }
         }
-        (None, format!("0x{}", hex::encode(data)))
+        None
     }
 
     /// Decode a `Log(string, ...)` event into a simple log message.
@@ -1400,6 +1412,22 @@ impl TraceContext {
 
         format!("0x{}", hex::encode(data))
     }
+}
+
+/// Standard events from widely-deployed contracts (ERC20, ERC721, WETH9,
+/// Ownable), defined in [`common_events.json`]. Used as a decoding fallback
+/// when no project artifact declares the event, so logs from forked or
+/// external contracts whose interfaces omit events still render with a
+/// meaningful name instead of `Log(0x...)`.
+fn common_event_abis() -> &'static [JsonAbi] {
+    // `include_str!` embeds the file at compile time, but serde_json has no
+    // const parser: parse once on first use and reuse the cached result for
+    // every later call. The `common_events_decode_undeclared_transfer` test
+    // fails if the file ever stops parsing.
+    static COMMON_EVENTS: LazyLock<JsonAbi> = LazyLock::new(|| {
+        serde_json::from_str(include_str!("common_events.json")).unwrap_or_default()
+    });
+    std::slice::from_ref(&COMMON_EVENTS)
 }
 
 pub(super) fn format_value(v: &DynSolValue, labels: &HashMap<Address, String>) -> String {
@@ -1807,8 +1835,8 @@ mod tests {
     use std::collections::HashMap;
     use std::path::Path;
 
-    use alloy_primitives::Address;
-    use revm::primitives::Bytes;
+    use alloy_primitives::{Address, B256, U256, keccak256};
+    use revm::primitives::{Bytes, Log, LogData};
 
     use crate::evm::cheatcode::VM_ADDRESS;
     use crate::foundry::{Artifact, ArtifactId, Project};
@@ -1913,5 +1941,48 @@ mod tests {
 
         let ctx = TraceContext::from_project(&Project::new("fixtures/trace-context")).unwrap();
         assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RipfuzzVM"));
+    }
+
+    /// An event not declared in any project artifact must still decode when
+    /// it is a standard ERC20 event (the fallback common-events set).
+    #[test]
+    fn common_events_decode_undeclared_transfer() {
+        let ctx = TraceContext::new();
+
+        let topic0 = keccak256("Transfer(address,address,uint256)");
+        let from = Address::repeat_byte(0x11);
+        let to = Address::repeat_byte(0x22);
+        let mut from_topic = [0u8; 32];
+        from_topic[12..].copy_from_slice(from.as_slice());
+        let mut to_topic = [0u8; 32];
+        to_topic[12..].copy_from_slice(to.as_slice());
+        let data = U256::from(1000).to_be_bytes::<32>();
+        let log = Log {
+            address: Address::ZERO,
+            data: LogData::new(
+                vec![topic0, B256::from(from_topic), B256::from(to_topic)],
+                Bytes::from(data.to_vec()),
+            )
+            .unwrap(),
+        };
+        let (name, args) = ctx.decode_event(&log);
+        assert_eq!(name.as_deref(), Some("Transfer"));
+        assert!(args.contains("value: 1000"), "unexpected args: {args}");
+    }
+
+    /// An event outside the common set stays raw when no artifact declares it.
+    #[test]
+    fn unknown_event_stays_raw() {
+        let ctx = TraceContext::new();
+
+        let log = Log {
+            address: Address::ZERO,
+            data: LogData::new(vec![keccak256("Mystery(uint256)")], Bytes::from(vec![0x42]))
+                .unwrap(),
+        };
+
+        let (name, args) = ctx.decode_event(&log);
+        assert_eq!(name, None);
+        assert!(args.starts_with("0x"), "raw args expected: {args}");
     }
 }
