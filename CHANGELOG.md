@@ -32,6 +32,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - Shrinker types now live under `shrinkers`: `Shrinker` is renamed to
   `InvariantShrinker` and `MaxShrinker` to `MaxxingShrinker`; the `max` module
   was removed.
+- Campaign dispatch moved into `commands::run::run`; `CampaignKind::Max` is
+  renamed to `CampaignKind::Maxxing`.
 
 ### Fixed
 

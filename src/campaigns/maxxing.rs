@@ -30,7 +30,7 @@ impl MaxxingCampaign {
     /// Create a maxxing campaign from a prepared session.
     pub fn new(session: CampaignSession) -> Result<Self> {
         ensure!(
-            session.kind == CampaignKind::Max,
+            session.kind == CampaignKind::Maxxing,
             "cannot run a maxxing campaign on an invariant-mode harness"
         );
         let objective = MaxObjective::new(

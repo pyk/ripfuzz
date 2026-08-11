@@ -3,13 +3,10 @@
 use std::thread::JoinHandle;
 
 use anyhow::Result;
-use tracing::instrument;
 
 pub use crate::campaigns::invariant::InvariantCampaign;
 pub use crate::campaigns::maxxing::MaxxingCampaign;
 pub use crate::campaigns::session::CampaignSession;
-
-use crate::commands::run::Args;
 
 mod invariant;
 mod maxxing;
@@ -22,17 +19,7 @@ pub enum CampaignKind {
     /// is declared).
     Invariant,
     /// Maximize the single `max_*` function's return value.
-    Max,
-}
-
-/// Run the campaign selected by the harness contract.
-#[instrument(skip(args), fields(harness = ?args.harness, threads = args.threads, max_runs = args.max_runs))]
-pub fn run(args: Args) -> Result<()> {
-    let session = CampaignSession::new(args)?;
-    match session.kind {
-        CampaignKind::Invariant => InvariantCampaign::new(session)?.run(),
-        CampaignKind::Max => MaxxingCampaign::new(session)?.run(),
-    }
+    Maxxing,
 }
 
 /// Split `total` runs evenly across `workers`, one item per worker.

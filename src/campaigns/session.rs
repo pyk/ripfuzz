@@ -202,7 +202,7 @@ impl CampaignSession {
             return Err(e);
         }
         let kind = if max_mode {
-            CampaignKind::Max
+            CampaignKind::Maxxing
         } else {
             CampaignKind::Invariant
         };

@@ -6,8 +6,9 @@ use alloy_primitives::Address;
 use anyhow::Result;
 use clap::Parser;
 use revm::primitives::U256;
+use tracing::instrument;
 
-use crate::campaigns;
+use crate::campaigns::{CampaignKind, CampaignSession, InvariantCampaign, MaxxingCampaign};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -249,8 +250,13 @@ impl Args {
 }
 
 /// Run a fuzzing campaign.
+#[instrument(skip(args), fields(harness = ?args.harness, threads = args.threads, max_runs = args.max_runs))]
 pub fn run(args: Args) -> Result<()> {
-    campaigns::run(args)
+    let session = CampaignSession::new(args)?;
+    match session.kind {
+        CampaignKind::Invariant => InvariantCampaign::new(session)?.run(),
+        CampaignKind::Maxxing => MaxxingCampaign::new(session)?.run(),
+    }
 }
 
 #[cfg(test)]
