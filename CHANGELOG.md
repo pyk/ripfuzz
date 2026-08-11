@@ -35,6 +35,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   on fork A then `rvm.fork` to B). Journaled remote mutations now commit to the
   active fork overlay before the switch; local harness accounts stay shared
   across forks.
+- Fork transport JSON-RPC request/response payloads are logged at `debug`
+  instead of `info`, so default `--log-level info` runs no longer flood the
+  terminal with full payload lines for every round trip.
 
 ## [0.9.1] - 2026-08-07
 
