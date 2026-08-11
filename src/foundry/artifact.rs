@@ -11,7 +11,7 @@ use alloy_primitives::{Address, keccak256};
 use anyhow::{Context, Result, bail, ensure};
 use revm::primitives::Bytes;
 use serde::Deserialize;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
 
 /// Unique identifier for a compiled build artifact.
 ///
@@ -405,19 +405,40 @@ impl Artifact {
     }
 
     /// Load a build artifact from a JSON file on disk.
-    #[instrument(err, level = "debug", fields(path = %path.as_ref().display()))]
+    ///
+    /// Parse failures are logged at `warn` (not `error`): a single bad
+    /// artifact (for example a forge-std `console2.json`) must not look like
+    /// a campaign failure, it is skipped.
+    #[instrument(level = "debug", fields(path = %path.as_ref().display()))]
     pub fn from_json(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         debug!(path = %path.display(), "Loading build artifact");
         let content = fs::read_to_string(path)
-            .with_context(|| format!("failed to read artifact: {}", path.display()))?;
+            .with_context(|| format!("failed to read artifact: {}", path.display()))
+            .map_err(|e| {
+                warn!("{e}");
+                e
+            })?;
         Self::from_json_str(&content)
             .with_context(|| format!("failed to parse artifact: {}", path.display()))
+            .map_err(|e| {
+                warn!("{e}");
+                e
+            })
     }
 
     /// Load a build artifact from a JSON string.
-    #[instrument(err, level = "debug", skip(content))]
+    #[instrument(level = "debug", skip(content))]
     pub fn from_json_str(content: &str) -> Result<Self> {
+        let result = Self::parse_artifact_json(content);
+        if let Err(e) = &result {
+            warn!("{e}");
+        }
+        result
+    }
+
+    /// Parse a build artifact from a JSON string without logging.
+    fn parse_artifact_json(content: &str) -> Result<Self> {
         let json: ArtifactJson = serde_json::from_str(content)?;
 
         let id = get_artifact_id(&json)?;

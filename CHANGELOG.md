@@ -50,6 +50,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- Build artifacts are loaded once per campaign: trace contexts reuse the
+  already-loaded artifacts instead of re-reading the build output directory,
+  which duplicated the artifact parse errors in the log
 - `--stop-on-revert` traces now stop at the first reverted transaction: only
   the calls up to and including it are re-run and dumped, instead of the whole
   generated sequence

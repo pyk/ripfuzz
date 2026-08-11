@@ -263,7 +263,7 @@ impl CampaignSession {
         info!("Deploying {contract_name}");
         let deployment = chain.deploy(deploy_opts)?;
         if !deployment.result.success {
-            let mut ctx = TraceContext::from_project(&project)?;
+            let mut ctx = TraceContext::from_artifacts(build_artifacts.clone());
             if let Some(addr) = deployment.trace.roots.first().and_then(|r| r.address) {
                 ctx = ctx.with_label(addr, contract_name);
             }
@@ -313,7 +313,7 @@ impl CampaignSession {
                 }
             };
             if !setup_output.result.success {
-                let mut ctx = TraceContext::from_project(&project)?
+                let mut ctx = TraceContext::from_artifacts(build_artifacts.clone())
                     .with_label(deployed_address, contract_name);
                 for (addr, label) in chain.labels() {
                     ctx = ctx.with_label(*addr, label);
@@ -424,7 +424,7 @@ impl CampaignSession {
 
     /// Write a trace for the current campaign and return its path.
     pub fn write_trace(&self, trace: &Trace, file_name: &str) -> Result<PathBuf> {
-        let ctx = self.trace_context()?;
+        let ctx = self.trace_context();
         let trace_dir = campaign_dir(&self.project.path, &self.campaign_id);
         fs::create_dir_all(&trace_dir)?;
         let trace_file = trace_dir.join(file_name);
@@ -446,7 +446,7 @@ impl CampaignSession {
         trace_chain.set_trace(true);
         let exec = trace_chain.exec(transactions)?;
         let trace = exec.trace.context("trace expected after re-run")?;
-        let ctx = self.trace_context()?;
+        let ctx = self.trace_context();
         let full = format!("{}", trace.display_with(&ctx));
         let compact = format!("{}", trace.display_compact_with(&ctx));
 
@@ -460,15 +460,15 @@ impl CampaignSession {
         })
     }
 
-    /// Trace context for the current campaign: project artifacts plus chain
-    /// labels.
-    fn trace_context(&self) -> Result<TraceContext> {
-        let mut ctx = TraceContext::from_project(&self.project)?
+    /// Trace context for the current campaign: the already-loaded project
+    /// artifacts plus chain labels.
+    fn trace_context(&self) -> TraceContext {
+        let mut ctx = TraceContext::from_artifacts(self.build_artifacts.clone())
             .with_label(self.deployed_address, self.contract_name());
         for (addr, label) in self.chain.labels() {
             ctx = ctx.with_label(*addr, label);
         }
-        Ok(ctx)
+        ctx
     }
 
     /// Generate coverage reports for the current campaign.
