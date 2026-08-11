@@ -13,7 +13,7 @@ use tracing::{debug, instrument};
 use crate::corpus::{CorpusConfig, Item, SharedCorpus};
 use crate::evm;
 use crate::evm::{SharedCoverage, Transaction};
-use crate::fuzzer::SharedMetrics;
+use crate::fuzzer::{FailedAssertion, SharedFailedAssertions, SharedMetrics};
 use crate::max::corpus::MaxFuzzerCorpus;
 use crate::max::objective::MaxObjective;
 use crate::max::output::MaxFuzzerOutput;
@@ -27,12 +27,14 @@ pub struct MaxFuzzerConfig {
     pub shared_corpus: MaxFuzzerCorpus,
     pub shared_coverage: SharedCoverage,
     pub shared_metrics: SharedMetrics,
+    pub shared_failed_assertions: SharedFailedAssertions,
     pub shutdown_signal: Arc<AtomicBool>,
     pub caller: Address,
     pub objective: Option<MaxObjective>,
     pub max_runs: u64,
     pub gas_limit: u64,
     pub timeout: Option<Duration>,
+    pub fail_on_revert: bool,
 }
 
 impl MaxFuzzerConfig {
@@ -47,12 +49,14 @@ impl MaxFuzzerConfig {
             ))),
             shared_coverage: SharedCoverage::new(),
             shared_metrics: SharedMetrics::new(Vec::new()),
+            shared_failed_assertions: SharedFailedAssertions::new(1),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             caller: evm::DEFAULT_DEPLOYER,
             objective: None,
             max_runs: 0,
             gas_limit: 12_500_000,
             timeout: None,
+            fail_on_revert: false,
         }
     }
 
@@ -89,6 +93,19 @@ impl MaxFuzzerConfig {
     /// Set the shared metrics.
     pub fn shared_metrics(mut self, value: SharedMetrics) -> Self {
         self.shared_metrics = value;
+        self
+    }
+
+    /// Set the shared failed assertion collection.
+    pub fn shared_failed_assertions(mut self, value: SharedFailedAssertions) -> Self {
+        self.shared_failed_assertions = value;
+        self
+    }
+
+    /// Set whether any reverted transaction should be treated as a failed
+    /// assertion.
+    pub fn fail_on_revert(mut self, value: bool) -> Self {
+        self.fail_on_revert = value;
         self
     }
 
@@ -146,12 +163,14 @@ pub struct MaxFuzzer {
     shared_corpus: MaxFuzzerCorpus,
     shared_coverage: SharedCoverage,
     shared_metrics: SharedMetrics,
+    shared_failed_assertions: SharedFailedAssertions,
     shutdown_signal: Arc<AtomicBool>,
     caller: Address,
     objective: MaxObjective,
     max_runs: u64,
     gas_limit: u64,
     timeout: Option<Duration>,
+    fail_on_revert: bool,
     rng: fastrand::Rng,
 }
 
@@ -164,12 +183,14 @@ impl MaxFuzzer {
             shared_corpus: config.shared_corpus,
             shared_coverage: config.shared_coverage,
             shared_metrics: config.shared_metrics,
+            shared_failed_assertions: config.shared_failed_assertions,
             shutdown_signal: config.shutdown_signal,
             caller: config.caller,
             objective: config.objective.unwrap_or_else(default_objective),
             max_runs: config.max_runs,
             gas_limit: config.gas_limit,
             timeout: config.timeout,
+            fail_on_revert: config.fail_on_revert,
             rng: fastrand::Rng::with_seed(config.seed),
         }
     }
@@ -238,7 +259,20 @@ impl MaxFuzzer {
 
         let mut exec = fresh_chain.exec(&transactions)?;
         let coverage = exec.coverage.take().context("coverage expected")?;
+        let failure_pc = coverage.panic_pcs.first().copied();
         let coverage_update = self.shared_coverage.merge(&coverage);
+        let has_failure = exec.has_failure(self.fail_on_revert);
+        let failure_index = if has_failure {
+            exec.results.iter().position(|r| {
+                if self.fail_on_revert {
+                    !r.success
+                } else {
+                    r.is_assert_failure()
+                }
+            })
+        } else {
+            None
+        };
 
         for (i, call) in item.calls.iter().enumerate() {
             let handler_result = &exec.results[i * stride];
@@ -275,12 +309,28 @@ impl MaxFuzzer {
             }
         }
 
+        let calls_count = transactions.len() as u64;
+        let gas_sum = exec.results.iter().map(|r| r.gas_used).sum::<u64>();
+
+        if has_failure {
+            let failure = FailedAssertion {
+                transactions,
+                item: item.clone(),
+                failure_index,
+                failure_pc,
+            };
+            // checkrs: allow(clone_in_loops)
+            if self.shared_failed_assertions.try_add(failure)
+                && self.shared_failed_assertions.is_full()
+            {
+                self.shutdown_signal.store(true, Ordering::Relaxed);
+            }
+        }
+
         if coverage_update.is_interesting() {
             self.shared_corpus.add_coverage_item(item.clone())?;
         }
 
-        let calls_count = transactions.len() as u64;
-        let gas_sum = exec.results.iter().map(|r| r.gas_used).sum::<u64>();
         Ok((calls_count, gas_sum))
     }
 }

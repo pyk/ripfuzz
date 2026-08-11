@@ -8,6 +8,7 @@ use alloy_primitives::Address;
 
 use crate::corpus::{CorpusConfig, Item, SharedFailedCorpusItem};
 use crate::evm;
+use crate::evm::Transaction;
 use crate::fuzzer::SharedMetrics;
 
 /// Per-shrinker configuration configured via a fluent builder API.
@@ -22,6 +23,9 @@ pub struct ShrinkerConfig {
     pub timeout: Option<Duration>,
     pub shared_metrics: SharedMetrics,
     pub fail_on_revert: bool,
+    /// Objective transaction interleaved after every call (max-mode stride-2
+    /// layout), when the failing sequence is executed by the max fuzzer.
+    pub objective_transaction: Option<Transaction>,
 }
 
 impl ShrinkerConfig {
@@ -40,6 +44,7 @@ impl ShrinkerConfig {
             timeout: None,
             shared_metrics: SharedMetrics::new(Vec::new()),
             fail_on_revert: false,
+            objective_transaction: None,
         }
     }
 
@@ -94,6 +99,17 @@ impl ShrinkerConfig {
     /// Set whether any revert should be treated as a failure.
     pub fn fail_on_revert(mut self, value: bool) -> Self {
         self.fail_on_revert = value;
+        self
+    }
+
+    /// Set the objective transaction interleaved after every call.
+    ///
+    /// When set, each candidate executes as `[call, objective, call,
+    /// objective, ...]` (max-mode stride-2 layout) and the failure check runs
+    /// on the full sequence, so objective-call reverts are preserved while
+    /// shrinking.
+    pub fn objective_transaction(mut self, value: Option<Transaction>) -> Self {
+        self.objective_transaction = value;
         self
     }
 }

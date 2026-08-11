@@ -38,6 +38,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - Fork transport JSON-RPC request/response payloads are logged at `debug`
   instead of `info`, so default `--log-level info` runs no longer flood the
   terminal with full payload lines for every round trip.
+- `--fail-on-revert` now works in max mode: a reverted transaction in a max
+  sequence (handler or `max_*` call) is reported as a failed assertion, shrunk,
+  traced, and written to the campaign directory (`trace-max-fail.log`). The
+  campaign stops at the first failure regardless of `--max-failures`, matching
+  invariant mode.
 
 ## [0.9.1] - 2026-08-07
 

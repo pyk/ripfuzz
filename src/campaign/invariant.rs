@@ -42,7 +42,10 @@ impl InvariantCampaign {
             .map(|f| f.signature())
             .collect();
         let shared_metrics = SharedMetrics::new(all_function_signatures.clone());
-        let shared_failed_assertions = SharedFailedAssertions::new(session.args.max_failures);
+        let shared_failed_assertions = SharedFailedAssertions::for_campaign(
+            session.args.max_failures,
+            session.args.fail_on_revert,
+        );
         let shutdown_signal = Arc::new(AtomicBool::new(false));
 
         let fuzzers = session.args.threads;

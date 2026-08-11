@@ -40,6 +40,7 @@ pub struct Shrinker {
     timeout: Option<Duration>,
     shared_metrics: SharedMetrics,
     fail_on_revert: bool,
+    objective_transaction: Option<Transaction>,
     rng: fastrand::Rng,
 }
 
@@ -55,6 +56,7 @@ impl Shrinker {
             timeout: config.timeout,
             shared_metrics: config.shared_metrics,
             fail_on_revert: config.fail_on_revert,
+            objective_transaction: config.objective_transaction,
             rng: fastrand::Rng::with_seed(config.seed),
         }
     }
@@ -86,11 +88,20 @@ impl Shrinker {
             let item = self.shared_failed_corpus.next_item(&mut self.rng);
             // checkrs: allow(clone_in_loops)
             let mut fresh_chain = self.chain.clone();
-            let transactions: Vec<Transaction> = item
+            let mut transactions: Vec<Transaction> = item
                 .calls
                 .iter()
                 .map(|call| call.into_transaction(self.target_address))
                 .collect();
+            if let Some(objective_transaction) = &self.objective_transaction {
+                let mut interleaved = Vec::with_capacity(transactions.len() * 2);
+                for transaction in transactions {
+                    interleaved.push(transaction);
+                    // checkrs: allow(clone_in_loops)
+                    interleaved.push(objective_transaction.clone());
+                }
+                transactions = interleaved;
+            }
             let calls_count = transactions.len();
 
             let exec = fresh_chain.exec(&transactions)?;
