@@ -124,10 +124,10 @@ impl InvariantCampaign {
                     let log = session
                         .log_file
                         .as_ref()
-                        .map(|path| format!("\n    log: {}", path.display()))
+                        .map(|path| format!("\nlog: {}", path.display()))
                         .unwrap_or_default();
                     return Err(anyhow::anyhow!(
-                        "campaign stopped by --stop-on-revert\n    trace: {}{}",
+                        "campaign stopped by --stop-on-revert\nfulltrace: {}{}",
                         report.file.display(),
                         log
                     ));

@@ -96,7 +96,7 @@ impl MaxxingCampaign {
         }
 
         let contract_name = self.session.contract_name();
-        info!("Max fuzzing {contract_name} with {fuzzers} threads");
+        info!("Fuzzing {contract_name} with {fuzzers} threads");
 
         let stats_ctx = formatter::CampaignStats::new(
             &self.session.shared_coverage,
@@ -139,10 +139,10 @@ impl MaxxingCampaign {
                         .session
                         .log_file
                         .as_ref()
-                        .map(|path| format!("\n    log: {}", path.display()))
+                        .map(|path| format!("\nlog: {}", path.display()))
                         .unwrap_or_default();
                     return Err(anyhow::anyhow!(
-                        "campaign stopped by --stop-on-revert\n    trace: {}{}",
+                        "campaign stopped by --stop-on-revert\nfulltrace: {}{}",
                         report.file.display(),
                         log
                     ));
