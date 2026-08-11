@@ -10,7 +10,7 @@ use anyhow::{Context, Result, ensure};
 use revm::primitives::Bytes;
 use tracing::{debug, error, info, warn};
 
-use crate::campaign::CampaignKind;
+use crate::campaigns::CampaignKind;
 use crate::commands::run::Args;
 use crate::corpus::{CorpusConfig, CorpusReplayer, ExtractedLiterals, SharedCorpus};
 use crate::evm::{

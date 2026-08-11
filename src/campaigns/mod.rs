@@ -5,9 +5,9 @@ use std::thread::JoinHandle;
 use anyhow::Result;
 use tracing::instrument;
 
-pub use crate::campaign::invariant::InvariantCampaign;
-pub use crate::campaign::max::MaxCampaign;
-pub use crate::campaign::session::CampaignSession;
+pub use crate::campaigns::invariant::InvariantCampaign;
+pub use crate::campaigns::max::MaxCampaign;
+pub use crate::campaigns::session::CampaignSession;
 
 use crate::commands::run::Args;
 

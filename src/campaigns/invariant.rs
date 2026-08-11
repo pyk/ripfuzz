@@ -8,7 +8,7 @@ use std::sync::atomic::AtomicBool;
 use anyhow::{Result, ensure};
 use tracing::{error, info};
 
-use crate::campaign::{CampaignKind, CampaignSession, split_runs, wait_for_workers};
+use crate::campaigns::{CampaignKind, CampaignSession, split_runs, wait_for_workers};
 use crate::corpus::{Call, CorpusConfig, Item, SharedFailedCorpusItem};
 use crate::evm::Transaction;
 use crate::formatter;

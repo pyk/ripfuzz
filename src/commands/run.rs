@@ -7,7 +7,7 @@ use anyhow::Result;
 use clap::Parser;
 use revm::primitives::U256;
 
-use crate::campaign;
+use crate::campaigns;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -250,7 +250,7 @@ impl Args {
 
 /// Run a fuzzing campaign.
 pub fn run(args: Args) -> Result<()> {
-    campaign::run(args)
+    campaigns::run(args)
 }
 
 #[cfg(test)]
