@@ -12,7 +12,21 @@ use anyhow::Result;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::prelude::*;
+
+/// Format the current local time as `HH:MM:SS` for terminal log lines.
+///
+/// The full date stays available in the campaign log file, so the terminal
+/// only needs the wall-clock time. `FormatTime` is implemented for function
+/// pointers, so `simple_time` can be passed directly to `with_timer`.
+fn simple_time(w: &mut Writer<'_>) -> std::fmt::Result {
+    let now = jiff::Zoned::now();
+    match jiff::fmt::strtime::format("%H:%M:%S", &now) {
+        Ok(time) => w.write_str(&time),
+        Err(_) => Err(std::fmt::Error),
+    }
+}
 
 /// Initialize the global tracing subscriber.
 ///
@@ -37,8 +51,12 @@ pub fn init(disable_log: bool, log_file: &Path, level: tracing::Level) -> Result
         tracing::Level::TRACE => EnvFilter::new("trace"),
     };
 
-    // Default fmt format: timestamp, level, target, and message.
+    // Terminal format: simple time, level, and message (module target hidden).
+    // Cast to a fn pointer: `FormatTime` covers `fn(&mut Writer<'_>) -> fmt::Result`,
+    // not the zero-sized fn item type.
     let stderr_layer = fmt::layer()
+        .with_timer(simple_time as fn(&mut Writer<'_>) -> std::fmt::Result)
+        .with_target(false)
         .with_ansi(std::io::stderr().is_terminal())
         .with_writer(std::io::stderr);
 

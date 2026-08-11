@@ -108,21 +108,29 @@ impl MaxxingCampaign {
 
         wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
             if let Some(snapshot) = shared_metrics.try_snapshot() {
-                info!("{}", stats_ctx.progress(&snapshot));
+                stats_ctx.log_summary(&snapshot, "fuzzing");
             }
             Ok(())
         })?;
 
+        let mut failures: Vec<anyhow::Error> = Vec::new();
         for (fuzzer_id, handle) in handles {
             match handle.join() {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    error!(fuzzer_id, %e, "Max fuzzer failed");
+                    error!(fuzzer_id, "Max fuzzer failed: {e:#}");
+                    failures.push(e);
                 }
                 Err(e) => {
                     error!(fuzzer_id, ?e, "Max fuzzer panicked");
+                    failures.push(anyhow::anyhow!("max fuzzer {fuzzer_id} panicked: {e:?}"));
                 }
             }
+        }
+        if !failures.is_empty() {
+            let count = failures.len();
+            let first = failures.remove(0);
+            return Err(first).with_context(|| format!("{count} max fuzzer threads failed"));
         }
 
         // Stop-on-revert: log a single multi-line error message carrying the
@@ -154,21 +162,10 @@ impl MaxxingCampaign {
             return Err(anyhow::anyhow!("campaign stopped by --stop-on-revert"));
         }
 
-        let summary = stats_ctx.summary(&shared_metrics.aggregate());
         let function_metrics = shared_metrics.function_metrics();
-        info!(
-            runs = %summary.runs,
-            calls = %summary.calls,
-            elapsed = %summary.elapsed,
-            call_rate = %summary.call_rate,
-            gas_rate = %summary.gas_rate,
-            contracts = %summary.contracts,
-            edges = %summary.edges,
-            depths = %summary.depths,
-            reverts = %summary.reverts,
-            jumps = %summary.jumps,
-            corpus = %summary.corpus,
-            "Fuzzed {contract_name} with {fuzzers} threads",
+        stats_ctx.log_summary(
+            &shared_metrics.aggregate(),
+            &format!("Fuzzed {contract_name} with {fuzzers} threads"),
         );
         for stat in stats_ctx.function_stats(&function_metrics) {
             info!(
@@ -330,16 +327,24 @@ impl MaxxingCampaign {
             Ok(())
         })?;
 
+        let mut failures: Vec<anyhow::Error> = Vec::new();
         for handle in shrinker_handles {
             match handle.join() {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    error!(%e, "max shrinker failed");
+                    error!("Max shrinker failed: {e:#}");
+                    failures.push(e);
                 }
                 Err(e) => {
-                    error!(?e, "max shrinker panicked");
+                    error!(?e, "Max shrinker panicked");
+                    failures.push(anyhow::anyhow!("max shrinker panicked: {e:?}"));
                 }
             }
+        }
+        if !failures.is_empty() {
+            let count = failures.len();
+            let first = failures.remove(0);
+            return Err(first).with_context(|| format!("{count} max shrinker threads failed"));
         }
 
         let shrunk = shrink_corpus.item();

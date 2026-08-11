@@ -2,6 +2,7 @@
 
 use alloy_primitives::U256;
 use alloy_primitives::utils::format_ether;
+use tracing::info;
 
 use crate::corpus::SharedCorpus;
 use crate::evm::SharedCoverage;
@@ -102,36 +103,26 @@ impl<'a> CampaignStats<'a> {
         }
     }
 
-    /// Format a one-line fuzzing progress update.
+    /// Log a campaign statistics snapshot as structured `key=value` fields.
     ///
-    /// Keeps the campaign-level numbers that matter while fuzzing: runs,
-    /// calls, elapsed time, throughput, coverage, and corpus size.
-    pub fn progress(&self, snapshot: &Snapshot) -> String {
-        let elapsed_secs = snapshot.elapsed.as_secs_f64();
-        let calls_per_sec = if elapsed_secs > 0.0 {
-            (snapshot.calls as f64 / elapsed_secs) as u64
-        } else {
-            0
-        };
-        let gas_per_sec = if elapsed_secs > 0.0 {
-            (snapshot.gas as f64 / elapsed_secs) as u64
-        } else {
-            0
-        };
-
-        format!(
-            "fuzzing · {} runs · {} calls · {} · {} c/s · {} · cov {}e/{}d/{}r/{}j · {} corpus",
-            num(snapshot.runs),
-            num(snapshot.calls),
-            duration(elapsed_secs),
-            num(calls_per_sec),
-            giga_gas(gas_per_sec) + "/s",
-            num(self.shared_coverage.edge_count() as u64),
-            num(self.shared_coverage.depth_count() as u64),
-            num(self.shared_coverage.revert_count() as u64),
-            num(self.shared_coverage.jump_count() as u64),
-            num(self.corpus.stats().item_count as u64),
-        )
+    /// Shared by the periodic progress updates and the final summary, so every
+    /// campaign line parses with the same field names.
+    pub fn log_summary(&self, snapshot: &Snapshot, message: &str) {
+        let summary = self.summary(snapshot);
+        info!(
+            runs = %summary.runs,
+            calls = %summary.calls,
+            elapsed = %summary.elapsed,
+            call_rate = %summary.call_rate,
+            gas_rate = %summary.gas_rate,
+            contracts = %summary.contracts,
+            edges = %summary.edges,
+            depths = %summary.depths,
+            reverts = %summary.reverts,
+            jumps = %summary.jumps,
+            corpus = %summary.corpus,
+            "{message}",
+        );
     }
 
     /// Aggregate the campaign-wide statistics for structured logging.
@@ -313,23 +304,6 @@ mod tests {
             calls: 56_789,
             gas: 2_000_000_000,
         }
-    }
-
-    #[test]
-    fn campaign_progress_preserves_key_stats() {
-        let coverage = SharedCoverage::new();
-        let corpus = SharedCorpus::new(CorpusConfig::new(""));
-        let stats = CampaignStats::new(&coverage, &corpus, &[], &[], &[]);
-
-        let line = stats.progress(&snapshot());
-
-        assert!(line.contains("1,234 runs"), "{line}");
-        assert!(line.contains("56,789 calls"), "{line}");
-        assert!(line.contains("2.00s"), "{line}");
-        assert!(line.contains("28,394 c/s"), "{line}");
-        assert!(line.contains("1.00 G/s"), "{line}");
-        assert!(line.contains("cov 0e/0d/0r/0j"), "{line}");
-        assert!(line.contains("0 corpus"), "{line}");
     }
 
     #[test]

@@ -416,13 +416,13 @@ impl Artifact {
         let content = fs::read_to_string(path)
             .with_context(|| format!("failed to read artifact: {}", path.display()))
             .map_err(|e| {
-                warn!("{e}");
+                warn!("{e:#}");
                 e
             })?;
         Self::from_json_str(&content)
             .with_context(|| format!("failed to parse artifact: {}", path.display()))
             .map_err(|e| {
-                warn!("{e}");
+                warn!("{e:#}");
                 e
             })
     }
@@ -430,11 +430,7 @@ impl Artifact {
     /// Load a build artifact from a JSON string.
     #[instrument(level = "debug", skip(content))]
     pub fn from_json_str(content: &str) -> Result<Self> {
-        let result = Self::parse_artifact_json(content);
-        if let Err(e) = &result {
-            warn!("{e}");
-        }
-        result
+        Self::parse_artifact_json(content)
     }
 
     /// Parse a build artifact from a JSON string without logging.

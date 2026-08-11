@@ -16,9 +16,22 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - `max_*` harness functions: read-only, no-argument functions returning
   `uint256`; reverted or empty results score `0`, and any value above `0` is
   the finding
+- Trace decoding falls back to common standard events when no project artifact
+  declares an event: ERC20 `Transfer`/`Approval`, ERC721 `ApprovalForAll`,
+  WETH9 `Deposit`/`Withdrawal`, and Ownable `OwnershipTransferred` logs from
+  forked or external contracts whose interfaces omit events render with a name
+  and arguments instead of raw `emit Log(0x...)` lines
 
 ### Changed
 
+- Fuzzing progress lines now log structured `key=value` fields (`runs=…`
+  `calls=…` `elapsed=…` `call_rate=…` `gas_rate=…` `contracts=…` `edges=…`
+  `depths=…` `reverts=…` `jumps=…` `corpus=…`) instead of `·`-separated prose,
+  using the same field names as the final campaign summary so every campaign
+  line parses identically
+- Terminal log lines now print a simple local `HH:MM:SS` timestamp and omit the
+  module target, instead of the full RFC 3339 UTC timestamp with target; the
+  campaign log file keeps the full timestamp and target
 - Trace output now hangs each frame's children and call context, log, storage,
   and result lines directly under the frame's name, so subtrees stay aligned
   regardless of gas amount; the `--- Call #N ---` header is replaced by a `[N]`
@@ -50,11 +63,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
-- Trace logs from contracts whose interface omits event declarations (for
-  example a minimal `IERC20`) now fall back to standard events: ERC20
-  `Transfer`/`Approval`, ERC721 `ApprovalForAll`, WETH9 `Deposit`/`Withdrawal`,
-  and Ownable `OwnershipTransferred` decode with a name and arguments instead
-  of raw `emit Log(0x...)` lines
+- Campaign worker failures are no longer swallowed: if any fuzzer or shrinker
+  thread fails (or panics), the campaign now exits with a failure after all
+  workers settle, and the error carries the full cause chain (e.g.
+  `revm transaction failed: database error: RPC rate limited: …`) instead of
+  only the outer message
+- Skipped build artifacts now warn with the artifact file path and the full
+  error chain (`failed to parse artifact: <path>: <cause>`) instead of a bare
+  cause message printed twice
 - Build artifacts are loaded once per campaign: trace contexts reuse the
   already-loaded artifacts instead of re-reading the build output directory,
   which duplicated the artifact parse errors in the log

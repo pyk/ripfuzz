@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use tracing::{error, info};
 
 use crate::campaigns::{CampaignKind, CampaignSession, split_runs, wait_for_workers};
@@ -97,21 +97,29 @@ impl InvariantCampaign {
 
         wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
             if let Some(snapshot) = shared_metrics.try_snapshot() {
-                info!("{}", stats_ctx.progress(&snapshot));
+                stats_ctx.log_summary(&snapshot, "fuzzing");
             }
             Ok(())
         })?;
 
+        let mut failures: Vec<anyhow::Error> = Vec::new();
         for (fuzzer_id, handle) in handles {
             match handle.join() {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    error!(fuzzer_id, %e, "Fuzzer failed");
+                    error!(fuzzer_id, "Fuzzer failed: {e:#}");
+                    failures.push(e);
                 }
                 Err(e) => {
                     error!(fuzzer_id, ?e, "Fuzzer panicked");
+                    failures.push(anyhow::anyhow!("fuzzer {fuzzer_id} panicked: {e:?}"));
                 }
             }
+        }
+        if !failures.is_empty() {
+            let count = failures.len();
+            let first = failures.remove(0);
+            return Err(first).with_context(|| format!("{count} fuzzer threads failed"));
         }
 
         // Stop-on-revert: log a single multi-line error message carrying the
@@ -141,21 +149,10 @@ impl InvariantCampaign {
 
         let failed_assertions = shared_failed_assertions.items();
         if failed_assertions.is_empty() {
-            let summary = stats_ctx.summary(&shared_metrics.aggregate());
             let function_metrics = shared_metrics.function_metrics();
-            info!(
-                runs = %summary.runs,
-                calls = %summary.calls,
-                elapsed = %summary.elapsed,
-                call_rate = %summary.call_rate,
-                gas_rate = %summary.gas_rate,
-                contracts = %summary.contracts,
-                edges = %summary.edges,
-                depths = %summary.depths,
-                reverts = %summary.reverts,
-                jumps = %summary.jumps,
-                corpus = %summary.corpus,
-                "Fuzzed {contract_name} with {fuzzers} threads",
+            stats_ctx.log_summary(
+                &shared_metrics.aggregate(),
+                &format!("Fuzzed {contract_name} with {fuzzers} threads"),
             );
             for stat in stats_ctx.function_stats(&function_metrics) {
                 info!(
@@ -211,21 +208,10 @@ impl InvariantCampaign {
             .max_calls(session.args.max_calls)
             .literals(session.literals.clone());
 
-        let summary = stats_ctx.summary(&shared_metrics.aggregate());
         let function_metrics = shared_metrics.function_metrics();
-        info!(
-            runs = %summary.runs,
-            calls = %summary.calls,
-            elapsed = %summary.elapsed,
-            call_rate = %summary.call_rate,
-            gas_rate = %summary.gas_rate,
-            contracts = %summary.contracts,
-            edges = %summary.edges,
-            depths = %summary.depths,
-            reverts = %summary.reverts,
-            jumps = %summary.jumps,
-            corpus = %summary.corpus,
-            "Fuzzed {contract_name} with {fuzzers} threads",
+        stats_ctx.log_summary(
+            &shared_metrics.aggregate(),
+            &format!("Fuzzed {contract_name} with {fuzzers} threads"),
         );
         for stat in stats_ctx.function_stats(&function_metrics) {
             info!(
@@ -315,16 +301,24 @@ impl InvariantCampaign {
                 Ok(())
             })?;
 
+            let mut failures: Vec<anyhow::Error> = Vec::new();
             for handle in shrinker_handles {
                 match handle.join() {
                     Ok(Ok(_)) => {}
                     Ok(Err(e)) => {
-                        error!(%e, "Shrinker failed");
+                        error!("Shrinker failed: {e:#}");
+                        failures.push(e);
                     }
                     Err(e) => {
                         error!(?e, "Shrinker panicked");
+                        failures.push(anyhow::anyhow!("shrinker panicked: {e:?}"));
                     }
                 }
+            }
+            if !failures.is_empty() {
+                let count = failures.len();
+                let first = failures.remove(0);
+                return Err(first).with_context(|| format!("{count} shrinker threads failed"));
             }
 
             let shrunk_item = shared_failed_item.item();
