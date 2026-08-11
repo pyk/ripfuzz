@@ -1,219 +1,219 @@
 --- Call #1 [REVERT] ---
 [11917062] → new StorageTypesRevert@0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22
-    ├─  call context:
-    │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
-    │   @ msg.value: 0
-    │   @ block.timestamp: 1438269988
-    │   @ block.number: 1
-    ├─ [11553481] → new StorageTypes@0x6eBa38112d9106c17c00A791244E8b11732Fdd30
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ boolValue: false -> true
-    │   │   @ uint8Value: 0 -> 255
-    │   │   @ uint128Value: 0 -> 340282366920938463463374607431768211455
-    │   │   @ uint256Value: 0 -> 115792089237316195423570985008687907853269984665640564039457584007913129639935
-    │   │   @ int8Value: 0 -> -128
-    │   │   @ int128Value: 0 -> -170141183460469231731687303715884105728
-    │   │   @ int256Value: 0 -> -57896044618658097711785492504343953926634992332820282019728792003956564819968
-    │   │   @ bytes1Value: 0x00 -> 0x1
-    │   │   @ bytes32Value: 0x00 -> 0xdeadbeef00000000000000000000000000000000000000000000000000000000
-    │   │   @ addressValue: 0x0000000000000000000000000000000000000000 -> 0xD93a248535Ef447440e7D63A2aff6c3e75B235C7
-    │   │   @ bytesValue: 0x00 -> 0xcafebabe00000000000000000000000000000000000000000000000000000008
-    │   │   @ stringValue: "" -> "hello"
-    │   │   @ uintArray.length: 0 -> 1
-    │   │   @ uintArray[0]: 0 -> 1
-    │   │   @ uintArray.length: 1 -> 2
-    │   │   @ uintArray[1]: 0 -> 2
-    │   │   @ structArray.length: 0 -> 1
-    │   │   @ structArray[0].x: 0 -> 1
-    │   │   @ structArray[0].y: 0 -> 2
-    │   │   @ structArray.length: 1 -> 2
-    │   │   @ structArray[1].x: 0 -> 3
-    │   │   @ structArray[1].y: 0 -> 4
-    │   │   @ fixedArray[0]: 0 -> 10
-    │   │   @ fixedArray[1]: 0 -> 20
-    │   │   @ fixedArray[2]: 0 -> 30
-    │   │   @ balances[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]: 0 -> 1000
-    │   │   @ allowances[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7][0x1234567890123456789012345678901234567890]: 0 -> 500
-    │   │   @ idToOwner[1]: 0x0000000000000000000000000000000000000000 -> 0xD93a248535Ef447440e7D63A2aff6c3e75B235C7
-    │   │   @ isWhitelisted[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]: false -> true
-    │   │   @ proofs[0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658]: 0 -> 42
-    │   │   @ idToArray[1].length: 0 -> 1
-    │   │   @ idToArray[1][0]: 0 -> 10
-    │   │   @ idToArray[1].length: 1 -> 2
-    │   │   @ idToArray[1][1]: 0 -> 20
-    │   │   @ idToPoint[1].x: 0 -> 7
-    │   │   @ idToPoint[1].y: 0 -> 8
-    │   │   @ userToPoint[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7].x: 0 -> 9
-    │   │   @ userToPoint[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7].y: 0 -> 10
-    │   └─ ← [return] 8673 bytes of code
-    ├─ [718] StorageTypes::setBool(false)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ boolValue: true -> false
-    │   └─ ← [stop]
-    ├─ [880] StorageTypes::setUint8(0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ uint8Value: 255 -> 0
-    │   └─ ← [stop]
-    ├─ [792] StorageTypes::setUint128(0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ uint128Value: 340282366920938463463374607431768211455 -> 0
-    │   └─ ← [stop]
-    ├─ [582] StorageTypes::setUint256(0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ uint256Value: 115792089237316195423570985008687907853269984665640564039457584007913129639935 -> 0
-    │   └─ ← [stop]
-    ├─ [771] StorageTypes::setInt8(0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ int8Value: -128 -> 0
-    │   └─ ← [stop]
-    ├─ [779] StorageTypes::setInt128(0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ int128Value: -170141183460469231731687303715884105728 -> 0
-    │   └─ ← [stop]
-    ├─ [671] StorageTypes::setInt256(0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ int256Value: -57896044618658097711785492504343953926634992332820282019728792003956564819968 -> 0
-    │   └─ ← [stop]
-    ├─ [783] StorageTypes::setBytes1(0x0000000000000000000000000000000000000000000000000000000000000000)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ bytes1Value: 0x1 -> 0x00
-    │   └─ ← [stop]
-    ├─ [670] StorageTypes::setBytes32(0x0000000000000000000000000000000000000000000000000000000000000000)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ bytes32Value: 0xdeadbeef00000000000000000000000000000000000000000000000000000000 -> 0x00
-    │   └─ ← [stop]
-    ├─ [804] StorageTypes::setAddress(0x0000000000000000000000000000000000000000)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ addressValue: 0xD93a248535Ef447440e7D63A2aff6c3e75B235C7 -> 0x0000000000000000000000000000000000000000
-    │   └─ ← [stop]
-    ├─ [1354] StorageTypes::setBytes(0x)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ bytesValue: 0xcafebabe00000000000000000000000000000000000000000000000000000008 -> 0x00
-    │   └─ ← [stop]
-    ├─ [1332] StorageTypes::setString("")
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ stringValue: "hello" -> ""
-    │   └─ ← [stop]
-    ├─ [43444] StorageTypes::pushUintArray(3)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ uintArray.length: 2 -> 3
-    │   │   @ uintArray[2]: 0 -> 3
-    │   └─ ← [stop]
-    ├─ [87130] StorageTypes::pushStructArray(Point({ x: 5, y: 6 }))
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ structArray.length: 2 -> 3
-    │   │   @ structArray[2].x: 0 -> 5
-    │   │   @ structArray[2].y: 0 -> 6
-    │   └─ ← [stop]
-    ├─ [782] StorageTypes::setFixedArray(0, 0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ fixedArray[0]: 10 -> 0
-    │   └─ ← [stop]
-    ├─ [782] StorageTypes::setFixedArray(1, 0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ fixedArray[1]: 20 -> 0
-    │   └─ ← [stop]
-    ├─ [782] StorageTypes::setFixedArray(2, 0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ fixedArray[2]: 30 -> 0
-    │   └─ ← [stop]
-    ├─ [1107] StorageTypes::setTuple(0, 0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   └─ ← [stop]
-    ├─ [697] StorageTypes::setStruct(Point({ x: 0, y: 0 }))
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   └─ ← [stop]
-    ├─ [1150] StorageTypes::setNestedStruct(Line({ start: Point({ x: 0, y: 0 }), end: Point({ x: 0, y: 0 }) }))
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   └─ ← [stop]
-    ├─ [932] StorageTypes::setBalance(RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], 0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ balances[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]: 1000 -> 0
-    │   └─ ← [stop]
-    ├─ [1257] StorageTypes::setAllowance(RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], 0x1234567890123456789012345678901234567890, 0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ allowances[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7][0x1234567890123456789012345678901234567890]: 500 -> 0
-    │   └─ ← [stop]
-    ├─ [1094] StorageTypes::setIdToOwner(1, 0x0000000000000000000000000000000000000000)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ idToOwner[1]: 0xD93a248535Ef447440e7D63A2aff6c3e75B235C7 -> 0x0000000000000000000000000000000000000000
-    │   └─ ← [stop]
-    ├─ [1134] StorageTypes::setWhitelisted(RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], false)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ isWhitelisted[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]: true -> false
-    │   └─ ← [stop]
-    ├─ [896] StorageTypes::setProof(0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658, 0)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ proofs[0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658]: 42 -> 0
-    │   └─ ← [stop]
-    ├─ [43625] StorageTypes::pushIdToArray(1, 30)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ idToArray[1].length: 2 -> 3
-    │   │   @ idToArray[1][2]: 0 -> 30
-    │   └─ ← [stop]
-    ├─ [2254] StorageTypes::setIdToPoint(1, Point({ x: 0, y: 0 }))
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ idToPoint[1].x: 7 -> 0
-    │   │   @ idToPoint[1].y: 8 -> 0
-    │   └─ ← [stop]
-    ├─ [2378] StorageTypes::setUserToPoint(RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], Point({ x: 0, y: 0 }))
-    │   ├─  call context changes:
-    │   │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   ├─  storage changes:
-    │   │   @ userToPoint[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7].x: 9 -> 0
-    │   │   @ userToPoint[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7].y: 10 -> 0
-    │   └─ ← [stop]
-    └─ ← [revert] storage types revert
+           ├─  call context:
+           │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
+           │   @ msg.value: 0
+           │   @ block.timestamp: 1438269988
+           │   @ block.number: 1
+           ├─ [11553481] → new StorageTypes@0x6eBa38112d9106c17c00A791244E8b11732Fdd30
+           │             ├─  call context changes:
+           │             │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │             ├─  storage changes:
+           │             │   @ boolValue: false -> true
+           │             │   @ uint8Value: 0 -> 255
+           │             │   @ uint128Value: 0 -> 340282366920938463463374607431768211455
+           │             │   @ uint256Value: 0 -> 115792089237316195423570985008687907853269984665640564039457584007913129639935
+           │             │   @ int8Value: 0 -> -128
+           │             │   @ int128Value: 0 -> -170141183460469231731687303715884105728
+           │             │   @ int256Value: 0 -> -57896044618658097711785492504343953926634992332820282019728792003956564819968
+           │             │   @ bytes1Value: 0x00 -> 0x1
+           │             │   @ bytes32Value: 0x00 -> 0xdeadbeef00000000000000000000000000000000000000000000000000000000
+           │             │   @ addressValue: 0x0000000000000000000000000000000000000000 -> 0xD93a248535Ef447440e7D63A2aff6c3e75B235C7
+           │             │   @ bytesValue: 0x00 -> 0xcafebabe00000000000000000000000000000000000000000000000000000008
+           │             │   @ stringValue: "" -> "hello"
+           │             │   @ uintArray.length: 0 -> 1
+           │             │   @ uintArray[0]: 0 -> 1
+           │             │   @ uintArray.length: 1 -> 2
+           │             │   @ uintArray[1]: 0 -> 2
+           │             │   @ structArray.length: 0 -> 1
+           │             │   @ structArray[0].x: 0 -> 1
+           │             │   @ structArray[0].y: 0 -> 2
+           │             │   @ structArray.length: 1 -> 2
+           │             │   @ structArray[1].x: 0 -> 3
+           │             │   @ structArray[1].y: 0 -> 4
+           │             │   @ fixedArray[0]: 0 -> 10
+           │             │   @ fixedArray[1]: 0 -> 20
+           │             │   @ fixedArray[2]: 0 -> 30
+           │             │   @ balances[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]: 0 -> 1000
+           │             │   @ allowances[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7][0x1234567890123456789012345678901234567890]: 0 -> 500
+           │             │   @ idToOwner[1]: 0x0000000000000000000000000000000000000000 -> 0xD93a248535Ef447440e7D63A2aff6c3e75B235C7
+           │             │   @ isWhitelisted[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]: false -> true
+           │             │   @ proofs[0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658]: 0 -> 42
+           │             │   @ idToArray[1].length: 0 -> 1
+           │             │   @ idToArray[1][0]: 0 -> 10
+           │             │   @ idToArray[1].length: 1 -> 2
+           │             │   @ idToArray[1][1]: 0 -> 20
+           │             │   @ idToPoint[1].x: 0 -> 7
+           │             │   @ idToPoint[1].y: 0 -> 8
+           │             │   @ userToPoint[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7].x: 0 -> 9
+           │             │   @ userToPoint[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7].y: 0 -> 10
+           │             └─ ← [return] 8673 bytes of code
+           ├─ [718] StorageTypes::setBool(false)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ boolValue: true -> false
+           │        └─ ← [stop]
+           ├─ [880] StorageTypes::setUint8(0)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ uint8Value: 255 -> 0
+           │        └─ ← [stop]
+           ├─ [792] StorageTypes::setUint128(0)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ uint128Value: 340282366920938463463374607431768211455 -> 0
+           │        └─ ← [stop]
+           ├─ [582] StorageTypes::setUint256(0)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ uint256Value: 115792089237316195423570985008687907853269984665640564039457584007913129639935 -> 0
+           │        └─ ← [stop]
+           ├─ [771] StorageTypes::setInt8(0)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ int8Value: -128 -> 0
+           │        └─ ← [stop]
+           ├─ [779] StorageTypes::setInt128(0)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ int128Value: -170141183460469231731687303715884105728 -> 0
+           │        └─ ← [stop]
+           ├─ [671] StorageTypes::setInt256(0)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ int256Value: -57896044618658097711785492504343953926634992332820282019728792003956564819968 -> 0
+           │        └─ ← [stop]
+           ├─ [783] StorageTypes::setBytes1(0x0000000000000000000000000000000000000000000000000000000000000000)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ bytes1Value: 0x1 -> 0x00
+           │        └─ ← [stop]
+           ├─ [670] StorageTypes::setBytes32(0x0000000000000000000000000000000000000000000000000000000000000000)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ bytes32Value: 0xdeadbeef00000000000000000000000000000000000000000000000000000000 -> 0x00
+           │        └─ ← [stop]
+           ├─ [804] StorageTypes::setAddress(0x0000000000000000000000000000000000000000)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ addressValue: 0xD93a248535Ef447440e7D63A2aff6c3e75B235C7 -> 0x0000000000000000000000000000000000000000
+           │        └─ ← [stop]
+           ├─ [1354] StorageTypes::setBytes(0x)
+           │         ├─  call context changes:
+           │         │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │         ├─  storage changes:
+           │         │   @ bytesValue: 0xcafebabe00000000000000000000000000000000000000000000000000000008 -> 0x00
+           │         └─ ← [stop]
+           ├─ [1332] StorageTypes::setString("")
+           │         ├─  call context changes:
+           │         │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │         ├─  storage changes:
+           │         │   @ stringValue: "hello" -> ""
+           │         └─ ← [stop]
+           ├─ [43444] StorageTypes::pushUintArray(3)
+           │          ├─  call context changes:
+           │          │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │          ├─  storage changes:
+           │          │   @ uintArray.length: 2 -> 3
+           │          │   @ uintArray[2]: 0 -> 3
+           │          └─ ← [stop]
+           ├─ [87130] StorageTypes::pushStructArray(Point({ x: 5, y: 6 }))
+           │          ├─  call context changes:
+           │          │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │          ├─  storage changes:
+           │          │   @ structArray.length: 2 -> 3
+           │          │   @ structArray[2].x: 0 -> 5
+           │          │   @ structArray[2].y: 0 -> 6
+           │          └─ ← [stop]
+           ├─ [782] StorageTypes::setFixedArray(0, 0)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ fixedArray[0]: 10 -> 0
+           │        └─ ← [stop]
+           ├─ [782] StorageTypes::setFixedArray(1, 0)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ fixedArray[1]: 20 -> 0
+           │        └─ ← [stop]
+           ├─ [782] StorageTypes::setFixedArray(2, 0)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ fixedArray[2]: 30 -> 0
+           │        └─ ← [stop]
+           ├─ [1107] StorageTypes::setTuple(0, 0)
+           │         ├─  call context changes:
+           │         │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │         └─ ← [stop]
+           ├─ [697] StorageTypes::setStruct(Point({ x: 0, y: 0 }))
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        └─ ← [stop]
+           ├─ [1150] StorageTypes::setNestedStruct(Line({ start: Point({ x: 0, y: 0 }), end: Point({ x: 0, y: 0 }) }))
+           │         ├─  call context changes:
+           │         │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │         └─ ← [stop]
+           ├─ [932] StorageTypes::setBalance(RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], 0)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ balances[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]: 1000 -> 0
+           │        └─ ← [stop]
+           ├─ [1257] StorageTypes::setAllowance(RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], 0x1234567890123456789012345678901234567890, 0)
+           │         ├─  call context changes:
+           │         │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │         ├─  storage changes:
+           │         │   @ allowances[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7][0x1234567890123456789012345678901234567890]: 500 -> 0
+           │         └─ ← [stop]
+           ├─ [1094] StorageTypes::setIdToOwner(1, 0x0000000000000000000000000000000000000000)
+           │         ├─  call context changes:
+           │         │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │         ├─  storage changes:
+           │         │   @ idToOwner[1]: 0xD93a248535Ef447440e7D63A2aff6c3e75B235C7 -> 0x0000000000000000000000000000000000000000
+           │         └─ ← [stop]
+           ├─ [1134] StorageTypes::setWhitelisted(RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], false)
+           │         ├─  call context changes:
+           │         │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │         ├─  storage changes:
+           │         │   @ isWhitelisted[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]: true -> false
+           │         └─ ← [stop]
+           ├─ [896] StorageTypes::setProof(0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658, 0)
+           │        ├─  call context changes:
+           │        │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │        ├─  storage changes:
+           │        │   @ proofs[0x9c22ff5f21f0b81b113e63f7db6da94fedef11b2119b4088b89664fb9a3cb658]: 42 -> 0
+           │        └─ ← [stop]
+           ├─ [43625] StorageTypes::pushIdToArray(1, 30)
+           │          ├─  call context changes:
+           │          │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │          ├─  storage changes:
+           │          │   @ idToArray[1].length: 2 -> 3
+           │          │   @ idToArray[1][2]: 0 -> 30
+           │          └─ ← [stop]
+           ├─ [2254] StorageTypes::setIdToPoint(1, Point({ x: 0, y: 0 }))
+           │         ├─  call context changes:
+           │         │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │         ├─  storage changes:
+           │         │   @ idToPoint[1].x: 7 -> 0
+           │         │   @ idToPoint[1].y: 8 -> 0
+           │         └─ ← [stop]
+           ├─ [2378] StorageTypes::setUserToPoint(RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], Point({ x: 0, y: 0 }))
+           │         ├─  call context changes:
+           │         │   @ msg.sender: StorageTypesRevert [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+           │         ├─  storage changes:
+           │         │   @ userToPoint[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7].x: 9 -> 0
+           │         │   @ userToPoint[0xD93a248535Ef447440e7D63A2aff6c3e75B235C7].y: 10 -> 0
+           │         └─ ← [stop]
+           └─ ← [revert] storage types revert

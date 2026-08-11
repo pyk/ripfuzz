@@ -476,7 +476,7 @@ impl<'a> fmt::Display for TraceDisplay<'a> {
             } else {
                 writeln!(f, "--- Call #{} [REVERT] ---", i + 1)?;
             }
-            self.write_frame(f, root, None, &[], true)?;
+            self.write_frame(f, root, None, &[])?;
         }
 
         let mut logs = Vec::new();
@@ -496,30 +496,39 @@ impl<'a> fmt::Display for TraceDisplay<'a> {
 }
 
 impl<'a> TraceDisplay<'a> {
+    /// Append vertical bars at `cols` (display columns), then spaces up to
+    /// `target`, tracking the running display position.
+    fn append_tree_prefix(buf: &mut String, cols: &[usize], target: usize) {
+        let mut pos = 0;
+        for &col in cols {
+            buf.push_str(&" ".repeat(col.saturating_sub(pos)));
+            buf.push('│');
+            pos = col + 1;
+        }
+        buf.push_str(&" ".repeat(target.saturating_sub(pos)));
+    }
+
     fn write_frame(
         &self,
         f: &mut fmt::Formatter<'_>,
         frame: &CallFrame,
         parent: Option<&CallFrame>,
-        has_next: &[bool],
-        is_last: bool,
+        ancestor_cols: &[usize],
     ) -> fmt::Result {
-        // Build the prefix string for the frame line
+        // Frame line prefix: vertical bars at each ancestor's children
+        // column, then the branch glyph at this frame's own column (the
+        // parent's children column).
+        let branch_col = ancestor_cols.last().copied();
         let mut prefix = String::new();
-        if !has_next.is_empty() {
-            for h in has_next {
-                if *h {
-                    prefix.push_str("│   ");
-                } else {
-                    prefix.push_str("    ");
-                }
-            }
-            if is_last {
-                prefix.push_str("└─ ");
-            } else {
-                prefix.push_str("├─ ");
-            }
+        if let Some(col) = branch_col {
+            Self::append_tree_prefix(&mut prefix, &ancestor_cols[..ancestor_cols.len() - 1], col);
+            prefix.push_str("├─ ");
         }
+
+        // Column at which this frame's name starts; children and
+        // pseudo-children branch under it.
+        let gas_len = frame.gas_used.to_string().len();
+        let name_col = branch_col.map_or(gas_len + 3, |col| col + gas_len + 6);
 
         // Write the frame line
         let label = {
@@ -577,29 +586,13 @@ impl<'a> TraceDisplay<'a> {
             )?;
         }
 
-        // Build has_next for children
-        let mut child_has_next = has_next.to_vec();
-        child_has_next.push(!is_last);
-
         // Build prefixes for call context / call context changes
         let mut meta_prefix = String::new();
-        for h in &child_has_next {
-            if *h {
-                meta_prefix.push_str("│   ");
-            } else {
-                meta_prefix.push_str("    ");
-            }
-        }
+        Self::append_tree_prefix(&mut meta_prefix, ancestor_cols, name_col);
         meta_prefix.push_str("├─ ");
 
         let mut meta_detail_prefix = String::new();
-        for h in &child_has_next {
-            if *h {
-                meta_detail_prefix.push_str("│   ");
-            } else {
-                meta_detail_prefix.push_str("    ");
-            }
-        }
+        Self::append_tree_prefix(&mut meta_detail_prefix, ancestor_cols, name_col);
         meta_detail_prefix.push_str("│   ");
 
         // Compute which fields differ from the parent (if any).
@@ -661,8 +654,10 @@ impl<'a> TraceDisplay<'a> {
         }
 
         // Write children
+        let mut child_cols = ancestor_cols.to_vec();
+        child_cols.push(name_col);
         for child in &frame.children {
-            self.write_frame(f, child, Some(frame), &child_has_next, false)?;
+            self.write_frame(f, child, Some(frame), &child_cols)?;
         }
 
         // Write logs as pseudo-children
@@ -671,13 +666,7 @@ impl<'a> TraceDisplay<'a> {
                 continue;
             }
             let mut log_prefix = String::new();
-            for h in &child_has_next {
-                if *h {
-                    log_prefix.push_str("│   ");
-                } else {
-                    log_prefix.push_str("    ");
-                }
-            }
+            Self::append_tree_prefix(&mut log_prefix, ancestor_cols, name_col);
             log_prefix.push_str("├─ ");
             let (name, args) = self.ctx.decode_event(log);
             let name = name.as_deref().unwrap_or("Log");
@@ -692,24 +681,12 @@ impl<'a> TraceDisplay<'a> {
             .collect();
         if !actual_changes.is_empty() {
             let mut storage_prefix = String::new();
-            for h in &child_has_next {
-                if *h {
-                    storage_prefix.push_str("│   ");
-                } else {
-                    storage_prefix.push_str("    ");
-                }
-            }
+            Self::append_tree_prefix(&mut storage_prefix, ancestor_cols, name_col);
             storage_prefix.push_str("├─ ");
             writeln!(f, "{storage_prefix} storage changes:")?;
 
             let mut change_prefix = String::new();
-            for h in &child_has_next {
-                if *h {
-                    change_prefix.push_str("│   ");
-                } else {
-                    change_prefix.push_str("    ");
-                }
-            }
+            Self::append_tree_prefix(&mut change_prefix, ancestor_cols, name_col);
             change_prefix.push_str("│   ");
 
             for change in actual_changes {
@@ -789,13 +766,7 @@ impl<'a> TraceDisplay<'a> {
 
         // Write result as a pseudo-child
         let mut result_prefix = String::new();
-        for h in &child_has_next {
-            if *h {
-                result_prefix.push_str("│   ");
-            } else {
-                result_prefix.push_str("    ");
-            }
-        }
+        Self::append_tree_prefix(&mut result_prefix, ancestor_cols, name_col);
         result_prefix.push_str("└─ ");
 
         if frame.success {

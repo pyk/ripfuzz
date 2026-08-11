@@ -1,16 +1,16 @@
 --- Call #1 [REVERT] ---
 [300268] → new ArrayOfNestedStruct@0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22
-    ├─  call context:
-    │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
-    │   @ msg.value: 0
-    │   @ block.timestamp: 1438269988
-    │   @ block.number: 1
-    ├─  storage changes:
-    │   @ entries.length: 0 -> 1
-    │   @ entries[0].data.a: 0 -> 1
-    │   @ entries[0].data.b: 0 -> 2
-    │   @ entries[0].data.c: 0 -> 3
-    │   @ entries[0].extra: 0x00 -> 0xcafebabe00000000000000000000000000000000000000000000000000000008
-    │   @ entries[0].items: 0 -> 1
-    │   @ entries[0].items[0]: 0 -> 42
-    └─ ← [revert] nested struct in array
+         ├─  call context:
+         │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
+         │   @ msg.value: 0
+         │   @ block.timestamp: 1438269988
+         │   @ block.number: 1
+         ├─  storage changes:
+         │   @ entries.length: 0 -> 1
+         │   @ entries[0].data.a: 0 -> 1
+         │   @ entries[0].data.b: 0 -> 2
+         │   @ entries[0].data.c: 0 -> 3
+         │   @ entries[0].extra: 0x00 -> 0xcafebabe00000000000000000000000000000000000000000000000000000008
+         │   @ entries[0].items: 0 -> 1
+         │   @ entries[0].items[0]: 0 -> 42
+         └─ ← [revert] nested struct in array

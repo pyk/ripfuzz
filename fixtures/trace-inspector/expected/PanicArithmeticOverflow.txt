@@ -1,8 +1,8 @@
 --- Call #1 [REVERT] ---
 [257] → new PanicArithmeticOverflow@0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22
-    ├─  call context:
-    │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
-    │   @ msg.value: 0
-    │   @ block.timestamp: 1438269988
-    │   @ block.number: 1
-    └─ ← [revert] panic: arithmetic overflow/underflow
+      ├─  call context:
+      │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
+      │   @ msg.value: 0
+      │   @ block.timestamp: 1438269988
+      │   @ block.number: 1
+      └─ ← [revert] panic: arithmetic overflow/underflow

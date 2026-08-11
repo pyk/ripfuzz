@@ -1,21 +1,21 @@
 --- Call #1 [REVERT] ---
 [7102] → new SelfLabel@0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22
-    ├─  call context:
-    │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
-    │   @ msg.value: 0
-    │   @ block.timestamp: 1438269988
-    │   @ block.number: 1
-    ├─ [0] RipfuzzVM::label(SelfLabel: [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22], "SelfLabel")
-    │   ├─  call context changes:
-    │   │   @ msg.sender: SelfLabel [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   └─ ← [stop]
-    ├─ [0] RipfuzzVM::label(BeefLabel: [0x000000000000000000000000000000000000bEEF], "BeefLabel")
-    │   ├─  call context changes:
-    │   │   @ msg.sender: SelfLabel [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   └─ ← [stop]
-    ├─ [0] RipfuzzVM::deal(BeefLabel: [0x000000000000000000000000000000000000bEEF], 100)
-    │   ├─  call context changes:
-    │   │   @ msg.sender: SelfLabel [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
-    │   └─ ← [stop]
-    ├─ emit LabeledTransfer(from: BeefLabel: [0x000000000000000000000000000000000000bEEF], to: SelfLabel: [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22], value: 1000)
-    └─ ← [revert] constructor always reverts
+       ├─  call context:
+       │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
+       │   @ msg.value: 0
+       │   @ block.timestamp: 1438269988
+       │   @ block.number: 1
+       ├─ [0] RipfuzzVM::label(SelfLabel: [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22], "SelfLabel")
+       │      ├─  call context changes:
+       │      │   @ msg.sender: SelfLabel [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+       │      └─ ← [stop]
+       ├─ [0] RipfuzzVM::label(BeefLabel: [0x000000000000000000000000000000000000bEEF], "BeefLabel")
+       │      ├─  call context changes:
+       │      │   @ msg.sender: SelfLabel [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+       │      └─ ← [stop]
+       ├─ [0] RipfuzzVM::deal(BeefLabel: [0x000000000000000000000000000000000000bEEF], 100)
+       │      ├─  call context changes:
+       │      │   @ msg.sender: SelfLabel [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+       │      └─ ← [stop]
+       ├─ emit LabeledTransfer(from: BeefLabel: [0x000000000000000000000000000000000000bEEF], to: SelfLabel: [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22], value: 1000)
+       └─ ← [revert] constructor always reverts

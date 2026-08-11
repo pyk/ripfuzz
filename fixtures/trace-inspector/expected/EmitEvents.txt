@@ -1,17 +1,17 @@
 --- Call #1 ---
 [142054] → new EmitEvents@0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22
-    ├─  call context:
-    │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
-    │   @ msg.value: 0
-    │   @ block.timestamp: 1438269988
-    │   @ block.number: 1
-    ├─ emit Transfer(from: 0x0000000000000000000000000000000000000000, to: RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], value: 1000)
-    ├─ emit Approval(owner: RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], spender: 0x000000000000000000000000000000000000bEEF, value: 500)
-    ├─ emit NoArgs()
-    ├─ emit IndexedBytes(sender: RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], data: 0x1234)
-    ├─ emit Log(0x000000000000000000000000000000000000000000000000000000000000002a)
-    ├─ emit MultipleIndexed(a: 1, b: 0x000000000000000000000000000000000000cafE, c: 0x0000000000000000000000000000000000000000000000000000000000000002, d: 3)
-    ├─ emit StringEvent(name: "hello")
-    ├─ emit StructEvent(p: Point({ x: 1, y: 2 }))
-    ├─ emit ArrayEvent(values: [1, 2, 3])
-    └─ ← [return] 106 bytes of code
+         ├─  call context:
+         │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
+         │   @ msg.value: 0
+         │   @ block.timestamp: 1438269988
+         │   @ block.number: 1
+         ├─ emit Transfer(from: 0x0000000000000000000000000000000000000000, to: RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], value: 1000)
+         ├─ emit Approval(owner: RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], spender: 0x000000000000000000000000000000000000bEEF, value: 500)
+         ├─ emit NoArgs()
+         ├─ emit IndexedBytes(sender: RipfuzzDeployer: [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7], data: 0x1234)
+         ├─ emit Log(0x000000000000000000000000000000000000000000000000000000000000002a)
+         ├─ emit MultipleIndexed(a: 1, b: 0x000000000000000000000000000000000000cafE, c: 0x0000000000000000000000000000000000000000000000000000000000000002, d: 3)
+         ├─ emit StringEvent(name: "hello")
+         ├─ emit StructEvent(p: Point({ x: 1, y: 2 }))
+         ├─ emit ArrayEvent(values: [1, 2, 3])
+         └─ ← [return] 106 bytes of code
