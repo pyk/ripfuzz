@@ -72,7 +72,7 @@ impl Project {
             out_dir.display()
         );
 
-        debug!(out_dir = %out_dir.display(), "discovering build artifacts");
+        debug!(out_dir = %out_dir.display(), "Discovering build artifacts");
 
         let paths: Vec<PathBuf> = WalkDir::new(&out_dir)
             .min_depth(1)
@@ -94,7 +94,7 @@ impl Project {
             })
             .collect();
 
-        debug!(count = paths.len(), "found artifact files");
+        debug!(count = paths.len(), "Found artifact files");
 
         let project_path = self.path.canonicalize().unwrap_or_else(|_| {
             std::env::current_dir()
@@ -106,7 +106,7 @@ impl Project {
             .into_par_iter()
             // checkrs: allow(clone_in_iterator)
             .map(|path| {
-                debug!(path = %path.display(), "parsing artifact");
+                debug!(path = %path.display(), "Parsing artifact");
                 let result = match Artifact::from_json(&path) {
                     Ok(mut artifact) => {
                         artifact.set_project_path(&project_path);
@@ -123,7 +123,7 @@ impl Project {
         for (path, result) in parsed {
             let Ok((id, artifact)) = result else {
                 if let Err(e) = result {
-                    debug!(path = %path.display(), error = %e, "skipping artifact");
+                    debug!(path = %path.display(), error = %e, "Skipping artifact");
                 }
                 continue;
             };

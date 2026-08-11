@@ -134,12 +134,8 @@ impl<'a> CampaignStats<'a> {
         )
     }
 
-    /// Format the multi-line fuzzing statistics block.
-    pub fn format(
-        &self,
-        snapshot: &Snapshot,
-        function_metrics: &[(String, FunctionMetricsSnapshot)],
-    ) -> String {
+    /// Aggregate the campaign-wide statistics for structured logging.
+    pub fn summary(&self, snapshot: &Snapshot) -> CampaignSummary {
         let elapsed_secs = snapshot.elapsed.as_secs_f64();
         let calls_per_sec = if elapsed_secs > 0.0 {
             (snapshot.calls as f64 / elapsed_secs) as u64
@@ -152,111 +148,80 @@ impl<'a> CampaignStats<'a> {
             0
         };
 
-        let mut output = format!(
-            "\n    ⊕ global stats\n    total runs   : {}\n    total calls  : {}\n    elapsed time : {}\n\n    ⊕ throughput\n    call/s : {}\n    gas/s  : {}",
-            num(snapshot.runs),
-            num(snapshot.calls),
-            duration(elapsed_secs),
-            num(calls_per_sec),
-            giga_gas(gas_per_sec),
-        );
-
-        output.push_str(&format!(
-            "\n\n    ⊕ coverage stats\n    unique contracts : {}\n    total edges      : {}\n    total depths     : {}\n    total reverts    : {}\n    total jumps      : {}\n    total corpus     : {}",
-            num(self.shared_coverage.contract_count() as u64),
-            num(self.shared_coverage.edge_count() as u64),
-            num(self.shared_coverage.depth_count() as u64),
-            num(self.shared_coverage.revert_count() as u64),
-            num(self.shared_coverage.jump_count() as u64),
-            num(self.corpus.stats().item_count as u64),
-        ));
-
-        if !self.handler_functions.is_empty() {
-            output.push_str(&format!(
-                "\n\n    ⊕ handler functions ({})",
-                self.handler_functions.len()
-            ));
-            let target_labels: Vec<String> = self
-                .handler_functions
-                .iter()
-                .map(|f| f.name.to_string())
-                .collect();
-            let target_width = target_labels.iter().map(|l| l.len()).max().unwrap_or(0);
-            for (func, label) in self.handler_functions.iter().zip(target_labels.iter()) {
-                let sig = func.signature();
-                let metrics = function_metrics
-                    .iter()
-                    .find(|(s, _)| s == &sig)
-                    .map(|(_, m)| *m)
-                    .unwrap_or_default();
-                output.push_str(&format!(
-                    "\n    {:target_width$} : {:>8} calls {:>10} gas {:>8} reverts",
-                    label,
-                    kmb(metrics.calls),
-                    giga_gas(metrics.gas),
-                    kmb(metrics.reverts),
-                ));
-            }
+        CampaignSummary {
+            runs: num(snapshot.runs),
+            calls: num(snapshot.calls),
+            elapsed: duration(elapsed_secs),
+            call_rate: num(calls_per_sec),
+            gas_rate: giga_gas(gas_per_sec),
+            contracts: num(self.shared_coverage.contract_count() as u64),
+            edges: num(self.shared_coverage.edge_count() as u64),
+            depths: num(self.shared_coverage.depth_count() as u64),
+            reverts: num(self.shared_coverage.revert_count() as u64),
+            jumps: num(self.shared_coverage.jump_count() as u64),
+            corpus: num(self.corpus.stats().item_count as u64),
         }
-
-        if !self.invariant_functions.is_empty() {
-            output.push_str(&format!(
-                "\n\n    ⊕ invariants ({})",
-                self.invariant_functions.len()
-            ));
-            let invariant_labels: Vec<String> = self
-                .invariant_functions
-                .iter()
-                .map(|f| f.name.to_string())
-                .collect();
-            let invariant_width = invariant_labels.iter().map(|l| l.len()).max().unwrap_or(0);
-            for (func, label) in self.invariant_functions.iter().zip(invariant_labels.iter()) {
-                let sig = func.signature();
-                let metrics = function_metrics
-                    .iter()
-                    .find(|(s, _)| s == &sig)
-                    .map(|(_, m)| *m)
-                    .unwrap_or_default();
-                output.push_str(&format!(
-                    "\n    {:invariant_width$} : {:>8} calls {:>10} gas {:>8} reverts",
-                    label,
-                    kmb(metrics.calls),
-                    giga_gas(metrics.gas),
-                    kmb(metrics.reverts),
-                ));
-            }
-        }
-
-        if !self.max_functions.is_empty() {
-            output.push_str(&format!(
-                "\n\n    ⊕ max functions ({})",
-                self.max_functions.len()
-            ));
-            let max_labels: Vec<String> = self
-                .max_functions
-                .iter()
-                .map(|f| f.name.to_string())
-                .collect();
-            let max_width = max_labels.iter().map(|l| l.len()).max().unwrap_or(0);
-            for (func, label) in self.max_functions.iter().zip(max_labels.iter()) {
-                let sig = func.signature();
-                let metrics = function_metrics
-                    .iter()
-                    .find(|(s, _)| s == &sig)
-                    .map(|(_, m)| *m)
-                    .unwrap_or_default();
-                output.push_str(&format!(
-                    "\n    {:max_width$} : {:>8} calls {:>10} gas {:>8} reverts",
-                    label,
-                    kmb(metrics.calls),
-                    giga_gas(metrics.gas),
-                    kmb(metrics.reverts),
-                ));
-            }
-        }
-
-        output
     }
+
+    /// Per-function call statistics in declaration order, for structured
+    /// logging.
+    pub fn function_stats(
+        &self,
+        function_metrics: &[(String, FunctionMetricsSnapshot)],
+    ) -> Vec<FunctionStat> {
+        let mut stats = Vec::new();
+        for (kind, functions) in [
+            ("handler", self.handler_functions),
+            ("invariant", self.invariant_functions),
+            ("max", self.max_functions),
+        ] {
+            for func in functions {
+                let sig = func.signature();
+                let metrics = function_metrics
+                    .iter()
+                    .find(|(s, _)| s == &sig)
+                    .map(|(_, m)| *m)
+                    .unwrap_or_default();
+                stats.push(FunctionStat {
+                    kind,
+                    // checkrs: allow(clone_in_loops)
+                    function: func.name.clone(),
+                    calls: kmb(metrics.calls),
+                    gas: giga_gas(metrics.gas),
+                    reverts: kmb(metrics.reverts),
+                });
+            }
+        }
+        stats
+    }
+}
+
+/// Campaign-wide fuzzing statistics, pre-formatted for structured logging.
+#[derive(Debug)]
+pub struct CampaignSummary {
+    pub runs: String,
+    pub calls: String,
+    pub elapsed: String,
+    pub call_rate: String,
+    pub gas_rate: String,
+    pub contracts: String,
+    pub edges: String,
+    pub depths: String,
+    pub reverts: String,
+    pub jumps: String,
+    pub corpus: String,
+}
+
+/// One row of per-function call statistics, pre-formatted for structured
+/// logging.
+#[derive(Debug)]
+pub struct FunctionStat {
+    /// Function category: `handler`, `invariant`, or `max`.
+    pub kind: &'static str,
+    pub function: String,
+    pub calls: String,
+    pub gas: String,
+    pub reverts: String,
 }
 
 /// Format a one-line shrinker progress update.
@@ -292,8 +257,24 @@ pub fn shrinker_progress(
     )
 }
 
-/// Format the multi-line shrinker statistics block shown after shrinking.
-pub fn shrinker_summary(snapshot: &Snapshot, initial_calls: usize, current_calls: usize) -> String {
+/// Shrinker statistics, pre-formatted for structured logging.
+#[derive(Debug)]
+pub struct ShrinkerSummary {
+    pub runs: String,
+    pub calls: String,
+    pub elapsed: String,
+    pub call_rate: String,
+    pub gas_rate: String,
+    pub initial_calls: String,
+    pub final_calls: String,
+}
+
+/// Aggregate the shrinker statistics for structured logging.
+pub fn shrinker_summary(
+    snapshot: &Snapshot,
+    initial_calls: usize,
+    current_calls: usize,
+) -> ShrinkerSummary {
     let elapsed_secs = snapshot.elapsed.as_secs_f64();
     let calls_per_sec = if elapsed_secs > 0.0 {
         (snapshot.calls as f64 / elapsed_secs) as u64
@@ -306,16 +287,15 @@ pub fn shrinker_summary(snapshot: &Snapshot, initial_calls: usize, current_calls
         0
     };
 
-    format!(
-        "\n    ⊕ shrinker stats\n    total runs   : {}\n    total calls  : {}\n    elapsed time : {}\n\n    ⊕ throughput\n    call/s : {}\n    gas/s  : {}\n\n    ⊕ shrink progress\n    initial calls : {}\n    final calls   : {}",
-        num(snapshot.runs),
-        num(snapshot.calls),
-        duration(elapsed_secs),
-        num(calls_per_sec),
-        giga_gas(gas_per_sec),
-        num(initial_calls as u64),
-        num(current_calls as u64),
-    )
+    ShrinkerSummary {
+        runs: num(snapshot.runs),
+        calls: num(snapshot.calls),
+        elapsed: duration(elapsed_secs),
+        call_rate: num(calls_per_sec),
+        gas_rate: giga_gas(gas_per_sec),
+        initial_calls: num(initial_calls as u64),
+        final_calls: num(current_calls as u64),
+    }
 }
 
 #[cfg(test)]
@@ -365,15 +345,56 @@ mod tests {
     }
 
     #[test]
-    fn shrinker_summary_includes_initial_and_final() {
+    fn shrinker_summary_preserves_initial_and_final() {
         let summary = shrinker_summary(&snapshot(), 36, 3);
 
-        assert!(summary.contains("1,234"), "{summary}");
-        assert!(summary.contains("56,789"), "{summary}");
-        assert!(summary.contains("2.00s"), "{summary}");
-        assert!(summary.contains("28,394"), "{summary}");
-        assert!(summary.contains("1.00 G"), "{summary}");
-        assert!(summary.contains("initial calls : 36"), "{summary}");
-        assert!(summary.contains("final calls   : 3"), "{summary}");
+        assert_eq!(summary.runs, "1,234");
+        assert_eq!(summary.calls, "56,789");
+        assert_eq!(summary.elapsed, "2.00s");
+        assert_eq!(summary.call_rate, "28,394");
+        assert_eq!(summary.gas_rate, "1.00 G");
+        assert_eq!(summary.initial_calls, "36");
+        assert_eq!(summary.final_calls, "3");
+    }
+
+    #[test]
+    fn campaign_summary_preserves_key_stats() {
+        let coverage = SharedCoverage::new();
+        let corpus = SharedCorpus::new(CorpusConfig::new(""));
+        let stats = CampaignStats::new(&coverage, &corpus, &[], &[], &[]);
+
+        let summary = stats.summary(&snapshot());
+
+        assert_eq!(summary.runs, "1,234");
+        assert_eq!(summary.calls, "56,789");
+        assert_eq!(summary.elapsed, "2.00s");
+        assert_eq!(summary.call_rate, "28,394");
+        assert_eq!(summary.gas_rate, "1.00 G");
+        assert_eq!(summary.contracts, "0");
+        assert_eq!(summary.edges, "0");
+        assert_eq!(summary.depths, "0");
+        assert_eq!(summary.reverts, "0");
+        assert_eq!(summary.jumps, "0");
+        assert_eq!(summary.corpus, "0");
+    }
+
+    #[test]
+    fn function_stats_follow_declaration_order() {
+        let coverage = SharedCoverage::new();
+        let corpus = SharedCorpus::new(CorpusConfig::new(""));
+        let handlers = [alloy_json_abi::Function::parse("f(uint256)").unwrap()];
+        let invariants = [alloy_json_abi::Function::parse("invariant()").unwrap()];
+        let stats = CampaignStats::new(&coverage, &corpus, &handlers, &invariants, &[]);
+
+        let rows = stats.function_stats(&[]);
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].kind, "handler");
+        assert_eq!(rows[0].function, "f");
+        assert_eq!(rows[1].kind, "invariant");
+        assert_eq!(rows[1].function, "invariant");
+        assert_eq!(rows[0].calls, "0");
+        assert_eq!(rows[0].gas, "0.00 G");
+        assert_eq!(rows[0].reverts, "0");
     }
 }

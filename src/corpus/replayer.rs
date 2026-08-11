@@ -101,7 +101,7 @@ impl CorpusReplayer {
 
         let items = shared_corpus.items();
         let total = items.len();
-        debug!(count = total, "replaying corpus items");
+        debug!(count = total, "Replaying corpus items");
 
         let shared_coverage = self.shared_coverage;
         items
@@ -127,7 +127,7 @@ impl CorpusReplayer {
                     new_reverts = update.new_reverts,
                     new_jump_edges = update.new_jump_edges,
                     hit_count = shared_coverage.hit_count(),
-                    "corpus item replayed"
+                    "Corpus item replayed"
                 );
                 Result::<(), anyhow::Error>::Ok(())
             })?;

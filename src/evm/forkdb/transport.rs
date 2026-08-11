@@ -19,7 +19,7 @@ pub trait Transport: Send + Sync + std::fmt::Debug {
 
 impl Transport for ureq::Agent {
     fn exec(&self, url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
-        debug!("http request {payload}");
+        debug!("HTTP request {payload}");
         let body = serde_json::to_vec(payload).context("serializing RPC payload")?;
         let mut response = self
             .post(url)
@@ -31,7 +31,7 @@ impl Transport for ureq::Agent {
             .read_to_string()
             .context("reading RPC response body")?;
         let value: serde_json::Value = serde_json::from_str(&text).context("json decode")?;
-        debug!("http response {value}");
+        debug!("HTTP response {value}");
         Ok(value)
     }
 }

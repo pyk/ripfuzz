@@ -104,7 +104,7 @@ impl CampaignSession {
         let campaign_seed = match args.seed {
             Some(seed) => {
                 info!(
-                    "starting ripfuzz v{} (seed: {seed}, user-provided)",
+                    "Starting ripfuzz v{} (seed: {seed}, user-provided)",
                     env!("CARGO_PKG_VERSION")
                 );
                 seed
@@ -112,7 +112,7 @@ impl CampaignSession {
             None => {
                 let seed = fastrand::Rng::new().u64(1..=100_000);
                 info!(
-                    "starting ripfuzz v{} (seed: {seed})",
+                    "Starting ripfuzz v{} (seed: {seed})",
                     env!("CARGO_PKG_VERSION")
                 );
                 seed
@@ -143,22 +143,22 @@ impl CampaignSession {
             .join("fuzz.log");
         logger::init(args.disable_log, &log_file, args.log_level)?;
 
-        debug!(?project_path, "resolved project path");
+        debug!(?project_path, "Resolved project path");
         if let Some(path) = &dotenv_path {
-            debug!(?path, "loaded environment from .env");
+            debug!(?path, "Loaded environment from .env");
         }
 
         // Build project
-        info!("[*] building foundry project ...");
+        info!("Building foundry project");
         let project = Project::new(&project_path);
         let build_opts = BuildOptions::new().force(args.force);
         project.build(build_opts)?;
 
         // Load build artifacts
-        info!("[*] loading build artifacts ...");
+        info!("Loading build artifacts");
         let build_artifacts = project.load_artifacts()?;
         info!(
-            "[+] loaded {} build artifacts",
+            "Loaded {} build artifacts",
             formatter::num(build_artifacts.len() as u64)
         );
 
@@ -169,7 +169,7 @@ impl CampaignSession {
             match ext_project.load_artifacts() {
                 Ok(artifacts) => {
                     info!(
-                        "loaded {} artifacts from external project {}",
+                        "Loaded {} artifacts from external project {}",
                         formatter::num(artifacts.len() as u64),
                         ext_path.display()
                     );
@@ -180,7 +180,7 @@ impl CampaignSession {
                 }
                 Err(e) => {
                     warn!(
-                        "failed to load artifacts from {}: {e:#}",
+                        "Failed to load artifacts from {}: {e:#}",
                         ext_path.display()
                     );
                 }
@@ -188,16 +188,16 @@ impl CampaignSession {
         }
 
         // Resolve the harness (bare name or full artifact id) then load it.
-        info!("[*] loading harness contract {} ...", args.harness);
+        info!("Loading harness contract {}", args.harness);
         let harness_id = ArtifactId::resolve(&args.harness, &build_artifacts)?;
         let harness_contract = Contract::try_get(&build_artifacts, &harness_id)?;
-        info!("[+] loaded {} as harness contract", harness_id.name);
+        info!("Loaded {} as harness contract", harness_id.name);
 
         // Max mode is entered automatically whenever the harness declares at
         // least one `max_*` function. Invariant mode is the default otherwise.
         let max_mode = !harness_contract.max_functions.is_empty();
         if max_mode && let Err(e) = validate_harness_mode(&harness_contract) {
-            error!("[!] harness contract is not valid for max mode");
+            error!("Harness contract is not valid for max mode");
             error!("{e:#}");
             return Err(e);
         }
@@ -244,7 +244,7 @@ impl CampaignSession {
             deploy_opts = deploy_opts.add_library(lib);
         }
 
-        info!("[*] deploying {contract_name} ...");
+        info!("Deploying {contract_name}");
         let deployment = chain.deploy(deploy_opts)?;
         if !deployment.result.success {
             let mut ctx = TraceContext::from_project(&project)?;
@@ -261,14 +261,13 @@ impl CampaignSession {
             let trace_file = trace_dir.join("trace.log");
             let trace = deployment.trace.display_with(&ctx);
             fs::write(&trace_file, format!("{trace}"))?;
-            error!("[!] failed to deploy {contract_name}");
+            error!("Failed to deploy {contract_name}");
             error!("    trace: {}", trace_file.display());
             return Err(anyhow::anyhow!("harness contract deployment failed"));
         }
         let deployed_address = deployment
             .address
             .context("deployment succeeded but created_address is missing")?;
-        info!("[+] deployed {contract_name}");
 
         let contract_size = deployment
             .result
@@ -277,21 +276,17 @@ impl CampaignSession {
             .map(|b| b.len())
             .unwrap_or(0);
         info!(
-            "    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}",
-            "deployer",
-            args.deployer_address,
-            "msg value",
-            formatter::eth(args.deploy_value),
-            "contract address",
-            deployed_address,
-            "contract size",
-            formatter::kb(contract_size)
+            deployer = %args.deployer_address,
+            msg_value = %formatter::eth(args.deploy_value),
+            address = %deployed_address,
+            contract_size = %formatter::kb(contract_size),
+            "Deployed {contract_name}",
         );
 
         // Run setup if present
         let mut setup_coverage = None;
         if let Some(setup) = &harness_contract.setup_function {
-            info!("[*] calling setup ...");
+            info!("Calling setup");
             let setup_output = match chain.setup(
                 SetupInput::new(deployed_address)
                     .calldata(Bytes::from(setup.selector().as_slice().to_vec()))
@@ -299,7 +294,7 @@ impl CampaignSession {
             ) {
                 Ok(output) => output,
                 Err(e) => {
-                    error!("[!] calling setup failed: {e:#}");
+                    error!("Calling setup failed: {e:#}");
                     return Err(e);
                 }
             };
@@ -316,12 +311,12 @@ impl CampaignSession {
                 let trace_file = trace_dir.join("trace.log");
                 let trace = setup_output.trace.display_with(&ctx);
                 fs::write(&trace_file, format!("{trace}"))?;
-                error!("[!] failed to call setup");
+                error!("Failed to call setup");
                 error!("    trace: {}", trace_file.display());
                 return Err(anyhow::anyhow!("setup failed"));
             }
             setup_coverage = Some(setup_output.coverage);
-            info!("[+] called setup");
+            info!("Called setup");
         }
 
         // Extract literals from build artifacts so the fuzzer can seed random
@@ -340,21 +335,15 @@ impl CampaignSession {
         let corpus_stats = corpus.load_items()?;
 
         if corpus_stats.total_count > 0 {
-            info!("[*] loading corpus items ...");
+            info!("Loading corpus items");
             info!(
-                "[+] loaded {} corpus items",
-                formatter::num(corpus_stats.valid_count as u64)
-            );
-            info!(
-                "    {:8}: {} items\n    {:8}: {} items\n    {:8}: {} items",
-                "on disk",
-                formatter::num(corpus_stats.total_count as u64),
-                "valid",
-                formatter::num(corpus_stats.valid_count as u64),
-                "invalid",
-                formatter::num(
+                on_disk = %formatter::num(corpus_stats.total_count as u64),
+                valid = %formatter::num(corpus_stats.valid_count as u64),
+                invalid = %formatter::num(
                     (corpus_stats.parse_failed_count + corpus_stats.invalid_call_count) as u64
-                )
+                ),
+                "Loaded {} corpus items",
+                formatter::num(corpus_stats.valid_count as u64),
             );
         }
 
@@ -367,7 +356,7 @@ impl CampaignSession {
         let replay_count = corpus_stats.valid_count;
 
         if replay_count > 0 {
-            info!("[*] replaying {replay_count} corpus items ...");
+            info!("Replaying {replay_count} corpus items");
             let replay_invariants = if max_mode {
                 Vec::new()
             } else {
@@ -381,22 +370,16 @@ impl CampaignSession {
                 .caller(args.deployer_address)
                 .replay()
             {
-                error!("[!] replaying corpus items failed: {e:#}");
+                error!("Replaying corpus items failed: {e:#}");
                 return Err(e);
             }
-            info!("[+] replayed {replay_count} corpus items");
             info!(
-                "    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}\n    {:16} : {}",
-                "unique contracts",
-                formatter::num(shared_coverage.contract_count() as u64),
-                "total edges",
-                formatter::num(shared_coverage.edge_count() as u64),
-                "total depths",
-                formatter::num(shared_coverage.depth_count() as u64),
-                "total reverts",
-                formatter::num(shared_coverage.revert_count() as u64),
-                "total jumps",
-                formatter::num(shared_coverage.jump_count() as u64)
+                contracts = %formatter::num(shared_coverage.contract_count() as u64),
+                edges = %formatter::num(shared_coverage.edge_count() as u64),
+                depths = %formatter::num(shared_coverage.depth_count() as u64),
+                reverts = %formatter::num(shared_coverage.revert_count() as u64),
+                jumps = %formatter::num(shared_coverage.jump_count() as u64),
+                "Replayed {replay_count} corpus items",
             );
         }
 
@@ -435,18 +418,15 @@ impl CampaignSession {
         Ok(trace_file)
     }
 
-    /// Re-run `transactions` with tracing enabled and dump the whole trace
-    /// into the campaign log, both the log file and stderr.
-    pub fn dump_trace_sequence(&self, transactions: &[Transaction]) -> Result<()> {
+    /// Re-run `transactions` with tracing enabled and format the whole trace
+    /// as a single string.
+    pub fn trace_sequence(&self, transactions: &[Transaction]) -> Result<String> {
         let mut trace_chain = self.chain.clone();
         trace_chain.set_trace(true);
         let exec = trace_chain.exec(transactions)?;
         let trace = exec.trace.context("trace expected after re-run")?;
         let ctx = self.trace_context()?;
-        for line in format!("{}", trace.display_with(&ctx)).lines() {
-            error!("    {line}");
-        }
-        Ok(())
+        Ok(format!("{}", trace.display_with(&ctx)))
     }
 
     /// Trace context for the current campaign: project artifacts plus chain
@@ -489,7 +469,7 @@ impl CampaignSession {
             .to_path_buf();
         let pct = report.coverage();
 
-        info!("[+] generated coverage reports for {n} build artifacts");
+        info!("Generated coverage reports for {n} build artifacts");
         info!("    [{pct:.2}%] {}", relative_path.display());
         Ok(())
     }

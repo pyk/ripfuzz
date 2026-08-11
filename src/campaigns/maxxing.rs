@@ -96,7 +96,7 @@ impl MaxxingCampaign {
         }
 
         let contract_name = self.session.contract_name();
-        info!("[*] max fuzzing {contract_name} with {fuzzers} threads");
+        info!("Max fuzzing {contract_name} with {fuzzers} threads");
 
         let stats_ctx = formatter::CampaignStats::new(
             &self.session.shared_coverage,
@@ -108,7 +108,7 @@ impl MaxxingCampaign {
 
         wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
             if let Some(snapshot) = shared_metrics.try_snapshot() {
-                info!("[~] {}", stats_ctx.progress(&snapshot));
+                info!("{}", stats_ctx.progress(&snapshot));
             }
             Ok(())
         })?;
@@ -117,32 +117,54 @@ impl MaxxingCampaign {
             match handle.join() {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    error!(fuzzer_id, %e, "max fuzzer failed");
+                    error!(fuzzer_id, %e, "Max fuzzer failed");
                 }
                 Err(e) => {
-                    error!(fuzzer_id, ?e, "max fuzzer panicked");
+                    error!(fuzzer_id, ?e, "Max fuzzer panicked");
                 }
             }
         }
 
-        // Stop-on-revert: dump the whole trace into the log (file and
-        // stderr) and skip the shrinking phase entirely.
+        // Stop-on-revert: log the whole trace as a single multi-line error
+        // message and fail the campaign immediately.
         if let Some(event) = shared_stop_event.get() {
-            error!("[!] a transaction reverted; stopping the campaign (--stop-on-revert)");
-            if let Err(e) = self.session.dump_trace_sequence(&event.transactions) {
-                error!("[!] failed to dump the revert trace: {e:#}");
+            match self.session.trace_sequence(&event.transactions) {
+                Ok(trace) => {
+                    error!("A transaction reverted.\n\n{trace}");
+                }
+                Err(e) => {
+                    error!("Failed to dump the revert trace: {e:#}");
+                }
             }
-            if let Err(e) = self.session.write_coverage_report() {
-                error!("[!] failed to generate coverage reports: {e:#}");
-            }
-            info!("[*] ripfuzz out. see ya");
-            return Ok(());
+            return Err(anyhow::anyhow!("campaign stopped by --stop-on-revert"));
         }
 
-        info!("[+] fuzzed {contract_name} with {fuzzers} threads");
+        let summary = stats_ctx.summary(&shared_metrics.aggregate());
         let function_metrics = shared_metrics.function_metrics();
-        let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
-        info!("{stats}");
+        info!(
+            runs = %summary.runs,
+            calls = %summary.calls,
+            elapsed = %summary.elapsed,
+            call_rate = %summary.call_rate,
+            gas_rate = %summary.gas_rate,
+            contracts = %summary.contracts,
+            edges = %summary.edges,
+            depths = %summary.depths,
+            reverts = %summary.reverts,
+            jumps = %summary.jumps,
+            corpus = %summary.corpus,
+            "Fuzzed {contract_name} with {fuzzers} threads",
+        );
+        for stat in stats_ctx.function_stats(&function_metrics) {
+            info!(
+                kind = %stat.kind,
+                function = %stat.function,
+                calls = %stat.calls,
+                gas = %stat.gas,
+                reverts = %stat.reverts,
+                "Function statistics",
+            );
+        }
 
         let mut results = Vec::new();
         if let Some(best) = fuzzer_corpus.best_item() {
@@ -150,12 +172,13 @@ impl MaxxingCampaign {
         }
 
         if results.is_empty() {
-            error!("[!] no max value improved above 0");
+            error!("No max value improved above 0");
         } else {
             for result in &results {
                 info!(
-                    "    max {} = {}",
-                    result.objective.function.name, result.value
+                    max = %result.objective.function.name,
+                    value = %result.value,
+                    "Maximum value",
                 );
                 info!("{}", result.format_call_sequence());
             }
@@ -182,16 +205,16 @@ impl MaxxingCampaign {
             let exec = trace_chain.exec(&transactions)?;
 
             if let Some(trace) = exec.trace {
-                info!("[*] writing max trace {} ...", index + 1);
+                info!("Writing max trace {}", index + 1);
                 match self
                     .session
                     .write_trace(&trace, &format!("trace-max-{}.log", index + 1))
                 {
                     Ok(trace_file) => {
-                        info!("[+] max trace {}: {}", index + 1, trace_file.display());
+                        info!("Max trace {}: {}", index + 1, trace_file.display());
                     }
                     Err(e) => {
-                        error!("[!] writing trace file failed: {e:#}");
+                        error!("Writing trace file failed: {e:#}");
                         return Err(e);
                     }
                 }
@@ -199,10 +222,10 @@ impl MaxxingCampaign {
         }
 
         if let Err(e) = self.session.write_coverage_report() {
-            error!("[!] failed to generate coverage reports: {e:#}");
+            error!("Failed to generate coverage reports: {e:#}");
         }
 
-        info!("[*] ripfuzz out. see ya");
+        info!("Ripfuzz out. see ya");
         Ok(())
     }
 
@@ -276,7 +299,7 @@ impl MaxxingCampaign {
 
         let initial_calls = shrink_corpus.item().item.calls.len();
         info!(
-            "[*] shrinking max {} from {} calls with {} threads",
+            "Shrinking max {} from {} calls with {} threads",
             objective.function.name,
             formatter::num(initial_calls as u64),
             formatter::num(shrink_threads as u64)
@@ -285,7 +308,7 @@ impl MaxxingCampaign {
             if let Some(snapshot) = shrinker_metrics.try_snapshot() {
                 let current_calls = shrink_corpus.item().item.calls.len();
                 info!(
-                    "[~] {}",
+                    "{}",
                     formatter::shrinker_progress(&snapshot, initial_calls, current_calls)
                 );
             }
@@ -307,7 +330,7 @@ impl MaxxingCampaign {
         let shrunk = shrink_corpus.item();
         let shrunk_calls = shrunk.item.calls.len();
         info!(
-            "[+] shrank max {} from {} to {} calls with {} threads",
+            "Shrank max {} from {} to {} calls with {} threads",
             objective.function.name,
             formatter::num(initial_calls as u64),
             formatter::num(shrunk_calls as u64),

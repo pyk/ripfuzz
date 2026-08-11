@@ -1,6 +1,6 @@
 //! Logging setup for the Ripfuzz CLI.
 //!
-//! Installs a compact stderr layer and, unless disabled, a file layer.
+//! Installs a default-format stderr layer and, unless disabled, a file layer.
 
 use std::fs;
 use std::fs::File;
@@ -16,7 +16,7 @@ use tracing_subscriber::prelude::*;
 
 /// Initialize the global tracing subscriber.
 ///
-/// Terminal output is written to stderr as message-only lines. When
+/// Terminal output is written to stderr in the default fmt format. When
 /// `disable_log` is false, a formatted log file is also written at `log_file`.
 pub fn init(disable_log: bool, log_file: &Path, level: tracing::Level) -> Result<()> {
     if disable_log {
@@ -37,11 +37,9 @@ pub fn init(disable_log: bool, log_file: &Path, level: tracing::Level) -> Result
         tracing::Level::TRACE => EnvFilter::new("trace"),
     };
 
+    // Default fmt format: timestamp, level, target, and message.
     let stderr_layer = fmt::layer()
         .with_ansi(std::io::stderr().is_terminal())
-        .with_target(false)
-        .without_time()
-        .with_level(false)
         .with_writer(std::io::stderr);
 
     let file_layer = fmt::layer()

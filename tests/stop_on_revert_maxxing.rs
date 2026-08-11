@@ -57,7 +57,12 @@ fn max_campaign_stop_on_revert_dumps_trace_into_log() {
     let tmp = tempfile::tempdir().unwrap();
 
     let before = campaign_dirs(PROJECT);
-    run(args(tmp.path().join("corpus"))).expect("campaign run should succeed");
+    let err = run(args(tmp.path().join("corpus")))
+        .expect_err("campaign must fail when a transaction reverts");
+    assert!(
+        err.to_string().contains("--stop-on-revert"),
+        "error must name the trigger: {err:#}"
+    );
 
     let new_dirs: Vec<PathBuf> = campaign_dirs(PROJECT)
         .into_iter()
@@ -73,7 +78,7 @@ fn max_campaign_stop_on_revert_dumps_trace_into_log() {
     let log = std::fs::read_to_string(campaign_dir.join("fuzz.log"))
         .unwrap_or_else(|_| panic!("campaign log must exist in {}", campaign_dir.display()));
     assert!(
-        log.contains("[!] a transaction reverted; stopping the campaign (--stop-on-revert)"),
+        log.contains("A transaction reverted."),
         "campaign log must report the stop:\n{log}"
     );
     assert!(

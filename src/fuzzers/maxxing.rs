@@ -283,7 +283,7 @@ impl FuzzStrategy for MaxxingStrategy {
                 debug!(
                     objective = %self.objective.function.name,
                     %improved_value,
-                    "max value improved"
+                    "Max value improved"
                 );
             }
         }

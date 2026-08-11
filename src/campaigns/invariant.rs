@@ -83,7 +83,7 @@ impl InvariantCampaign {
         }
 
         let contract_name = session.contract_name();
-        info!("[*] fuzzing {contract_name} with {fuzzers} threads");
+        info!("Fuzzing {contract_name} with {fuzzers} threads");
 
         // Print a compact progress line every 3 seconds, then a full stats
         // summary after all fuzzer threads finish.
@@ -97,7 +97,7 @@ impl InvariantCampaign {
 
         wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
             if let Some(snapshot) = shared_metrics.try_snapshot() {
-                info!("[~] {}", stats_ctx.progress(&snapshot));
+                info!("{}", stats_ctx.progress(&snapshot));
             }
             Ok(())
         })?;
@@ -106,41 +106,63 @@ impl InvariantCampaign {
             match handle.join() {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    error!(fuzzer_id, %e, "fuzzer failed");
+                    error!(fuzzer_id, %e, "Fuzzer failed");
                 }
                 Err(e) => {
-                    error!(fuzzer_id, ?e, "fuzzer panicked");
+                    error!(fuzzer_id, ?e, "Fuzzer panicked");
                 }
             }
         }
 
-        // Stop-on-revert: dump the whole trace into the log (file and
-        // stderr) and skip the shrinking phase entirely.
+        // Stop-on-revert: log the whole trace as a single multi-line error
+        // message and fail the campaign immediately.
         if let Some(event) = shared_stop_event.get() {
-            error!("[!] a transaction reverted; stopping the campaign (--stop-on-revert)");
-            if let Err(e) = session.dump_trace_sequence(&event.transactions) {
-                error!("[!] failed to dump the revert trace: {e:#}");
+            match session.trace_sequence(&event.transactions) {
+                Ok(trace) => {
+                    error!("A transaction reverted.\n\n{trace}");
+                }
+                Err(e) => {
+                    error!("Failed to dump the revert trace: {e:#}");
+                }
             }
-            if let Err(e) = session.write_coverage_report() {
-                error!("[!] failed to generate coverage reports: {e:#}");
-            }
-            info!("[*] ripfuzz out. see ya");
-            return Ok(());
+            return Err(anyhow::anyhow!("campaign stopped by --stop-on-revert"));
         }
 
         let failed_assertions = shared_failed_assertions.items();
         if failed_assertions.is_empty() {
-            info!("[+] fuzzed {contract_name} with {fuzzers} threads");
+            let summary = stats_ctx.summary(&shared_metrics.aggregate());
             let function_metrics = shared_metrics.function_metrics();
-            let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
-            info!("{stats}");
-
-            if let Err(e) = session.write_coverage_report() {
-                error!("[!] failed to generate coverage reports: {e:#}");
+            info!(
+                runs = %summary.runs,
+                calls = %summary.calls,
+                elapsed = %summary.elapsed,
+                call_rate = %summary.call_rate,
+                gas_rate = %summary.gas_rate,
+                contracts = %summary.contracts,
+                edges = %summary.edges,
+                depths = %summary.depths,
+                reverts = %summary.reverts,
+                jumps = %summary.jumps,
+                corpus = %summary.corpus,
+                "Fuzzed {contract_name} with {fuzzers} threads",
+            );
+            for stat in stats_ctx.function_stats(&function_metrics) {
+                info!(
+                    kind = %stat.kind,
+                    function = %stat.function,
+                    calls = %stat.calls,
+                    gas = %stat.gas,
+                    reverts = %stat.reverts,
+                    "Function statistics",
+                );
             }
 
-            info!("[*] no failed assertions found!");
-            info!("[*] ripfuzz out. see ya");
+            if let Err(e) = session.write_coverage_report() {
+                error!("Failed to generate coverage reports: {e:#}");
+            }
+
+            info!("No failed assertions found!");
+            info!("Ripfuzz out. see ya");
             return Ok(());
         }
 
@@ -178,17 +200,39 @@ impl InvariantCampaign {
             .max_calls(session.args.max_calls)
             .literals(session.literals.clone());
 
-        info!("[+] fuzzed {contract_name} with {fuzzers} threads");
+        let summary = stats_ctx.summary(&shared_metrics.aggregate());
         let function_metrics = shared_metrics.function_metrics();
-        let stats = stats_ctx.format(&shared_metrics.aggregate(), &function_metrics);
-        info!("{stats}");
+        info!(
+            runs = %summary.runs,
+            calls = %summary.calls,
+            elapsed = %summary.elapsed,
+            call_rate = %summary.call_rate,
+            gas_rate = %summary.gas_rate,
+            contracts = %summary.contracts,
+            edges = %summary.edges,
+            depths = %summary.depths,
+            reverts = %summary.reverts,
+            jumps = %summary.jumps,
+            corpus = %summary.corpus,
+            "Fuzzed {contract_name} with {fuzzers} threads",
+        );
+        for stat in stats_ctx.function_stats(&function_metrics) {
+            info!(
+                kind = %stat.kind,
+                function = %stat.function,
+                calls = %stat.calls,
+                gas = %stat.gas,
+                reverts = %stat.reverts,
+                "Function statistics",
+            );
+        }
         let assertion_word = if failed_assertions.len() == 1 {
             "assertion"
         } else {
             "assertions"
         };
         error!(
-            "[!] found {} distinct failed {assertion_word}",
+            "Found {} distinct failed {assertion_word}",
             failed_assertions.len()
         );
 
@@ -244,7 +288,7 @@ impl InvariantCampaign {
             }
 
             info!(
-                "[*] shrinking assertion {assertion_number}/{} from {} calls with {} threads",
+                "Shrinking assertion {assertion_number}/{} from {} calls with {} threads",
                 failed_assertions.len(),
                 formatter::num(initial_calls as u64),
                 formatter::num(shrink_threads as u64)
@@ -253,7 +297,7 @@ impl InvariantCampaign {
                 if let Some(snapshot) = shrinker_metrics.try_snapshot() {
                     let current_calls = shared_failed_item.item().calls.len();
                     info!(
-                        "[~] {}",
+                        "{}",
                         formatter::shrinker_progress(&snapshot, initial_calls, current_calls)
                     );
                 }
@@ -264,10 +308,10 @@ impl InvariantCampaign {
                 match handle.join() {
                     Ok(Ok(_)) => {}
                     Ok(Err(e)) => {
-                        error!(%e, "shrinker failed");
+                        error!(%e, "Shrinker failed");
                     }
                     Err(e) => {
-                        error!(?e, "shrinker panicked");
+                        error!(?e, "Shrinker panicked");
                     }
                 }
             }
@@ -275,16 +319,26 @@ impl InvariantCampaign {
             let shrunk_item = shared_failed_item.item();
             let shrunk_calls = shrunk_item.calls.len();
             info!(
-                "[+] shrank assertion {assertion_number}/{} from {} to {} calls with {} threads",
+                "Shrank assertion {assertion_number}/{} from {} to {} calls with {} threads",
                 failed_assertions.len(),
                 formatter::num(initial_calls as u64),
                 formatter::num(shrunk_calls as u64),
                 formatter::num(shrink_threads as u64)
             );
-            let snapshot = shrinker_metrics.aggregate();
+            let summary = formatter::shrinker_summary(
+                &shrinker_metrics.aggregate(),
+                initial_calls,
+                shrunk_calls,
+            );
             info!(
-                "{}",
-                formatter::shrinker_summary(&snapshot, initial_calls, shrunk_calls)
+                runs = %summary.runs,
+                calls = %summary.calls,
+                elapsed = %summary.elapsed,
+                call_rate = %summary.call_rate,
+                gas_rate = %summary.gas_rate,
+                initial_calls = %summary.initial_calls,
+                final_calls = %summary.final_calls,
+                "Shrinker statistics",
             );
             shrunk_assertions.push((assertion_number, shrunk_item));
         }
@@ -310,13 +364,13 @@ impl InvariantCampaign {
                 } else {
                     format!("trace-{assertion_number}.log")
                 };
-                info!("[*] writing trace {assertion_number} ...");
+                info!("Writing trace {assertion_number}");
                 match session.write_trace(&trace, &trace_name) {
                     Ok(trace_file) => {
-                        info!("[+] trace {assertion_number}: {}", trace_file.display());
+                        info!("Trace {assertion_number}: {}", trace_file.display());
                     }
                     Err(e) => {
-                        error!("[!] writing trace file failed: {e:#}");
+                        error!("Writing trace file failed: {e:#}");
                         return Err(e);
                     }
                 }
@@ -324,10 +378,10 @@ impl InvariantCampaign {
         }
 
         if let Err(e) = session.write_coverage_report() {
-            error!("[!] failed to generate coverage reports: {e:#}");
+            error!("Failed to generate coverage reports: {e:#}");
         }
 
-        info!("[*] ripfuzz out. see ya");
+        info!("Ripfuzz out. see ya");
         Ok(())
     }
 }

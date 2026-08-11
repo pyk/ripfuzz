@@ -408,7 +408,7 @@ impl Artifact {
     #[instrument(err, level = "debug", fields(path = %path.as_ref().display()))]
     pub fn from_json(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        debug!(path = %path.display(), "loading build artifact");
+        debug!(path = %path.display(), "Loading build artifact");
         let content = fs::read_to_string(path)
             .with_context(|| format!("failed to read artifact: {}", path.display()))?;
         Self::from_json_str(&content)
