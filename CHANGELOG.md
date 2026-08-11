@@ -50,6 +50,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- `--stop-on-revert` traces now stop at the first reverted transaction: only
+  the calls up to and including it are re-run and dumped, instead of the whole
+  generated sequence
 - Mid-transaction `rvm.fork` switches no longer drop or leak remote state
   written earlier in the same transaction (for example `rvm.store` / `rvm.deal`
   on fork A then `rvm.fork` to B). Journaled remote mutations now commit to the

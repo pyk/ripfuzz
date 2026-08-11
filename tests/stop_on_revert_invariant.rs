@@ -108,9 +108,10 @@ fn invariant_campaign_stop_on_revert_dumps_trace_into_log() {
         trace.contains("[revert]"),
         "trace file must contain the reverted trace:\n{trace}"
     );
-    assert!(
-        trace.contains("revert_always"),
-        "trace file must contain the reverted call:\n{trace}"
+    assert_eq!(
+        trace.matches("revert_always").count(),
+        1,
+        "trace must stop at the first reverted call:\n{trace}"
     );
 
     // The stopped campaign must not shrink; only the revert trace file is

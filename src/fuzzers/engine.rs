@@ -162,11 +162,17 @@ impl<S: FuzzStrategy> Fuzzer<S> {
 
             // Stop-on-revert: any reverted transaction halts the campaign.
             // The failing sequence is re-run with tracing afterwards so the
-            // whole trace can be dumped into the log.
+            // whole trace can be dumped into the log. Only the calls up to
+            // and including the first reverted transaction are kept.
             if self.config.stop_on_revert && exec.results.iter().any(|r| !r.success) {
-                self.config
-                    .shared_stop_event
-                    .set(StopEvent { transactions });
+                let stop_index = exec
+                    .results
+                    .iter()
+                    .position(|r| !r.success)
+                    .expect("a reverted transaction exists");
+                self.config.shared_stop_event.set(StopEvent {
+                    transactions: transactions.into_iter().take(stop_index + 1).collect(),
+                });
                 self.config.shutdown_signal.store(true, Ordering::Relaxed);
                 break;
             }
