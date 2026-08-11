@@ -26,6 +26,13 @@ fn ripfuzz_dir(project_path: impl AsRef<Path>) -> PathBuf {
     project_path.as_ref().join(".ripfuzz")
 }
 
+/// Campaign output directory: log file, traces, and coverage reports.
+fn campaign_dir(project_path: impl AsRef<Path>, campaign_id: &str) -> PathBuf {
+    ripfuzz_dir(project_path)
+        .join("campaigns")
+        .join(campaign_id)
+}
+
 /// Load `.env` from `dir` into the process environment when the file exists.
 ///
 /// Existing environment variables are preserved (not overridden). Returns the
@@ -95,6 +102,8 @@ pub struct CampaignSession {
     pub shared_coverage: SharedCoverage,
     pub literals: ExtractedLiterals,
     pub kind: CampaignKind,
+    /// Campaign log file path; `None` when logging is disabled.
+    pub log_file: Option<PathBuf>,
 }
 
 impl CampaignSession {
@@ -254,9 +263,7 @@ impl CampaignSession {
             for (addr, label) in chain.labels() {
                 ctx = ctx.with_label(*addr, label);
             }
-            let trace_dir = ripfuzz_dir(&project_path)
-                .join("campaigns")
-                .join(&campaign_id);
+            let trace_dir = campaign_dir(&project_path, &campaign_id);
             fs::create_dir_all(&trace_dir)?;
             let trace_file = trace_dir.join("trace.log");
             let trace = deployment.trace.display_with(&ctx);
@@ -383,6 +390,8 @@ impl CampaignSession {
             );
         }
 
+        let session_log_file = (!args.disable_log).then(|| log_file.clone());
+
         Ok(Self {
             args,
             project,
@@ -397,6 +406,7 @@ impl CampaignSession {
             shared_coverage,
             literals,
             kind,
+            log_file: session_log_file,
         })
     }
 
@@ -408,9 +418,7 @@ impl CampaignSession {
     /// Write a trace for the current campaign and return its path.
     pub fn write_trace(&self, trace: &Trace, file_name: &str) -> Result<PathBuf> {
         let ctx = self.trace_context()?;
-        let trace_dir = ripfuzz_dir(&self.project.path)
-            .join("campaigns")
-            .join(&self.campaign_id);
+        let trace_dir = campaign_dir(&self.project.path, &self.campaign_id);
         fs::create_dir_all(&trace_dir)?;
         let trace_file = trace_dir.join(file_name);
         let trace_str = trace.display_with(&ctx);
@@ -418,15 +426,26 @@ impl CampaignSession {
         Ok(trace_file)
     }
 
-    /// Re-run `transactions` with tracing enabled and format the whole trace
-    /// as a single string.
-    pub fn trace_sequence(&self, transactions: &[Transaction]) -> Result<String> {
+    /// Re-run `transactions` with tracing enabled, format the whole trace as
+    /// a single string, and write it to `file_name` in the campaign
+    /// directory. Returns the trace file path and the formatted trace.
+    pub fn trace_sequence_to_file(
+        &self,
+        transactions: &[Transaction],
+        file_name: &str,
+    ) -> Result<(PathBuf, String)> {
         let mut trace_chain = self.chain.clone();
         trace_chain.set_trace(true);
         let exec = trace_chain.exec(transactions)?;
         let trace = exec.trace.context("trace expected after re-run")?;
         let ctx = self.trace_context()?;
-        Ok(format!("{}", trace.display_with(&ctx)))
+        let trace_str = format!("{}", trace.display_with(&ctx));
+
+        let trace_dir = campaign_dir(&self.project.path, &self.campaign_id);
+        fs::create_dir_all(&trace_dir)?;
+        let trace_file = trace_dir.join(file_name);
+        fs::write(&trace_file, &trace_str)?;
+        Ok((trace_file, trace_str))
     }
 
     /// Trace context for the current campaign: project artifacts plus chain

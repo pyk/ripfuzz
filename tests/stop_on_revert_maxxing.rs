@@ -1,6 +1,6 @@
 //! `--stop-on-revert` in maxxing mode: a reverted handler call stops the
-//! campaign and dumps the whole trace into the campaign log (both the log
-//! file and stderr) instead of shrinking.
+//! campaign, dumps the whole trace into the campaign log (both the log file
+//! and stderr), and writes it to `trace.log` instead of shrinking.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -50,8 +50,9 @@ fn campaign_dirs(project: &str) -> HashSet<PathBuf> {
     }
 }
 
-/// A reverted handler in a max-mode sequence must stop the campaign and dump
-/// the whole trace into the log, without shrinking or writing trace files.
+/// A reverted handler in a max-mode sequence must stop the campaign, dump
+/// the whole trace into the log, write it to `trace.log`, and name both file
+/// paths in the final error. The campaign must not shrink.
 #[test]
 fn max_campaign_stop_on_revert_dumps_trace_into_log() {
     let tmp = tempfile::tempdir().unwrap();
@@ -59,9 +60,10 @@ fn max_campaign_stop_on_revert_dumps_trace_into_log() {
     let before = campaign_dirs(PROJECT);
     let err = run(args(tmp.path().join("corpus")))
         .expect_err("campaign must fail when a transaction reverts");
+    let err_str = err.to_string();
     assert!(
-        err.to_string().contains("--stop-on-revert"),
-        "error must name the trigger: {err:#}"
+        err_str.contains("--stop-on-revert"),
+        "error must name the trigger: {err_str}"
     );
 
     let new_dirs: Vec<PathBuf> = campaign_dirs(PROJECT)
@@ -74,6 +76,15 @@ fn max_campaign_stop_on_revert_dumps_trace_into_log() {
         "exactly one new campaign directory expected"
     );
     let campaign_dir = &new_dirs[0];
+
+    assert!(
+        err_str.contains("fuzz.log"),
+        "error must name the log file: {err_str}"
+    );
+    assert!(
+        err_str.contains("trace.log"),
+        "error must name the trace file: {err_str}"
+    );
 
     let log = std::fs::read_to_string(campaign_dir.join("fuzz.log"))
         .unwrap_or_else(|_| panic!("campaign log must exist in {}", campaign_dir.display()));
@@ -90,8 +101,20 @@ fn max_campaign_stop_on_revert_dumps_trace_into_log() {
         "campaign log must contain the reverted call:\n{log}"
     );
 
-    // The stopped campaign must not shrink the max result or write trace
-    // files.
+    // The trace must also be written to its own file next to the log.
+    let trace = std::fs::read_to_string(campaign_dir.join("trace.log"))
+        .unwrap_or_else(|_| panic!("trace file must exist in {}", campaign_dir.display()));
+    assert!(
+        trace.contains("[REVERT]"),
+        "trace file must contain the reverted trace:\n{trace}"
+    );
+    assert!(
+        trace.contains("revert_always"),
+        "trace file must contain the reverted call:\n{trace}"
+    );
+
+    // The stopped campaign must not shrink the max result; only the revert
+    // trace file is written.
     let trace_files = std::fs::read_dir(campaign_dir)
         .unwrap()
         .filter_map(|entry| entry.ok())
@@ -100,7 +123,7 @@ fn max_campaign_stop_on_revert_dumps_trace_into_log() {
     assert_eq!(
         trace_files,
         0,
-        "no trace files expected in {}",
+        "no shrunk trace files expected in {}",
         campaign_dir.display()
     );
 }

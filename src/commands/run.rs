@@ -65,8 +65,7 @@ pub struct Args {
     )]
     pub max_runs: u64,
 
-    /// Maximum number of distinct failed assertions to collect before stopping
-    /// the fuzzing campaign.
+    /// Maximum number of distinct failed assertions to collect before stopping.
     #[arg(
         long = "max-failures",
         default_value = "1",
@@ -96,9 +95,6 @@ pub struct Args {
     pub max_calls: usize,
 
     /// Random seed for reproducibility.
-    ///
-    /// When not provided, a random seed is generated and printed at campaign
-    /// start so the run can be reproduced later.
     #[arg(long = "seed", value_name = "N", help_heading = "Fuzzing Parameters")]
     pub seed: Option<u64>,
 
@@ -158,23 +154,11 @@ pub struct Args {
     #[arg(long = "force", help_heading = "Foundry")]
     pub force: bool,
 
-    /// Stop the campaign on the first reverted transaction and dump the whole
-    /// trace into the log (file and stderr) instead of shrinking it.
+    /// Stop the campaign on the first reverted transaction.
     #[arg(long = "stop-on-revert", help_heading = "Fuzzing Parameters")]
     pub stop_on_revert: bool,
 
-    /// Additional Foundry projects whose build artifacts are loaded for
-    /// coverage and trace resolution.
-    ///
-    /// Useful in fork mode when the harness contract interacts with
-    /// contracts compiled in separate projects. Each path must point to a
-    /// Foundry project root that contains an `out/` directory with compiled
-    /// artifacts (run `forge build --ast --extra-output storageLayout` there
-    /// first).
-    ///
-    /// Artifacts from these projects are merged into the coverage reporter so
-    /// that on-chain bytecodes executed during fork mode can be matched back
-    /// to their source maps and source files.
+    /// Additional Foundry projects for coverage and trace resolution.
     #[arg(
         long = "external-project",
         value_name = "PATH",
