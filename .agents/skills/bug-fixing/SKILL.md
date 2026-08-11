@@ -2,7 +2,7 @@
 name: bug-fixing
 description: Apply bug fixing when a user-provided bug report describes
   ripfuzz behavior that contradicts the expected behavior. Use when a ripfuzz
-  bug needs a regression test and a source fix.
+  bug needs a source fix.
 ---
 
 # Ripfuzz Fix Bugs Skill
@@ -24,12 +24,12 @@ shrinker result, an incorrect campaign outcome, or an invalid harness error.
 
 ## Output
 
-| #   | Name            | Path                                                                               |
-| --: | :-------------- | :--------------------------------------------------------------------------------- |
-|   1 | Regression test | Test function in `tests/` or the affected source module's `#[cfg(test)] mod tests` |
-|   2 | Test fixture    | Foundry project under `fixtures/<feature>/` (`src/`, `foundry.toml`)               |
-|   3 | Fixed source    | Affected source under `src/`                                                       |
-|   4 | Changelog entry | `CHANGELOG.md` under `[Unreleased]`                                                |
+| #   | Name            | Path                                                                                                                   |
+| --: | :-------------- | :--------------------------------------------------------------------------------------------------------------------- |
+|   1 | Regression test | Test function in `tests/` or the affected source module's `#[cfg(test)] mod tests` (skip for simple fixes, see FIX-26) |
+|   2 | Test fixture    | Foundry project under `fixtures/<feature>/` (`src/`, `foundry.toml`) (skip for simple fixes, see FIX-26)               |
+|   3 | Fixed source    | Affected source under `src/`                                                                                           |
+|   4 | Changelog entry | `CHANGELOG.md` under `[Unreleased]`                                                                                    |
 
 -------------------------------------------------------------------------------
 
@@ -45,14 +45,14 @@ shrinker result, an incorrect campaign outcome, or an invalid harness error.
 | FIX-06 | When diagnosing, you MAY add permanent `tracing::debug!` statements in the affected source module                                            |
 | FIX-07 | When the failing command supports `--log-level`, you MUST run it with `--log-level debug` to reveal the `tracing::debug!` output             |
 | FIX-08 | When the failing command lacks log-level control, you MUST add `--log-level debug` support to it as part of the bug fix instead of deferring |
-| FIX-09 | You MUST create the regression test before fixing the bug                                                                                    |
+| FIX-09 | You MUST create the regression test before fixing the bug unless FIX-26 applies                                                              |
 | FIX-10 | The regression fixture MUST include a Solidity source file under `fixtures/<feature>/src/`                                                   |
 | FIX-11 | The regression test MUST assert the exact expected behavior with `assert_eq!`                                                                |
 | FIX-12 | Fixture artifacts MUST be generated with `forge build --root fixtures/<feature> --ast --extra-output storageLayout --force --quiet`          |
 | FIX-13 | Fixture artifacts MUST NOT be created or edited manually                                                                                     |
 | FIX-14 | The regression test MUST fail against the unfixed code                                                                                       |
 | FIX-15 | The regression test failure MUST reproduce the reported bug                                                                                  |
-| FIX-16 | You MUST fix the bug only after the regression test reproduces it                                                                            |
+| FIX-16 | You MUST fix the bug only after the regression test reproduces it unless FIX-26 applies                                                      |
 | FIX-17 | After the fix, the regression test MUST pass                                                                                                 |
 | FIX-18 | When the feature has a golden output file, the regression test MUST assert the full output with `assert_eq!` against it                      |
 | FIX-19 | The regression test MUST NOT use `.contains()` for its assertions                                                                            |
@@ -62,6 +62,7 @@ shrinker result, an incorrect campaign outcome, or an invalid harness error.
 | FIX-23 | You MUST run `make lint` before finishing                                                                                                    |
 | FIX-24 | You MUST run `make test` before finishing                                                                                                    |
 | FIX-25 | You MUST add a `### Fixed` entry for the bug to `CHANGELOG.md` under `[Unreleased]` before finishing                                         |
+| FIX-26 | Simple fixes with no observable behavior change (for example log-level or message rewording) MUST NOT create a regression test or fixture    |
 
 -------------------------------------------------------------------------------
 
@@ -103,7 +104,8 @@ shrinker result, an incorrect campaign outcome, or an invalid harness error.
    - Trace the affected feature's resolution path until the root cause explains
      the wrong behavior.
 
-3. Create the regression test before fixing the bug.
+3. Create the regression test before fixing the bug (skip for simple fixes, see
+   FIX-26).
    - Determine the affected feature from the bug report, for example
      `--max-failures` or the shrinker.
 
@@ -141,7 +143,7 @@ shrinker result, an incorrect campaign outcome, or an invalid harness error.
      support to it instead of deferring.
 
 6. Verify the fix.
-   - Run the regression test and confirm it passes:
+   - Run the regression test and confirm it passes (skip when FIX-26 applies):
 
      ```bash
      cargo test <test_name>
