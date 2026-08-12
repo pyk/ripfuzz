@@ -25,6 +25,19 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- The fuzzing lifecycle is one `fuzz` tracing span carrying the harness
+  contract and thread count, with consistent `started`, `progress`, and
+  `finished` events; the campaign log file records the fuzz-phase duration when
+  the span closes
+- Per-function statistics log `kind function` as the message (e.g.
+  `handler deposit calls=60.2K gas=11.14 G reverts=0`) instead of a generic
+  `Function statistics` message with a `function` field
+- Maxxing campaigns that find no improvement log a `warn` naming the objective
+  (e.g.
+  `objective=max_profit No sequence improved the max value   (best stayed at 0)`)
+  instead of an `error`
+- Removed the redundant `Called setup` log line and the `Ripfuzz out. see   ya`
+  farewell line
 - Fuzzing progress lines now log structured `key=value` fields (matching the
   final campaign summary) instead of `·`-separated prose
 - Terminal log lines print a simple local `HH:MM:SS` timestamp without the

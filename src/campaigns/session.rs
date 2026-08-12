@@ -346,7 +346,6 @@ impl CampaignSession {
                 ));
             }
             setup_coverage = Some(setup_output.coverage);
-            info!("Called setup");
         }
 
         // Extract literals from build artifacts so the fuzzer can seed random

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context, Result, ensure};
-use tracing::{error, info};
+use tracing::{error, info, info_span};
 
 use crate::campaigns::{CampaignKind, CampaignSession, split_runs, wait_for_workers};
 use crate::corpus::{Call, CorpusConfig, Item, SharedFailedCorpusItem};
@@ -83,7 +83,9 @@ impl InvariantCampaign {
         }
 
         let contract_name = session.contract_name();
-        info!("Fuzzing {contract_name} with {fuzzers} threads");
+        let span = info_span!("fuzz", contract = %contract_name, threads = fuzzers);
+        let _guard = span.enter();
+        info!("started");
 
         // Print a compact progress line every 3 seconds, then a full stats
         // summary after all fuzzer threads finish.
@@ -97,7 +99,7 @@ impl InvariantCampaign {
 
         wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
             if let Some(snapshot) = shared_metrics.try_snapshot() {
-                stats_ctx.log_summary(&snapshot, "fuzzing");
+                stats_ctx.log_summary(&snapshot, "progress");
             }
             Ok(())
         })?;
@@ -150,18 +152,15 @@ impl InvariantCampaign {
         let failed_assertions = shared_failed_assertions.items();
         if failed_assertions.is_empty() {
             let function_metrics = shared_metrics.function_metrics();
-            stats_ctx.log_summary(
-                &shared_metrics.aggregate(),
-                &format!("Fuzzed {contract_name} with {fuzzers} threads"),
-            );
+            stats_ctx.log_summary(&shared_metrics.aggregate(), "finished");
             for stat in stats_ctx.function_stats(&function_metrics) {
                 info!(
-                    kind = %stat.kind,
-                    function = %stat.function,
                     calls = %stat.calls,
                     gas = %stat.gas,
                     reverts = %stat.reverts,
-                    "Function statistics",
+                    "{} {}",
+                    stat.kind,
+                    stat.function,
                 );
             }
 
@@ -170,7 +169,6 @@ impl InvariantCampaign {
             }
 
             info!("No failed assertions found!");
-            info!("Ripfuzz out. see ya");
             return Ok(());
         }
 
@@ -209,18 +207,15 @@ impl InvariantCampaign {
             .literals(session.literals.clone());
 
         let function_metrics = shared_metrics.function_metrics();
-        stats_ctx.log_summary(
-            &shared_metrics.aggregate(),
-            &format!("Fuzzed {contract_name} with {fuzzers} threads"),
-        );
+        stats_ctx.log_summary(&shared_metrics.aggregate(), "finished");
         for stat in stats_ctx.function_stats(&function_metrics) {
             info!(
-                kind = %stat.kind,
-                function = %stat.function,
                 calls = %stat.calls,
                 gas = %stat.gas,
                 reverts = %stat.reverts,
-                "Function statistics",
+                "{} {}",
+                stat.kind,
+                stat.function,
             );
         }
         let assertion_word = if failed_assertions.len() == 1 {
@@ -232,6 +227,8 @@ impl InvariantCampaign {
             "Found {} distinct failed {assertion_word}",
             failed_assertions.len()
         );
+        drop(_guard);
+        drop(span);
 
         let runs_per_assertion = (session.args.shrink_runs / failed_assertions.len() as u64).max(1);
         let mut shrunk_assertions = Vec::with_capacity(failed_assertions.len());
@@ -384,7 +381,6 @@ impl InvariantCampaign {
             error!("Failed to generate coverage reports: {e:#}");
         }
 
-        info!("Ripfuzz out. see ya");
         Ok(())
     }
 }

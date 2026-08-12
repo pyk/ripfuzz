@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context, Result, ensure};
-use tracing::{error, info};
+use tracing::{error, info, info_span, warn};
 
 use crate::campaigns::{CampaignKind, CampaignSession, split_runs, wait_for_workers};
 use crate::corpus::CorpusConfig;
@@ -96,7 +96,9 @@ impl MaxxingCampaign {
         }
 
         let contract_name = self.session.contract_name();
-        info!("Fuzzing {contract_name} with {fuzzers} threads");
+        let span = info_span!("fuzz", contract = %contract_name, threads = fuzzers);
+        let _guard = span.enter();
+        info!("started");
 
         let stats_ctx = formatter::CampaignStats::new(
             &self.session.shared_coverage,
@@ -108,7 +110,7 @@ impl MaxxingCampaign {
 
         wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
             if let Some(snapshot) = shared_metrics.try_snapshot() {
-                stats_ctx.log_summary(&snapshot, "fuzzing");
+                stats_ctx.log_summary(&snapshot, "progress");
             }
             Ok(())
         })?;
@@ -163,20 +165,19 @@ impl MaxxingCampaign {
         }
 
         let function_metrics = shared_metrics.function_metrics();
-        stats_ctx.log_summary(
-            &shared_metrics.aggregate(),
-            &format!("Fuzzed {contract_name} with {fuzzers} threads"),
-        );
+        stats_ctx.log_summary(&shared_metrics.aggregate(), "finished");
         for stat in stats_ctx.function_stats(&function_metrics) {
             info!(
-                kind = %stat.kind,
-                function = %stat.function,
                 calls = %stat.calls,
                 gas = %stat.gas,
                 reverts = %stat.reverts,
-                "Function statistics",
+                "{} {}",
+                stat.kind,
+                stat.function,
             );
         }
+        drop(_guard);
+        drop(span);
 
         let mut results = Vec::new();
         if let Some(best) = fuzzer_corpus.best_item() {
@@ -184,7 +185,10 @@ impl MaxxingCampaign {
         }
 
         if results.is_empty() {
-            error!("No max value improved above 0");
+            warn!(
+                objective = %self.objective.function.name,
+                "No sequence improved the max value (best stayed at 0)"
+            );
         } else {
             for result in &results {
                 info!(
@@ -238,7 +242,6 @@ impl MaxxingCampaign {
             error!("Failed to generate coverage reports: {e:#}");
         }
 
-        info!("Ripfuzz out. see ya");
         Ok(())
     }
 
