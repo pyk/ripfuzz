@@ -196,12 +196,9 @@ impl MaxxingCampaign {
             }
         }
 
-        // Re-run each shrunk item with the chain tracer enabled.
+        // Re-run each shrunk item with the chain tracer enabled, dumping the
+        // compact trace into the log and the full trace to a trace file.
         for (index, result) in results.iter().enumerate() {
-            // checkrs: allow(clone_in_loops)
-            let mut trace_chain = self.session.chain.clone();
-            trace_chain.set_trace(true);
-
             let mut transactions: Vec<Transaction> = result
                 .item
                 .calls
@@ -214,21 +211,25 @@ impl MaxxingCampaign {
                 self.session.args.gas_limit,
             ));
 
-            let exec = trace_chain.exec(&transactions)?;
-
-            if let Some(trace) = exec.trace {
-                info!("Writing max trace {}", index + 1);
-                match self
-                    .session
-                    .write_trace(&trace, &format!("trace-max-{}.log", index + 1))
-                {
-                    Ok(trace_file) => {
-                        info!("Max trace {}: {}", index + 1, trace_file.display());
-                    }
-                    Err(e) => {
-                        error!("Writing trace file failed: {e:#}");
-                        return Err(e);
-                    }
+            let trace_name = format!("fulltrace-max-{}.log", index + 1);
+            info!("Writing max trace {}", index + 1);
+            match self
+                .session
+                .trace_sequence_to_file(&transactions, &trace_name)
+            {
+                Ok(report) => {
+                    info!("Max trace {}.\n\n{}", index + 1, report.compact);
+                    let log = self
+                        .session
+                        .log_file
+                        .as_ref()
+                        .map(|path| format!("\nlog: {}", path.display()))
+                        .unwrap_or_default();
+                    info!("fulltrace: {}{}", report.file.display(), log);
+                }
+                Err(e) => {
+                    error!("Writing trace file failed: {e:#}");
+                    return Err(e);
                 }
             }
         }

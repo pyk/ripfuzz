@@ -348,36 +348,34 @@ impl InvariantCampaign {
             shrunk_assertions.push((assertion_number, shrunk_item));
         }
 
-        // Re-run each shrunk item with the chain tracer enabled.
+        // Re-run each shrunk item with the chain tracer enabled, dumping the
+        // compact trace into the log and the full trace to a trace file.
         for (assertion_number, shrunk_item) in &shrunk_assertions {
-            // checkrs: allow(clone_in_loops)
-            let mut trace_chain = session.chain.clone();
-            trace_chain.set_trace(true);
-
             let transactions: Vec<Transaction> = shrunk_item
                 .calls
                 .iter()
                 .map(|call| call.into_transaction(session.deployed_address))
                 .collect();
 
-            let exec = trace_chain.exec(&transactions)?;
-
-            // TODO(pyk): assert that trace should exists; do not use if else
-            if let Some(trace) = exec.trace {
-                let trace_name = if failed_assertions.len() == 1 {
-                    "trace.log".to_owned()
-                } else {
-                    format!("trace-{assertion_number}.log")
-                };
-                info!("Writing trace {assertion_number}");
-                match session.write_trace(&trace, &trace_name) {
-                    Ok(trace_file) => {
-                        info!("Trace {assertion_number}: {}", trace_file.display());
-                    }
-                    Err(e) => {
-                        error!("Writing trace file failed: {e:#}");
-                        return Err(e);
-                    }
+            let trace_name = if failed_assertions.len() == 1 {
+                "fulltrace.log".to_owned()
+            } else {
+                format!("fulltrace-{assertion_number}.log")
+            };
+            info!("Writing trace {assertion_number}");
+            match session.trace_sequence_to_file(&transactions, &trace_name) {
+                Ok(report) => {
+                    info!("Failed assertion {assertion_number}.\n\n{}", report.compact);
+                    let log = session
+                        .log_file
+                        .as_ref()
+                        .map(|path| format!("\nlog: {}", path.display()))
+                        .unwrap_or_default();
+                    info!("fulltrace: {}{}", report.file.display(), log);
+                }
+                Err(e) => {
+                    error!("Writing trace file failed: {e:#}");
+                    return Err(e);
                 }
             }
         }

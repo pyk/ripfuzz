@@ -15,7 +15,7 @@ use crate::commands::run::Args;
 use crate::corpus::{CorpusConfig, CorpusReplayer, ExtractedLiterals, SharedCorpus};
 use crate::evm::{
     Chain, ChainConfig, Contract, CoverageReporter, DeployInput, ForkDBConfig, SetupInput,
-    SharedCoverage, Trace, TraceContext, Transaction,
+    SharedCoverage, TraceContext, Transaction,
 };
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
@@ -272,12 +272,21 @@ impl CampaignSession {
             }
             let trace_dir = campaign_dir(&project_path, &campaign_id);
             fs::create_dir_all(&trace_dir)?;
-            let trace_file = trace_dir.join("trace.log");
-            let trace = deployment.trace.display_with(&ctx);
-            fs::write(&trace_file, format!("{trace}"))?;
-            error!("Failed to deploy {contract_name}");
-            error!("    trace: {}", trace_file.display());
-            return Err(anyhow::anyhow!("harness contract deployment failed"));
+            let trace_file = trace_dir.join("fulltrace.log");
+            let full = deployment.trace.display_with(&ctx);
+            let compact = deployment.trace.display_compact_with(&ctx);
+            fs::write(&trace_file, format!("{full}"))?;
+            error!("Deployment failed.\n\n{compact}");
+            let log = if args.disable_log {
+                String::new()
+            } else {
+                format!("\nlog: {}", log_file.display())
+            };
+            return Err(anyhow::anyhow!(
+                "harness contract deployment failed\nfulltrace: {}{}",
+                trace_file.display(),
+                log
+            ));
         }
         let deployed_address = deployment
             .address
@@ -427,17 +436,6 @@ impl CampaignSession {
     /// Name of the harness contract.
     pub fn contract_name(&self) -> &str {
         &self.harness_contract.artifact_id.name
-    }
-
-    /// Write a trace for the current campaign and return its path.
-    pub fn write_trace(&self, trace: &Trace, file_name: &str) -> Result<PathBuf> {
-        let ctx = self.trace_context();
-        let trace_dir = campaign_dir(&self.project.path, &self.campaign_id);
-        fs::create_dir_all(&trace_dir)?;
-        let trace_file = trace_dir.join(file_name);
-        let trace_str = trace.display_with(&ctx);
-        fs::write(&trace_file, format!("{trace_str}"))?;
-        Ok(trace_file)
     }
 
     /// Re-run `transactions` with tracing enabled, write the full trace to

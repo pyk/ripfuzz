@@ -42,6 +42,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - A failed `setup()` after a successful deployment stops the campaign like
   `--stop-on-revert`: full trace to `fulltrace.log`, compact trace to log and
   stderr, both paths named in the error
+- A failed harness deployment stops the campaign like `--stop-on-revert`: full
+  trace to `fulltrace.log`, compact trace to log and stderr, both paths named
+  in the error
+- Failed-assertion and max-value findings now dump their traces like
+  `--stop-on-revert` without failing the campaign: full trace to
+  `fulltrace.log` (per-finding `fulltrace-N.log` or `fulltrace-max-N.log`),
+  compact trace to log and stderr, both paths named
 - Maxxing campaigns no longer track failed assertions or enter the shrinker on
   a revert
 - Upgraded solc dependency to v0.1.0
