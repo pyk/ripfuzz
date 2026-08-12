@@ -2,10 +2,19 @@
 //!
 //! Uses `alloy-hardforks` and `alloy-op-hardforks` to derive the correct
 //! revm [`SpecId`] for any supported chain at a given block timestamp.
+//! Chain families missing from the upstream tables (e.g. Flare) resolve
+//! their own schedules in sibling modules.
+//!
+//! To add a new chain family: create a module here (e.g. `flare.rs`) exposing
+//! a `pub fn spec_id(chain_id, timestamp) -> Option<SpecId>` resolver, keep
+//! its schedule tests in that module, then append it to the fallback chain in
+//! [`get_spec_id`].
 
 use alloy_hardforks::EthereumHardfork;
 use alloy_op_hardforks::OpHardfork;
 use revm::primitives::hardfork::SpecId;
+
+mod flare;
 
 /// Map an [`EthereumHardfork`] into its corresponding [`SpecId`].
 fn spec_id_from_ethereum_hardfork(hardfork: EthereumHardfork) -> SpecId {
@@ -64,6 +73,7 @@ fn spec_id_from_op_hardfork(hardfork: OpHardfork) -> SpecId {
 /// Supported L1 chains: Ethereum mainnet, Sepolia, Holesky, Hoodi.
 /// Supported L2 chains: Arbitrum, Arbitrum Sepolia, Optimism,
 /// Optimism Sepolia, Base, Base Sepolia.
+/// Supported Flare networks: Flare mainnet, Songbird, Coston2, Coston.
 /// All other chains default to [`SpecId::AMSTERDAM`].
 pub fn get_spec_id(chain_id: u64, timestamp: u64) -> SpecId {
     let chain = alloy_chains::Chain::from_id(chain_id);
@@ -73,6 +83,7 @@ pub fn get_spec_id(chain_id: u64, timestamp: u64) -> SpecId {
             alloy_op_hardforks::OpHardfork::from_chain_and_timestamp(chain, timestamp)
                 .map(spec_id_from_op_hardfork)
         })
+        .or_else(|| flare::spec_id(chain_id, timestamp))
         .unwrap_or(SpecId::AMSTERDAM)
 }
 

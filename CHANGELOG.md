@@ -10,6 +10,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `rvm.fork` now resolves the exact EVM hardfork for Flare-family networks
+  (Flare mainnet, Songbird, Coston2, Coston) from go-flare's upgrade schedule
+  instead of defaulting to the newest spec: Durango resolves to Shanghai, Etna
+  to Cancun, and pre-Durango blocks to London
 - `--max-failures N` to collect up to N distinct failed assertions (invariant
   mode only) before stopping the campaign, with each one shrunk and reported
   separately
