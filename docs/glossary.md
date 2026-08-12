@@ -2,14 +2,41 @@
 
 Consistent vocabulary for ripfuzz users and contributors.
 
-## Core Terms
+## Campaigns
 
 ### Fuzzing Campaign
 
 A single invocation of `ripfuzz run`. The campaign deploys the **harness
-contract** and coordinates **fuzzers** (and **shrinkers**, when a **failed
-assertion** is found) until the run finishes with a **campaign result**. Also
-called a "fuzz run" or "test run".
+contract** and coordinates **fuzzers** (and **shrinkers**, when the campaign
+has a result to minimize) until the run finishes with a **campaign result**.
+Also called a "fuzz run" or "test run".
+
+The harness contract selects the campaign type automatically. There are two:
+
+### Invariant Campaign
+
+The campaign type that validates `invariant_*` functions. It is the default
+when the harness declares no `max_*` function (internally
+`CampaignKind::Invariant`, also called "invariant mode"). Each **invariant
+fuzzer** executes handler call sequences with **invariant functions** appended
+and reports new coverage or **failed assertions** to the campaign manager. When
+a failed assertion is found, **invariant shrinkers** minimize each distinct
+one.
+
+### Maxxing Campaign
+
+The campaign type that maximizes a single `max_*` function's return value. It
+is entered automatically when the harness declares a `max_*` function
+(internally `CampaignKind::Maxxing`, also called "max mode"). It supports
+exactly one `max_*` function and rejects harnesses that also declare
+`invariant_*` functions; the two campaign types are mutually exclusive. Each
+**maxxing fuzzer** executes handler calls followed by the **max function** call
+and records the highest value plus the shortest prefix that produced it.
+**Maxxing shrinkers** then shrink the best sequence while preserving its value;
+the result is reported with the maximum value and written to the corpus for
+reuse.
+
+## Harness Contract Terms
 
 ### Harness Contract
 
@@ -23,17 +50,19 @@ A Solidity function that checks an invariant. By default it must:
 
 - start with the prefix `invariant_`
 - take no arguments
-- be `pure` or `view`
 
-Ripfuzz appends every invariant to the end of each function call sequence and
-executes it in the same EVM loop. If an invariant reverts with a Solidity
-`assert` failure (`Panic(0x01)`), the fuzzer records a failed assertion. The
-return value, if any, is ignored. Synonyms: **invariant**, **property test**.
+Mutability is not enforced: invariants may be `view`, `pure`, or
+state-changing, because ripfuzz runs them on cloned state and discards the
+clone. Ripfuzz appends every invariant to the end of each function call
+sequence and executes it in the same EVM loop. If an invariant reverts with a
+Solidity `assert` failure (`Panic(0x01)`), the fuzzer records a failed
+assertion. The return value, if any, is ignored. Synonyms: **invariant**,
+**property test**.
 
 ### Max Function
 
-A Solidity function whose `uint256` return value ripfuzz maximizes in **max
-mode**. It must:
+A Solidity function whose `uint256` return value ripfuzz maximizes in a
+**maxxing campaign**. It must:
 
 - start with the prefix `max_`
 - take no arguments
@@ -44,15 +73,6 @@ Ripfuzz calls the max function after each handler call in the sequence and
 keeps the highest value plus the shortest prefix that produced it. Reverted or
 empty results score `0`. A value above `0` is the finding. Synonyms:
 **objective**, **optimization test** (Medusa).
-
-### Max Mode
-
-The campaign mode entered automatically when a harness declares a `max_*`
-function. Max mode and **invariant mode** are mutually exclusive: ripfuzz
-maximizes the `max_*` function and never runs `invariant_*` functions. Max mode
-supports exactly one `max_*` function and rejects harnesses that also declare
-`invariant_*` functions. Best sequences are shrunk while preserving their
-value, reported with the maximum value, and written to the corpus for reuse.
 
 ### Function-Level Invariant
 
@@ -75,8 +95,8 @@ exceed `MAX_DEPOSIT_AMOUNT`.
 Any external or public function in the harness contract that is *not* a setup
 or invariant or max function. Ripfuzz calls these with randomly-generated
 arguments to mutate contract state. A single fuzz input is a **sequence of
-function calls**. Synonyms: **function call**, **target function** (Foundry,
-Echidna).
+function calls** (up to `--max-calls` long, 100 by default). Synonyms:
+**function call**, **target function** (Foundry, Echidna).
 
 ### Setup Function
 
@@ -93,6 +113,8 @@ fork**; **harness storage and other local accounts are shared across forks** so
 you can track cross-chain properties (for example value conservation). See
 [fork-mode.md](./fork-mode.md).
 
+## Campaign Workers
+
 ### Invariant Fuzzer
 
 A single parallel fuzzing instance (the `InvariantFuzzer`) that executes
@@ -102,25 +124,10 @@ spawns one fuzzer per available CPU core.
 
 ### Maxxing Fuzzer
 
-A single parallel fuzzing instance in **max mode** (the `MaxxingFuzzer`). It
-executes handler calls followed by the `max_*` function call, merges coverage,
-and records the highest value plus the shortest handler prefix that produced
-it.
-
-### Campaign Result
-
-The aggregated output of a fuzzing campaign, including the total number of
-iterations executed across all fuzzers and any failed assertions (assert
-panics) discovered. Distinct failed assertions are deduplicated and each one is
-minimized separately.
-
-### Failed Assertion
-
-A failure recorded when any call (handler function or invariant) reverts with a
-Solidity `assert` panic (`Panic(0x01)`). The fuzzer treats a failed assertion
-as a bug and adds it to the set of objectives. Reverts caused by `require` or
-other reasons do not produce a failed assertion. Synonyms: **objective**,
-**bug**.
+A single parallel fuzzing instance in a **maxxing campaign** (the
+`MaxxingFuzzer`). It executes handler calls followed by the `max_*` function
+call, merges coverage, and records the highest value plus the shortest handler
+prefix that produced it.
 
 ### Invariant Shrinker
 
@@ -139,6 +146,24 @@ A per-thread worker (the `MaxxingShrinker`) that minimizes the best sequence of
 a **max function**. It draws mutated copies of the current best sequence,
 executes each followed by the max function call, and accepts the candidate when
 it preserves or improves the stored value and shrinks the sequence.
+
+## Campaign Results
+
+### Campaign Result
+
+The aggregated output of a fuzzing campaign: the total number of iterations
+executed across all fuzzers, plus the findings. An invariant campaign reports
+failed assertions (assert panics), each deduplicated and minimized separately.
+A maxxing campaign reports the maximum value and the call sequence that
+produced it.
+
+### Failed Assertion
+
+A failure recorded when any call (handler function or invariant) reverts with a
+Solidity `assert` panic (`Panic(0x01)`), found in **invariant campaigns**. The
+fuzzer treats a failed assertion as a bug and adds it to the set of objectives.
+Reverts caused by `require` or other reasons do not produce a failed assertion.
+Synonyms: **objective**, **bug**.
 
 ## Coverage Terms
 

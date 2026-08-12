@@ -198,8 +198,9 @@ selecting a handler function and producing values for every argument.
 
 ### Multiple function calls per input
 
-A single fuzz input is a **sequence of function calls** (default: up to 32
-calls). This lets ripfuzz explore stateful interactions.
+A single fuzz input is a **sequence of function calls** (up to 100 calls by
+default, set with `--max-calls`). This lets ripfuzz explore stateful
+interactions.
 
 ```solidity
 // A single fuzz input might do:
