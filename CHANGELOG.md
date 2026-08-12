@@ -10,53 +10,48 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
-- `rvm.fork` now resolves the exact EVM hardfork for Flare-family networks
-  (Flare mainnet, Songbird, Coston2, Coston) from go-flare's upgrade schedule
-  instead of defaulting to the newest spec: Durango resolves to Shanghai, Etna
-  to Cancun, and pre-Durango blocks to London
+- `rvm.fork` resolves Flare-family network hardforks (Durango → Shanghai, Etna
+  → Cancun, pre-Durango → London) from go-flare's upgrade schedule instead of
+  defaulting to the newest spec
 - `--max-failures N` to collect up to N distinct failed assertions (invariant
   mode only) before stopping the campaign, with each one shrunk and reported
   separately
-- `max_*` harness functions: read-only, no-argument functions returning
-  `uint256`; reverted or empty results score `0`, and any value above `0` is
-  the finding
-- Trace decoding falls back to common standard events when no project artifact
-  declares an event: ERC20 `Transfer`/`Approval`, ERC721 `ApprovalForAll`,
-  WETH9 `Deposit`/`Withdrawal`, and Ownable `OwnershipTransferred` logs from
-  forked or external contracts whose interfaces omit events render with a name
-  and arguments instead of raw `emit Log(0x...)` lines
+- `max_*` harness functions: read-only, no-argument `uint256` getters where
+  reverted or empty results score `0` and any value above `0` is the finding
+- Trace decoding falls back to common standard events (ERC20
+  `Transfer`/`Approval`, ERC721 `ApprovalForAll`, WETH9 `Deposit`/`Withdrawal`,
+  Ownable `OwnershipTransferred`) when no project artifact declares them,
+  rendering names and arguments instead of raw `emit Log(0x...)` lines
 
 ### Changed
 
-- Fuzzing progress lines now log structured `key=value` fields (`runs=…`
-  `calls=…` `elapsed=…` `call_rate=…` `gas_rate=…` `contracts=…` `edges=…`
-  `depths=…` `reverts=…` `jumps=…` `corpus=…`) instead of `·`-separated prose,
-  using the same field names as the final campaign summary so every campaign
-  line parses identically
-- Terminal log lines now print a simple local `HH:MM:SS` timestamp and omit the
-  module target, instead of the full RFC 3339 UTC timestamp with target; the
-  campaign log file keeps the full timestamp and target
-- Trace output now hangs each frame's children and call context, log, storage,
-  and result lines directly under the frame's name, so subtrees stay aligned
-  regardless of gas amount; the `--- Call #N ---` header is replaced by a `[N]`
-  counter on the root frame line.
+- Fuzzing progress lines now log structured `key=value` fields (matching the
+  final campaign summary) instead of `·`-separated prose
+- Terminal log lines print a simple local `HH:MM:SS` timestamp without the
+  module target; the campaign log file keeps the full RFC 3339 timestamp with
+  target
+- Trace output hangs children, call context, logs, storage, and result lines
+  directly under each frame's name (aligned regardless of gas amount),
+  replacing the `--- Call #N ---` header with a `[N]` counter on the root frame
+  line
 - `--fail-on-revert` is replaced by `--stop-on-revert`: any reverted
-  transaction stops the campaign in both invariant and maxxing mode, the full
-  trace is written to `fulltrace.log`, the error message carries a compact
-  trace (call context and storage changes omitted) to the campaign log and
-  stderr, the final error names the campaign log and trace file paths, and the
-  campaign exits with a failure instead of shrinking
-- Maxxing campaigns no longer track failed assertions; max-mode sequences never
-  enter the shrinker on a revert
+  transaction stops the campaign (invariant and maxxing mode), writes the full
+  trace to `fulltrace.log`, dumps a compact trace (call context and storage
+  changes omitted) to the log and stderr, names both file paths in the error,
+  and exits with a failure instead of shrinking
+- A failed `setup()` after a successful deployment stops the campaign like
+  `--stop-on-revert`: full trace to `fulltrace.log`, compact trace to log and
+  stderr, both paths named in the error
+- Maxxing campaigns no longer track failed assertions or enter the shrinker on
+  a revert
 - Upgraded solc dependency to v0.1.0
-- Fuzzer and shrinker progress now logs one compact line every 3 seconds, with
-  the full statistics printed after the phase finishes
-- Terminal status output is now written through `tracing` instead of a separate
-  console layer; `--disable-log` disables all log output (terminal and campaign
-  log file)
-- Campaign mode is now selected automatically: a harness that declares a
-  `max_*` function runs in max mode, which supports exactly one max function
-  and rejects `invariant_*` functions.
+- Fuzzer and shrinker progress logs one compact line every 3 seconds, with the
+  full statistics printed after the phase finishes
+- Terminal status output now goes through `tracing`; `--disable-log` disables
+  all log output (terminal and campaign log file)
+- Campaign mode is selected automatically: a harness with a `max_*` function
+  runs in max mode, which supports exactly one max function and rejects
+  `invariant_*` functions
 - Renamed the maxxing campaign type from `MaxCampaign` to `MaxxingCampaign`.
 - Fuzzer types now live under `fuzzers`.
 - Shrinker types now live under `shrinkers`: `Shrinker` is renamed to
@@ -67,28 +62,25 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
-- Campaign worker failures are no longer swallowed: if any fuzzer or shrinker
-  thread fails (or panics), the campaign now exits with a failure after all
-  workers settle, and the error carries the full cause chain (e.g.
+- Campaign worker failures are no longer swallowed: any failed or panicked
+  fuzzer/shrinker thread exits the campaign after all workers settle, with the
+  full cause chain (e.g.
   `revm transaction failed: database error: RPC rate limited: …`) instead of
   only the outer message
-- Skipped build artifacts now warn with the artifact file path and the full
-  error chain (`failed to parse artifact: <path>: <cause>`) instead of a bare
-  cause message printed twice
-- Build artifacts are loaded once per campaign: trace contexts reuse the
-  already-loaded artifacts instead of re-reading the build output directory,
-  which duplicated the artifact parse errors in the log
-- `--stop-on-revert` traces now stop at the first reverted transaction: only
-  the calls up to and including it are re-run and dumped, instead of the whole
-  generated sequence
+- Skipped build artifacts now warn with the artifact file path and full error
+  chain instead of a bare cause message printed twice
+- Build artifacts are loaded once per campaign, so trace contexts reuse them
+  instead of re-reading the build output directory (which duplicated artifact
+  parse errors in the log)
+- `--stop-on-revert` traces stop at the first reverted transaction: only the
+  calls up to and including it are re-run and dumped
 - Mid-transaction `rvm.fork` switches no longer drop or leak remote state
-  written earlier in the same transaction (for example `rvm.store` / `rvm.deal`
-  on fork A then `rvm.fork` to B). Journaled remote mutations now commit to the
-  active fork overlay before the switch; local harness accounts stay shared
-  across forks.
-- Fork transport JSON-RPC request/response payloads are logged at `debug`
-  instead of `info`, so default `--log-level info` runs no longer flood the
-  terminal with full payload lines for every round trip.
+  written earlier in the same transaction (e.g. `rvm.store`/`rvm.deal` on fork
+  A then `rvm.fork` to B): journaled remote mutations commit to the active fork
+  overlay before the switch, and local harness accounts stay shared across
+  forks
+- Fork transport JSON-RPC payloads are logged at `debug` instead of `info`, so
+  default runs no longer flood the terminal with full payload lines
 
 ## [0.9.1] - 2026-08-07
 

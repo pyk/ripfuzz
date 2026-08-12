@@ -318,16 +318,23 @@ impl CampaignSession {
                 for (addr, label) in chain.labels() {
                     ctx = ctx.with_label(*addr, label);
                 }
-                let trace_dir = ripfuzz_dir(&project_path)
-                    .join("campaigns")
-                    .join(&campaign_id);
+                let trace_dir = campaign_dir(&project_path, &campaign_id);
                 fs::create_dir_all(&trace_dir)?;
-                let trace_file = trace_dir.join("trace.log");
-                let trace = setup_output.trace.display_with(&ctx);
-                fs::write(&trace_file, format!("{trace}"))?;
-                error!("Failed to call setup");
-                error!("    trace: {}", trace_file.display());
-                return Err(anyhow::anyhow!("setup failed"));
+                let trace_file = trace_dir.join("fulltrace.log");
+                let full = setup_output.trace.display_with(&ctx);
+                let compact = setup_output.trace.display_compact_with(&ctx);
+                fs::write(&trace_file, format!("{full}"))?;
+                error!("Setup failed.\n\n{compact}");
+                let log = if args.disable_log {
+                    String::new()
+                } else {
+                    format!("\nlog: {}", log_file.display())
+                };
+                return Err(anyhow::anyhow!(
+                    "setup failed\nfulltrace: {}{}",
+                    trace_file.display(),
+                    log
+                ));
             }
             setup_coverage = Some(setup_output.coverage);
             info!("Called setup");
