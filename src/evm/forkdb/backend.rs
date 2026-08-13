@@ -259,15 +259,6 @@ impl SharedBackend {
 
                 match self.execute_batch(batch) {
                     Ok(successes) => {
-                        let mut results = Vec::with_capacity(reqs.len());
-                        for req in reqs {
-                            let key = req.cache_key();
-                            let value = successes.get(&key).ok_or(Error::Internal {
-                                message: "fetcher did not receive all keys".into(),
-                            })?;
-                            results.push(Response::parse(req, value)?);
-                        }
-
                         let map = self.inner.global_cache.pin();
                         for (key, value) in successes {
                             if let Some(ref dir) = self.inner.cache_dir {
@@ -276,6 +267,15 @@ impl SharedBackend {
                             map.insert(key, value);
                         }
                         self.inner.batch_condvar.notify_all();
+
+                        let mut results = Vec::with_capacity(reqs.len());
+                        for req in reqs {
+                            let key = req.cache_key();
+                            let value = map.get(&key).ok_or(Error::Internal {
+                                message: "fetcher did not receive all keys".into(),
+                            })?;
+                            results.push(Response::parse(req, value)?);
+                        }
                         return Ok(results);
                     }
                     Err(err) => {
@@ -1310,5 +1310,90 @@ mod tests {
             2,
             "each phase should be deduplicated to 1 batch item"
         );
+    }
+
+    /// Regression: a mixed cache hit must return every requested value.
+    ///
+    /// The slow path only RPCs keys missing from the cache. After a successful
+    /// batch it used to look up every original request in the batch result map,
+    /// so a pre-cached key produced `Internal { "fetcher did not receive all
+    /// keys" }`, killed the fetcher thread, and stalled the campaign.
+    #[test]
+    fn mixed_cache_hit_returns_cached_and_fetched_values() {
+        #[derive(Debug)]
+        struct SlotEchoTransport;
+
+        impl Transport for SlotEchoTransport {
+            fn exec(&self, _url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
+                let requests = payload
+                    .as_array()
+                    .expect("expected JSON array batch payload");
+                let responses: Vec<serde_json::Value> = requests
+                    .iter()
+                    .map(|req| {
+                        let id = req
+                            .get("id")
+                            .and_then(|v| v.as_u64())
+                            .expect("missing id in batch request")
+                            as usize;
+                        let slot = req
+                            .get("params")
+                            .and_then(|p| p.as_array())
+                            .and_then(|a| a.get(1))
+                            .and_then(|v| v.as_str())
+                            .expect("missing slot param");
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": slot,
+                        })
+                    })
+                    .collect();
+                Ok(json!(responses))
+            }
+        }
+
+        let address = address!("0x0000000000000000000000000000000000000001");
+        let config = ForkDBConfig::new("mock://test")
+            .batch_timeout_ms(0)
+            .batch_size(1);
+        let backend = SharedBackend::new_with_transport(config, SlotEchoTransport);
+
+        let cached = Request::GetStorageAt {
+            chain_id: 1,
+            address,
+            slot: U256::from(1),
+            block: 1,
+        };
+        let missing = Request::GetStorageAt {
+            chain_id: 1,
+            address,
+            slot: U256::from(2),
+            block: 1,
+        };
+
+        let first = backend.fetch_or_wait(&[cached.clone()]).unwrap();
+        assert_eq!(first.len(), 1);
+        match &first[0] {
+            Response::StorageAt(value) => {
+                assert_eq!(*value, U256::from(1), "pre-cache must store slot 1");
+            }
+            other => panic!("expected StorageAt, got {:?}", other),
+        }
+
+        let mixed = backend.fetch_or_wait(&[cached, missing]).unwrap();
+        assert_eq!(mixed.len(), 2);
+        match &mixed[0] {
+            Response::StorageAt(value) => {
+                assert_eq!(*value, U256::from(1), "cached slot must be returned");
+            }
+            other => panic!("expected StorageAt for cached slot, got {:?}", other),
+        }
+        match &mixed[1] {
+            Response::StorageAt(value) => {
+                assert_eq!(*value, U256::from(2), "fetched slot must be returned");
+            }
+            other => panic!("expected StorageAt for missing slot, got {:?}", other),
+        }
     }
 }

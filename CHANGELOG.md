@@ -82,6 +82,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- Fork RPC batches that mix cached and missing keys no longer kill the fetcher
+  thread with `fetcher did not receive all keys`, which stalled campaigns after
+  new storage slots appeared
 - Campaign worker failures are no longer swallowed: any failed or panicked
   fuzzer/shrinker thread exits the campaign after all workers settle, with the
   full cause chain (e.g.
