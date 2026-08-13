@@ -64,7 +64,7 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   compact trace to log and stderr, both paths named
 - Maxxing campaigns no longer track failed assertions or enter the shrinker on
   a revert
-- Upgraded solc dependency to v0.1.0
+- Upgraded solc dependency to v0.1.1
 - Fuzzer and shrinker progress logs one compact line every 3 seconds, with the
   full statistics printed after the phase finishes
 - Terminal status output now goes through `tracing`; `--disable-log` disables
