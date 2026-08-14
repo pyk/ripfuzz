@@ -12,6 +12,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- ForkDB parse errors now include the raw JSON-RPC response body so provider
+  failures like error objects or malformed batches are visible in fuzzer logs
+
 ### Fixed
 
 ## [0.9.2] - 2026-08-14

@@ -84,6 +84,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use papaya::HashMap as PapayaMap;
 use parking_lot::{Condvar, Mutex};
+use serde::Serialize;
 use serde_json::Value;
 
 use walkdir::WalkDir;
@@ -347,6 +348,11 @@ impl SharedBackend {
         out
     }
 
+    /// Compact JSON for error messages.
+    fn describe_json<T: Serialize>(value: &T) -> String {
+        serde_json::to_string(value).unwrap_or_else(|_| "<unserializable>".into())
+    }
+
     /// Parse a JSON-RPC response and validate that every request has a
     /// matching, successful result.
     fn parse_batch_response(
@@ -360,13 +366,21 @@ impl SharedBackend {
                 .as_array()
                 .cloned()
                 .ok_or_else(|| Error::UnexpectedResponse {
-                    message: "expected JSON array response for batch request".into(),
+                    message: format!(
+                        "expected JSON array response for batch request, got: {}",
+                        Self::describe_json(&response)
+                    ),
                 })?
         };
 
         if arr.len() != deduped.len() {
             return Err(Error::UnexpectedResponse {
-                message: format!("expected {} responses, got {}", deduped.len(), arr.len()),
+                message: format!(
+                    "expected {} responses, got {}: {}",
+                    deduped.len(),
+                    arr.len(),
+                    Self::describe_json(&arr)
+                ),
             });
         }
 
@@ -374,19 +388,19 @@ impl SharedBackend {
         for mut item in arr {
             let Some(id) = item.get("id").and_then(|v| v.as_u64()).map(|v| v as usize) else {
                 return Err(Error::UnexpectedResponse {
-                    message: "missing id in JSON-RPC response item".into(),
+                    message: format!("missing id in JSON-RPC response item: {item}"),
                 });
             };
             if item.get("error").is_some() {
                 return Err(Error::UnexpectedResponse {
-                    message: "JSON-RPC response contains error object".into(),
+                    message: format!("JSON-RPC response contains error object: {item}"),
                 });
             }
             let result = item
                 .as_object_mut()
                 .and_then(|obj| obj.remove("result"))
                 .ok_or_else(|| Error::UnexpectedResponse {
-                    message: "missing result in JSON-RPC response item".into(),
+                    message: format!("missing result in JSON-RPC response item: {item}"),
                 })?;
             by_id.insert(id, result);
         }
@@ -1395,5 +1409,42 @@ mod tests {
             }
             other => panic!("expected StorageAt for missing slot, got {:?}", other),
         }
+    }
+
+    /// Regression: an error object in a batch response must surface the raw
+    /// JSON in the error message so the provider's failure is visible.
+    #[test]
+    fn parse_batch_error_object_includes_raw_json() {
+        let req = Request::GetChainId { url_hash: 1 };
+        let response = json!([
+            {"jsonrpc":"2.0","id":0,"error":{"code":-32000,"message":"execution reverted"}}
+        ]);
+        let err = SharedBackend::parse_batch_response(response, vec![req]).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("execution reverted"),
+            "error message missing from error: {msg}"
+        );
+        assert!(
+            msg.contains("-32000"),
+            "error code missing from error: {msg}"
+        );
+    }
+
+    /// Regression: a response count mismatch must include the raw response
+    /// body so the provider's shape deviation is visible.
+    #[test]
+    fn parse_batch_count_mismatch_includes_raw_json() {
+        let req = Request::GetChainId { url_hash: 1 };
+        let response = json!([
+            {"jsonrpc":"2.0","id":0,"result":"0x1"},
+            {"jsonrpc":"2.0","id":1,"result":"0x2"}
+        ]);
+        let err = SharedBackend::parse_batch_response(response, vec![req]).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("\"0x1\""),
+            "raw response missing from error: {msg}"
+        );
     }
 }
