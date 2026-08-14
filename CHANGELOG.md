@@ -10,6 +10,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.9.2] - 2026-08-14
+
+### Added
+
 - `rvm.fork` resolves Flare-family network hardforks (Durango → Shanghai, Etna
   → Cancun, pre-Durango → London) from go-flare's upgrade schedule instead of
   defaulting to the newest spec
@@ -254,6 +262,7 @@ Initial public release
   `SharedCorpus`, `CorpusReplayer`, and `CoverageReporter` types for
   programmatic use
 
-[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.1...HEAD
+[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/pyk/ripfuzz/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/pyk/ripfuzz/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/pyk/ripfuzz/releases/tag/v0.9.0
