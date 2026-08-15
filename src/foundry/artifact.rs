@@ -448,7 +448,7 @@ impl Artifact {
             .and_then(|s| s.optimizer.clone());
         let sources = json.metadata.and_then(|m| m.sources);
         Ok(match def.contract_kind {
-            solc::ast::ContractKind::Contract if !def.r#abstract => {
+            solc::ast::ContractKind::Contract if !def.r#abstract.unwrap_or(false) => {
                 Self::Contract(ContractArtifact {
                     id,
                     project_path: PathBuf::new(),

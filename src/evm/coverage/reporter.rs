@@ -411,9 +411,9 @@ fn collect_function_coverage(
                 return;
             }
             let name = match func.kind {
-                solc::ast::FunctionKind::Constructor => "constructor".to_string(),
-                solc::ast::FunctionKind::Fallback => "fallback".to_string(),
-                solc::ast::FunctionKind::Receive => "receive".to_string(),
+                Some(solc::ast::FunctionKind::Constructor) => "constructor".to_string(),
+                Some(solc::ast::FunctionKind::Fallback) => "fallback".to_string(),
+                Some(solc::ast::FunctionKind::Receive) => "receive".to_string(),
                 _ if func.name.is_empty() => return,
                 // checkrs: allow(clone_in_loops)
                 _ => func.name.clone(),
@@ -462,7 +462,7 @@ fn collect_function_coverage(
             // real initcode entry.
             let func_src_start = func.src.offset;
             let func_src_end = func.src.offset.saturating_add(func.src.length);
-            let target_initcode = matches!(func.kind, solc::ast::FunctionKind::Constructor);
+            let target_initcode = matches!(func.kind, Some(solc::ast::FunctionKind::Constructor));
             let mut entry_hits: u64 = 0;
 
             for counts in matched_counts {
