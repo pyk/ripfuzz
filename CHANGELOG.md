@@ -12,6 +12,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+### Fixed
+
+## [0.9.3] - 2026-08-21
+
+### Added
+
+### Changed
+
 - Upgraded solc dependency to v0.3.2
 - ForkDB parse errors now include the raw JSON-RPC response body so provider
   failures like error objects or malformed batches are visible in fuzzer logs
@@ -268,7 +276,8 @@ Initial public release
   `SharedCorpus`, `CorpusReplayer`, and `CoverageReporter` types for
   programmatic use
 
-[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.2...HEAD
+[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/pyk/ripfuzz/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/pyk/ripfuzz/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/pyk/ripfuzz/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/pyk/ripfuzz/releases/tag/v0.9.0
