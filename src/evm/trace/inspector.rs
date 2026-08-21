@@ -247,7 +247,7 @@ mod tests {
 
     use crate::evm::Contract;
     use crate::evm::chain::{Chain, ChainConfig, DeployInput};
-    use crate::evm::trace::TraceContext;
+    use crate::evm::trace::{CallFrameKind, TraceContext};
     use crate::foundry::{ArtifactId, Project};
 
     struct TestCase {
@@ -717,6 +717,41 @@ mod tests {
         let expected =
             fs::read_to_string("fixtures/trace-inspector/expected/ReturnValueTypesTrace.txt")
                 .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        assert_eq!(
+            formatted.trim(),
+            expected.trim(),
+            "trace output must match expected"
+        );
+    }
+
+    /// Inner CALL to a contract whose ABI is not in the trace context must
+    /// still decode argument values from runtime bytecode (evmole).
+    #[test]
+    fn evmole_decodes_unknown_call() {
+        let contract = load_fixture("src/BytecodeAbiCall.sol:BytecodeAbiCall");
+
+        let mut ctx = TraceContext::new();
+
+        let mut chain = Chain::empty(ChainConfig::default().trace(true));
+        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        assert!(!deployment.result.success, "deployment must fail");
+        assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
+
+        let root = &deployment.trace.roots[0];
+        let deploy_address = root.address.unwrap();
+        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+
+        let target_addr = root
+            .children
+            .iter()
+            .find(|child| matches!(child.kind, CallFrameKind::Create))
+            .and_then(|child| child.address)
+            .expect("target create frame");
+        ctx = ctx.with_label(target_addr, "BytecodeAbiTarget");
+
+        let formatted = format!("{}", deployment.trace.display_with(&ctx));
+        let expected = fs::read_to_string("fixtures/trace-inspector/expected/BytecodeAbiCall.txt")
+            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         assert_eq!(
             formatted.trim(),
             expected.trim(),

@@ -27,8 +27,8 @@ pub use forkdb::ForkDBConfig;
 pub use forkdb::MockTransport;
 pub use result::TransactionResult;
 pub use trace::{
-    CallFrame, CallFrameKind, StorageChange, StorageChangeInfo, StorageType, Trace, TraceContext,
-    TraceDisplay,
+    CallFrame, CallFrameKind, Evmole, StorageChange, StorageChangeInfo, StorageType, Trace,
+    TraceContext, TraceDisplay,
 };
 
 mod chain;

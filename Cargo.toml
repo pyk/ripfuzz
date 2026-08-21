@@ -65,6 +65,9 @@ ureq = "3.3.0"
 # Solidity compiler bindings
 solc = "0.3.2"
 
+# Extract function selectors and arguments from EVM bytecode
+evmole = "0.9.3"
+
 # Parallel processing
 rayon = "1.12"
 crossbeam = "0.8"

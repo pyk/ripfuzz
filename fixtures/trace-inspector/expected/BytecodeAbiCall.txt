@@ -1,0 +1,19 @@
+[1] [1178543] → new BytecodeAbiCall@0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22
+              ├─  call context:
+              │   @ msg.sender: RipfuzzDeployer [0xD93a248535Ef447440e7D63A2aff6c3e75B235C7]
+              │   @ msg.value: 0
+              │   @ block.timestamp: 1438269988
+              │   @ block.number: 1
+              ├─ [907852] → new BytecodeAbiTarget@0x6eBa38112d9106c17c00A791244E8b11732Fdd30
+              │           ├─  call context changes:
+              │           │   @ msg.sender: BytecodeAbiCall [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+              │           └─ ← [return] 773 bytes of code
+              ├─ [128661] BytecodeAbiTarget::0x69a4c00d(0x0000000000000000000000000000000000001111, 8453, 0x0000000000000000000000000000000000002222)
+              │           ├─  call context changes:
+              │           │   @ msg.sender: BytecodeAbiCall [0xD1c9cce383cBA1B71C5801ee73Fb008A33FFcd22]
+              │           ├─  storage changes:
+              │           │   @ 0: 0 -> 4369
+              │           │   @ 1: 0 -> 8453
+              │           │   @ 2: 0 -> 8738
+              │           └─ ← [stop]
+              └─ ← [revert] bytecode abi call

@@ -1399,6 +1399,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "evmole"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6193260884881a920613c477a0b457af872b228b939ec26c60f7e66a5e0c508"
+dependencies = [
+ "alloy-dyn-abi",
+ "alloy-primitives",
+ "indexmap 2.14.0",
+ "minicbor",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1962,6 +1974,12 @@ name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
+
+[[package]]
+name = "minicbor"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c12b4033ffaa92fbf9df03df38d19324f52bad130dd223f811734a8006dd2d69"
 
 [[package]]
 name = "miniz_oxide"
@@ -2799,6 +2817,7 @@ dependencies = [
  "crossbeam",
  "dashmap",
  "dotenvy",
+ "evmole",
  "fastrand",
  "hex",
  "jiff",

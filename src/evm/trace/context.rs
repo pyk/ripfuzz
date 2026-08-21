@@ -4,7 +4,6 @@
 //! then provides lookup methods used by [`Trace::display_with`](crate::evm::trace::Trace::display_with).
 
 use std::collections::HashMap;
-use std::sync::LazyLock;
 
 use alloy_dyn_abi::{DynSolEvent, DynSolType, DynSolValue};
 use alloy_json_abi::{EventParam, InternalType, JsonAbi, Param};
@@ -18,6 +17,8 @@ use solc::ast::{
 
 use crate::evm::chain::DEFAULT_DEPLOYER;
 use crate::evm::cheatcode::VM_ADDRESS;
+use crate::evm::trace::common_events::CommonEvents;
+use crate::evm::trace::evmole::Evmole;
 use crate::evm::trace::{MappingSlots, StorageType};
 use crate::foundry::{Artifact, ArtifactId, Project, StorageTypeInfo};
 
@@ -126,9 +127,9 @@ impl Default for TraceContext {
 }
 
 impl TraceContext {
-    /// Create an empty [`TraceContext`].
+    /// Create a [`TraceContext`] with standard-event ABIs and default labels.
     pub fn new() -> Self {
-        Self::default()
+        Self::default().with_abi(CommonEvents::abi())
     }
 
     /// Build a [`TraceContext`] from all build artifacts in a [`Project`].
@@ -199,6 +200,7 @@ impl TraceContext {
         }
         ctx.bytecode_entries = bytecode_entries;
         ctx.initcode_entries = initcode_entries;
+        ctx.abis.push(CommonEvents::abi());
         ctx
     }
 
@@ -935,8 +937,10 @@ impl TraceContext {
 
     /// Decode a function call from its input data.
     ///
-    /// Returns the function name (if found) and a formatted argument string.
-    pub fn decode_call(&self, data: &Bytes) -> (Option<&str>, String) {
+    /// Project ABIs and AST functions win. When neither matches, `evmole`
+    /// supplies argument types. The function name is then unknown, so the
+    /// caller prints the 4-byte selector.
+    pub fn decode_call(&self, data: &Bytes, evmole: Option<&Evmole>) -> (Option<&str>, String) {
         if data.len() < 4 {
             return (None, String::new());
         }
@@ -968,7 +972,26 @@ impl TraceContext {
             let (name, args) = decode_ast_call(func, data, &self.struct_field_index);
             return (Some(name), args);
         }
+        if let Some(types) = evmole.and_then(|extracted| extracted.arguments(&sel)) {
+            return (None, self.format_evmole_args(types, data));
+        }
         (None, "...".into())
+    }
+
+    fn format_evmole_args(&self, types: &[DynSolType], data: &Bytes) -> String {
+        if types.is_empty() {
+            return String::new();
+        }
+        let tuple = DynSolType::Tuple(types.to_vec());
+        match tuple.abi_decode_params(&data[4..]) {
+            Ok(DynSolValue::Tuple(values)) => values
+                .iter()
+                .map(|v| format_value(v, &self.labels))
+                .collect::<Vec<String>>()
+                .join(", "),
+            Ok(other) => format_value(&other, &self.labels),
+            Err(_) => "...".into(),
+        }
     }
 }
 
@@ -1191,15 +1214,15 @@ impl TraceContext {
         (None, format!("0x{}", hex::encode(data)))
     }
 
-    /// Decode a log whose topic0 matches an event declared in the project
-    /// artifacts or in the common standard events (ERC20, ERC721, WETH9,
-    /// Ownable). Returns `None` when no known event matches.
+    /// Decode a log whose topic0 matches an event declared in the registered
+    /// ABIs (project artifacts, then [`CommonEvents`]). Returns `None` when no
+    /// known event matches.
     fn decode_known_event(
         &self,
         topic_0: B256,
         log: &revm::primitives::Log,
     ) -> Option<(String, String)> {
-        for abi in self.abis.iter().chain(common_event_abis()) {
+        for abi in &self.abis {
             for event in abi.events() {
                 if event.selector() != topic_0 {
                     continue;
@@ -1412,22 +1435,6 @@ impl TraceContext {
 
         format!("0x{}", hex::encode(data))
     }
-}
-
-/// Standard events from widely-deployed contracts (ERC20, ERC721, WETH9,
-/// Ownable), defined in [`common_events.json`]. Used as a decoding fallback
-/// when no project artifact declares the event, so logs from forked or
-/// external contracts whose interfaces omit events still render with a
-/// meaningful name instead of `Log(0x...)`.
-fn common_event_abis() -> &'static [JsonAbi] {
-    // `include_str!` embeds the file at compile time, but serde_json has no
-    // const parser: parse once on first use and reuse the cached result for
-    // every later call. The `common_events_decode_undeclared_transfer` test
-    // fails if the file ever stops parsing.
-    static COMMON_EVENTS: LazyLock<JsonAbi> = LazyLock::new(|| {
-        serde_json::from_str(include_str!("common_events.json")).unwrap_or_default()
-    });
-    std::slice::from_ref(&COMMON_EVENTS)
 }
 
 pub(super) fn format_value(v: &DynSolValue, labels: &HashMap<Address, String>) -> String {

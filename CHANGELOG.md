@@ -10,6 +10,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- Trace decoding extracts function argument types from runtime bytecode with
+  evmole when no project ABI matches the selector, so unverified and forked
+  calls render decoded arguments instead of `0xselector(...)`
+
 ### Changed
 
 ### Fixed

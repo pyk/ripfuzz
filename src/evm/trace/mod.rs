@@ -4,16 +4,19 @@ use std::collections::HashMap;
 use std::fmt;
 
 use alloy_dyn_abi::{DynSolType, DynSolValue};
-use alloy_primitives::{I256, U256};
+use alloy_primitives::{B256, I256, U256, keccak256};
 use revm::interpreter::CallScheme;
 use revm::primitives::{Address, Bytes, Log};
 
 pub use context::{StorageChangeInfo, TraceContext};
+pub use evmole::Evmole;
 pub use inspector::Inspector;
 
 use crate::evm::cheatcode::VM_ADDRESS;
 
+mod common_events;
 mod context;
+mod evmole;
 mod inspector;
 
 /// A single storage change recorded during a frame's execution.
@@ -391,16 +394,19 @@ impl Trace {
 
     fn display_impl<'a>(&'a self, ctx: &'a TraceContext, compact: bool) -> TraceDisplay<'a> {
         let mut labels = HashMap::new();
+        let mut evmole = HashMap::new();
         for root in &self.roots {
             Self::collect_create_labels(root, ctx, &mut labels);
             Self::collect_vm_labels(root, &mut labels);
             Self::collect_code_hash_labels(root, ctx, &mut labels);
+            Self::collect_evmole(root, &mut evmole);
         }
         TraceDisplay {
             trace: self,
             ctx,
             labels,
             compact,
+            evmole,
         }
     }
 
@@ -466,6 +472,16 @@ impl Trace {
             Self::collect_code_hash_labels(child, ctx, labels);
         }
     }
+
+    fn collect_evmole(frame: &CallFrame, out: &mut HashMap<B256, Evmole>) {
+        if let Some(code) = frame.code_bytes.as_ref() {
+            out.entry(keccak256(code))
+                .or_insert_with(|| Evmole::extract(code));
+        }
+        for child in &frame.children {
+            Self::collect_evmole(child, out);
+        }
+    }
 }
 
 /// A [`Display`](fmt::Display) wrapper for a [`Trace`] backed by a
@@ -476,6 +492,7 @@ pub struct TraceDisplay<'a> {
     labels: HashMap<Address, String>,
     /// Omit call context and storage changes.
     compact: bool,
+    evmole: HashMap<B256, Evmole>,
 }
 
 impl<'a> fmt::Display for TraceDisplay<'a> {
@@ -587,7 +604,11 @@ impl<'a> TraceDisplay<'a> {
             } else {
                 format!("0x{}", hex::encode(&frame.input))
             };
-            let (func_name, args) = self.ctx.decode_call(&frame.input);
+            let evmole = frame
+                .code_bytes
+                .as_ref()
+                .and_then(|code| self.evmole.get(&keccak256(code)));
+            let (func_name, args) = self.ctx.decode_call(&frame.input, evmole);
             let func_name = func_name.unwrap_or(&selector);
             let scheme_suffix = match frame.kind {
                 CallFrameKind::Call(CallScheme::StaticCall) => " [staticcall]",
