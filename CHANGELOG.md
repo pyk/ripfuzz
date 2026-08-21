@@ -12,7 +12,7 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
-- Upgraded solc dependency to v0.3.1
+- Upgraded solc dependency to v0.3.2
 - ForkDB parse errors now include the raw JSON-RPC response body so provider
   failures like error objects or malformed batches are visible in fuzzer logs
 - Automatic `.env` loading uses the current working directory instead of the
