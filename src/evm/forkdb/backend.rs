@@ -255,7 +255,7 @@ impl SharedBackend {
             let should_fetch = state.pending.len() >= self.inner.batch_size || time_exceeded;
 
             if should_fetch {
-                let batch: Vec<Request> = state.pending.drain(..).collect();
+                let batch: Vec<Request> = std::mem::take(&mut state.pending);
                 state.batch_start = None;
 
                 match self.execute_batch(batch) {
