@@ -142,8 +142,8 @@ impl CampaignSession {
             .map(Ok)
             .unwrap_or_else(env::current_dir)?;
 
-        // Load project `.env` so `vm.getEnv` can read those values.
-        let dotenv_path = load_dotenv(&project_path)?;
+        // Load `$CWD/.env` so `vm.getEnv` can read those values.
+        let dotenv_path = load_dotenv(env::current_dir()?)?;
 
         // Generate campaign ID for coverage report, trace output, and log file.
         let now = jiff::Zoned::now();
