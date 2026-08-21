@@ -80,6 +80,7 @@ After cutting a release section, the empty `[Unreleased]` block MUST look like:
 | COMMIT-05 | MUST stop and ask the user when a commit surfaces an interactive prompt (e.g. a GPG passphrase)                                        |
 | COMMIT-06 | MUST NOT type a passphrase or other secret into an interactive commit prompt                                                           |
 | COMMIT-07 | MUST NOT bypass signing to force the commit through with `-c commit.gpgsign=false`                                                     |
+| COMMIT-08 | MUST split large or unrelated changes into multiple commits, one concern each                                                          |
 
 ## Tool References
 
