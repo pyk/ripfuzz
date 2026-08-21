@@ -18,6 +18,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- Invariant campaigns now report failed assertions discovered while replaying
+  the corpus, instead of seeding coverage and ignoring those panics
+
 ## [0.9.3] - 2026-08-21
 
 ### Added

@@ -13,7 +13,8 @@ use crate::corpus::{Call, CorpusConfig, Item, SharedFailedCorpusItem};
 use crate::evm::Transaction;
 use crate::formatter;
 use crate::fuzzers::{
-    InvariantFuzzer, InvariantFuzzerConfig, SharedFailedAssertions, SharedMetrics, SharedStopEvent,
+    FailedAssertion, InvariantFuzzer, InvariantFuzzerConfig, SharedFailedAssertions, SharedMetrics,
+    SharedStopEvent,
 };
 use crate::shrinkers::{InvariantShrinker, InvariantShrinkerConfig};
 
@@ -34,7 +35,7 @@ impl InvariantCampaign {
 
     /// Run the campaign: fuzz, shrink failed assertions, trace, and report.
     pub fn run(self) -> Result<()> {
-        let InvariantCampaign { session } = self;
+        let InvariantCampaign { mut session } = self;
 
         let all_function_signatures: Vec<String> = session
             .harness_contract
@@ -48,44 +49,24 @@ impl InvariantCampaign {
         let shared_stop_event = SharedStopEvent::new();
         let shutdown_signal = Arc::new(AtomicBool::new(false));
 
+        for failure in std::mem::take(&mut session.replay_failures) {
+            shared_failed_assertions.try_add(FailedAssertion {
+                transactions: failure.transactions,
+                item: failure.item,
+                failure_index: failure.failure_index,
+                failure_pc: failure.failure_pc,
+            });
+        }
+
         let fuzzers = session.args.threads;
         let timeout = session
             .args
             .timeout_secs
             .map(std::time::Duration::from_secs);
 
-        let initial_config = InvariantFuzzerConfig::new()
-            .chain(session.chain.clone())
-            .target_address(session.deployed_address)
-            .shared_corpus(session.corpus.clone())
-            .shared_coverage(session.shared_coverage.clone())
-            .shared_metrics(shared_metrics.clone())
-            .shared_failed_assertions(shared_failed_assertions.clone())
-            .shared_stop_event(shared_stop_event.clone())
-            .shutdown_signal(shutdown_signal.clone())
-            .invariant_functions(session.harness_contract.invariant_functions.clone())
-            .caller(session.args.deployer_address)
-            .gas_limit(session.args.gas_limit)
-            .timeout(timeout)
-            .stop_on_revert(session.args.stop_on_revert);
-
-        let mut handles = Vec::with_capacity(fuzzers);
-        for (fuzzer_id, local_max_runs) in split_runs(session.args.max_runs, fuzzers).enumerate() {
-            let seed = session.campaign_seed.wrapping_add(fuzzer_id as u64);
-            // checkrs: allow(clone_in_loops)
-            let mut config = initial_config.clone();
-            config.max_runs = local_max_runs;
-            config.seed = seed;
-
-            let fuzzer = InvariantFuzzer::new(config);
-            let handle = std::thread::spawn(move || fuzzer.run());
-            handles.push((fuzzer_id, handle));
-        }
-
         let contract_name = session.contract_name();
         let span = info_span!("fuzz", contract = %contract_name, threads = fuzzers);
         let _guard = span.enter();
-        info!("started");
 
         // Print a compact progress line every 3 seconds, then a full stats
         // summary after all fuzzer threads finish.
@@ -97,31 +78,67 @@ impl InvariantCampaign {
             &[],
         );
 
-        wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
-            if let Some(snapshot) = shared_metrics.try_snapshot() {
-                stats_ctx.log_summary(&snapshot, "progress");
-            }
-            Ok(())
-        })?;
+        if shared_failed_assertions.is_full() {
+            info!("Corpus replay reached --max-failures; skipping fuzzing");
+        } else {
+            let initial_config = InvariantFuzzerConfig::new()
+                .chain(session.chain.clone())
+                .target_address(session.deployed_address)
+                .shared_corpus(session.corpus.clone())
+                .shared_coverage(session.shared_coverage.clone())
+                .shared_metrics(shared_metrics.clone())
+                .shared_failed_assertions(shared_failed_assertions.clone())
+                .shared_stop_event(shared_stop_event.clone())
+                .shutdown_signal(shutdown_signal.clone())
+                .invariant_functions(session.harness_contract.invariant_functions.clone())
+                .caller(session.args.deployer_address)
+                .gas_limit(session.args.gas_limit)
+                .timeout(timeout)
+                .stop_on_revert(session.args.stop_on_revert);
 
-        let mut failures: Vec<anyhow::Error> = Vec::new();
-        for (fuzzer_id, handle) in handles {
-            match handle.join() {
-                Ok(Ok(_)) => {}
-                Ok(Err(e)) => {
-                    error!(fuzzer_id, "Fuzzer failed: {e:#}");
-                    failures.push(e);
+            let mut handles = Vec::with_capacity(fuzzers);
+            for (fuzzer_id, local_max_runs) in
+                split_runs(session.args.max_runs, fuzzers).enumerate()
+            {
+                let seed = session.campaign_seed.wrapping_add(fuzzer_id as u64);
+                // checkrs: allow(clone_in_loops)
+                let mut config = initial_config.clone();
+                config.max_runs = local_max_runs;
+                config.seed = seed;
+
+                let fuzzer = InvariantFuzzer::new(config);
+                let handle = std::thread::spawn(move || fuzzer.run());
+                handles.push((fuzzer_id, handle));
+            }
+
+            info!("started");
+
+            wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
+                if let Some(snapshot) = shared_metrics.try_snapshot() {
+                    stats_ctx.log_summary(&snapshot, "progress");
                 }
-                Err(e) => {
-                    error!(fuzzer_id, ?e, "Fuzzer panicked");
-                    failures.push(anyhow::anyhow!("fuzzer {fuzzer_id} panicked: {e:?}"));
+                Ok(())
+            })?;
+
+            let mut failures: Vec<anyhow::Error> = Vec::new();
+            for (fuzzer_id, handle) in handles {
+                match handle.join() {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => {
+                        error!(fuzzer_id, "Fuzzer failed: {e:#}");
+                        failures.push(e);
+                    }
+                    Err(e) => {
+                        error!(fuzzer_id, ?e, "Fuzzer panicked");
+                        failures.push(anyhow::anyhow!("fuzzer {fuzzer_id} panicked: {e:?}"));
+                    }
                 }
             }
-        }
-        if !failures.is_empty() {
-            let count = failures.len();
-            let first = failures.remove(0);
-            return Err(first).with_context(|| format!("{count} fuzzer threads failed"));
+            if !failures.is_empty() {
+                let count = failures.len();
+                let first = failures.remove(0);
+                return Err(first).with_context(|| format!("{count} fuzzer threads failed"));
+            }
         }
 
         // Stop-on-revert: log a single multi-line error message carrying the

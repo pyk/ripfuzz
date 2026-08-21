@@ -12,7 +12,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::campaigns::CampaignKind;
 use crate::commands::run::Args;
-use crate::corpus::{CorpusConfig, CorpusReplayer, ExtractedLiterals, SharedCorpus};
+use crate::corpus::{CorpusConfig, CorpusReplayer, ExtractedLiterals, ReplayFailure, SharedCorpus};
 use crate::evm::{
     Chain, ChainConfig, Contract, CoverageReporter, DeployInput, ForkDBConfig, SetupInput,
     SharedCoverage, TraceContext, Transaction,
@@ -111,6 +111,8 @@ pub struct CampaignSession {
     pub kind: CampaignKind,
     /// Campaign log file path; `None` when logging is disabled.
     pub log_file: Option<PathBuf>,
+    /// Assert panics discovered while replaying the corpus.
+    pub replay_failures: Vec<ReplayFailure>,
 }
 
 impl CampaignSession {
@@ -384,6 +386,7 @@ impl CampaignSession {
         }
         let replay_count = corpus_stats.valid_count;
 
+        let mut replay_failures = Vec::new();
         if replay_count > 0 {
             debug!("Replaying {replay_count} corpus items");
             let replay_invariants = if max_mode {
@@ -391,7 +394,7 @@ impl CampaignSession {
             } else {
                 harness_contract.invariant_functions.clone()
             };
-            if let Err(e) = CorpusReplayer::new(shared_coverage.clone())
+            match CorpusReplayer::new(shared_coverage.clone())
                 .shared_corpus(corpus.clone())
                 .chain(chain.clone())
                 .deployed_address(deployed_address)
@@ -399,8 +402,13 @@ impl CampaignSession {
                 .caller(args.deployer_address)
                 .replay()
             {
-                error!("Replaying corpus items failed: {e:#}");
-                return Err(e);
+                Ok(failures) => {
+                    replay_failures = failures;
+                }
+                Err(e) => {
+                    error!("Replaying corpus items failed: {e:#}");
+                    return Err(e);
+                }
             }
             info!(
                 contracts = %formatter::num(shared_coverage.contract_count() as u64),
@@ -410,6 +418,12 @@ impl CampaignSession {
                 jumps = %formatter::num(shared_coverage.jump_count() as u64),
                 "Replayed {replay_count} corpus items",
             );
+            if !replay_failures.is_empty() {
+                info!(
+                    count = replay_failures.len(),
+                    "Corpus replay found failed assertions"
+                );
+            }
         }
 
         let session_log_file = (!args.disable_log).then(|| log_file.clone());
@@ -429,6 +443,7 @@ impl CampaignSession {
             literals,
             kind,
             log_file: session_log_file,
+            replay_failures,
         })
     }
 

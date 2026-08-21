@@ -1,8 +1,8 @@
 //! Ripfuzz - High-throughput, coverage-guided, mutational fuzzer for Solidity smart contracts.
 
 pub use corpus::{
-    Call, CorpusConfig, CorpusReplayer, CorpusStats, ExtractedLiterals, Item, SharedCorpus,
-    SharedFailedCorpusItem, Stats,
+    Call, CorpusConfig, CorpusReplayer, CorpusStats, ExtractedLiterals, Item, ReplayFailure,
+    SharedCorpus, SharedFailedCorpusItem, Stats,
 };
 pub use evm::{
     CallFrame, CallFrameKind, Chain, ChainConfig, CheatcodeConfig, Contract, CoverageReport,

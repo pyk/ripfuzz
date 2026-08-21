@@ -17,7 +17,7 @@ pub use failed_item::SharedFailedCorpusItem;
 pub use item::Item;
 pub use random::{RandomDynSolValue, random_uint};
 
-pub use replayer::CorpusReplayer;
+pub use replayer::{CorpusReplayer, ReplayFailure};
 pub use shared::{CorpusStats, SharedCorpus, Stats};
 
 mod call;
