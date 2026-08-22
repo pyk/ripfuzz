@@ -76,15 +76,11 @@ fn finding_dumps_compact_and_full_trace_into_log() {
     let log = std::fs::read_to_string(campaign_dir.join("fuzz.log"))
         .unwrap_or_else(|_| panic!("campaign log must exist in {}", campaign_dir.display()));
     assert!(
-        log.contains("Max trace 1."),
-        "campaign log must report the max trace:\n{log}"
-    );
-    assert!(
         log.contains("max_value"),
         "campaign log must contain the max call:\n{log}"
     );
     assert!(
-        log.contains("fulltrace:"),
+        log.contains("fulltrace-max-1.log"),
         "campaign log must name the trace file:\n{log}"
     );
     assert!(
@@ -93,7 +89,7 @@ fn finding_dumps_compact_and_full_trace_into_log() {
     );
     assert!(
         !log.contains("call context"),
-        "campaign log must carry the compact trace without call context:\n{log}"
+        "campaign log must not carry the full trace with call context:\n{log}"
     );
 
     // The trace must also be written to its own file next to the log, in

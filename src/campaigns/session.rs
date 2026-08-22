@@ -92,6 +92,8 @@ fn validate_harness_mode(harness: &Contract) -> Result<()> {
 pub struct TraceReport {
     pub file: PathBuf,
     pub compact: String,
+    /// Decoded log events only, for compact stderr output.
+    pub logs: String,
 }
 
 /// Shared state for one campaign, built once and consumed by a campaign type.
@@ -479,6 +481,7 @@ impl CampaignSession {
         let ctx = self.trace_context();
         let full = format!("{}", trace.display_with(&ctx));
         let compact = format!("{}", trace.display_compact_with(&ctx));
+        let logs = format!("{}", trace.display_logs_with(&ctx));
 
         let trace_dir = campaign_dir(&self.project.path, &self.campaign_id);
         fs::create_dir_all(&trace_dir)?;
@@ -487,6 +490,7 @@ impl CampaignSession {
         Ok(TraceReport {
             file: trace_file,
             compact,
+            logs,
         })
     }
 
@@ -503,6 +507,9 @@ impl CampaignSession {
 
     /// Generate coverage reports for the current campaign.
     pub fn write_coverage_report(&self) -> Result<()> {
+        let report_span = info_span!("report");
+        let _report_guard = report_span.enter();
+
         let mut artifacts: Vec<Artifact> = self.build_artifacts.values().cloned().collect();
         artifacts.extend(self.external_artifacts.iter().cloned());
         let n = artifacts.len();
@@ -524,14 +531,10 @@ impl CampaignSession {
         let lcov_content = format!("{report}");
         fs::write(&lcov_file, &lcov_content)?;
 
-        let relative_path = lcov_file
-            .strip_prefix(&self.project.path)
-            .unwrap_or(&lcov_file)
-            .to_path_buf();
         let pct = report.coverage();
 
         info!("Generated coverage reports for {n} build artifacts");
-        info!("    [{pct:.2}%] {}", relative_path.display());
+        info!("[{pct:.2}%] {}", lcov_file.display());
         Ok(())
     }
 }

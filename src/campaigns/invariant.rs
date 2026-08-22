@@ -180,11 +180,14 @@ impl InvariantCampaign {
                 );
             }
 
+            info!("No failed assertions found!");
+            drop(_guard);
+            drop(span);
+
             if let Err(e) = session.write_coverage_report() {
                 error!("Failed to generate coverage reports: {e:#}");
             }
 
-            info!("No failed assertions found!");
             return Ok(());
         }
 
@@ -239,7 +242,7 @@ impl InvariantCampaign {
         } else {
             "assertions"
         };
-        error!(
+        info!(
             "Found {} distinct failed {assertion_word}",
             failed_assertions.len()
         );
@@ -373,7 +376,7 @@ impl InvariantCampaign {
         let _trace_guard = trace_span.enter();
 
         // Re-run each shrunk item with the chain tracer enabled, dumping the
-        // compact trace into the log and the full trace to a trace file.
+        // decoded logs into the log and the full trace to a trace file.
         for (assertion_number, shrunk_item) in &shrunk_assertions {
             let transactions: Vec<Transaction> = shrunk_item
                 .calls
@@ -386,16 +389,12 @@ impl InvariantCampaign {
             } else {
                 format!("fulltrace-{assertion_number}.log")
             };
-            info!("Writing trace {assertion_number}");
             match session.trace_sequence_to_file(&transactions, &trace_name) {
                 Ok(report) => {
-                    info!("Failed assertion {assertion_number}.\n\n{}", report.compact);
-                    let log = session
-                        .log_file
-                        .as_ref()
-                        .map(|path| format!("\nlog: {}", path.display()))
-                        .unwrap_or_default();
-                    info!("fulltrace: {}{}", report.file.display(), log);
+                    if !report.logs.is_empty() {
+                        info!("{}", report.logs);
+                    }
+                    info!("{}", report.file.display());
                 }
                 Err(e) => {
                     error!("Writing trace file failed: {e:#}");
@@ -404,6 +403,12 @@ impl InvariantCampaign {
             }
         }
         drop(_trace_guard);
+
+        if let Some(log_file) = &session.log_file {
+            let log_span = info_span!("log");
+            let _log_guard = log_span.enter();
+            info!("{}", log_file.display());
+        }
 
         if let Err(e) = session.write_coverage_report() {
             error!("Failed to generate coverage reports: {e:#}");

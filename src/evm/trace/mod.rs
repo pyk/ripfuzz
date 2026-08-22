@@ -392,6 +392,14 @@ impl Trace {
         self.display_impl(ctx, true)
     }
 
+    /// Return a [`Display`](fmt::Display)-able view of only the log events in
+    /// this trace, decoded with the given [`TraceContext`].
+    pub fn display_logs_with<'a>(&'a self, ctx: &'a TraceContext) -> TraceDisplay<'a> {
+        let mut display = self.display_impl(ctx, true);
+        display.logs_only = true;
+        display
+    }
+
     fn display_impl<'a>(&'a self, ctx: &'a TraceContext, compact: bool) -> TraceDisplay<'a> {
         let mut labels = HashMap::new();
         let mut evmole = HashMap::new();
@@ -407,6 +415,7 @@ impl Trace {
             labels,
             compact,
             evmole,
+            logs_only: false,
         }
     }
 
@@ -493,17 +502,21 @@ pub struct TraceDisplay<'a> {
     /// Omit call context and storage changes.
     compact: bool,
     evmole: HashMap<B256, Evmole>,
+    /// Render only the decoded log events, without the call tree.
+    logs_only: bool,
 }
 
 impl<'a> fmt::Display for TraceDisplay<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (i, root) in self.trace.roots.iter().enumerate() {
-            if i > 0 {
-                writeln!(f)?;
+        if !self.logs_only {
+            for (i, root) in self.trace.roots.iter().enumerate() {
+                if i > 0 {
+                    writeln!(f)?;
+                }
+                // The root frame line carries the 1-based call counter; the
+                // revert outcome is visible in its result line.
+                self.write_frame(f, root, None, &[], Some(i + 1))?;
             }
-            // The root frame line carries the 1-based call counter; the
-            // revert outcome is visible in its result line.
-            self.write_frame(f, root, None, &[], Some(i + 1))?;
         }
 
         let mut logs = Vec::new();
@@ -511,8 +524,13 @@ impl<'a> fmt::Display for TraceDisplay<'a> {
             self.collect_log_events(root, &mut logs);
         }
         if !logs.is_empty() {
-            writeln!(f)?;
-            writeln!(f, "Logs:")?;
+            if self.logs_only {
+                // A bare newline keeps the entries below the `trace:` prefix.
+                writeln!(f)?;
+            } else {
+                writeln!(f)?;
+                writeln!(f, "Logs:")?;
+            }
             for log in logs {
                 writeln!(f, "  {log}")?;
             }

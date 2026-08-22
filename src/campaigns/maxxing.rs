@@ -227,20 +227,15 @@ impl MaxxingCampaign {
             ));
 
             let trace_name = format!("fulltrace-max-{}.log", index + 1);
-            info!("Writing max trace {}", index + 1);
             match self
                 .session
                 .trace_sequence_to_file(&transactions, &trace_name)
             {
                 Ok(report) => {
-                    info!("Max trace {}.\n\n{}", index + 1, report.compact);
-                    let log = self
-                        .session
-                        .log_file
-                        .as_ref()
-                        .map(|path| format!("\nlog: {}", path.display()))
-                        .unwrap_or_default();
-                    info!("fulltrace: {}{}", report.file.display(), log);
+                    if !report.logs.is_empty() {
+                        info!("{}", report.logs);
+                    }
+                    info!("{}", report.file.display());
                 }
                 Err(e) => {
                     error!("Writing trace file failed: {e:#}");
@@ -249,6 +244,12 @@ impl MaxxingCampaign {
             }
         }
         drop(_trace_guard);
+
+        if let Some(log_file) = &self.session.log_file {
+            let log_span = info_span!("log");
+            let _log_guard = log_span.enter();
+            info!("{}", log_file.display());
+        }
 
         if let Err(e) = self.session.write_coverage_report() {
             error!("Failed to generate coverage reports: {e:#}");

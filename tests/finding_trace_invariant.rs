@@ -1,8 +1,8 @@
 //! A failed assertion finding in invariant mode surfaces its trace like
 //! `--stop-on-revert` but without failing the campaign: the full trace is
-//! written to `fulltrace.log`, a compact trace (call context and storage
-//! changes omitted) goes into the campaign log and stderr, and the log names
-//! both file paths. The campaign still exits successfully.
+//! written to `fulltrace.log`, the campaign log names both the trace and log
+//! file paths (the decoded logs, when present, are dumped inline), and the
+//! campaign still exits successfully.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -77,19 +77,7 @@ fn finding_dumps_compact_and_full_trace_into_log() {
     let log = std::fs::read_to_string(campaign_dir.join("fuzz.log"))
         .unwrap_or_else(|_| panic!("campaign log must exist in {}", campaign_dir.display()));
     assert!(
-        log.contains("Failed assertion 1."),
-        "campaign log must report the failed assertion:\n{log}"
-    );
-    assert!(
-        log.contains("[revert]"),
-        "campaign log must contain the reverted trace:\n{log}"
-    );
-    assert!(
-        log.contains("assertion failed"),
-        "campaign log must contain the revert reason:\n{log}"
-    );
-    assert!(
-        log.contains("fulltrace:"),
+        log.contains("fulltrace.log"),
         "campaign log must name the trace file:\n{log}"
     );
     assert!(
@@ -98,7 +86,7 @@ fn finding_dumps_compact_and_full_trace_into_log() {
     );
     assert!(
         !log.contains("call context"),
-        "campaign log must carry the compact trace without call context:\n{log}"
+        "campaign log must not carry the full trace with call context:\n{log}"
     );
 
     // The trace must also be written to its own file next to the log, in

@@ -16,6 +16,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- The `Found N distinct failed assertion(s)` finding now logs at `info` instead
+  of `error`, since the campaign still completes successfully
 - Shrunk invariant failures are now persisted to the corpus, so the next
   campaign discovers the shortest failing sequence during replay instead of
   re-fuzzing it
@@ -23,6 +25,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   the whole lifecycle reads `build` → `deploy` → `replay` → `fuzz` → `shrink` →
   `trace`; shrink progress messages also log `assertion`, `initial_calls`, and
   `final_calls` as structured fields instead of concatenated text
+- The `trace` span now prints only the decoded log entries (when present) below
+  the `trace:` line and the trace file path, instead of the compact trace and a
+  `fulltrace:` line; the campaign log path moves to its own `log` span
+- Coverage report generation now logs under a `report` span, the percentage
+  line is no longer indented, and the lcov path is full like the trace and log
+  paths line no longer indents
 - Session setup logs are now grouped under `build`, `deploy{contract=...}`, and
   `replay{items=N}` spans, matching the `fuzz{threads=N}` span
 - The `Loaded harness contract` and `Deployed` messages no longer repeat the
