@@ -64,8 +64,7 @@ impl InvariantCampaign {
             .timeout_secs
             .map(std::time::Duration::from_secs);
 
-        let contract_name = session.contract_name();
-        let span = info_span!("fuzz", contract = %contract_name, threads = fuzzers);
+        let span = info_span!("fuzz", threads = fuzzers);
         let _guard = span.enter();
 
         // Print a compact progress line every 3 seconds, then a full stats

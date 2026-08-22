@@ -18,6 +18,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- Remove the redundant `contract` field from the `fuzz` log span in invariant
+  and max-mode campaigns, so the line reads `fuzz{threads=N}` instead of
+  `fuzz{contract=Name threads=N}`
 - Invariant campaigns now report failed assertions discovered while replaying
   the corpus, instead of seeding coverage and ignoring those panics
 

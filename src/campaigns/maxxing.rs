@@ -95,8 +95,7 @@ impl MaxxingCampaign {
             handles.push((fuzzer_id, handle));
         }
 
-        let contract_name = self.session.contract_name();
-        let span = info_span!("fuzz", contract = %contract_name, threads = fuzzers);
+        let span = info_span!("fuzz", threads = fuzzers);
         let _guard = span.enter();
         info!("started");
 
