@@ -3,11 +3,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use alloy_dyn_abi::{DynSolType, Specifier};
+use alloy_dyn_abi::{DynSolType, DynSolValue, Specifier};
 use alloy_json_abi::{Function, JsonAbi, StateMutability};
+use alloy_primitives::Address;
 use anyhow::{Context, Result, bail, ensure};
 
-use crate::evm::DeployLibraryInput;
+use crate::corpus::Call;
+use crate::evm::{DeployLibraryInput, Transaction};
 use crate::foundry::{Artifact, ArtifactId, ContractArtifact};
 
 /// A validated harness contract ready for fuzzing.
@@ -61,6 +63,22 @@ impl Contract {
         for func in all_functions {
             if func.name == "setup" {
                 setup_function = Some(func);
+                continue;
+            }
+
+            if func.name == "summary" {
+                ensure!(
+                    func.inputs.is_empty(),
+                    "summary function must have no arguments, but has {}",
+                    func.inputs.len()
+                );
+                ensure!(
+                    !matches!(
+                        func.state_mutability,
+                        StateMutability::Pure | StateMutability::View
+                    ),
+                    "summary function must not be view or pure"
+                );
                 continue;
             }
 
@@ -139,6 +157,27 @@ impl Contract {
             initcode,
             libraries,
         })
+    }
+
+    /// The optional `summary()` function for logging a final summary in the
+    /// traced re-run, when the harness declares one.
+    pub fn summary_function(&self) -> Option<&Function> {
+        self.abi.functions.get("summary").and_then(|f| f.first())
+    }
+
+    /// Build the trailing summary transaction for a traced re-run, when the
+    /// harness declares a `summary()` function.
+    pub fn summary_transaction(&self, target: Address, caller: Address) -> Option<Transaction> {
+        let function = self.summary_function()?.clone();
+        Some(
+            Call {
+                function,
+                args: DynSolValue::Tuple(vec![]),
+                value: None,
+                caller,
+            }
+            .into_transaction(target),
+        )
     }
 
     /// Build a tree of [`DeployLibraryInput`] from an artifact's library dependencies.
@@ -445,6 +484,43 @@ mod tests {
                 .any(|f| f.name == "invariant_value_is_zero")
         );
         assert!(contract.max_functions.iter().any(|f| f.name == "max_value"));
+    }
+
+    // 14. Summary function validation
+
+    #[test]
+    fn valid_summary_is_accepted() {
+        let contract = load_fixture("src/ValidSummary.sol:ValidSummary").unwrap();
+        assert_eq!(
+            contract.summary_function().map(|f| f.name.as_str()),
+            Some("summary")
+        );
+        assert!(
+            contract
+                .handler_functions
+                .iter()
+                .all(|f| f.name != "summary"),
+            "summary function must not be treated as a handler"
+        );
+    }
+
+    #[test]
+    fn summary_with_args_fails() {
+        let err =
+            load_fixture("src/InvalidSummaryWithArgs.sol:InvalidSummaryWithArgs").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("summary function must have no arguments, but has 1")
+        );
+    }
+
+    #[test]
+    fn summary_view_fails() {
+        let err = load_fixture("src/InvalidSummaryView.sol:InvalidSummaryView").unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("summary function must not be view or pure")
+        );
     }
 
     // 13. Max function signature validation

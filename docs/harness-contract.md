@@ -5,7 +5,7 @@ This document is the reference for writing a Solidity contract that
 
 ## Overview
 
-A ripfuzz harness contract is a normal Solidity contract with **four kinds of
+A ripfuzz harness contract is a normal Solidity contract with **five kinds of
 functions**:
 
 1. **Setup Functions**: initialize state before fuzzing begins
@@ -13,6 +13,9 @@ functions**:
 3. **Invariant Functions**: invariants the fuzzer checks after every call
    sequence
 4. **Max Functions**: read-only values the fuzzer maximizes
+5. **Summary Function** (optional): `summary()` with no arguments, called once
+   after shrinking in the traced re-run, so it can log a final summary that
+   shows up in the trace
 
 Declaring a `max_*` function automatically puts the harness in max mode;
 otherwise ripfuzz runs in invariant mode. The two modes are mutually exclusive:

@@ -378,11 +378,16 @@ impl InvariantCampaign {
         // Re-run each shrunk item with the chain tracer enabled, dumping the
         // decoded logs into the log and the full trace to a trace file.
         for (assertion_number, shrunk_item) in &shrunk_assertions {
-            let transactions: Vec<Transaction> = shrunk_item
-                .calls
-                .iter()
-                .map(|call| call.into_transaction(session.deployed_address))
-                .collect();
+            let transactions: Vec<Transaction> =
+                shrunk_item
+                    .calls
+                    .iter()
+                    .map(|call| call.into_transaction(session.deployed_address))
+                    .chain(session.harness_contract.summary_transaction(
+                        session.deployed_address,
+                        session.args.deployer_address,
+                    ))
+                    .collect();
 
             let trace_name = if failed_assertions.len() == 1 {
                 "fulltrace.log".to_owned()

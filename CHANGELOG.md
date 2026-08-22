@@ -16,6 +16,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Harnesses may declare an optional `summary()` function (no arguments, not
+  view/pure) that ripfuzz calls once after shrinking in the traced re-run, so
+  it can log a final summary that shows up at the end of the trace
 - The `Found N distinct failed assertion(s)` finding now logs at `info` instead
   of `error`, since the campaign still completes successfully
 - Shrunk invariant failures are now persisted to the corpus, so the next

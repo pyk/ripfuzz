@@ -225,6 +225,12 @@ impl MaxxingCampaign {
                 self.session.args.deployer_address,
                 self.session.args.gas_limit,
             ));
+            if let Some(summary) = self.session.harness_contract.summary_transaction(
+                self.session.deployed_address,
+                self.session.args.deployer_address,
+            ) {
+                transactions.push(summary);
+            }
 
             let trace_name = format!("fulltrace-max-{}.log", index + 1);
             match self
