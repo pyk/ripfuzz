@@ -91,7 +91,7 @@ fn max_campaign_stop_on_revert_dumps_trace_into_log() {
     let log = std::fs::read_to_string(campaign_dir.join("fuzz.log"))
         .unwrap_or_else(|_| panic!("campaign log must exist in {}", campaign_dir.display()));
     assert!(
-        log.contains("A transaction reverted."),
+        log.contains("a transaction reverted."),
         "campaign log must report the stop:\n{log}"
     );
     assert!(

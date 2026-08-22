@@ -118,7 +118,7 @@ impl CorpusReplayer {
 
         let items = shared_corpus.items();
         let total = items.len();
-        debug!(count = total, "Replaying corpus items");
+        debug!(count = total, "replaying corpus items");
 
         let shared_coverage = self.shared_coverage;
         let failures = items
@@ -146,7 +146,7 @@ impl CorpusReplayer {
                     new_reverts = update.new_reverts,
                     new_jump_edges = update.new_jump_edges,
                     hit_count = shared_coverage.hit_count(),
-                    "Corpus item replayed"
+                    "corpus item replayed"
                 );
                 let failure = if exec.panic_transactions.is_empty() {
                     None
@@ -155,7 +155,7 @@ impl CorpusReplayer {
                     debug!(
                         item_id = %item.id(),
                         failure_index,
-                        "Corpus item failed an assertion"
+                        "corpus item failed an assertion"
                     );
                     Some(ReplayFailure {
                         item,

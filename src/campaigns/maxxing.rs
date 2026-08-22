@@ -119,11 +119,11 @@ impl MaxxingCampaign {
             match handle.join() {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    error!(fuzzer_id, "Max fuzzer failed: {e:#}");
+                    error!(fuzzer_id, "max fuzzer failed: {e:#}");
                     failures.push(e);
                 }
                 Err(e) => {
-                    error!(fuzzer_id, ?e, "Max fuzzer panicked");
+                    error!(fuzzer_id, ?e, "max fuzzer panicked");
                     failures.push(anyhow::anyhow!("max fuzzer {fuzzer_id} panicked: {e:?}"));
                 }
             }
@@ -143,7 +143,7 @@ impl MaxxingCampaign {
                 .trace_sequence_to_file(&event.transactions, "fulltrace.log")
             {
                 Ok(report) => {
-                    error!("A transaction reverted.\n\n{}", report.compact);
+                    error!("a transaction reverted.\n\n{}", report.compact);
                     let log = self
                         .session
                         .log_file
@@ -157,7 +157,7 @@ impl MaxxingCampaign {
                     ));
                 }
                 Err(e) => {
-                    error!("Failed to dump the revert trace: {e:#}");
+                    error!("failed to dump the revert trace: {e:#}");
                 }
             }
             return Err(anyhow::anyhow!("campaign stopped by --stop-on-revert"));
@@ -194,14 +194,14 @@ impl MaxxingCampaign {
         if results.is_empty() {
             warn!(
                 objective = %self.objective.function.name,
-                "No sequence improved the max value (best stayed at 0)"
+                "no sequence improved the max value (best stayed at 0)",
             );
         } else {
             for result in &results {
                 info!(
                     max = %result.objective.function.name,
                     value = %result.value,
-                    "Maximum value",
+                    "maximum value",
                 );
                 info!("{}", result.format_call_sequence());
             }
@@ -238,7 +238,7 @@ impl MaxxingCampaign {
                     info!("{}", report.file.display());
                 }
                 Err(e) => {
-                    error!("Writing trace file failed: {e:#}");
+                    error!("writing trace file failed: {e:#}");
                     return Err(e);
                 }
             }
@@ -252,7 +252,7 @@ impl MaxxingCampaign {
         }
 
         if let Err(e) = self.session.write_coverage_report() {
-            error!("Failed to generate coverage reports: {e:#}");
+            error!("failed to generate coverage reports: {e:#}");
         }
 
         Ok(())
@@ -330,7 +330,7 @@ impl MaxxingCampaign {
         info!(
             max = %objective.function.name,
             initial_calls = %formatter::num(initial_calls as u64),
-            "Shrinking max",
+            "shrinking max",
         );
         wait_for_workers(&shrinker_handles, || {
             if let Some(snapshot) = shrinker_metrics.try_snapshot() {
@@ -348,11 +348,11 @@ impl MaxxingCampaign {
             match handle.join() {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    error!("Max shrinker failed: {e:#}");
+                    error!("max shrinker failed: {e:#}");
                     failures.push(e);
                 }
                 Err(e) => {
-                    error!(?e, "Max shrinker panicked");
+                    error!(?e, "max shrinker panicked");
                     failures.push(anyhow::anyhow!("max shrinker panicked: {e:?}"));
                 }
             }
@@ -369,7 +369,7 @@ impl MaxxingCampaign {
             max = %objective.function.name,
             initial_calls = %formatter::num(initial_calls as u64),
             final_calls = %formatter::num(shrunk_calls as u64),
-            "Shrank max",
+            "shrank max",
         );
 
         Ok(MaxxingResult {

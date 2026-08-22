@@ -525,7 +525,9 @@ impl<'a> fmt::Display for TraceDisplay<'a> {
         }
         if !logs.is_empty() {
             if self.logs_only {
-                // A bare newline keeps the entries below the `trace:` prefix.
+                // Two newlines keep the entries readable below the `trace:`
+                // prefix line.
+                writeln!(f)?;
                 writeln!(f)?;
             } else {
                 writeln!(f)?;

@@ -124,7 +124,7 @@ impl CampaignSession {
         let campaign_seed = match args.seed {
             Some(seed) => {
                 info!(
-                    "Starting ripfuzz v{} (seed: {seed}, user-provided)",
+                    "starting ripfuzz v{} (seed: {seed}, user-provided)",
                     env!("CARGO_PKG_VERSION")
                 );
                 seed
@@ -132,7 +132,7 @@ impl CampaignSession {
             None => {
                 let seed = fastrand::Rng::new().u64(1..=100_000);
                 info!(
-                    "Starting ripfuzz v{} (seed: {seed})",
+                    "starting ripfuzz v{} (seed: {seed})",
                     env!("CARGO_PKG_VERSION")
                 );
                 seed
@@ -163,24 +163,24 @@ impl CampaignSession {
             .join("fuzz.log");
         logger::init(args.disable_log, &log_file, args.log_level)?;
 
-        debug!(?project_path, "Resolved project path");
+        debug!(?project_path, "resolved project path");
         if let Some(path) = &dotenv_path {
-            debug!(?path, "Loaded environment from .env");
+            debug!(?path, "loaded environment from .env");
         }
 
         // Build project
         let build_span = info_span!("build");
         let _build_guard = build_span.enter();
-        info!("Building foundry project");
+        info!("building foundry project");
         let project = Project::new(&project_path);
         let build_opts = BuildOptions::new().force(args.force);
         project.build(build_opts)?;
 
         // Load build artifacts
-        debug!("Loading build artifacts");
+        debug!("loading build artifacts");
         let build_artifacts = project.load_artifacts()?;
         info!(
-            "Loaded {} build artifacts",
+            "loaded {} build artifacts",
             formatter::num(build_artifacts.len() as u64)
         );
 
@@ -191,7 +191,7 @@ impl CampaignSession {
             match ext_project.load_artifacts() {
                 Ok(artifacts) => {
                     info!(
-                        "Loaded {} artifacts from external project {}",
+                        "loaded {} artifacts from external project {}",
                         formatter::num(artifacts.len() as u64),
                         ext_path.display()
                     );
@@ -202,7 +202,7 @@ impl CampaignSession {
                 }
                 Err(e) => {
                     warn!(
-                        "Failed to load artifacts from {}: {e:#}",
+                        "failed to load artifacts from {}: {e:#}",
                         ext_path.display()
                     );
                 }
@@ -211,19 +211,19 @@ impl CampaignSession {
         drop(_build_guard);
 
         // Resolve the harness (bare name or full artifact id) then load it.
-        debug!("Loading harness contract {}", args.harness);
+        debug!("loading harness contract {}", args.harness);
         let harness_id = ArtifactId::resolve(&args.harness, &build_artifacts)?;
         let harness_contract = Contract::try_get(&build_artifacts, &harness_id)?;
         let contract_name = &harness_contract.artifact_id.name;
         let deploy_span = info_span!("deploy", contract = %contract_name);
         let _deploy_guard = deploy_span.enter();
-        info!("Loaded harness contract");
+        info!("loaded harness contract");
 
         // Max mode is entered automatically whenever the harness declares at
         // least one `max_*` function. Invariant mode is the default otherwise.
         let max_mode = !harness_contract.max_functions.is_empty();
         if max_mode && let Err(e) = validate_harness_mode(&harness_contract) {
-            error!("Harness contract is not valid for max mode");
+            error!("harness contract is not valid for max mode");
             error!("{e:#}");
             return Err(e);
         }
@@ -269,7 +269,7 @@ impl CampaignSession {
             deploy_opts = deploy_opts.add_library(lib);
         }
 
-        debug!("Deploying {contract_name}");
+        debug!("deploying {contract_name}");
         let deployment = chain.deploy(deploy_opts)?;
         if !deployment.result.success {
             let mut ctx = TraceContext::from_artifacts(build_artifacts.clone());
@@ -285,7 +285,7 @@ impl CampaignSession {
             let full = deployment.trace.display_with(&ctx);
             let compact = deployment.trace.display_compact_with(&ctx);
             fs::write(&trace_file, format!("{full}"))?;
-            error!("Deployment failed.\n\n{compact}");
+            error!("deployment failed.\n\n{compact}");
             let log = if args.disable_log {
                 String::new()
             } else {
@@ -318,7 +318,7 @@ impl CampaignSession {
         // Run setup if present
         let mut setup_coverage = None;
         if let Some(setup) = &harness_contract.setup_function {
-            debug!("Calling setup");
+            debug!("calling setup");
             let setup_output = match chain.setup(
                 SetupInput::new(deployed_address)
                     .calldata(Bytes::from(setup.selector().as_slice().to_vec()))
@@ -326,7 +326,7 @@ impl CampaignSession {
             ) {
                 Ok(output) => output,
                 Err(e) => {
-                    error!("Calling setup failed: {e:#}");
+                    error!("calling setup failed: {e:#}");
                     return Err(e);
                 }
             };
@@ -342,7 +342,7 @@ impl CampaignSession {
                 let full = setup_output.trace.display_with(&ctx);
                 let compact = setup_output.trace.display_compact_with(&ctx);
                 fs::write(&trace_file, format!("{full}"))?;
-                error!("Setup failed.\n\n{compact}");
+                error!("setup failed.\n\n{compact}");
                 let log = if args.disable_log {
                     String::new()
                 } else {
@@ -376,14 +376,14 @@ impl CampaignSession {
         let _replay_guard = replay_span.enter();
 
         if corpus_stats.total_count > 0 {
-            debug!("Loading corpus items");
+            debug!("loading corpus items");
             info!(
                 on_disk = %formatter::num(corpus_stats.total_count as u64),
                 valid = %formatter::num(corpus_stats.valid_count as u64),
                 invalid = %formatter::num(
                     (corpus_stats.parse_failed_count + corpus_stats.invalid_call_count) as u64
                 ),
-                "Loaded {} corpus items",
+                "loaded {} corpus items",
                 formatter::num(corpus_stats.valid_count as u64),
             );
         }
@@ -398,7 +398,7 @@ impl CampaignSession {
 
         let mut replay_failures = Vec::new();
         if replay_count > 0 {
-            debug!("Replaying {replay_count} corpus items");
+            debug!("replaying {replay_count} corpus items");
             let replay_invariants = if max_mode {
                 Vec::new()
             } else {
@@ -416,7 +416,7 @@ impl CampaignSession {
                     replay_failures = failures;
                 }
                 Err(e) => {
-                    error!("Replaying corpus items failed: {e:#}");
+                    error!("replaying corpus items failed: {e:#}");
                     return Err(e);
                 }
             }
@@ -428,7 +428,7 @@ impl CampaignSession {
                     shared_coverage.revert_count(),
                     shared_coverage.jump_count()
                 ),
-                "Replayed {replay_count} corpus items",
+                "replayed {replay_count} corpus items",
             );
             if !replay_failures.is_empty() {
                 info!(
@@ -533,7 +533,7 @@ impl CampaignSession {
 
         let pct = report.coverage();
 
-        info!("Generated coverage reports for {n} build artifacts");
+        info!("generated coverage reports for {n} build artifacts");
         info!("[{pct:.2}%] {}", lcov_file.display());
         Ok(())
     }

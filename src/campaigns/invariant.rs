@@ -78,7 +78,7 @@ impl InvariantCampaign {
         );
 
         if shared_failed_assertions.is_full() {
-            info!("Corpus replay reached --max-failures; skipping fuzzing");
+            info!("corpus replay reached --max-failures; skipping fuzzing");
         } else {
             let initial_config = InvariantFuzzerConfig::new()
                 .chain(session.chain.clone())
@@ -124,11 +124,11 @@ impl InvariantCampaign {
                 match handle.join() {
                     Ok(Ok(_)) => {}
                     Ok(Err(e)) => {
-                        error!(fuzzer_id, "Fuzzer failed: {e:#}");
+                        error!(fuzzer_id, "fuzzer failed: {e:#}");
                         failures.push(e);
                     }
                     Err(e) => {
-                        error!(fuzzer_id, ?e, "Fuzzer panicked");
+                        error!(fuzzer_id, ?e, "fuzzer panicked");
                         failures.push(anyhow::anyhow!("fuzzer {fuzzer_id} panicked: {e:?}"));
                     }
                 }
@@ -146,7 +146,7 @@ impl InvariantCampaign {
         if let Some(event) = shared_stop_event.get() {
             match session.trace_sequence_to_file(&event.transactions, "fulltrace.log") {
                 Ok(report) => {
-                    error!("A transaction reverted.\n\n{}", report.compact);
+                    error!("a transaction reverted.\n\n{}", report.compact);
                     let log = session
                         .log_file
                         .as_ref()
@@ -159,7 +159,7 @@ impl InvariantCampaign {
                     ));
                 }
                 Err(e) => {
-                    error!("Failed to dump the revert trace: {e:#}");
+                    error!("failed to dump the revert trace: {e:#}");
                 }
             }
             return Err(anyhow::anyhow!("campaign stopped by --stop-on-revert"));
@@ -180,12 +180,12 @@ impl InvariantCampaign {
                 );
             }
 
-            info!("No failed assertions found!");
+            info!("no failed assertions found!");
             drop(_guard);
             drop(span);
 
             if let Err(e) = session.write_coverage_report() {
-                error!("Failed to generate coverage reports: {e:#}");
+                error!("failed to generate coverage reports: {e:#}");
             }
 
             return Ok(());
@@ -243,7 +243,7 @@ impl InvariantCampaign {
             "assertions"
         };
         info!(
-            "Found {} distinct failed {assertion_word}",
+            "found {} distinct failed {assertion_word}",
             failed_assertions.len()
         );
         drop(_guard);
@@ -306,7 +306,7 @@ impl InvariantCampaign {
             info!(
                 assertion = %format!("{assertion_number}/{}", failed_assertions.len()),
                 initial_calls = %formatter::num(initial_calls as u64),
-                "Shrinking assertion",
+                "shrinking assertion",
             );
             wait_for_workers(&shrinker_handles, || {
                 if let Some(snapshot) = shrinker_metrics.try_snapshot() {
@@ -324,11 +324,11 @@ impl InvariantCampaign {
                 match handle.join() {
                     Ok(Ok(_)) => {}
                     Ok(Err(e)) => {
-                        error!("Shrinker failed: {e:#}");
+                        error!("shrinker failed: {e:#}");
                         failures.push(e);
                     }
                     Err(e) => {
-                        error!(?e, "Shrinker panicked");
+                        error!(?e, "shrinker panicked");
                         failures.push(anyhow::anyhow!("shrinker panicked: {e:?}"));
                     }
                 }
@@ -345,7 +345,7 @@ impl InvariantCampaign {
                 assertion = %format!("{assertion_number}/{}", failed_assertions.len()),
                 initial_calls = %formatter::num(initial_calls as u64),
                 final_calls = %formatter::num(shrunk_calls as u64),
-                "Shrank assertion",
+                "shrank assertion",
             );
             let summary = formatter::shrinker_summary(
                 &shrinker_metrics.aggregate(),
@@ -360,13 +360,13 @@ impl InvariantCampaign {
                 gas_rate = %summary.gas_rate,
                 initial_calls = %summary.initial_calls,
                 final_calls = %summary.final_calls,
-                "Shrinker statistics",
+                "shrinker statistics",
             );
             // Persist the shrunk sequence so the next campaign's corpus replay
             // discovers the failure directly from the shortest calls.
             // checkrs: allow(clone_in_loops)
             if let Err(e) = session.corpus.add_item(shrunk_item.clone()) {
-                warn!("Failed to persist shrunk sequence: {e:#}");
+                warn!("failed to persist shrunk sequence: {e:#}");
             }
             shrunk_assertions.push((assertion_number, shrunk_item));
         }
@@ -397,7 +397,7 @@ impl InvariantCampaign {
                     info!("{}", report.file.display());
                 }
                 Err(e) => {
-                    error!("Writing trace file failed: {e:#}");
+                    error!("writing trace file failed: {e:#}");
                     return Err(e);
                 }
             }
@@ -411,7 +411,7 @@ impl InvariantCampaign {
         }
 
         if let Err(e) = session.write_coverage_report() {
-            error!("Failed to generate coverage reports: {e:#}");
+            error!("failed to generate coverage reports: {e:#}");
         }
 
         Ok(())

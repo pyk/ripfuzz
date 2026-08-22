@@ -141,7 +141,7 @@ impl<S: FuzzStrategy> Fuzzer<S> {
                 new_jump_edges = coverage_update.new_jump_edges,
                 hit_count = self.config.shared_coverage.hit_count(),
                 interesting,
-                "Coverage merge"
+                "coverage merge"
             );
             let has_failure = !exec.panic_transactions.is_empty();
             let failure_index = if has_failure {

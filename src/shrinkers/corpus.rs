@@ -78,7 +78,7 @@ impl MaxxingShrinkerCorpus {
             };
             drop(current);
             if let Err(e) = self.inner.corpus.add_item(item) {
-                warn!("Failed to persist accepted shrink item: {e:#}");
+                warn!("failed to persist accepted shrink item: {e:#}");
             }
         }
     }

@@ -219,7 +219,7 @@ impl SharedCorpus {
             return Ok(());
         }
 
-        debug!(item_id = %item.id(), "Corpus item added");
+        debug!(item_id = %item.id(), "corpus item added");
 
         // Write to disk
         let path = self.inner.corpus_dir.join(format!("{}.json", item.id()));
