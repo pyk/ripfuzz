@@ -55,6 +55,17 @@ pub fn giga_gas(n: u64) -> String {
     format!("{:.2} G", n as f64 / 1_000_000_000.0)
 }
 
+/// Format coverage counters as a compact breakdown, e.g. `1,234e 56d 7r 89j`.
+pub fn coverage(edges: usize, depths: usize, reverts: usize, jumps: usize) -> String {
+    format!(
+        "{}e {}d {}r {}j",
+        num(edges as u64),
+        num(depths as u64),
+        num(reverts as u64),
+        num(jumps as u64)
+    )
+}
+
 /// Format a duration (in seconds) as a human-readable string.
 ///
 /// - Less than 1 minute: `{secs:.2}s` (e.g. `30.50s`)
@@ -116,10 +127,7 @@ impl<'a> CampaignStats<'a> {
             call_rate = %summary.call_rate,
             gas_rate = %summary.gas_rate,
             contracts = %summary.contracts,
-            edges = %summary.edges,
-            depths = %summary.depths,
-            reverts = %summary.reverts,
-            jumps = %summary.jumps,
+            coverage = %summary.coverage,
             corpus = %summary.corpus,
             "{message}",
         );
@@ -146,10 +154,12 @@ impl<'a> CampaignStats<'a> {
             call_rate: num(calls_per_sec),
             gas_rate: giga_gas(gas_per_sec),
             contracts: num(self.shared_coverage.contract_count() as u64),
-            edges: num(self.shared_coverage.edge_count() as u64),
-            depths: num(self.shared_coverage.depth_count() as u64),
-            reverts: num(self.shared_coverage.revert_count() as u64),
-            jumps: num(self.shared_coverage.jump_count() as u64),
+            coverage: coverage(
+                self.shared_coverage.edge_count(),
+                self.shared_coverage.depth_count(),
+                self.shared_coverage.revert_count(),
+                self.shared_coverage.jump_count(),
+            ),
             corpus: num(self.corpus.stats().item_count as u64),
         }
     }
@@ -196,10 +206,7 @@ pub struct CampaignSummary {
     pub call_rate: String,
     pub gas_rate: String,
     pub contracts: String,
-    pub edges: String,
-    pub depths: String,
-    pub reverts: String,
-    pub jumps: String,
+    pub coverage: String,
     pub corpus: String,
 }
 
@@ -345,10 +352,7 @@ mod tests {
         assert_eq!(summary.call_rate, "28,394");
         assert_eq!(summary.gas_rate, "1.00 G");
         assert_eq!(summary.contracts, "0");
-        assert_eq!(summary.edges, "0");
-        assert_eq!(summary.depths, "0");
-        assert_eq!(summary.reverts, "0");
-        assert_eq!(summary.jumps, "0");
+        assert_eq!(summary.coverage, "0e 0d 0r 0j");
         assert_eq!(summary.corpus, "0");
     }
 

@@ -420,10 +420,12 @@ impl CampaignSession {
             }
             info!(
                 contracts = %formatter::num(shared_coverage.contract_count() as u64),
-                edges = %formatter::num(shared_coverage.edge_count() as u64),
-                depths = %formatter::num(shared_coverage.depth_count() as u64),
-                reverts = %formatter::num(shared_coverage.revert_count() as u64),
-                jumps = %formatter::num(shared_coverage.jump_count() as u64),
+                coverage = %formatter::coverage(
+                    shared_coverage.edge_count(),
+                    shared_coverage.depth_count(),
+                    shared_coverage.revert_count(),
+                    shared_coverage.jump_count()
+                ),
                 "Replayed {replay_count} corpus items",
             );
             if !replay_failures.is_empty() {

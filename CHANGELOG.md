@@ -20,6 +20,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   `replay{items=N}` spans, matching the `fuzz{threads=N}` span
 - The `Loaded harness contract` and `Deployed` messages no longer repeat the
   contract name, since the `deploy` span already carries it
+- The corpus replay and fuzz progress/finished summaries now collapse the
+  edge/depth/revert/jump counters into a single compact `coverage` field (e.g.
+  `8,407e 1,409d 17r 782j`) alongside the contract count
 - Artifact parse warnings now render as `failed to parse artifact <path>` under
   the `build:load_artifacts` span, without the repeated project path
 
