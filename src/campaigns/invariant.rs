@@ -246,6 +246,9 @@ impl InvariantCampaign {
         drop(_guard);
         drop(span);
 
+        let shrink_span = info_span!("shrink", threads = shrink_threads);
+        let _shrink_guard = shrink_span.enter();
+
         let runs_per_assertion = (session.args.shrink_runs / failed_assertions.len() as u64).max(1);
         let mut shrunk_assertions = Vec::with_capacity(failed_assertions.len());
 
@@ -298,10 +301,9 @@ impl InvariantCampaign {
             }
 
             info!(
-                "Shrinking assertion {assertion_number}/{} from {} calls with {} threads",
-                failed_assertions.len(),
-                formatter::num(initial_calls as u64),
-                formatter::num(shrink_threads as u64)
+                assertion = %format!("{assertion_number}/{}", failed_assertions.len()),
+                initial_calls = %formatter::num(initial_calls as u64),
+                "Shrinking assertion",
             );
             wait_for_workers(&shrinker_handles, || {
                 if let Some(snapshot) = shrinker_metrics.try_snapshot() {
@@ -337,11 +339,10 @@ impl InvariantCampaign {
             let shrunk_item = shared_failed_item.item();
             let shrunk_calls = shrunk_item.calls.len();
             info!(
-                "Shrank assertion {assertion_number}/{} from {} to {} calls with {} threads",
-                failed_assertions.len(),
-                formatter::num(initial_calls as u64),
-                formatter::num(shrunk_calls as u64),
-                formatter::num(shrink_threads as u64)
+                assertion = %format!("{assertion_number}/{}", failed_assertions.len()),
+                initial_calls = %formatter::num(initial_calls as u64),
+                final_calls = %formatter::num(shrunk_calls as u64),
+                "Shrank assertion",
             );
             let summary = formatter::shrinker_summary(
                 &shrinker_metrics.aggregate(),
@@ -360,6 +361,10 @@ impl InvariantCampaign {
             );
             shrunk_assertions.push((assertion_number, shrunk_item));
         }
+        drop(_shrink_guard);
+
+        let trace_span = info_span!("trace");
+        let _trace_guard = trace_span.enter();
 
         // Re-run each shrunk item with the chain tracer enabled, dumping the
         // compact trace into the log and the full trace to a trace file.
@@ -392,6 +397,7 @@ impl InvariantCampaign {
                 }
             }
         }
+        drop(_trace_guard);
 
         if let Err(e) = session.write_coverage_report() {
             error!("Failed to generate coverage reports: {e:#}");

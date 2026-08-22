@@ -178,6 +178,14 @@ impl MaxxingCampaign {
         drop(_guard);
         drop(span);
 
+        let shrink_threads = self
+            .session
+            .args
+            .shrink_threads
+            .unwrap_or(self.session.args.threads);
+        let shrink_span = info_span!("shrink", threads = shrink_threads);
+        let _shrink_guard = shrink_span.enter();
+
         let mut results = Vec::new();
         if let Some(best) = fuzzer_corpus.best_item() {
             results.push(self.shrink_max(best)?);
@@ -198,6 +206,10 @@ impl MaxxingCampaign {
                 info!("{}", result.format_call_sequence());
             }
         }
+        drop(_shrink_guard);
+
+        let trace_span = info_span!("trace");
+        let _trace_guard = trace_span.enter();
 
         // Re-run each shrunk item with the chain tracer enabled, dumping the
         // compact trace into the log and the full trace to a trace file.
@@ -236,6 +248,7 @@ impl MaxxingCampaign {
                 }
             }
         }
+        drop(_trace_guard);
 
         if let Err(e) = self.session.write_coverage_report() {
             error!("Failed to generate coverage reports: {e:#}");
@@ -314,10 +327,9 @@ impl MaxxingCampaign {
 
         let initial_calls = shrink_corpus.item().item.calls.len();
         info!(
-            "Shrinking max {} from {} calls with {} threads",
-            objective.function.name,
-            formatter::num(initial_calls as u64),
-            formatter::num(shrink_threads as u64)
+            max = %objective.function.name,
+            initial_calls = %formatter::num(initial_calls as u64),
+            "Shrinking max",
         );
         wait_for_workers(&shrinker_handles, || {
             if let Some(snapshot) = shrinker_metrics.try_snapshot() {
@@ -353,11 +365,10 @@ impl MaxxingCampaign {
         let shrunk = shrink_corpus.item();
         let shrunk_calls = shrunk.item.calls.len();
         info!(
-            "Shrank max {} from {} to {} calls with {} threads",
-            objective.function.name,
-            formatter::num(initial_calls as u64),
-            formatter::num(shrunk_calls as u64),
-            formatter::num(shrink_threads as u64)
+            max = %objective.function.name,
+            initial_calls = %formatter::num(initial_calls as u64),
+            final_calls = %formatter::num(shrunk_calls as u64),
+            "Shrank max",
         );
 
         Ok(MaxxingResult {

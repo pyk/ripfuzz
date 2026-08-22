@@ -16,6 +16,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Campaign logs now use `shrink{threads=N}` and `trace` spans after fuzzing, so
+  the whole lifecycle reads `build` → `deploy` → `replay` → `fuzz` → `shrink` →
+  `trace`; shrink progress messages also log `assertion`, `initial_calls`, and
+  `final_calls` as structured fields instead of concatenated text
 - Session setup logs are now grouped under `build`, `deploy{contract=...}`, and
   `replay{items=N}` spans, matching the `fuzz{threads=N}` span
 - The `Loaded harness contract` and `Deployed` messages no longer repeat the
