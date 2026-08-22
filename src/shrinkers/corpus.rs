@@ -7,6 +7,7 @@ use alloy_json_abi::StateMutability;
 use alloy_primitives::U256;
 use anyhow::{Result, ensure};
 use parking_lot::RwLock;
+use tracing::warn;
 
 use crate::corpus::{
     Call, CorpusConfig, ExtractedLiterals, Item, RandomDynSolValue, SharedCorpus, random_uint,
@@ -76,7 +77,9 @@ impl MaxxingShrinkerCorpus {
                 item: item.clone(),
             };
             drop(current);
-            let _ = self.inner.corpus.add_item(item);
+            if let Err(e) = self.inner.corpus.add_item(item) {
+                warn!("Failed to persist accepted shrink item: {e:#}");
+            }
         }
     }
 

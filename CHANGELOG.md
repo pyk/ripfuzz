@@ -16,6 +16,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Shrunk invariant failures are now persisted to the corpus, so the next
+  campaign discovers the shortest failing sequence during replay instead of
+  re-fuzzing it
 - Campaign logs now use `shrink{threads=N}` and `trace` spans after fuzzing, so
   the whole lifecycle reads `build` → `deploy` → `replay` → `fuzz` → `shrink` →
   `trace`; shrink progress messages also log `assertion`, `initial_calls`, and

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use anyhow::{Context, Result, ensure};
-use tracing::{error, info, info_span};
+use tracing::{error, info, info_span, warn};
 
 use crate::campaigns::{CampaignKind, CampaignSession, split_runs, wait_for_workers};
 use crate::corpus::{Call, CorpusConfig, Item, SharedFailedCorpusItem};
@@ -359,6 +359,12 @@ impl InvariantCampaign {
                 final_calls = %summary.final_calls,
                 "Shrinker statistics",
             );
+            // Persist the shrunk sequence so the next campaign's corpus replay
+            // discovers the failure directly from the shortest calls.
+            // checkrs: allow(clone_in_loops)
+            if let Err(e) = session.corpus.add_item(shrunk_item.clone()) {
+                warn!("Failed to persist shrunk sequence: {e:#}");
+            }
             shrunk_assertions.push((assertion_number, shrunk_item));
         }
         drop(_shrink_guard);
