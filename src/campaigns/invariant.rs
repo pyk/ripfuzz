@@ -311,10 +311,7 @@ impl InvariantCampaign {
             wait_for_workers(&shrinker_handles, || {
                 if let Some(snapshot) = shrinker_metrics.try_snapshot() {
                     let current_calls = shared_failed_item.item().calls.len();
-                    info!(
-                        "{}",
-                        formatter::shrinker_progress(&snapshot, initial_calls, current_calls)
-                    );
+                    formatter::log_shrinker_progress(&snapshot, initial_calls, current_calls);
                 }
                 Ok(())
             })?;

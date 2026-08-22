@@ -226,11 +226,9 @@ pub struct FunctionStat {
 ///
 /// Keeps the campaign-level numbers plus the current size of the smallest
 /// failing sequence so researchers can see shrinking progress.
-pub fn shrinker_progress(
-    snapshot: &Snapshot,
-    initial_calls: usize,
-    current_calls: usize,
-) -> String {
+/// Log a mid-shrink progress snapshot with structured fields, mirroring the
+/// fuzz progress summary.
+pub fn log_shrinker_progress(snapshot: &Snapshot, initial_calls: usize, current_calls: usize) {
     let elapsed_secs = snapshot.elapsed.as_secs_f64();
     let calls_per_sec = if elapsed_secs > 0.0 {
         (snapshot.calls as f64 / elapsed_secs) as u64
@@ -243,16 +241,16 @@ pub fn shrinker_progress(
         0
     };
 
-    format!(
-        "shrinking · {} runs · {} calls · {} · {} c/s · {} · {} → {} calls",
-        num(snapshot.runs),
-        num(snapshot.calls),
-        duration(elapsed_secs),
-        num(calls_per_sec),
-        giga_gas(gas_per_sec) + "/s",
-        num(initial_calls as u64),
-        num(current_calls as u64),
-    )
+    info!(
+        runs = %num(snapshot.runs),
+        calls = %num(snapshot.calls),
+        elapsed = %duration(elapsed_secs),
+        call_rate = %num(calls_per_sec),
+        gas_rate = %giga_gas(gas_per_sec),
+        initial_calls = %num(initial_calls as u64),
+        current_calls = %num(current_calls as u64),
+        "progress",
+    );
 }
 
 /// Shrinker statistics, pre-formatted for structured logging.
@@ -311,18 +309,6 @@ mod tests {
             calls: 56_789,
             gas: 2_000_000_000,
         }
-    }
-
-    #[test]
-    fn shrinker_progress_shows_current_size() {
-        let line = shrinker_progress(&snapshot(), 36, 3);
-
-        assert!(line.contains("1,234 runs"), "{line}");
-        assert!(line.contains("56,789 calls"), "{line}");
-        assert!(line.contains("2.00s"), "{line}");
-        assert!(line.contains("28,394 c/s"), "{line}");
-        assert!(line.contains("1.00 G/s"), "{line}");
-        assert!(line.contains("36 → 3 calls"), "{line}");
     }
 
     #[test]

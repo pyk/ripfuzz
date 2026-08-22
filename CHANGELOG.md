@@ -16,6 +16,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- The shrink progress line now logs structured fields (`runs`, `calls`,
+  `elapsed`, `call_rate`, `gas_rate`, `initial_calls`, `current_calls`),
+  matching the fuzz progress summary
+- Max-mode campaigns no longer print the full call sequence in the log; it
+  stays available in the trace file
 - Harnesses may declare an optional `summary()` function (no arguments, not
   view/pure) that ripfuzz calls once after shrinking in the traced re-run, so
   it can log a final summary that shows up at the end of the trace

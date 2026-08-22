@@ -28,19 +28,3 @@ pub struct MaxxingResult {
     pub value: U256,
     pub item: Item,
 }
-
-impl MaxxingResult {
-    /// Format the call sequence that produced the max value.
-    pub fn format_call_sequence(&self) -> String {
-        let mut lines = Vec::new();
-        for (i, call) in self.item.calls.iter().enumerate() {
-            lines.push(format!(
-                "    {}. {}({})",
-                i + 1,
-                call.function.name,
-                call.args_json()
-            ));
-        }
-        lines.join("\n")
-    }
-}

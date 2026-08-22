@@ -203,7 +203,6 @@ impl MaxxingCampaign {
                     value = %result.value,
                     "maximum value",
                 );
-                info!("{}", result.format_call_sequence());
             }
         }
         drop(_shrink_guard);
@@ -341,10 +340,7 @@ impl MaxxingCampaign {
         wait_for_workers(&shrinker_handles, || {
             if let Some(snapshot) = shrinker_metrics.try_snapshot() {
                 let current_calls = shrink_corpus.item().item.calls.len();
-                info!(
-                    "{}",
-                    formatter::shrinker_progress(&snapshot, initial_calls, current_calls)
-                );
+                formatter::log_shrinker_progress(&snapshot, initial_calls, current_calls);
             }
             Ok(())
         })?;
