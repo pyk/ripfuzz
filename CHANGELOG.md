@@ -18,6 +18,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 - Session setup logs are now grouped under `build`, `deploy{contract=...}`, and
   `replay{items=N}` spans, matching the `fuzz{threads=N}` span
+- The `Loaded harness contract` and `Deployed` messages no longer repeat the
+  contract name, since the `deploy` span already carries it
 - Artifact parse warnings now render as `failed to parse artifact <path>` under
   the `build:load_artifacts` span, without the repeated project path
 

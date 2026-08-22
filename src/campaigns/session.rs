@@ -215,7 +215,7 @@ impl CampaignSession {
         let contract_name = &harness_contract.artifact_id.name;
         let deploy_span = info_span!("deploy", contract = %contract_name);
         let _deploy_guard = deploy_span.enter();
-        info!("Loaded harness contract {}", harness_id.name);
+        info!("Loaded harness contract");
 
         // Max mode is entered automatically whenever the harness declares at
         // least one `max_*` function. Invariant mode is the default otherwise.
@@ -310,7 +310,7 @@ impl CampaignSession {
             msg_value = %formatter::eth(args.deploy_value),
             address = %deployed_address,
             contract_size = %formatter::kb(contract_size),
-            "Deployed {contract_name}",
+            "Deployed",
         );
 
         // Run setup if present
