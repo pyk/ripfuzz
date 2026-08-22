@@ -6,7 +6,7 @@ use std::process::Command;
 
 use anyhow::{Result, bail, ensure};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use tracing::{debug, instrument};
+use tracing::{Span, debug, instrument};
 use walkdir::WalkDir;
 
 use crate::foundry::artifact::{Artifact, ArtifactId};
@@ -63,7 +63,7 @@ impl Project {
     ///
     /// Artifact JSONs are discovered with `walkdir` (`out/*.sol/*.json`) and
     /// parsed in parallel with `rayon`.
-    #[instrument(fields(path = %self.path.display()))]
+    #[instrument(skip(self))]
     pub fn load_artifacts(&self) -> Result<HashMap<ArtifactId, Artifact>> {
         let out_dir = self.path.join("out");
         ensure!(
@@ -102,10 +102,14 @@ impl Project {
                 .unwrap_or_else(|_| self.path.clone())
         });
 
+        // tracing spans are thread-local, so rayon workers would log outside
+        // the caller's span (e.g. build:) without propagating the handle.
+        let span = Span::current();
         let parsed: Vec<(PathBuf, Result<(ArtifactId, Artifact)>)> = paths
             .into_par_iter()
             // checkrs: allow(clone_in_iterator)
             .map(|path| {
+                let _guard = span.enter();
                 debug!(path = %path.display(), "Parsing artifact");
                 let result = match Artifact::from_json(&path) {
                     Ok(mut artifact) => {

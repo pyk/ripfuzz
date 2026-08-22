@@ -16,6 +16,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Session setup logs are now grouped under `build`, `deploy{contract=...}`, and
+  `replay{items=N}` spans, matching the `fuzz{threads=N}` span
+- Artifact parse warnings now render as `failed to parse artifact <path>` under
+  the `build:load_artifacts` span, without the repeated project path
+
 ### Fixed
 
 - Remove the redundant `contract` field from the `fuzz` log span in invariant

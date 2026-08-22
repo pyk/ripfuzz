@@ -420,7 +420,7 @@ impl Artifact {
                 e
             })?;
         Self::from_json_str(&content)
-            .with_context(|| format!("failed to parse artifact: {}", path.display()))
+            .with_context(|| format!("failed to parse artifact {}", path.display()))
             .map_err(|e| {
                 warn!("{e:#}");
                 e

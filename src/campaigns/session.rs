@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use alloy_primitives::Address;
 use anyhow::{Context, Result, ensure};
 use revm::primitives::Bytes;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, info_span, warn};
 
 use crate::campaigns::CampaignKind;
 use crate::commands::run::Args;
@@ -167,6 +167,8 @@ impl CampaignSession {
         }
 
         // Build project
+        let build_span = info_span!("build");
+        let _build_guard = build_span.enter();
         info!("Building foundry project");
         let project = Project::new(&project_path);
         let build_opts = BuildOptions::new().force(args.force);
@@ -204,11 +206,15 @@ impl CampaignSession {
                 }
             }
         }
+        drop(_build_guard);
 
         // Resolve the harness (bare name or full artifact id) then load it.
         debug!("Loading harness contract {}", args.harness);
         let harness_id = ArtifactId::resolve(&args.harness, &build_artifacts)?;
         let harness_contract = Contract::try_get(&build_artifacts, &harness_id)?;
+        let contract_name = &harness_contract.artifact_id.name;
+        let deploy_span = info_span!("deploy", contract = %contract_name);
+        let _deploy_guard = deploy_span.enter();
         info!("Loaded harness contract {}", harness_id.name);
 
         // Max mode is entered automatically whenever the harness declares at
@@ -253,7 +259,6 @@ impl CampaignSession {
         let mut chain = Chain::new(chain_config)?;
 
         // Deploy harness contract
-        let contract_name = &harness_contract.artifact_id.name;
         let mut deploy_opts = DeployInput::new(&harness_contract.initcode)
             .caller(args.deployer_address)
             .value(args.deploy_value);
@@ -349,6 +354,7 @@ impl CampaignSession {
             }
             setup_coverage = Some(setup_output.coverage);
         }
+        drop(_deploy_guard);
 
         // Extract literals from build artifacts so the fuzzer can seed random
         // value generation with concrete values found across the project.
@@ -364,6 +370,8 @@ impl CampaignSession {
             .literals(literals.clone());
         let corpus = SharedCorpus::new(corpus_config);
         let corpus_stats = corpus.load_items()?;
+        let replay_span = info_span!("replay", items = corpus_stats.valid_count);
+        let _replay_guard = replay_span.enter();
 
         if corpus_stats.total_count > 0 {
             debug!("Loading corpus items");
@@ -425,6 +433,7 @@ impl CampaignSession {
                 );
             }
         }
+        drop(_replay_guard);
 
         let session_log_file = (!args.disable_log).then(|| log_file.clone());
 
