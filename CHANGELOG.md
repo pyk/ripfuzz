@@ -17,8 +17,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 ### Changed
 
 - Max-mode campaigns now log under a `maxxing{threads=N}` span instead of
-  `fuzz`, and their progress/finished summaries include the current best `max`
-  function and `value`
+  `fuzz`, and their progress/finished summaries include the current best max
+  `value`
 - The shrink progress line now logs structured fields (`runs`, `calls`,
   `elapsed`, `call_rate`, `gas_rate`, `initial_calls`, `current_calls`),
   matching the fuzz progress summary

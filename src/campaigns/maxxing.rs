@@ -107,13 +107,10 @@ impl MaxxingCampaign {
             &self.session.harness_contract.max_functions,
         );
 
-        let objective_name = self.objective.function.name.clone();
         wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
             if let Some(snapshot) = shared_metrics.try_snapshot() {
                 match fuzzer_corpus.best_value() {
-                    Some(value) => {
-                        stats_ctx.log_maxxing_summary(&snapshot, &objective_name, value, "progress")
-                    }
+                    Some(value) => stats_ctx.log_maxxing_summary(&snapshot, value, "progress"),
                     None => stats_ctx.log_summary(&snapshot, "progress"),
                 }
             }
@@ -171,12 +168,9 @@ impl MaxxingCampaign {
 
         let function_metrics = shared_metrics.function_metrics();
         match fuzzer_corpus.best_value() {
-            Some(value) => stats_ctx.log_maxxing_summary(
-                &shared_metrics.aggregate(),
-                &objective_name,
-                value,
-                "finished",
-            ),
+            Some(value) => {
+                stats_ctx.log_maxxing_summary(&shared_metrics.aggregate(), value, "finished")
+            }
             None => stats_ctx.log_summary(&shared_metrics.aggregate(), "finished"),
         }
         for stat in stats_ctx.function_stats(&function_metrics) {
