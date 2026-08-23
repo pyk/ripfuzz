@@ -95,7 +95,7 @@ impl MaxxingCampaign {
             handles.push((fuzzer_id, handle));
         }
 
-        let span = info_span!("fuzz", threads = fuzzers);
+        let span = info_span!("maxxing", threads = fuzzers);
         let _guard = span.enter();
         info!("started");
 
@@ -107,9 +107,15 @@ impl MaxxingCampaign {
             &self.session.harness_contract.max_functions,
         );
 
+        let objective_name = self.objective.function.name.clone();
         wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
             if let Some(snapshot) = shared_metrics.try_snapshot() {
-                stats_ctx.log_summary(&snapshot, "progress");
+                match fuzzer_corpus.best_value() {
+                    Some(value) => {
+                        stats_ctx.log_maxxing_summary(&snapshot, &objective_name, value, "progress")
+                    }
+                    None => stats_ctx.log_summary(&snapshot, "progress"),
+                }
             }
             Ok(())
         })?;
@@ -164,7 +170,15 @@ impl MaxxingCampaign {
         }
 
         let function_metrics = shared_metrics.function_metrics();
-        stats_ctx.log_summary(&shared_metrics.aggregate(), "finished");
+        match fuzzer_corpus.best_value() {
+            Some(value) => stats_ctx.log_maxxing_summary(
+                &shared_metrics.aggregate(),
+                &objective_name,
+                value,
+                "finished",
+            ),
+            None => stats_ctx.log_summary(&shared_metrics.aggregate(), "finished"),
+        }
         for stat in stats_ctx.function_stats(&function_metrics) {
             info!(
                 calls = %stat.calls,

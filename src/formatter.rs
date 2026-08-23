@@ -114,6 +114,31 @@ impl<'a> CampaignStats<'a> {
         }
     }
 
+    /// Log a maxxing snapshot with the current best max value, mirroring the
+    /// `maximum value` line's `max`/`value` field names.
+    pub fn log_maxxing_summary(
+        &self,
+        snapshot: &Snapshot,
+        max_function: &str,
+        max_value: U256,
+        message: &str,
+    ) {
+        let summary = self.summary(snapshot);
+        info!(
+            runs = %summary.runs,
+            calls = %summary.calls,
+            elapsed = %summary.elapsed,
+            call_rate = %summary.call_rate,
+            gas_rate = %summary.gas_rate,
+            max = %max_function,
+            value = %max_value,
+            contracts = %summary.contracts,
+            coverage = %summary.coverage,
+            corpus = %summary.corpus,
+            "{message}",
+        );
+    }
+
     /// Log a campaign statistics snapshot as structured `key=value` fields.
     ///
     /// Shared by the periodic progress updates and the final summary, so every

@@ -41,6 +41,11 @@ impl MaxxingFuzzerCorpus {
         }
     }
 
+    /// Return the current best max value, if any.
+    pub fn best_value(&self) -> Option<U256> {
+        self.inner.best.read().as_ref().map(|best| best.value)
+    }
+
     /// Return the next corpus item for execution.
     pub fn next_item(&self, rng: &mut fastrand::Rng) -> Item {
         self.inner.corpus.next_item(rng)
