@@ -10,6 +10,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.9.4] - 2026-08-23
+
+### Added
+
 - Trace decoding extracts function argument types from runtime bytecode with
   evmole when no project ABI matches the selector, so unverified and forked
   calls render decoded arguments instead of `0xselector(...)`
@@ -41,7 +49,7 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   `fulltrace:` line; the campaign log path moves to its own `log` span
 - Coverage report generation now logs under a `report` span, the percentage
   line is no longer indented, and the lcov path is full like the trace and log
-  paths line no longer indents
+  paths
 - Session setup logs are now grouped under `build`, `deploy{contract=...}`, and
   `replay{items=N}` spans, matching the `fuzz{threads=N}` span
 - The `Loaded harness contract` and `Deployed` messages no longer repeat the
@@ -322,7 +330,8 @@ Initial public release
   `SharedCorpus`, `CorpusReplayer`, and `CoverageReporter` types for
   programmatic use
 
-[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.3...HEAD
+[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/pyk/ripfuzz/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/pyk/ripfuzz/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/pyk/ripfuzz/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/pyk/ripfuzz/compare/v0.9.0...v0.9.1
