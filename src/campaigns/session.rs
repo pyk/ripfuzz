@@ -250,10 +250,13 @@ impl CampaignSession {
         }
 
         // Create test chain (empty sandbox; harnesses call vm.fork to opt into
-        // remote state). RPC retries/timeout/etc. use ForkDBConfig defaults;
-        // override via vm.fork(..., ForkConfig).
-        let fork_defaults =
-            ForkDBConfig::new("").cache_dir(ripfuzz_dir(&project_path).join("cache"));
+        // remote state). RPC retries/timeout/etc. use ForkDBConfig defaults
+        // except for a conservative batch rate limit that keeps default
+        // campaigns under public-provider quotas; override per fork via
+        // vm.fork(..., ForkConfig).
+        let fork_defaults = ForkDBConfig::new("")
+            .cache_dir(ripfuzz_dir(&project_path).join("cache"))
+            .rate_limit(Some(10));
         let chain_config = ChainConfig::new(&project_path)
             .with_compiled_contracts(compiled_contracts)
             .with_fork_defaults(fork_defaults)

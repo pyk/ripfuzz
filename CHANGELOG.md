@@ -12,6 +12,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Fork-mode campaigns now throttle RPC batches to a conservative default of 10
+  batches per second so default runs stay under public-provider rate quotas;
+  override per fork with `vm.fork(..., ForkConfig{rateLimit: N})` or disable
+  with `rateLimit: 0`
 - The RPC batch retry loop now logs a warning with the retry number, total
   retries, backoff duration, endpoint, and error as structured fields
 
