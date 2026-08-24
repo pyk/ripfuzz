@@ -32,7 +32,8 @@
 //!
 //!    The fetcher takes ownership of the pending slice while still holding the
 //!    mutex, issues a single JSON-RPC batch via `ureq`, retries on transient
-//!    transport errors, and either inserts all responses into `global_cache`
+//!    transport errors and transient JSON-RPC error objects, and either
+//!    inserts all responses into `global_cache`
 //!    (and writes them to disk) or returns the error directly. Finally it
 //!    wakes all waiting threads with `notify_all`.
 //!
@@ -59,6 +60,10 @@
 //! * Connection error
 //! * HTTP 429 / 503 / 504
 //!
+//! ...or when the response body contains a JSON-RPC error object with a
+//! transient code (429 or 5xx), which is how Alchemy and other providers
+//! report compute-unit rate limits inside a 200 response.
+//!
 //! ### Failure conditions
 //!
 //! If the transport succeeds but the response body is invalid JSON, or the
@@ -66,7 +71,8 @@
 //! fails immediately and the error is returned to the fetcher thread.
 //!
 //! If an individual JSON-RPC item in the response contains an `"error"`
-//! object, or if `eth_getBlockByNumber` returns `"result": null` for a
+//! object with a permanent code (anything other than 429/5xx), or if
+//! `eth_getBlockByNumber` returns `"result": null` for a
 //! missing block, the entire batch fails and the error is returned to the
 //! fetcher thread.
 //!
@@ -86,7 +92,7 @@ use papaya::HashMap as PapayaMap;
 use parking_lot::{Condvar, Mutex};
 use serde::Serialize;
 use serde_json::Value;
-
+use tracing::warn;
 use walkdir::WalkDir;
 
 use crate::evm::forkdb::config::ForkDBConfig;
@@ -305,11 +311,12 @@ impl SharedBackend {
     /// Execute a JSON-RPC batch.
     ///
     /// The batch is sent as a single HTTP POST. If the transport returns a
-    /// transient error (timeout, connection failure, HTTP 429/503/504) the
-    /// whole batch is retried with capped exponential backoff. If the
-    /// response is invalid JSON, the array length does not match, or any
-    /// individual item contains an error object, the entire batch fails
-    /// immediately and the error is returned to the caller.
+    /// transient error (timeout, connection failure, HTTP 429/503/504) or the
+    /// provider replies with a transient JSON-RPC error object (code 429 or
+    /// 5xx), the whole batch is retried with capped exponential backoff. If
+    /// the response is invalid JSON, the array length does not match, or any
+    /// individual item contains a permanent error object, the entire batch
+    /// fails immediately and the error is returned to the caller.
     fn execute_batch(&self, batch: Vec<Request>) -> Result<HashMap<String, Value>, Error> {
         let deduped = Self::deduplicate_requests(batch);
         let payload = build_payload(&deduped);
@@ -320,16 +327,26 @@ impl SharedBackend {
         }
 
         for attempt in 0..=self.inner.retries {
-            match self.inner.transport.exec(&self.inner.url, &payload) {
-                Ok(response) => return Self::parse_batch_response(response, deduped),
-                Err(e) => {
-                    let err = Error::from_anyhow(e, &self.inner.url);
-                    if !err.is_transient() || attempt >= self.inner.retries {
-                        return Err(err);
-                    }
-                    std::thread::sleep(self.sleep_duration(attempt));
-                }
+            let err = match self.inner.transport.exec(&self.inner.url, &payload) {
+                Ok(response) => match Self::parse_batch_response(response, &deduped) {
+                    Ok(results) => return Ok(results),
+                    Err(err) => err,
+                },
+                Err(e) => Error::from_anyhow(e, &self.inner.url),
+            };
+            if !err.is_transient() || attempt >= self.inner.retries {
+                return Err(err);
             }
+            let backoff = self.sleep_duration(attempt);
+            warn!(
+                retry = attempt + 1,
+                retries = self.inner.retries,
+                backoff_ms = backoff.as_millis(),
+                url = %self.inner.url,
+                error = %err,
+                "transient RPC error; retrying batch"
+            );
+            std::thread::sleep(backoff);
         }
 
         unreachable!("loop always returns")
@@ -357,7 +374,7 @@ impl SharedBackend {
     /// matching, successful result.
     fn parse_batch_response(
         response: Value,
-        deduped: Vec<Request>,
+        deduped: &[Request],
     ) -> Result<HashMap<String, Value>, Error> {
         let arr: Vec<Value> = if response.is_object() && deduped.len() == 1 {
             vec![response]
@@ -391,8 +408,10 @@ impl SharedBackend {
                     message: format!("missing id in JSON-RPC response item: {item}"),
                 });
             };
-            if item.get("error").is_some() {
-                return Err(Error::UnexpectedResponse {
+            if let Some(error) = item.get("error") {
+                let code = error.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
+                return Err(Error::RpcError {
+                    code,
                     message: format!("JSON-RPC response contains error object: {item}"),
                 });
             }
@@ -406,7 +425,7 @@ impl SharedBackend {
         }
 
         let mut successes = HashMap::with_capacity(deduped.len());
-        for (idx, req) in deduped.into_iter().enumerate() {
+        for (idx, req) in deduped.iter().enumerate() {
             let result = by_id
                 .remove(&idx)
                 .ok_or_else(|| Error::UnexpectedResponse {
@@ -1419,7 +1438,7 @@ mod tests {
         let response = json!([
             {"jsonrpc":"2.0","id":0,"error":{"code":-32000,"message":"execution reverted"}}
         ]);
-        let err = SharedBackend::parse_batch_response(response, vec![req]).unwrap_err();
+        let err = SharedBackend::parse_batch_response(response, &[req]).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("execution reverted"),
@@ -1428,6 +1447,186 @@ mod tests {
         assert!(
             msg.contains("-32000"),
             "error code missing from error: {msg}"
+        );
+    }
+
+    /// Regression: Alchemy returns HTTP 429 as a JSON-RPC error object inside
+    /// a 200 response body, not as an HTTP status code. The batch must be
+    /// retried with backoff instead of failing the fuzzer thread immediately.
+    #[test]
+    fn rpc_error_429_in_body_is_retried() {
+        #[derive(Debug)]
+        struct RateLimitOnceTransport {
+            call_count: Arc<AtomicUsize>,
+        }
+
+        impl Transport for RateLimitOnceTransport {
+            fn exec(&self, _url: &str, payload: &serde_json::Value) -> Result<serde_json::Value> {
+                let call = self.call_count.fetch_add(1, Ordering::SeqCst);
+                if call == 0 {
+                    return Ok(json!([
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 0,
+                            "error": {
+                                "code": 429,
+                                "message": "Your app has exceeded its compute units per second capacity."
+                            }
+                        }
+                    ]));
+                }
+                let id = payload
+                    .as_array()
+                    .and_then(|a| a.first())
+                    .and_then(|req| req.get("id"))
+                    .and_then(|v| v.as_u64())
+                    .expect("missing id in batch request") as usize;
+                Ok(json!([{"jsonrpc": "2.0", "id": id, "result": "0x1"}]))
+            }
+        }
+
+        let transport = RateLimitOnceTransport {
+            call_count: Arc::new(AtomicUsize::new(0)),
+        };
+        let call_count = transport.call_count.clone();
+        let url = "mock://test";
+        let config = ForkDBConfig::new(url)
+            .batch_timeout_ms(0)
+            .batch_size(1)
+            .retries(3)
+            .backoff_ms(1);
+        let backend = SharedBackend::new_with_transport(config, transport);
+
+        let res = backend
+            .fetch_or_wait(&[Request::GetChainId {
+                url_hash: url_hash(url),
+            }])
+            .unwrap();
+        assert_eq!(res.len(), 1);
+        match &res[0] {
+            Response::ChainId(chain) => assert_eq!(*chain, 1),
+            other => panic!("expected ChainId, got {other:?}"),
+        }
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            2,
+            "a 429 error object in the response body must be retried once before succeeding"
+        );
+    }
+
+    /// Regression: when every retry returns a 429 error object, the batch must
+    /// fail with the provider's error (not a generic parse error) after all
+    /// retries are exhausted.
+    #[test]
+    fn rpc_error_429_in_body_fails_after_all_retries_are_exhausted() {
+        #[derive(Debug)]
+        struct AlwaysRateLimitedTransport {
+            call_count: Arc<AtomicUsize>,
+        }
+
+        impl Transport for AlwaysRateLimitedTransport {
+            fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+                Ok(json!([
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 0,
+                        "error": {
+                            "code": 429,
+                            "message": "rate limited"
+                        }
+                    }
+                ]))
+            }
+        }
+
+        let transport = AlwaysRateLimitedTransport {
+            call_count: Arc::new(AtomicUsize::new(0)),
+        };
+        let call_count = transport.call_count.clone();
+        let url = "mock://test";
+        let config = ForkDBConfig::new(url)
+            .batch_timeout_ms(0)
+            .batch_size(1)
+            .retries(2)
+            .backoff_ms(1);
+        let backend = SharedBackend::new_with_transport(config, transport);
+
+        let err = backend
+            .fetch_or_wait(&[Request::GetChainId {
+                url_hash: url_hash(url),
+            }])
+            .unwrap_err();
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            3,
+            "2 retries after the first 429 error object"
+        );
+        let err_item = json!(
+            {"jsonrpc": "2.0", "id": 0, "error": {"code": 429, "message": "rate limited"}}
+        );
+        assert_eq!(
+            err.to_string(),
+            format!("RPC error 429: JSON-RPC response contains error object: {err_item}"),
+            "the provider's 429 code must be surfaced after retries are exhausted"
+        );
+    }
+
+    /// Regression: permanent JSON-RPC error codes (e.g. -32000) must fail the
+    /// batch immediately without retrying, so only transient 429/5xx codes
+    /// consume retry budget.
+    #[test]
+    fn rpc_error_permanent_code_is_not_retried() {
+        #[derive(Debug)]
+        struct PermanentErrorTransport {
+            call_count: Arc<AtomicUsize>,
+        }
+
+        impl Transport for PermanentErrorTransport {
+            fn exec(&self, _url: &str, _payload: &serde_json::Value) -> Result<serde_json::Value> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+                Ok(json!([
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 0,
+                        "error": {
+                            "code": -32000,
+                            "message": "execution reverted"
+                        }
+                    }
+                ]))
+            }
+        }
+
+        let transport = PermanentErrorTransport {
+            call_count: Arc::new(AtomicUsize::new(0)),
+        };
+        let call_count = transport.call_count.clone();
+        let url = "mock://test";
+        let config = ForkDBConfig::new(url)
+            .batch_timeout_ms(0)
+            .batch_size(1)
+            .retries(3)
+            .backoff_ms(1);
+        let backend = SharedBackend::new_with_transport(config, transport);
+
+        let err = backend
+            .fetch_or_wait(&[Request::GetChainId {
+                url_hash: url_hash(url),
+            }])
+            .unwrap_err();
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "permanent RPC errors must fail immediately without retrying"
+        );
+        let err_item = json!(
+            {"jsonrpc": "2.0", "id": 0, "error": {"code": -32000, "message": "execution reverted"}}
+        );
+        assert_eq!(
+            err.to_string(),
+            format!("RPC error -32000: JSON-RPC response contains error object: {err_item}"),
+            "permanent RPC errors must surface as RpcError with the provider code"
         );
     }
 
@@ -1440,7 +1639,7 @@ mod tests {
             {"jsonrpc":"2.0","id":0,"result":"0x1"},
             {"jsonrpc":"2.0","id":1,"result":"0x2"}
         ]);
-        let err = SharedBackend::parse_batch_response(response, vec![req]).unwrap_err();
+        let err = SharedBackend::parse_batch_response(response, &[req]).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("\"0x1\""),

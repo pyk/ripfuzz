@@ -12,7 +12,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- The RPC batch retry loop now logs a warning with the retry number, total
+  retries, backoff duration, endpoint, and error as structured fields
+
 ### Fixed
+
+- Provider rate-limit (429) and 5xx JSON-RPC error objects inside batch
+  responses are now retried with capped exponential backoff instead of killing
+  the fuzzer thread immediately
 
 ## [0.9.4] - 2026-08-23
 

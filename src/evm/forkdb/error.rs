@@ -15,7 +15,9 @@ pub enum Error {
     RateLimited { url: String },
     /// Failed to serialize or deserialize JSON.
     DecodeError { message: String },
-    /// The RPC server returned a JSON-RPC error object.
+    /// The RPC server returned a JSON-RPC error object. Codes 429 and 5xx
+    /// (provider rate limit / server error) are transient; all other codes
+    /// are permanent.
     RpcError { code: i64, message: String },
     /// An unexpected response was received (duplicate, missing, wrong variant).
     UnexpectedResponse { message: String },
@@ -27,11 +29,15 @@ pub enum Error {
 
 impl Error {
     /// Returns `true` if this error is likely transient and the request
-    /// should be retried.
+    /// should be retried. JSON-RPC error objects are transient only for
+    /// code 429 or 5xx; all other codes are permanent.
     pub fn is_transient(&self) -> bool {
         matches!(
             self,
             Self::RpcTimeout { .. } | Self::ConnectionError { .. } | Self::RateLimited { .. }
+        ) || matches!(
+            self,
+            Self::RpcError { code, .. } if *code == 429 || (500..=599).contains(code)
         )
     }
 
