@@ -343,6 +343,7 @@ impl SharedBackend {
                 retries = self.inner.retries,
                 backoff_ms = backoff.as_millis(),
                 url = %self.inner.url,
+                request = %Self::describe_json(&payload),
                 error = %err,
                 "transient RPC error; retrying batch"
             );
