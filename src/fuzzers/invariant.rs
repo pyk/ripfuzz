@@ -42,6 +42,7 @@ pub struct InvariantFuzzerConfig {
     pub shutdown_signal: Arc<AtomicBool>,
     pub caller: Address,
     pub invariant_functions: Vec<Function>,
+    pub fuzzer_id: usize,
     pub max_runs: u64,
     pub gas_limit: u64,
     pub timeout: Option<Duration>,
@@ -63,6 +64,7 @@ impl InvariantFuzzerConfig {
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             caller: evm::DEFAULT_DEPLOYER,
             invariant_functions: Vec::new(),
+            fuzzer_id: 0,
             max_runs: 0,
             gas_limit: 12_500_000,
             timeout: None,
@@ -130,6 +132,12 @@ impl InvariantFuzzerConfig {
         self
     }
 
+    /// Set the per-thread fuzzer id used in the `run` span.
+    pub fn fuzzer_id(mut self, value: usize) -> Self {
+        self.fuzzer_id = value;
+        self
+    }
+
     /// Set the maximum number of runs.
     pub fn max_runs(mut self, value: u64) -> Self {
         self.max_runs = value;
@@ -188,6 +196,7 @@ impl InvariantFuzzer {
             shutdown_signal,
             caller,
             invariant_functions,
+            fuzzer_id,
             max_runs,
             gas_limit,
             timeout,
@@ -205,6 +214,7 @@ impl InvariantFuzzer {
                 shared_stop_event,
                 shutdown_signal,
                 caller,
+                fuzzer_id,
                 max_runs,
                 gas_limit,
                 timeout,

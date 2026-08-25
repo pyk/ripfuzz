@@ -29,6 +29,7 @@ pub(super) struct EngineConfig {
     pub shared_stop_event: SharedStopEvent,
     pub shutdown_signal: Arc<AtomicBool>,
     pub caller: Address,
+    pub fuzzer_id: usize,
     pub max_runs: u64,
     pub gas_limit: u64,
     pub timeout: Option<Duration>,
@@ -88,7 +89,10 @@ impl<S: FuzzStrategy> Fuzzer<S> {
     /// The loop draws an input from the corpus, executes its sequence on a
     /// fresh chain clone, merges coverage, and dispatches failures and
     /// interesting items through the strategy.
-    #[instrument(skip(self), fields(max_runs = self.config.max_runs))]
+    #[instrument(
+        skip(self),
+        fields(fuzzer_id = self.config.fuzzer_id, max_runs = self.config.max_runs)
+    )]
     pub(super) fn run(mut self) -> Result<S::Output> {
         let start = Instant::now();
         let mut runs = 0u64;

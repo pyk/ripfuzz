@@ -31,6 +31,7 @@ pub struct MaxxingFuzzerConfig {
     pub shutdown_signal: Arc<AtomicBool>,
     pub caller: Address,
     pub objective: Option<MaxObjective>,
+    pub fuzzer_id: usize,
     pub max_runs: u64,
     pub gas_limit: u64,
     pub timeout: Option<Duration>,
@@ -53,6 +54,7 @@ impl MaxxingFuzzerConfig {
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             caller: evm::DEFAULT_DEPLOYER,
             objective: None,
+            fuzzer_id: 0,
             max_runs: 0,
             gas_limit: 12_500_000,
             timeout: None,
@@ -126,6 +128,12 @@ impl MaxxingFuzzerConfig {
         self
     }
 
+    /// Set the per-thread fuzzer id used in the `run` span.
+    pub fn fuzzer_id(mut self, value: usize) -> Self {
+        self.fuzzer_id = value;
+        self
+    }
+
     /// Set the maximum number of runs.
     pub fn max_runs(mut self, value: u64) -> Self {
         self.max_runs = value;
@@ -172,6 +180,7 @@ impl MaxxingFuzzer {
             shutdown_signal,
             caller,
             objective,
+            fuzzer_id,
             max_runs,
             gas_limit,
             timeout,
@@ -190,6 +199,7 @@ impl MaxxingFuzzer {
                 shared_stop_event,
                 shutdown_signal,
                 caller,
+                fuzzer_id,
                 max_runs,
                 gas_limit,
                 timeout,

@@ -88,6 +88,7 @@ impl MaxxingCampaign {
             let seed = self.session.campaign_seed.wrapping_add(fuzzer_id as u64);
             // checkrs: allow(clone_in_loops)
             let mut config = initial_config.clone();
+            config.fuzzer_id = fuzzer_id;
             config.max_runs = local_max_runs;
             config.seed = seed;
 
