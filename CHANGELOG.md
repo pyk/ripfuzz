@@ -24,6 +24,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - Provider rate-limit (429) and 5xx JSON-RPC error objects inside batch
   responses are now retried with capped exponential backoff instead of killing
   the fuzzer thread immediately
+- Maxxing progress and finished logs now always include `value`, showing `0`
+  until a non-zero best is found
 
 ## [0.9.4] - 2026-08-23
 
