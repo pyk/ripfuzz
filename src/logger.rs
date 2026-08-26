@@ -127,9 +127,9 @@ fn simple_time(w: &mut Writer<'_>) -> std::fmt::Result {
 
 /// Initialize the global tracing subscriber.
 ///
-/// Terminal output is written to stderr in the default fmt format. When
+/// Terminal output is written to stderr unless `quiet` is set. When
 /// `disable_log` is false, a formatted log file is also written at `log_file`.
-pub fn init(disable_log: bool, log_file: &Path, level: tracing::Level) -> Result<()> {
+pub fn init(disable_log: bool, quiet: bool, log_file: &Path, level: tracing::Level) -> Result<()> {
     if disable_log {
         return Ok(());
     }
@@ -148,6 +148,17 @@ pub fn init(disable_log: bool, log_file: &Path, level: tracing::Level) -> Result
         tracing::Level::TRACE => EnvFilter::new("trace"),
     };
 
+    if quiet {
+        let file_layer = tracing_fmt::layer()
+            .with_ansi(false)
+            .with_writer(Mutex::new(file))
+            .with_span_events(FmtSpan::CLOSE);
+        tracing_subscriber::registry()
+            .with(file_layer.with_filter(filter))
+            .try_init()?;
+        return Ok(());
+    }
+
     // Terminal format: simple time, level, and message (module target hidden).
     // Cast to a fn pointer: `FormatTime` covers `fn(&mut Writer<'_>) -> fmt::Result`,
     // not the zero-sized fn item type.
@@ -157,7 +168,6 @@ pub fn init(disable_log: bool, log_file: &Path, level: tracing::Level) -> Result
         .with_ansi(std::io::stderr().is_terminal())
         .fmt_fields(ConsoleFields)
         .with_writer(std::io::stderr);
-
     let file_layer = tracing_fmt::layer()
         .with_ansi(false)
         .with_writer(Mutex::new(file))

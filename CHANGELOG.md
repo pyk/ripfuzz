@@ -17,6 +17,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   `hot_rpc_miss`), and finished per-function rows include wall time and RPC
   counters, so a slow handler like an unbounded `getQuote` shows up while the
   run is still stuck
+- `-q`/`--quiet` suppresses terminal logs while still writing the campaign log
+  file
 
 ### Changed
 
@@ -33,6 +35,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- Integration tests pass `--quiet` so `make test` no longer prints campaign
+  logs
 - Provider rate-limit (429) and 5xx JSON-RPC error objects inside batch
   responses are now retried with capped exponential backoff instead of killing
   the fuzzer thread immediately

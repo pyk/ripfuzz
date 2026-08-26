@@ -161,7 +161,7 @@ impl CampaignSession {
             .join("campaigns")
             .join(&campaign_id)
             .join("fuzz.log");
-        logger::init(args.disable_log, &log_file, args.log_level)?;
+        logger::init(args.disable_log, args.quiet, &log_file, args.log_level)?;
 
         debug!(?project_path, "resolved project path");
         if let Some(path) = &dotenv_path {

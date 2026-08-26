@@ -144,6 +144,11 @@ pub struct Args {
     #[arg(long = "disable-log", help_heading = "Logging")]
     pub disable_log: bool,
 
+    /// Suppress terminal logs. The campaign log file is still written unless
+    /// `--disable-log` is set.
+    #[arg(short = 'q', long = "quiet", help_heading = "Logging")]
+    pub quiet: bool,
+
     // Security
     /// Enable the `ffi` cheatcode (security-sensitive).
     #[arg(long = "ffi", help_heading = "Security")]
@@ -283,6 +288,7 @@ mod tests {
             corpus_dir: Some(corpus_dir),
             log_level: tracing::Level::INFO,
             disable_log: true,
+            quiet: true,
             ffi: false,
             force: false,
             stop_on_revert: false,

@@ -28,6 +28,7 @@ fn args(corpus_dir: impl AsRef<Path>) -> Args {
         corpus_dir: Some(corpus_dir.as_ref().to_path_buf()),
         log_level: tracing::Level::INFO,
         disable_log: false,
+        quiet: true,
         ffi: false,
         force: false,
         stop_on_revert: false,
