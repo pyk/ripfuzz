@@ -25,8 +25,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   override per fork with `vm.fork(..., ForkConfig{rateLimit: N})` or disable
   with `rateLimit: 0`
 - The RPC batch retry loop now logs a warning with the retry number, total
-  retries, backoff duration, endpoint, request payload, and error as structured
-  fields
+  retries, backoff duration, batch size, endpoint, request payload, and error
+  as structured fields; the terminal prints a one-line form (origin-only URL,
+  no payload, short error) while the campaign log file keeps the full fields
 - Per-thread fuzzer `run` spans now include `fuzzer_id`, so nested logs such as
   RPC retry warnings identify which fuzzer emitted them
 

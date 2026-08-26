@@ -186,6 +186,14 @@ A small entry count after prefetching means the cache does not cover the slots
 the harness actually reads. `--log-level debug` logs each miss as
 `rpc cache miss method=eth_getBalance key=...`.
 
+Transient RPC retries log a one-line warning on the terminal:
+
+```text
+WARN run{fuzzer_id=15}: transient RPC error; retrying batch retry=1 retries=3 backoff_ms=100 items=18 url=https://eth-mainnet.g.alchemy.com error=RPC error 429
+```
+
+The campaign log file still has the full URL, JSON-RPC payload, and error body.
+
 ## Hardfork / SpecId
 
 `rvm.fork` applies the EVM hardfork (`SpecId`) derived from the remote chain id

@@ -491,6 +491,7 @@ impl SharedBackend {
                 retry = attempt + 1,
                 retries = self.inner.retries,
                 backoff_ms = backoff.as_millis(),
+                items = deduped.len(),
                 url = %self.inner.url,
                 request = %Self::describe_json(&payload),
                 error = %err,
