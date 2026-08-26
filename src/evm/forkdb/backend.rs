@@ -85,6 +85,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -92,7 +93,7 @@ use papaya::HashMap as PapayaMap;
 use parking_lot::{Condvar, Mutex};
 use serde::Serialize;
 use serde_json::Value;
-use tracing::warn;
+use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
 use crate::evm::forkdb::config::ForkDBConfig;
@@ -101,6 +102,28 @@ use crate::evm::forkdb::limiter::RateLimiter;
 use crate::evm::forkdb::request::Request;
 use crate::evm::forkdb::response::Response;
 use crate::evm::forkdb::transport::Transport;
+
+/// Counters for fork RPC cache hits, misses, and time spent fetching.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RpcStats {
+    /// Requests served from the in-memory or disk cache.
+    pub hits: u64,
+    /// Requests that required an RPC fetch.
+    pub misses: u64,
+    /// Time spent in the RPC batch path, including rate-limit sleeps.
+    pub wait: Duration,
+}
+
+impl RpcStats {
+    /// Sum two snapshots. Used when a chain has more than one RPC backend.
+    pub fn saturating_add(self, other: Self) -> Self {
+        Self {
+            hits: self.hits.saturating_add(other.hits),
+            misses: self.misses.saturating_add(other.misses),
+            wait: self.wait.saturating_add(other.wait),
+        }
+    }
+}
 
 /// Shared RPC backend with automatic batching, caching, and deduplication.
 ///
@@ -125,6 +148,9 @@ struct SharedBackendInner {
     backoff: Duration,
     limiter: Option<Arc<RateLimiter>>,
     cache_dir: Option<PathBuf>,
+    hits: AtomicU64,
+    misses: AtomicU64,
+    wait_ms: AtomicU64,
 }
 
 #[derive(Debug)]
@@ -157,7 +183,8 @@ impl SharedBackend {
 
         let global_cache = PapayaMap::new();
         if let Some(ref dir) = config.cache_dir {
-            load_disk_cache(dir, &global_cache);
+            let entries = load_disk_cache(dir, &global_cache);
+            info!(entries, path = %dir.display(), "loaded fork cache");
         }
 
         let inner = Arc::new(SharedBackendInner {
@@ -175,6 +202,9 @@ impl SharedBackend {
             backoff: Duration::from_millis(config.backoff_ms),
             limiter,
             cache_dir: config.cache_dir,
+            hits: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
+            wait_ms: AtomicU64::new(0),
         });
 
         Self { inner }
@@ -194,6 +224,15 @@ impl SharedBackend {
         self.try_slow_path(reqs)
     }
 
+    /// Snapshot of cache hits, RPC misses, and time spent in the batch path.
+    pub fn stats(&self) -> RpcStats {
+        RpcStats {
+            hits: self.inner.hits.load(Ordering::Relaxed),
+            misses: self.inner.misses.load(Ordering::Relaxed),
+            wait: Duration::from_millis(self.inner.wait_ms.load(Ordering::Relaxed)),
+        }
+    }
+
     // Fast path
 
     /// Try to satisfy every request from the lock-free global cache.
@@ -209,6 +248,9 @@ impl SharedBackend {
                 None => return Ok(None),
             }
         }
+        self.inner
+            .hits
+            .fetch_add(results.len() as u64, Ordering::Relaxed);
         Ok(Some(results))
     }
 
@@ -266,6 +308,14 @@ impl SharedBackend {
 
                 match self.execute_batch(batch) {
                     Ok(successes) => {
+                        let cached_hits = reqs
+                            .iter()
+                            .filter(|req| !successes.contains_key(&req.cache_key()))
+                            .count();
+                        self.inner
+                            .hits
+                            .fetch_add(cached_hits as u64, Ordering::Relaxed);
+
                         let map = self.inner.global_cache.pin();
                         for (key, value) in successes {
                             if let Some(ref dir) = self.inner.cache_dir {
@@ -306,8 +356,6 @@ impl SharedBackend {
         }
     }
 
-    // Batch execution (pure: no shared mutable state)
-
     /// Execute a JSON-RPC batch.
     ///
     /// The batch is sent as a single HTTP POST. If the transport returns a
@@ -318,7 +366,22 @@ impl SharedBackend {
     /// individual item contains a permanent error object, the entire batch
     /// fails immediately and the error is returned to the caller.
     fn execute_batch(&self, batch: Vec<Request>) -> Result<HashMap<String, Value>, Error> {
+        let started = Instant::now();
+        let result = self.dispatch_batch(batch);
+        self.inner
+            .wait_ms
+            .fetch_add(started.elapsed().as_millis() as u64, Ordering::Relaxed);
+        result
+    }
+
+    fn dispatch_batch(&self, batch: Vec<Request>) -> Result<HashMap<String, Value>, Error> {
         let deduped = Self::deduplicate_requests(batch);
+        self.inner
+            .misses
+            .fetch_add(deduped.len() as u64, Ordering::Relaxed);
+        for req in &deduped {
+            debug!(method = req.method(), key = %req.cache_key(), "rpc cache miss");
+        }
         let payload = build_payload(&deduped);
 
         // Rate limit gate: one HTTP POST == one token regardless of batch size.
@@ -473,7 +536,8 @@ fn build_payload(batch: &[Request]) -> Value {
 
 /// Load all existing `.json` files from `dir` into the papaya map so that
 /// `fetch_or_wait` never touches the filesystem on the hot path.
-fn load_disk_cache(dir: impl AsRef<Path>, cache: &PapayaMap<String, Value>) {
+fn load_disk_cache(dir: impl AsRef<Path>, cache: &PapayaMap<String, Value>) -> usize {
+    let mut entries = 0;
     for entry in WalkDir::new(dir.as_ref())
         .into_iter()
         .filter_map(|e| e.ok())
@@ -495,8 +559,10 @@ fn load_disk_cache(dir: impl AsRef<Path>, cache: &PapayaMap<String, Value>) {
                 None => key.into_owned(),
             };
             cache.pin().insert(key, value);
+            entries += 1;
         }
     }
+    entries
 }
 
 /// Persist a single entry atomically (temp file + rename).
@@ -607,6 +673,42 @@ mod tests {
             1,
             "second backend must load from disk and not issue a second RPC"
         );
+    }
+
+    /// A cache miss increments `misses`; the same request afterward is a hit.
+    #[test]
+    fn rpc_stats_count_miss_then_hit() {
+        let transport = MockTransport::default();
+        let url = "mock://test";
+        let url_h = url_hash(url);
+
+        let payload = json!([
+            {"jsonrpc":"2.0","id":0,"method":"eth_chainId","params":[]}
+        ]);
+        transport.mock_response(
+            url,
+            &payload,
+            json!([{"jsonrpc":"2.0","id":0,"result":"0x1"}]),
+        );
+
+        let config = ForkDBConfig::new(url).batch_timeout_ms(0).batch_size(1);
+        let backend = SharedBackend::new_with_transport(config, transport);
+
+        assert_eq!(backend.stats(), RpcStats::default());
+
+        backend
+            .fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
+            .unwrap();
+        let after_miss = backend.stats();
+        assert_eq!(after_miss.hits, 0);
+        assert_eq!(after_miss.misses, 1);
+
+        backend
+            .fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
+            .unwrap();
+        let after_hit = backend.stats();
+        assert_eq!(after_hit.hits, 1);
+        assert_eq!(after_hit.misses, 1);
     }
 
     /// Regression: backoff must be capped so a permanently down endpoint

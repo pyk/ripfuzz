@@ -40,9 +40,11 @@ Single-argument defaults (when `ForkConfig` is omitted):
 | retries   | 3       |
 | backoffMs | 100     |
 | timeoutMs | 30_000  |
-| rateLimit | none    |
+| rateLimit | 10      |
 
-`rateLimit: 0` in `ForkConfig` means no rate limit.
+Campaigns default to 10 RPC batches per second so public-provider quotas are
+not blown on the first run. Override per fork with
+`vm.fork(..., ForkConfig{rateLimit: N})`. `rateLimit: 0` disables the limit.
 
 Forks are keyed and cached by `(url, block)`. Selecting an existing key reuses
 that fork's overlay instead of re-fetching the block header.
@@ -155,6 +157,30 @@ From the RPC side, remote state is read-only:
 Each fuzz input starts from a **clone of the post-setup chain**. Writes in one
 sequence do not leak into another sequence. Multi-fork overlays are part of
 that cloned snapshot after setup has run `rvm.fork`.
+
+## Debugging slow fork campaigns
+
+When a campaign looks stuck (runs or coverage frozen), the progress line
+includes RPC counters:
+
+```text
+progress runs=44 ... rpc_hit=12,482 rpc_miss=63 rpc_wait=12.4s ...
+```
+
+- `rpc_miss` climbing while `runs` is stuck: the fuzzer is waiting on RPC
+  (uncached account or storage reads)
+- `rpc_hit` and `rpc_miss` both flat: time is in the EVM, not the node
+- `rpc_wait` is time spent in RPC batches, including rate-limit sleeps
+
+On the first `rvm.fork`, cache load is logged:
+
+```text
+loaded fork cache entries=52237 path=/path/to/project/.ripfuzz/cache
+```
+
+A small entry count after prefetching means the cache does not cover the slots
+the harness actually reads. `--log-level debug` logs each miss as
+`rpc cache miss method=eth_getBalance key=...`.
 
 ## Hardfork / SpecId
 

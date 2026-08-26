@@ -10,7 +10,7 @@
 //!    responses back. No background worker thread.
 //! 5. No fuzzer concepts leak in. Pure `DatabaseRef` implementation.
 
-pub use backend::SharedBackend;
+pub use backend::{RpcStats, SharedBackend};
 pub use config::ForkDBConfig;
 pub use db::ForkDB;
 pub use error::Error;

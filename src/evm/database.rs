@@ -13,7 +13,7 @@ use crate::evm::chain::DEFAULT_DEPLOYER;
 use crate::evm::cheatcode::VM_ADDRESS;
 use crate::evm::forkdb;
 use crate::evm::forkdb::{
-    ForkDB, ForkDBConfig, SharedBackend, SharedLocalAddressRegistry, Transport, url_hash,
+    ForkDB, ForkDBConfig, RpcStats, SharedBackend, SharedLocalAddressRegistry, Transport, url_hash,
 };
 use crate::evm::specs;
 
@@ -227,6 +227,19 @@ impl Database {
                 };
                 multi.active == key && multi.forks.contains_key(&key)
             }
+        }
+    }
+
+    /// Aggregate RPC cache hits, misses, and wait time across fork backends.
+    pub fn rpc_stats(&self) -> RpcStats {
+        match self {
+            Self::Empty(_) => RpcStats::default(),
+            Self::Multi(multi) => multi
+                .backends
+                .values()
+                .fold(RpcStats::default(), |acc, backend| {
+                    acc.saturating_add(backend.stats())
+                }),
         }
     }
 

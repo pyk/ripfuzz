@@ -10,6 +10,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- Fork-mode progress and finished logs now include `rpc_hit`, `rpc_miss`, and
+  `rpc_wait`, and loading a fork cache logs `loaded fork cache` with the entry
+  count, so a stuck campaign can be diagnosed as RPC-bound vs EVM-bound
+
 ### Changed
 
 - Fork-mode campaigns now throttle RPC batches to a conservative default of 10

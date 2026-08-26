@@ -20,7 +20,7 @@ pub use exec::ExecOutput;
 pub use setup::{SetupInput, SetupOutput};
 pub use transaction::Transaction;
 
-use crate::evm::forkdb::{LocalTracker, SharedLocalAddressRegistry};
+use crate::evm::forkdb::{LocalTracker, RpcStats, SharedLocalAddressRegistry};
 use crate::evm::{cheatcode, coverage, database, result, trace};
 
 mod config;
@@ -126,6 +126,17 @@ impl Chain {
     /// Returns `None` if called while a transaction is in flight.
     pub fn database(&self) -> Option<&database::Database> {
         self.database.as_ref()
+    }
+
+    /// Aggregate RPC cache hits, misses, and wait time for the active backends.
+    ///
+    /// Empty (non-fork) chains report zeros. Counters are shared across cloned
+    /// worker chains, so the session chain sees live campaign totals.
+    pub fn rpc_stats(&self) -> RpcStats {
+        self.database
+            .as_ref()
+            .map(database::Database::rpc_stats)
+            .unwrap_or_default()
     }
 
     /// Create a new empty sandbox chain.

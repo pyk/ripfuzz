@@ -5,7 +5,7 @@ use alloy_primitives::utils::format_ether;
 use tracing::info;
 
 use crate::corpus::SharedCorpus;
-use crate::evm::SharedCoverage;
+use crate::evm::{RpcStats, SharedCoverage};
 use crate::fuzzers::{FunctionMetricsSnapshot, Snapshot};
 
 /// Format a number with comma-separated thousands.
@@ -115,7 +115,13 @@ impl<'a> CampaignStats<'a> {
     }
 
     /// Log a maxxing snapshot with the current best max value.
-    pub fn log_maxxing_summary(&self, snapshot: &Snapshot, max_value: U256, message: &str) {
+    pub fn log_maxxing_summary(
+        &self,
+        snapshot: &Snapshot,
+        max_value: U256,
+        rpc: RpcStats,
+        message: &str,
+    ) {
         let summary = self.summary(snapshot);
         info!(
             runs = %summary.runs,
@@ -123,6 +129,9 @@ impl<'a> CampaignStats<'a> {
             elapsed = %summary.elapsed,
             call_rate = %summary.call_rate,
             gas_rate = %summary.gas_rate,
+            rpc_hit = %num(rpc.hits),
+            rpc_miss = %num(rpc.misses),
+            rpc_wait = %duration(rpc.wait.as_secs_f64()),
             value = %max_value,
             contracts = %summary.contracts,
             coverage = %summary.coverage,
@@ -135,7 +144,7 @@ impl<'a> CampaignStats<'a> {
     ///
     /// Shared by the periodic progress updates and the final summary, so every
     /// campaign line parses with the same field names.
-    pub fn log_summary(&self, snapshot: &Snapshot, message: &str) {
+    pub fn log_summary(&self, snapshot: &Snapshot, rpc: RpcStats, message: &str) {
         let summary = self.summary(snapshot);
         info!(
             runs = %summary.runs,
@@ -143,6 +152,9 @@ impl<'a> CampaignStats<'a> {
             elapsed = %summary.elapsed,
             call_rate = %summary.call_rate,
             gas_rate = %summary.gas_rate,
+            rpc_hit = %num(rpc.hits),
+            rpc_miss = %num(rpc.misses),
+            rpc_wait = %duration(rpc.wait.as_secs_f64()),
             contracts = %summary.contracts,
             coverage = %summary.coverage,
             corpus = %summary.corpus,
