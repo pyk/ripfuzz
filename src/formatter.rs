@@ -1,5 +1,7 @@
 //! Human-readable formatting for fuzzing campaign statistics.
 
+use std::time::Duration;
+
 use alloy_primitives::U256;
 use alloy_primitives::utils::format_ether;
 use tracing::info;
@@ -120,9 +122,11 @@ impl<'a> CampaignStats<'a> {
         snapshot: &Snapshot,
         max_value: U256,
         rpc: RpcStats,
+        function_metrics: &[(String, FunctionMetricsSnapshot)],
         message: &str,
     ) {
         let summary = self.summary(snapshot);
+        let hot = self.hotspot_fields(function_metrics);
         info!(
             runs = %summary.runs,
             calls = %summary.calls,
@@ -132,6 +136,9 @@ impl<'a> CampaignStats<'a> {
             rpc_hit = %num(rpc.hits),
             rpc_miss = %num(rpc.misses),
             rpc_wait = %duration(rpc.wait.as_secs_f64()),
+            hot = %hot.function,
+            hot_elapsed = %hot.elapsed,
+            hot_rpc_miss = %hot.rpc_miss,
             value = %max_value,
             contracts = %summary.contracts,
             coverage = %summary.coverage,
@@ -144,8 +151,15 @@ impl<'a> CampaignStats<'a> {
     ///
     /// Shared by the periodic progress updates and the final summary, so every
     /// campaign line parses with the same field names.
-    pub fn log_summary(&self, snapshot: &Snapshot, rpc: RpcStats, message: &str) {
+    pub fn log_summary(
+        &self,
+        snapshot: &Snapshot,
+        rpc: RpcStats,
+        function_metrics: &[(String, FunctionMetricsSnapshot)],
+        message: &str,
+    ) {
         let summary = self.summary(snapshot);
+        let hot = self.hotspot_fields(function_metrics);
         info!(
             runs = %summary.runs,
             calls = %summary.calls,
@@ -155,6 +169,9 @@ impl<'a> CampaignStats<'a> {
             rpc_hit = %num(rpc.hits),
             rpc_miss = %num(rpc.misses),
             rpc_wait = %duration(rpc.wait.as_secs_f64()),
+            hot = %hot.function,
+            hot_elapsed = %hot.elapsed,
+            hot_rpc_miss = %hot.rpc_miss,
             contracts = %summary.contracts,
             coverage = %summary.coverage,
             corpus = %summary.corpus,
@@ -193,6 +210,67 @@ impl<'a> CampaignStats<'a> {
         }
     }
 
+    /// The function that has spent the most wall time, if any is non-zero.
+    pub fn hotspot(
+        &self,
+        function_metrics: &[(String, FunctionMetricsSnapshot)],
+    ) -> Option<Hotspot> {
+        let mut best: Option<Hotspot> = None;
+        for (kind, functions) in [
+            ("handler", self.handler_functions),
+            ("invariant", self.invariant_functions),
+            ("max", self.max_functions),
+        ] {
+            for func in functions {
+                let sig = func.signature();
+                let metrics = function_metrics
+                    .iter()
+                    .find(|(s, _)| s == &sig)
+                    .map(|(_, m)| *m)
+                    .unwrap_or_default();
+                if metrics.elapsed.is_zero() && metrics.rpc.misses == 0 {
+                    continue;
+                }
+                let better = match &best {
+                    None => true,
+                    Some(current) => {
+                        metrics.elapsed > current.elapsed
+                            || (metrics.elapsed == current.elapsed
+                                && metrics.rpc.misses > current.rpc_miss)
+                    }
+                };
+                if better {
+                    best = Some(Hotspot {
+                        kind,
+                        // checkrs: allow(clone_in_loops)
+                        function: func.name.clone(),
+                        elapsed: metrics.elapsed,
+                        rpc_miss: metrics.rpc.misses,
+                    });
+                }
+            }
+        }
+        best
+    }
+
+    fn hotspot_fields(
+        &self,
+        function_metrics: &[(String, FunctionMetricsSnapshot)],
+    ) -> HotspotFields {
+        match self.hotspot(function_metrics) {
+            Some(hot) => HotspotFields {
+                function: hot.function,
+                elapsed: duration(hot.elapsed.as_secs_f64()),
+                rpc_miss: num(hot.rpc_miss),
+            },
+            None => HotspotFields {
+                function: "-".into(),
+                elapsed: duration(0.0),
+                rpc_miss: num(0),
+            },
+        }
+    }
+
     /// Per-function call statistics in declaration order, for structured
     /// logging.
     pub fn function_stats(
@@ -218,6 +296,10 @@ impl<'a> CampaignStats<'a> {
                     function: func.name.clone(),
                     calls: kmb(metrics.calls),
                     gas: giga_gas(metrics.gas),
+                    elapsed: duration(metrics.elapsed.as_secs_f64()),
+                    rpc_hit: num(metrics.rpc.hits),
+                    rpc_miss: num(metrics.rpc.misses),
+                    rpc_wait: duration(metrics.rpc.wait.as_secs_f64()),
                     reverts: kmb(metrics.reverts),
                 });
             }
@@ -239,6 +321,21 @@ pub struct CampaignSummary {
     pub corpus: String,
 }
 
+/// The current slowest function by wall time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hotspot {
+    pub kind: &'static str,
+    pub function: String,
+    pub elapsed: Duration,
+    pub rpc_miss: u64,
+}
+
+struct HotspotFields {
+    function: String,
+    elapsed: String,
+    rpc_miss: String,
+}
+
 /// One row of per-function call statistics, pre-formatted for structured
 /// logging.
 #[derive(Debug)]
@@ -248,7 +345,29 @@ pub struct FunctionStat {
     pub function: String,
     pub calls: String,
     pub gas: String,
+    pub elapsed: String,
+    pub rpc_hit: String,
+    pub rpc_miss: String,
+    pub rpc_wait: String,
     pub reverts: String,
+}
+
+impl FunctionStat {
+    /// Log this row as structured fields.
+    pub fn log(&self) {
+        info!(
+            calls = %self.calls,
+            gas = %self.gas,
+            elapsed = %self.elapsed,
+            rpc_hit = %self.rpc_hit,
+            rpc_miss = %self.rpc_miss,
+            rpc_wait = %self.rpc_wait,
+            reverts = %self.reverts,
+            "{} {}",
+            self.kind,
+            self.function,
+        );
+    }
 }
 
 /// Format a one-line shrinker progress update.
@@ -329,7 +448,7 @@ mod tests {
 
     use super::*;
     use crate::corpus::{CorpusConfig, SharedCorpus};
-    use crate::evm::SharedCoverage;
+    use crate::evm::{RpcStats, SharedCoverage};
 
     fn snapshot() -> Snapshot {
         Snapshot {
@@ -388,6 +507,50 @@ mod tests {
         assert_eq!(rows[1].function, "invariant");
         assert_eq!(rows[0].calls, "0");
         assert_eq!(rows[0].gas, "0.00 G");
+        assert_eq!(rows[0].elapsed, "0.00s");
+        assert_eq!(rows[0].rpc_hit, "0");
+        assert_eq!(rows[0].rpc_miss, "0");
+        assert_eq!(rows[0].rpc_wait, "0.00s");
         assert_eq!(rows[0].reverts, "0");
+    }
+
+    #[test]
+    fn hotspot_picks_max_elapsed_and_skips_cold_handlers() {
+        let coverage = SharedCoverage::new();
+        let corpus = SharedCorpus::new(CorpusConfig::new(""));
+        let handlers = [
+            alloy_json_abi::Function::parse("getQuote(uint24)").unwrap(),
+            alloy_json_abi::Function::parse("swap()").unwrap(),
+        ];
+        let stats = CampaignStats::new(&coverage, &corpus, &handlers, &[], &[]);
+
+        let cold = FunctionMetricsSnapshot {
+            calls: 10,
+            gas: 1_000,
+            ..Default::default()
+        };
+        let hot = FunctionMetricsSnapshot {
+            calls: 2,
+            elapsed: Duration::from_millis(11_800),
+            rpc: RpcStats {
+                hits: 4,
+                misses: 48,
+                wait: Duration::from_millis(11_200),
+            },
+            ..Default::default()
+        };
+        let metrics = vec![
+            (handlers[1].signature(), cold),
+            (handlers[0].signature(), hot),
+        ];
+
+        let hotspot = stats.hotspot(&metrics).expect("expected a hotspot");
+        assert_eq!(hotspot.kind, "handler");
+        assert_eq!(hotspot.function, "getQuote");
+        assert_eq!(hotspot.elapsed, Duration::from_millis(11_800));
+        assert_eq!(hotspot.rpc_miss, 48);
+
+        let none = stats.hotspot(&[(handlers[1].signature(), cold)]);
+        assert_eq!(none, None);
     }
 }

@@ -15,7 +15,8 @@ use crate::evm;
 use crate::evm::{SharedCoverage, Transaction, TransactionResult};
 use crate::fuzzers::engine::{EngineConfig, FuzzStrategy, Fuzzer};
 use crate::fuzzers::{
-    MaxObjective, MaxxingFuzzerCorpus, MaxxingFuzzerOutput, SharedMetrics, SharedStopEvent,
+    FunctionMetricsSnapshot, MaxObjective, MaxxingFuzzerCorpus, MaxxingFuzzerOutput, SharedMetrics,
+    SharedStopEvent,
 };
 
 /// Per-fuzzer configuration for max mode, configured via a fluent builder API.
@@ -265,21 +266,15 @@ impl FuzzStrategy for MaxxingStrategy {
         let stride = 2;
         for (i, call) in item.calls.iter().enumerate() {
             let handler_result = &results[i * stride];
-            let handler_reverts = if handler_result.success { 0 } else { 1 };
             metrics.record_function(
                 &call.function.signature(),
-                1,
-                handler_result.gas_used,
-                handler_reverts,
+                FunctionMetricsSnapshot::from_transaction(handler_result),
             );
 
             let result = &results[i * stride + 1];
-            let reverts = if result.success { 0 } else { 1 };
             metrics.record_function(
                 &self.objective.function.signature(),
-                1,
-                result.gas_used,
-                reverts,
+                FunctionMetricsSnapshot::from_transaction(result),
             );
 
             let (improved, improved_value) = match self.objective.decode(result) {

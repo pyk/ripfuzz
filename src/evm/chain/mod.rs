@@ -1,6 +1,7 @@
 //! EVM chain state and executor.
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use alloy_primitives::{Address, U256, address};
 use anyhow::{Context as _, Result, ensure};
@@ -20,7 +21,7 @@ pub use exec::ExecOutput;
 pub use setup::{SetupInput, SetupOutput};
 pub use transaction::Transaction;
 
-use crate::evm::forkdb::{LocalTracker, RpcStats, SharedLocalAddressRegistry};
+use crate::evm::forkdb::{LocalTracker, RpcStats, SharedBackend, SharedLocalAddressRegistry};
 use crate::evm::{cheatcode, coverage, database, result, trace};
 
 mod config;
@@ -395,10 +396,14 @@ impl Chain {
                 chain_id: Some(evm.ctx.cfg.chain_id),
                 ..Default::default()
             };
+            let rpc_before = SharedBackend::thread_stats();
+            let started = Instant::now();
             let result = evm
                 .inspect_tx_commit(tx_env)
                 .context("revm transaction failed")?;
-            let result = result::TransactionResult::from(result);
+            let mut result = result::TransactionResult::from(result);
+            result.elapsed = started.elapsed();
+            result.rpc = SharedBackend::thread_stats().saturating_sub(rpc_before);
             if result.is_assert_failure() {
                 // checkrs: allow(clone_in_loops)
                 panic_transactions.push(tx.clone());

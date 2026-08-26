@@ -112,10 +112,12 @@ impl MaxxingCampaign {
         wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
             if let Some(snapshot) = shared_metrics.try_snapshot() {
                 let value = fuzzer_corpus.best_value().unwrap_or(U256::ZERO);
+                let function_metrics = shared_metrics.function_metrics();
                 stats_ctx.log_maxxing_summary(
                     &snapshot,
                     value,
                     self.session.chain.rpc_stats(),
+                    &function_metrics,
                     "progress",
                 );
             }
@@ -177,17 +179,11 @@ impl MaxxingCampaign {
             &shared_metrics.aggregate(),
             value,
             self.session.chain.rpc_stats(),
+            &function_metrics,
             "finished",
         );
         for stat in stats_ctx.function_stats(&function_metrics) {
-            info!(
-                calls = %stat.calls,
-                gas = %stat.gas,
-                reverts = %stat.reverts,
-                "{} {}",
-                stat.kind,
-                stat.function,
-            );
+            stat.log();
         }
         drop(_guard);
         drop(span);

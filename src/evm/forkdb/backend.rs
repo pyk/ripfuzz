@@ -81,6 +81,7 @@
 //! On success every item is inserted into the lock-free `global_cache`
 //! (visible to all threads immediately) and written to disk.
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -123,6 +124,34 @@ impl RpcStats {
             wait: self.wait.saturating_add(other.wait),
         }
     }
+
+    /// Difference between two snapshots taken on the same thread.
+    pub fn saturating_sub(self, other: Self) -> Self {
+        Self {
+            hits: self.hits.saturating_sub(other.hits),
+            misses: self.misses.saturating_sub(other.misses),
+            wait: self.wait.saturating_sub(other.wait),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct ThreadRpcCounters {
+    hits: u64,
+    misses: u64,
+    wait_ms: u64,
+}
+
+impl ThreadRpcCounters {
+    const ZERO: Self = Self {
+        hits: 0,
+        misses: 0,
+        wait_ms: 0,
+    };
+}
+
+thread_local! {
+    static THREAD_STATS: Cell<ThreadRpcCounters> = const { Cell::new(ThreadRpcCounters::ZERO) };
 }
 
 /// Shared RPC backend with automatic batching, caching, and deduplication.
@@ -219,9 +248,16 @@ impl SharedBackend {
             return Ok(Vec::new());
         }
         if let Some(results) = self.try_fast_path(reqs)? {
+            Self::add_thread_hits(results.len() as u64);
             return Ok(results);
         }
-        self.try_slow_path(reqs)
+        let (hits, misses) = self.cache_hits_and_misses(reqs);
+        Self::add_thread_hits(hits);
+        Self::add_thread_misses(misses);
+        let started = Instant::now();
+        let result = self.try_slow_path(reqs);
+        Self::add_thread_wait(started.elapsed());
+        result
     }
 
     /// Snapshot of cache hits, RPC misses, and time spent in the batch path.
@@ -231,6 +267,56 @@ impl SharedBackend {
             misses: self.inner.misses.load(Ordering::Relaxed),
             wait: Duration::from_millis(self.inner.wait_ms.load(Ordering::Relaxed)),
         }
+    }
+
+    /// Per-thread RPC counters for attributing hits/misses to the current handler.
+    pub fn thread_stats() -> RpcStats {
+        THREAD_STATS.with(|cell| {
+            let counters = cell.get();
+            RpcStats {
+                hits: counters.hits,
+                misses: counters.misses,
+                wait: Duration::from_millis(counters.wait_ms),
+            }
+        })
+    }
+
+    fn cache_hits_and_misses(&self, reqs: &[Request]) -> (u64, u64) {
+        let map = self.inner.global_cache.pin();
+        let mut hits = 0u64;
+        let mut misses = 0u64;
+        for req in reqs {
+            if map.get(&req.cache_key()).is_some() {
+                hits += 1;
+            } else {
+                misses += 1;
+            }
+        }
+        (hits, misses)
+    }
+
+    fn add_thread_hits(n: u64) {
+        THREAD_STATS.with(|cell| {
+            let mut counters = cell.get();
+            counters.hits = counters.hits.saturating_add(n);
+            cell.set(counters);
+        });
+    }
+
+    fn add_thread_misses(n: u64) {
+        THREAD_STATS.with(|cell| {
+            let mut counters = cell.get();
+            counters.misses = counters.misses.saturating_add(n);
+            cell.set(counters);
+        });
+    }
+
+    fn add_thread_wait(wait: Duration) {
+        THREAD_STATS.with(|cell| {
+            let mut counters = cell.get();
+            counters.wait_ms = counters.wait_ms.saturating_add(wait.as_millis() as u64);
+            cell.set(counters);
+        });
     }
 
     // Fast path
@@ -594,6 +680,10 @@ mod tests {
     use super::*;
     use crate::evm::forkdb::{ForkDBConfig, MockTransport, Request, Response, Transport, url_hash};
 
+    fn reset_thread_stats() {
+        THREAD_STATS.with(|cell| cell.set(ThreadRpcCounters::ZERO));
+    }
+
     /// Regression: disk cache must use compact JSON, not pretty-printed JSON.
     #[test]
     fn disk_cache_uses_compact_json() {
@@ -693,8 +783,10 @@ mod tests {
 
         let config = ForkDBConfig::new(url).batch_timeout_ms(0).batch_size(1);
         let backend = SharedBackend::new_with_transport(config, transport);
+        reset_thread_stats();
 
         assert_eq!(backend.stats(), RpcStats::default());
+        assert_eq!(SharedBackend::thread_stats(), RpcStats::default());
 
         backend
             .fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
@@ -702,6 +794,9 @@ mod tests {
         let after_miss = backend.stats();
         assert_eq!(after_miss.hits, 0);
         assert_eq!(after_miss.misses, 1);
+        let thread_after_miss = SharedBackend::thread_stats();
+        assert_eq!(thread_after_miss.hits, 0);
+        assert_eq!(thread_after_miss.misses, 1);
 
         backend
             .fetch_or_wait(&[Request::GetChainId { url_hash: url_h }])
@@ -709,6 +804,9 @@ mod tests {
         let after_hit = backend.stats();
         assert_eq!(after_hit.hits, 1);
         assert_eq!(after_hit.misses, 1);
+        let thread_after_hit = SharedBackend::thread_stats();
+        assert_eq!(thread_after_hit.hits, 1);
+        assert_eq!(thread_after_hit.misses, 1);
     }
 
     /// Regression: backoff must be capped so a permanently down endpoint

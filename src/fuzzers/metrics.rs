@@ -5,12 +5,34 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::evm::RpcStats;
+use crate::evm::TransactionResult;
+
 /// Atomic counter set for one function.
 #[derive(Debug)]
 struct AtomicFunctionMetrics {
     calls: AtomicU64,
     gas: AtomicU64,
     reverts: AtomicU64,
+    elapsed_ms: AtomicU64,
+    rpc_hits: AtomicU64,
+    rpc_misses: AtomicU64,
+    rpc_wait_ms: AtomicU64,
+}
+
+impl AtomicFunctionMetrics {
+    fn add(&self, sample: FunctionMetricsSnapshot) {
+        self.calls.fetch_add(sample.calls, Ordering::Relaxed);
+        self.gas.fetch_add(sample.gas, Ordering::Relaxed);
+        self.reverts.fetch_add(sample.reverts, Ordering::Relaxed);
+        self.elapsed_ms
+            .fetch_add(sample.elapsed.as_millis() as u64, Ordering::Relaxed);
+        self.rpc_hits.fetch_add(sample.rpc.hits, Ordering::Relaxed);
+        self.rpc_misses
+            .fetch_add(sample.rpc.misses, Ordering::Relaxed);
+        self.rpc_wait_ms
+            .fetch_add(sample.rpc.wait.as_millis() as u64, Ordering::Relaxed);
+    }
 }
 
 /// Metrics snapshot produced by [`SharedMetrics::try_snapshot`].
@@ -22,21 +44,35 @@ pub struct Snapshot {
     pub gas: u64,
 }
 
-/// Per-function metrics snapshot (calls, gas, reverts).
+/// Per-function metrics snapshot (calls, gas, reverts, wall time, RPC).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FunctionMetricsSnapshot {
     pub calls: u64,
     pub gas: u64,
     pub reverts: u64,
+    pub elapsed: Duration,
+    pub rpc: RpcStats,
+}
+
+impl FunctionMetricsSnapshot {
+    /// Record one executed transaction against this function.
+    pub fn from_transaction(result: &TransactionResult) -> Self {
+        Self {
+            calls: 1,
+            gas: result.gas_used,
+            reverts: if result.success { 0 } else { 1 },
+            elapsed: result.elapsed,
+            rpc: result.rpc,
+        }
+    }
 }
 
 /// Mutable state held by [`SharedMetrics`] behind an [`Arc`].
 ///
 /// Simple counters use atomics so threads can increment them lock-free.
 /// Per-function metrics are stored in a pre-allocated array because each
-/// function requires three counters (calls, gas, reverts) and must be
-/// dynamically keyed by signature. A read-only `HashMap` maps signatures
-/// to indices.
+/// function requires several counters and must be dynamically keyed by
+/// signature. A read-only `HashMap` maps signatures to indices.
 #[derive(Debug)]
 struct SharedMetricsInner {
     runs: AtomicU64,
@@ -67,6 +103,10 @@ impl SharedMetrics {
                 calls: AtomicU64::new(0),
                 gas: AtomicU64::new(0),
                 reverts: AtomicU64::new(0),
+                elapsed_ms: AtomicU64::new(0),
+                rpc_hits: AtomicU64::new(0),
+                rpc_misses: AtomicU64::new(0),
+                rpc_wait_ms: AtomicU64::new(0),
             });
         }
         Self {
@@ -90,12 +130,9 @@ impl SharedMetrics {
     }
 
     /// Record per-function metrics for a single transaction.
-    pub fn record_function(&self, signature: &str, calls: u64, gas: u64, reverts: u64) {
+    pub fn record_function(&self, signature: &str, sample: FunctionMetricsSnapshot) {
         if let Some(&idx) = self.inner.function_index.get(signature) {
-            let metrics = &self.inner.functions[idx];
-            metrics.calls.fetch_add(calls, Ordering::Relaxed);
-            metrics.gas.fetch_add(gas, Ordering::Relaxed);
-            metrics.reverts.fetch_add(reverts, Ordering::Relaxed);
+            self.inner.functions[idx].add(sample);
         }
     }
 
@@ -112,6 +149,12 @@ impl SharedMetrics {
                     calls: metrics.calls.load(Ordering::Relaxed),
                     gas: metrics.gas.load(Ordering::Relaxed),
                     reverts: metrics.reverts.load(Ordering::Relaxed),
+                    elapsed: Duration::from_millis(metrics.elapsed_ms.load(Ordering::Relaxed)),
+                    rpc: RpcStats {
+                        hits: metrics.rpc_hits.load(Ordering::Relaxed),
+                        misses: metrics.rpc_misses.load(Ordering::Relaxed),
+                        wait: Duration::from_millis(metrics.rpc_wait_ms.load(Ordering::Relaxed)),
+                    },
                 },
             ));
         }
@@ -156,5 +199,54 @@ impl SharedMetrics {
 impl Default for SharedMetrics {
     fn default() -> Self {
         Self::new(Vec::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_function_accumulates_elapsed_and_rpc() {
+        let metrics = SharedMetrics::new(vec!["foo()".into()]);
+        metrics.record_function(
+            "foo()",
+            FunctionMetricsSnapshot {
+                calls: 1,
+                gas: 10,
+                reverts: 0,
+                elapsed: Duration::from_millis(25),
+                rpc: RpcStats {
+                    hits: 2,
+                    misses: 3,
+                    wait: Duration::from_millis(20),
+                },
+            },
+        );
+        metrics.record_function(
+            "foo()",
+            FunctionMetricsSnapshot {
+                calls: 1,
+                gas: 5,
+                reverts: 1,
+                elapsed: Duration::from_millis(10),
+                rpc: RpcStats {
+                    hits: 1,
+                    misses: 1,
+                    wait: Duration::from_millis(5),
+                },
+            },
+        );
+
+        let rows = metrics.function_metrics();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "foo()");
+        assert_eq!(rows[0].1.calls, 2);
+        assert_eq!(rows[0].1.gas, 15);
+        assert_eq!(rows[0].1.reverts, 1);
+        assert_eq!(rows[0].1.elapsed, Duration::from_millis(35));
+        assert_eq!(rows[0].1.rpc.hits, 3);
+        assert_eq!(rows[0].1.rpc.misses, 4);
+        assert_eq!(rows[0].1.rpc.wait, Duration::from_millis(25));
     }
 }

@@ -74,8 +74,7 @@ mod tests {
             success: true,
             gas_used: 0,
             output: Some(Bytes::from(output)),
-            logs: vec![],
-            created_address: None,
+            ..Default::default()
         };
 
         assert_eq!(objective().decode(&result), Some(U256::from(42)));
@@ -87,8 +86,7 @@ mod tests {
             success: false,
             gas_used: 0,
             output: Some(Bytes::from(vec![0u8; 32])),
-            logs: vec![],
-            created_address: None,
+            ..Default::default()
         };
 
         assert_eq!(objective().decode(&result), None);
@@ -100,8 +98,7 @@ mod tests {
             success: true,
             gas_used: 0,
             output: Some(Bytes::new()),
-            logs: vec![],
-            created_address: None,
+            ..Default::default()
         };
 
         assert_eq!(objective().decode(&result), None);

@@ -161,16 +161,20 @@ that cloned snapshot after setup has run `rvm.fork`.
 ## Debugging slow fork campaigns
 
 When a campaign looks stuck (runs or coverage frozen), the progress line
-includes RPC counters:
+includes RPC counters and the current hotspot handler:
 
 ```text
-progress runs=44 ... rpc_hit=12,482 rpc_miss=63 rpc_wait=12.4s ...
+progress runs=44 ... rpc_hit=12,482 rpc_miss=63 rpc_wait=12.4s hot=getQuote hot_elapsed=11.8s hot_rpc_miss=48 ...
 ```
 
 - `rpc_miss` climbing while `runs` is stuck: the fuzzer is waiting on RPC
   (uncached account or storage reads)
 - `rpc_hit` and `rpc_miss` both flat: time is in the EVM, not the node
 - `rpc_wait` is time spent in RPC batches, including rate-limit sleeps
+- `hot` is the handler (or invariant/max function) with the most wall time;
+  `hot=-` means every function is still at zero
+- Finished logs still print every handler, with `elapsed`, `rpc_hit`,
+  `rpc_miss`, and `rpc_wait` on each row
 
 On the first `rvm.fork`, cache load is logged:
 

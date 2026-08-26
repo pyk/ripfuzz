@@ -13,6 +13,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - Fork-mode progress and finished logs now include `rpc_hit`, `rpc_miss`, and
   `rpc_wait`, and loading a fork cache logs `loaded fork cache` with the entry
   count, so a stuck campaign can be diagnosed as RPC-bound vs EVM-bound
+- Campaign progress names the current hotspot handler (`hot`, `hot_elapsed`,
+  `hot_rpc_miss`), and finished per-function rows include wall time and RPC
+  counters, so a slow handler like an unbounded `getQuote` shows up while the
+  run is still stuck
 
 ### Changed
 

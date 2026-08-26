@@ -115,7 +115,13 @@ impl InvariantCampaign {
 
             wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
                 if let Some(snapshot) = shared_metrics.try_snapshot() {
-                    stats_ctx.log_summary(&snapshot, session.chain.rpc_stats(), "progress");
+                    let function_metrics = shared_metrics.function_metrics();
+                    stats_ctx.log_summary(
+                        &snapshot,
+                        session.chain.rpc_stats(),
+                        &function_metrics,
+                        "progress",
+                    );
                 }
                 Ok(())
             })?;
@@ -172,17 +178,11 @@ impl InvariantCampaign {
             stats_ctx.log_summary(
                 &shared_metrics.aggregate(),
                 session.chain.rpc_stats(),
+                &function_metrics,
                 "finished",
             );
             for stat in stats_ctx.function_stats(&function_metrics) {
-                info!(
-                    calls = %stat.calls,
-                    gas = %stat.gas,
-                    reverts = %stat.reverts,
-                    "{} {}",
-                    stat.kind,
-                    stat.function,
-                );
+                stat.log();
             }
 
             info!("no failed assertions found!");
@@ -234,17 +234,11 @@ impl InvariantCampaign {
         stats_ctx.log_summary(
             &shared_metrics.aggregate(),
             session.chain.rpc_stats(),
+            &function_metrics,
             "finished",
         );
         for stat in stats_ctx.function_stats(&function_metrics) {
-            info!(
-                calls = %stat.calls,
-                gas = %stat.gas,
-                reverts = %stat.reverts,
-                "{} {}",
-                stat.kind,
-                stat.function,
-            );
+            stat.log();
         }
         let assertion_word = if failed_assertions.len() == 1 {
             "assertion"

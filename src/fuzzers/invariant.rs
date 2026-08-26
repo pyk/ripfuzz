@@ -24,7 +24,8 @@ use crate::evm;
 use crate::evm::{SharedCoverage, Transaction, TransactionResult};
 use crate::fuzzers::engine::{EngineConfig, FuzzStrategy, Fuzzer};
 use crate::fuzzers::{
-    InvariantFuzzerOutput, SharedFailedAssertions, SharedMetrics, SharedStopEvent,
+    FunctionMetricsSnapshot, InvariantFuzzerOutput, SharedFailedAssertions, SharedMetrics,
+    SharedStopEvent,
 };
 
 /// Per-fuzzer configuration for invariant mode, configured via a fluent
@@ -294,11 +295,10 @@ impl FuzzStrategy for InvariantStrategy {
             .chain(self.invariant_calls.iter())
             .zip(results.iter())
         {
-            let signature = call.function.signature();
-            let calls = 1;
-            let gas = result.gas_used;
-            let reverts = if result.success { 0 } else { 1 };
-            metrics.record_function(&signature, calls, gas, reverts);
+            metrics.record_function(
+                &call.function.signature(),
+                FunctionMetricsSnapshot::from_transaction(result),
+            );
         }
         Ok(())
     }
