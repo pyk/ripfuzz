@@ -41,7 +41,7 @@ use revm::{
 use alloy_primitives::B256;
 use revm::interpreter::interpreter_types::InputsTr;
 
-use crate::evm::coverage::edge::edge_marker;
+use crate::evm::coverage::edge::{call_edge_marker, edge_marker};
 use crate::evm::coverage::exec::{ExecutionContractCoverage, ExecutionCoverage};
 use crate::evm::coverage::id::CoverageId;
 
@@ -215,8 +215,18 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
     fn call(
         &mut self,
         _context: &mut CTX,
-        _inputs: &mut revm::interpreter::CallInputs,
+        inputs: &mut revm::interpreter::CallInputs,
     ) -> Option<revm::interpreter::CallOutcome> {
+        if let Some(contract_id) = self.current_contract
+            && let Some(coverage) = self.local.contracts.get_mut(&contract_id)
+        {
+            let marker = call_edge_marker(self.last_pc, inputs.target_address);
+            coverage
+                .jump_edges
+                .entry(marker)
+                .and_modify(|c| *c = c.saturating_add(1))
+                .or_insert(1);
+        }
         self.contract_stack.push(self.current_contract);
         self.current_call_depth += 1;
         None
@@ -271,6 +281,7 @@ mod tests {
     use crate::evm::Contract;
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::coverage::SharedCoverage;
+    use crate::evm::coverage::edge::call_edge_marker;
     use crate::foundry;
 
     alloy_sol_types::sol! {
@@ -541,16 +552,72 @@ mod tests {
             update2.is_interesting(),
             "second indexed call with different child via same parent function should be interesting via per-address child"
         );
-        assert_eq!(
+        assert!(
             update2.new_edges > 0,
-            true,
             "second clone must add new edges for child"
+        );
+        assert!(
+            update2.new_jump_edges > 0,
+            "second clone must add new call edge (caller_pc, callee) for caller"
         );
         let count_after_2 = global.contract_count();
         assert_eq!(
             count_after_2,
             count_after_1 + 1,
             "second child at new address should increase contract count"
+        );
+        // Caller-side jump edge must be distinct per callee and must equal
+        // call_edge_marker(pc, callee) for some pc in the parent bytecode.
+        let parent_cov1 = coverage1
+            .contracts
+            .iter()
+            .find(|(id, _)| id.address() == Some(target))
+            .map(|(_, c)| c)
+            .expect("coverage must contain parent contract");
+        let parent_cov2 = coverage2
+            .contracts
+            .iter()
+            .find(|(id, _)| id.address() == Some(target))
+            .map(|(_, c)| c)
+            .expect("coverage must contain parent contract");
+        assert!(
+            !parent_cov1.jump_edges.is_empty(),
+            "parent should have at least one call edge"
+        );
+        assert!(
+            !parent_cov2.jump_edges.is_empty(),
+            "parent should have at least one call edge"
+        );
+        assert_ne!(
+            parent_cov1.jump_edges, parent_cov2.jump_edges,
+            "call edge marker must differ for different callee addresses"
+        );
+        let child_addr1 = child_id1.address().expect("child must have address");
+        let child_addr2 = child_id2.address().expect("child must have address");
+        let bytecode_len = parent_cov1.bytecode.len().max(parent_cov2.bytecode.len());
+        let mut found_pc: Option<usize> = None;
+        for pc in 0..bytecode_len {
+            let marker = call_edge_marker(pc, child_addr2);
+            if parent_cov2.jump_edges.contains_key(&marker)
+                && !parent_cov1.jump_edges.contains_key(&marker)
+            {
+                found_pc = Some(pc);
+                break;
+            }
+        }
+        assert!(
+            found_pc.is_some(),
+            "parent coverage for second child must contain call_edge_marker(pc, child2) for some pc in parent bytecode"
+        );
+        let pc = found_pc.unwrap();
+        let marker1 = call_edge_marker(pc, child_addr1);
+        assert!(
+            parent_cov1.jump_edges.contains_key(&marker1),
+            "parent coverage for first child must contain call_edge_marker(pc, child1)"
+        );
+        assert!(
+            !parent_cov2.jump_edges.contains_key(&marker1),
+            "second parent coverage must not contain marker for first child"
         );
         // Identical second call with same idx must not be interesting.
         let exec3 = chain.exec(&txs2).unwrap();

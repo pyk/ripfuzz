@@ -10,6 +10,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- Coverage now records `CALL` targets as `new_jump_edges` via
+  `(caller_pc, callee_address)` hash, so calls to different addresses at the
+  same PC are distinct even when bytecode is shared
 - Coverage is now keyed by `(address, codehash)` for runtime contracts, so the
   first `CALL` into each clone is considered interesting even when bytecode is
   shared; initcode remains keyed by hash
