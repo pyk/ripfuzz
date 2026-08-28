@@ -10,6 +10,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- Corpus now uses AFL-style energy for `pick_item` (finds boost energy even for
+  existing ids via `bump_entry`, energy decays only after a mutation that adds
+  nothing) and caps at 1024 items evicting lowest-energy entries while never
+  evicting the current best, min and max
 - Maxxing now treats `max_*` as raw `uint256` score with baseline after
   `setup()` and keeps prefixes that set a new raw max or min, so lossy prefixes
   that are on the path to profit stay in the corpus

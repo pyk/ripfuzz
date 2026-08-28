@@ -262,8 +262,9 @@ impl FuzzStrategy for MaxxingStrategy {
         item: &Item,
         results: &[TransactionResult],
         metrics: &SharedMetrics,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let stride = 2;
+        let mut found_new = false;
         for (i, call) in item.calls.iter().enumerate() {
             let handler_result = &results[i * stride];
             metrics.record_function(
@@ -284,6 +285,9 @@ impl FuzzStrategy for MaxxingStrategy {
             // checkrs: allow(clone_in_loops)
             let extreme_kept = self.corpus.record_extreme(raw, prefix.clone())?;
             let improved = self.corpus.record_improvement(raw, prefix)?;
+            if extreme_kept || improved {
+                found_new = true;
+            }
             if improved {
                 let baseline = self.corpus.baseline().unwrap_or(U256::ZERO);
                 let derived = raw.saturating_sub(baseline);
@@ -300,7 +304,11 @@ impl FuzzStrategy for MaxxingStrategy {
                 );
             }
         }
-        Ok(())
+        Ok(found_new)
+    }
+
+    fn note_miss(&self) {
+        self.corpus.note_miss();
     }
 
     fn add_interesting(&self, item: Item) -> Result<()> {

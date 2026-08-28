@@ -35,6 +35,12 @@ struct MaxxingFuzzerCorpusInner {
     baseline: RwLock<Option<U256>>,
     /// Raw-score extremes, initialized to `baseline`.
     extremes: RwLock<Option<Extremes>>,
+    /// Protected best id for eviction.
+    protected_best: RwLock<Option<String>>,
+    /// Protected max extreme id.
+    protected_max: RwLock<Option<String>>,
+    /// Protected min extreme id.
+    protected_min: RwLock<Option<String>>,
 }
 
 /// Thread-safe corpus used by maxxing fuzzer threads.
@@ -55,6 +61,9 @@ impl MaxxingFuzzerCorpus {
                 best: RwLock::new(None),
                 baseline: RwLock::new(None),
                 extremes: RwLock::new(None),
+                protected_best: RwLock::new(None),
+                protected_max: RwLock::new(None),
+                protected_min: RwLock::new(None),
             }),
         }
     }
@@ -95,6 +104,11 @@ impl MaxxingFuzzerCorpus {
         self.inner.corpus.next_item(rng)
     }
 
+    /// Record that the last picked item did not lead to a new find.
+    pub fn note_miss(&self) {
+        self.inner.corpus.note_miss();
+    }
+
     /// Add a coverage-interesting sequence to the shared corpus.
     pub fn add_coverage_item(&self, item: Item) -> Result<()> {
         self.inner.corpus.add_item(item)
@@ -126,7 +140,19 @@ impl MaxxingFuzzerCorpus {
         };
 
         if improved {
+            let new_id = item.id();
             self.inner.corpus.add_item(item)?;
+            {
+                let mut protected = self.inner.protected_best.write();
+                let old = protected.clone();
+                if old.as_ref() != Some(&new_id) {
+                    self.inner.corpus.protect(&new_id);
+                    *protected = Some(new_id.clone());
+                    if let Some(old_id) = old {
+                        self.inner.corpus.unprotect(&old_id);
+                    }
+                }
+            }
         }
 
         Ok(improved)
@@ -140,16 +166,16 @@ impl MaxxingFuzzerCorpus {
     /// mutated. Returns `true` when the prefix was kept.
     pub fn record_extreme(&self, raw_score: U256, item: Item) -> Result<bool> {
         let mut extremes = self.inner.extremes.write();
-        let is_new = match extremes.as_mut() {
+        let (is_new, is_max) = match extremes.as_mut() {
             Some(extremes) => {
                 if raw_score > extremes.max {
                     extremes.max = raw_score;
-                    true
+                    (true, true)
                 } else if raw_score < extremes.min {
                     extremes.min = raw_score;
-                    true
+                    (true, false)
                 } else {
-                    false
+                    (false, false)
                 }
             }
             None => {
@@ -157,12 +183,34 @@ impl MaxxingFuzzerCorpus {
                     max: raw_score,
                     min: raw_score,
                 });
-                false
+                (false, false)
             }
         };
         drop(extremes);
         if is_new {
+            let new_id = item.id();
             self.inner.corpus.add_item(item)?;
+            if is_max {
+                let mut protected = self.inner.protected_max.write();
+                let old = protected.clone();
+                if old.as_ref() != Some(&new_id) {
+                    self.inner.corpus.protect(&new_id);
+                    *protected = Some(new_id.clone());
+                    if let Some(old_id) = old {
+                        self.inner.corpus.unprotect(&old_id);
+                    }
+                }
+            } else {
+                let mut protected = self.inner.protected_min.write();
+                let old = protected.clone();
+                if old.as_ref() != Some(&new_id) {
+                    self.inner.corpus.protect(&new_id);
+                    *protected = Some(new_id.clone());
+                    if let Some(old_id) = old {
+                        self.inner.corpus.unprotect(&old_id);
+                    }
+                }
+            }
         }
         Ok(is_new)
     }
@@ -296,5 +344,67 @@ mod tests {
                 .unwrap(),
             "value between min and max must not be kept"
         );
+    }
+
+    #[test]
+    fn old_best_becomes_evictable_after_new_best() {
+        let tmp = tempfile::tempdir().unwrap();
+        let corpus = SharedCorpus::new(CorpusConfig::new(tmp.path().join("corpus")));
+        let fuzzer_corpus = MaxxingFuzzerCorpus::new(corpus);
+        fuzzer_corpus.set_baseline(U256::from(100));
+        let item1 = Item::from(vec![empty_call()]);
+        let item2 = Item::from(vec![empty_call(), empty_call()]);
+        assert!(
+            fuzzer_corpus
+                .record_improvement(U256::from(150), item1.clone())
+                .unwrap()
+        );
+        let id1 = item1.id();
+        assert_eq!(
+            fuzzer_corpus.inner.protected_best.read().as_ref(),
+            Some(&id1)
+        );
+        assert!(
+            fuzzer_corpus
+                .record_improvement(U256::from(200), item2.clone())
+                .unwrap()
+        );
+        let id2 = item2.id();
+        assert_eq!(
+            fuzzer_corpus.inner.protected_best.read().as_ref(),
+            Some(&id2)
+        );
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn old_extreme_becomes_evictable_after_new_extreme() {
+        let tmp = tempfile::tempdir().unwrap();
+        let corpus = SharedCorpus::new(CorpusConfig::new(tmp.path().join("corpus")));
+        let fuzzer_corpus = MaxxingFuzzerCorpus::new(corpus);
+        fuzzer_corpus.set_baseline(U256::from(100));
+        let item_min1 = Item::from(vec![empty_call()]);
+        let item_min2 = Item::from(vec![empty_call(), empty_call()]);
+        assert!(
+            fuzzer_corpus
+                .record_extreme(U256::from(90), item_min1.clone())
+                .unwrap()
+        );
+        let id_min1 = item_min1.id();
+        assert_eq!(
+            fuzzer_corpus.inner.protected_min.read().as_ref(),
+            Some(&id_min1)
+        );
+        assert!(
+            fuzzer_corpus
+                .record_extreme(U256::from(80), item_min2.clone())
+                .unwrap()
+        );
+        let id_min2 = item_min2.id();
+        assert_eq!(
+            fuzzer_corpus.inner.protected_min.read().as_ref(),
+            Some(&id_min2)
+        );
+        assert_ne!(id_min1, id_min2);
     }
 }

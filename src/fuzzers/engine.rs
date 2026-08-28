@@ -58,15 +58,21 @@ pub(super) trait FuzzStrategy {
     ) -> Vec<Transaction>;
 
     /// Observe the execution results: record metrics and mode-specific state.
+    ///
+    /// Returns `true` when the observation found a new score extreme or best
+    /// (maxxing) that should be considered as new coverage for energy.
     fn observe(
         &self,
         item: &Item,
         results: &[TransactionResult],
         metrics: &SharedMetrics,
-    ) -> Result<()>;
+    ) -> Result<bool>;
 
     /// Store an item that produced new coverage.
     fn add_interesting(&self, item: Item) -> Result<()>;
+
+    /// Record that the last picked item did not lead to a new find.
+    fn note_miss(&self) {}
 
     /// Assemble the thread output from run counters.
     fn output(self, runs: u64, total_calls: u64, total_gas: u64) -> Self::Output;
@@ -155,8 +161,13 @@ impl<S: FuzzStrategy> Fuzzer<S> {
                 None
             };
 
-            self.strategy
-                .observe(&item, &exec.results, &self.config.shared_metrics)?;
+            let found_new_score =
+                self.strategy
+                    .observe(&item, &exec.results, &self.config.shared_metrics)?;
+            let found_new = interesting || has_failure || found_new_score;
+            if !found_new {
+                self.strategy.note_miss();
+            }
 
             let calls_count = transactions.len() as u64;
             let gas_sum = exec.results.iter().map(|r| r.gas_used).sum::<u64>();

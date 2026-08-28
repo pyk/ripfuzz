@@ -288,7 +288,7 @@ impl FuzzStrategy for InvariantStrategy {
         item: &Item,
         results: &[TransactionResult],
         metrics: &SharedMetrics,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         for (call, result) in item
             .calls
             .iter()
@@ -300,7 +300,11 @@ impl FuzzStrategy for InvariantStrategy {
                 FunctionMetricsSnapshot::from_transaction(result),
             );
         }
-        Ok(())
+        Ok(false)
+    }
+
+    fn note_miss(&self) {
+        self.corpus.note_miss();
     }
 
     fn add_interesting(&self, item: Item) -> Result<()> {

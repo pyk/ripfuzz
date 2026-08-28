@@ -1,9 +1,10 @@
 //! Thread-safe shared corpus.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::thread::ThreadId;
 
 use parking_lot::RwLock;
 use rayon::prelude::*;
@@ -11,7 +12,7 @@ use rayon::prelude::*;
 use alloy_dyn_abi::{DynSolValue, Specifier};
 use alloy_json_abi::StateMutability;
 use anyhow::{Result, ensure};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::corpus::random::{RandomDynSolValue, random_uint};
 use crate::corpus::{Call, CorpusConfig, ExtractedLiterals, Item};
@@ -33,6 +34,30 @@ pub struct Stats {
     pub failure_count: usize,
 }
 
+const DEFAULT_ENERGY: u32 = 10;
+const MIN_ENERGY: u32 = 1;
+const MAX_CORPUS_SIZE: usize = 1024;
+
+fn bump_entry(entry: &mut CorpusEntry) {
+    entry.finds += 1;
+    entry.energy = (entry.energy + 5).min(100);
+}
+
+/// Corpus entry with energy for AFL-style scheduling.
+#[derive(Debug, Clone)]
+struct CorpusEntry {
+    /// Call sequence for this entry.
+    item: Item,
+    /// Current energy, higher means more likely to be picked.
+    energy: u32,
+    /// Insertion order for recency and eviction.
+    added_at: u64,
+    /// Number of times this entry was picked.
+    uses: u32,
+    /// Number of times this entry led to a new find.
+    finds: u32,
+}
+
 /// Combined in-memory store for corpus items.
 ///
 /// The `map` provides O(1) deduplication by [`Item::id`]; the `vec`
@@ -40,7 +65,8 @@ pub struct Stats {
 /// under a single [`parking_lot::RwLock`].
 struct SharedCorpusItems {
     pub ids: HashSet<String>,
-    pub vec: Vec<Item>,
+    pub vec: Vec<CorpusEntry>,
+    pub next_added_at: u64,
 }
 
 impl SharedCorpusItems {
@@ -52,7 +78,15 @@ impl SharedCorpusItems {
     pub fn try_add(&mut self, item: Item) -> bool {
         let id = item.id();
         if self.ids.insert(id) {
-            self.vec.push(item);
+            let entry = CorpusEntry {
+                item,
+                energy: DEFAULT_ENERGY,
+                added_at: self.next_added_at,
+                uses: 0,
+                finds: 0,
+            };
+            self.next_added_at += 1;
+            self.vec.push(entry);
             true
         } else {
             false
@@ -66,6 +100,10 @@ struct SharedCorpusInner {
     pub handler_functions: Vec<alloy_json_abi::Function>,
     pub max_calls_length: usize,
     pub literals: ExtractedLiterals,
+    /// Last picked item per thread for decay/boost.
+    last_picked: RwLock<HashMap<ThreadId, String>>,
+    /// Protected ids with refcount that must never be evicted (e.g., current best).
+    protected: RwLock<HashMap<String, usize>>,
 }
 
 impl std::fmt::Debug for SharedCorpusInner {
@@ -113,10 +151,13 @@ impl SharedCorpus {
             items: RwLock::new(SharedCorpusItems {
                 ids: HashSet::new(),
                 vec: Vec::new(),
+                next_added_at: 0,
             }),
             handler_functions: config.handler_functions,
             max_calls_length: config.max_calls_length,
             literals: config.literals,
+            last_picked: RwLock::new(HashMap::new()),
+            protected: RwLock::new(HashMap::new()),
         });
 
         Self { inner }
@@ -184,21 +225,102 @@ impl SharedCorpus {
 
     /// Return a cloned snapshot of all items currently in the corpus.
     pub fn items(&self) -> Vec<Item> {
-        self.inner.items.read().vec.clone()
+        self.inner
+            .items
+            .read()
+            .vec
+            .iter()
+            .map(|e| e.item.clone()) // checkrs: allow(clone_in_iterator)
+            .collect()
     }
 
     /// Select a random existing item from the corpus.
     ///
+    /// Uses AFL-style weighted selection where entries with higher energy are
+    /// more likely to be picked. Recently added items start with higher
+    /// energy. Energy is decayed only after a mutation that adds nothing,
+    /// so productive items keep their energy.
+    ///
     /// Used when `is_fresh_item` returns `false`.
     pub fn pick_item(&self, rng: &mut fastrand::Rng) -> Result<Item> {
-        let items = self.inner.items.read();
+        let mut items = self.inner.items.write();
         let count = items.vec.len();
         ensure!(
             count > 0,
             "pick_item called on empty corpus - check is_fresh_item first"
         );
-        let idx = rng.usize(0..count);
-        Ok(items.vec[idx].clone())
+        let total_energy: u32 = items.vec.iter().map(|e| e.energy).sum();
+        let mut choice = rng.u32(0..total_energy.max(1));
+        let mut picked_idx = 0usize;
+        for (idx, entry) in items.vec.iter().enumerate() {
+            if choice < entry.energy {
+                picked_idx = idx;
+                break;
+            }
+            choice -= entry.energy;
+            picked_idx = idx;
+        }
+        let entry = &mut items.vec[picked_idx];
+        entry.uses += 1;
+        let id = entry.item.id();
+        let item_clone = entry.item.clone();
+        drop(items);
+        self.inner
+            .last_picked
+            .write()
+            .insert(std::thread::current().id(), id);
+        Ok(item_clone)
+    }
+
+    /// Boost energy for an existing item, even if it is already present.
+    ///
+    /// Called when an item re-finds coverage or a new score extreme. The
+    /// entry's `finds` and `energy` are increased so it is picked more
+    /// often.
+    pub fn bump_energy(&self, id: &str) {
+        let mut items = self.inner.items.write();
+        if let Some(entry) = items.vec.iter_mut().find(|e| e.item.id() == id) {
+            bump_entry(entry);
+        }
+    }
+
+    /// Record that the last picked item was mutated but added nothing.
+    ///
+    /// Decays the energy of the last picked entry for this thread so
+    /// dead-ends are deprioritized. Productive items that just found new
+    /// coverage keep their energy because this is not called for them.
+    pub fn note_miss(&self) {
+        let thread_id = std::thread::current().id();
+        let last = self.inner.last_picked.read().get(&thread_id).cloned();
+        let Some(id) = last else {
+            return;
+        };
+        let mut items = self.inner.items.write();
+        if let Some(entry) = items.vec.iter_mut().find(|e| e.item.id() == id)
+            && entry.energy > MIN_ENERGY
+        {
+            entry.energy -= 1;
+        }
+    }
+
+    /// Protect an item from eviction (e.g., current best).
+    pub fn protect(&self, id: &str) {
+        let mut protected = self.inner.protected.write();
+        *protected.entry(id.to_string()).or_insert(0) += 1;
+    }
+
+    /// Remove protection for an item.
+    pub fn unprotect(&self, id: &str) {
+        let mut protected = self.inner.protected.write();
+        let should_remove = if let Some(count) = protected.get_mut(id) {
+            *count -= 1;
+            *count == 0
+        } else {
+            false
+        };
+        if should_remove {
+            protected.remove(id);
+        }
     }
 
     /// Add a corpus item to the collection.
@@ -206,14 +328,60 @@ impl SharedCorpus {
     /// Deduplicates by [`Item::id`]. Returns `Ok(())` whether the item
     /// already exists or was newly inserted. Only the thread that wins the
     /// atomic insert performs disk I/O, so the same item is never written
-    /// twice even under concurrent calls.
+    /// twice even under concurrent calls. Existing items are boosted so
+    /// re-finding them increases energy.
     pub fn add_item(&self, item: Item) -> Result<()> {
-        // Only the first thread to successfully insert reaches the
-        // disk-write code below. All other racing threads see the
-        // existing key and return early.
+        let id = item.id();
         let newly_inserted = {
             let mut items = self.inner.items.write();
-            items.try_add(item.clone())
+            if items.ids.contains(&id) {
+                if let Some(entry) = items.vec.iter_mut().find(|e| e.item.id() == id) {
+                    bump_entry(entry);
+                }
+                false
+            } else {
+                if items.vec.len() >= MAX_CORPUS_SIZE {
+                    let protected = self.inner.protected.read();
+                    let evict_idx = items
+                        .vec
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, e)| !protected.contains_key(&e.item.id()))
+                        .min_by_key(|(_, e)| (e.energy, e.added_at))
+                        .map(|(idx, _)| idx);
+                    drop(protected);
+                    if let Some(idx) = evict_idx {
+                        let evicted = items.vec.remove(idx);
+                        items.ids.remove(&evicted.item.id());
+                        let path = self
+                            .inner
+                            .corpus_dir
+                            .join(format!("{}.json", evicted.item.id()));
+                        let _ = fs::remove_file(&path);
+                        debug!(evicted_id = %evicted.item.id(), "corpus item evicted");
+                    } else {
+                        warn!(
+                            item_id = %id,
+                            "corpus at capacity but all items protected, dropping new item"
+                        );
+                        return Ok(());
+                    }
+                }
+                let added = items.try_add(item.clone());
+                if added {
+                    let thread_id = std::thread::current().id();
+                    if let Some(parent_id) = self.inner.last_picked.read().get(&thread_id).cloned()
+                        && parent_id != id
+                        && let Some(parent) =
+                            items.vec.iter_mut().find(|e| e.item.id() == parent_id)
+                    {
+                        bump_entry(parent);
+                    }
+                } else if let Some(entry) = items.vec.iter_mut().find(|e| e.item.id() == id) {
+                    bump_entry(entry);
+                }
+                added
+            }
         };
         if !newly_inserted {
             return Ok(());
@@ -452,6 +620,10 @@ impl SharedCorpus {
     /// item and mutates it before returning.
     pub fn next_item(&self, rng: &mut fastrand::Rng) -> Item {
         if self.is_fresh_item(rng) {
+            self.inner
+                .last_picked
+                .write()
+                .remove(&std::thread::current().id());
             return self.generate_item(rng);
         }
         let mut item = match self.pick_item(rng) {
@@ -1322,5 +1494,337 @@ mod tests {
             !ids.contains(&original_id),
             "mutate_item should never return the unmodified original item"
         );
+    }
+
+    #[test]
+    fn corpus_capped_at_max_size() {
+        let tmp = tempfile::tempdir().unwrap();
+        let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let contract = Contract {
+            artifact_id: ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            handler_functions: vec![func.clone()],
+            invariant_functions: vec![],
+            max_functions: vec![],
+            setup_function: None,
+            libraries: Vec::new(),
+            initcode: "0x".into(),
+        };
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
+        let corpus_config = CorpusConfig::new(corpus_dir)
+            .handler_functions(contract.handler_functions.clone())
+            .max_calls(4)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
+        for i in 0..(MAX_CORPUS_SIZE + 5) {
+            let item = Item::from(vec![Call {
+                function: func.clone(),
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                    alloy_primitives::U256::from(i),
+                    256,
+                )]),
+                ..Default::default()
+            }]);
+            corpus.add_item(item).unwrap();
+        }
+        assert_eq!(
+            corpus.stats().item_count,
+            MAX_CORPUS_SIZE,
+            "corpus should be capped at MAX_CORPUS_SIZE"
+        );
+    }
+
+    #[test]
+    fn pick_item_does_not_decay_until_miss() {
+        let tmp = tempfile::tempdir().unwrap();
+        let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let contract = Contract {
+            artifact_id: ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            handler_functions: vec![func.clone()],
+            invariant_functions: vec![],
+            max_functions: vec![],
+            setup_function: None,
+            libraries: Vec::new(),
+            initcode: "0x".into(),
+        };
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
+        let corpus_config = CorpusConfig::new(corpus_dir)
+            .handler_functions(contract.handler_functions.clone())
+            .max_calls(4)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
+        let item = Item::from(vec![Call {
+            function: func,
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                alloy_primitives::U256::from(1),
+                256,
+            )]),
+            ..Default::default()
+        }]);
+        corpus.add_item(item).unwrap();
+        let before = corpus.inner.items.read().vec[0].energy;
+        assert_eq!(before, DEFAULT_ENERGY);
+        let mut rng = fastrand::Rng::with_seed(0);
+        let _ = corpus.pick_item(&mut rng).unwrap();
+        let after_pick = corpus.inner.items.read().vec[0].energy;
+        assert_eq!(after_pick, DEFAULT_ENERGY, "pick should not decay");
+        assert_eq!(corpus.inner.items.read().vec[0].uses, 1);
+        corpus.note_miss();
+        let after_miss = corpus.inner.items.read().vec[0].energy;
+        assert_eq!(after_miss, DEFAULT_ENERGY - 1, "miss should decay");
+    }
+
+    #[test]
+    fn bump_energy_increases_on_refind() {
+        let tmp = tempfile::tempdir().unwrap();
+        let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let contract = Contract {
+            artifact_id: ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            handler_functions: vec![func.clone()],
+            invariant_functions: vec![],
+            max_functions: vec![],
+            setup_function: None,
+            libraries: Vec::new(),
+            initcode: "0x".into(),
+        };
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
+        let corpus_config = CorpusConfig::new(corpus_dir)
+            .handler_functions(contract.handler_functions.clone())
+            .max_calls(4)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
+        let item = Item::from(vec![Call {
+            function: func,
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                alloy_primitives::U256::from(42),
+                256,
+            )]),
+            ..Default::default()
+        }]);
+        corpus.add_item(item.clone()).unwrap();
+        let before = corpus.inner.items.read().vec[0].energy;
+        corpus.add_item(item.clone()).unwrap();
+        let after = corpus.inner.items.read().vec[0].energy;
+        assert_eq!(after, (before + 5).min(100), "re-adding should bump");
+    }
+
+    #[test]
+    fn protected_best_is_not_evicted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let contract = Contract {
+            artifact_id: ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            handler_functions: vec![func.clone()],
+            invariant_functions: vec![],
+            max_functions: vec![],
+            setup_function: None,
+            libraries: Vec::new(),
+            initcode: "0x".into(),
+        };
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
+        let corpus_config = CorpusConfig::new(corpus_dir)
+            .handler_functions(contract.handler_functions.clone())
+            .max_calls(4)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
+        let best = Item::from(vec![Call {
+            function: func.clone(),
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                alloy_primitives::U256::from(999),
+                256,
+            )]),
+            ..Default::default()
+        }]);
+        corpus.add_item(best.clone()).unwrap();
+        corpus.protect(&best.id());
+        for _ in 0..20 {
+            let mut rng = fastrand::Rng::with_seed(0);
+            let _ = corpus.pick_item(&mut rng).unwrap();
+            corpus.note_miss();
+        }
+        for i in 0..MAX_CORPUS_SIZE {
+            let item = Item::from(vec![Call {
+                function: func.clone(),
+                args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                    alloy_primitives::U256::from(i),
+                    256,
+                )]),
+                ..Default::default()
+            }]);
+            if item.id() == best.id() {
+                continue;
+            }
+            corpus.add_item(item).unwrap();
+        }
+        assert!(
+            corpus.inner.items.read().ids.contains(&best.id()),
+            "protected best must not be evicted"
+        );
+    }
+
+    #[test]
+    fn fresh_next_item_clears_last_picked() {
+        let tmp = tempfile::tempdir().unwrap();
+        let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let contract = Contract {
+            artifact_id: ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            handler_functions: vec![func.clone()],
+            invariant_functions: vec![],
+            max_functions: vec![],
+            setup_function: None,
+            libraries: Vec::new(),
+            initcode: "0x".into(),
+        };
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
+        let corpus_config = CorpusConfig::new(corpus_dir)
+            .handler_functions(contract.handler_functions.clone())
+            .max_calls(4)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
+        let item = Item::from(vec![Call {
+            function: func,
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                alloy_primitives::U256::from(1),
+                256,
+            )]),
+            ..Default::default()
+        }]);
+        corpus.add_item(item).unwrap();
+        let mut rng_pick = fastrand::Rng::with_seed(0);
+        let _ = corpus.pick_item(&mut rng_pick).unwrap();
+        assert!(
+            corpus
+                .inner
+                .last_picked
+                .read()
+                .contains_key(&std::thread::current().id())
+        );
+        let mut fresh_seed = None;
+        for seed in 0..1000 {
+            let mut rng = fastrand::Rng::with_seed(seed);
+            if corpus.is_fresh_item(&mut rng) {
+                fresh_seed = Some(seed);
+                break;
+            }
+        }
+        let seed = fresh_seed.expect("should find fresh seed");
+        let mut rng = fastrand::Rng::with_seed(seed);
+        let _ = corpus.next_item(&mut rng);
+        assert!(
+            !corpus
+                .inner
+                .last_picked
+                .read()
+                .contains_key(&std::thread::current().id()),
+            "fresh next_item should clear last_picked"
+        );
+    }
+
+    #[test]
+    fn fresh_miss_does_not_decay_previous_parent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let contract = Contract {
+            artifact_id: ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            handler_functions: vec![func.clone()],
+            invariant_functions: vec![],
+            max_functions: vec![],
+            setup_function: None,
+            libraries: Vec::new(),
+            initcode: "0x".into(),
+        };
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
+        let corpus_config = CorpusConfig::new(corpus_dir)
+            .handler_functions(contract.handler_functions.clone())
+            .max_calls(4)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
+        let item = Item::from(vec![Call {
+            function: func,
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                alloy_primitives::U256::from(1),
+                256,
+            )]),
+            ..Default::default()
+        }]);
+        corpus.add_item(item).unwrap();
+        let mut rng_pick = fastrand::Rng::with_seed(0);
+        let _ = corpus.pick_item(&mut rng_pick).unwrap();
+        let before = corpus.inner.items.read().vec[0].energy;
+        let mut fresh_seed = None;
+        for seed in 0..1000 {
+            let mut rng = fastrand::Rng::with_seed(seed);
+            if corpus.is_fresh_item(&mut rng) {
+                fresh_seed = Some(seed);
+                break;
+            }
+        }
+        let seed = fresh_seed.expect("should find fresh seed");
+        let mut rng = fastrand::Rng::with_seed(seed);
+        let _ = corpus.next_item(&mut rng);
+        corpus.note_miss();
+        let after = corpus.inner.items.read().vec[0].energy;
+        assert_eq!(after, before, "fresh miss should not decay previous parent");
+    }
+
+    #[test]
+    fn bump_energy_directly_increases() {
+        let tmp = tempfile::tempdir().unwrap();
+        let func = alloy_json_abi::Function::parse("foo(uint256)").unwrap();
+        let contract = Contract {
+            artifact_id: ArtifactId {
+                path: PathBuf::from("src/Test.sol"),
+                name: "Test".into(),
+            },
+            abi: alloy_json_abi::JsonAbi::default(),
+            handler_functions: vec![func.clone()],
+            invariant_functions: vec![],
+            max_functions: vec![],
+            setup_function: None,
+            libraries: Vec::new(),
+            initcode: "0x".into(),
+        };
+        let corpus_dir = SharedCorpus::dir_for(tmp.path(), &contract.artifact_id);
+        let corpus_config = CorpusConfig::new(corpus_dir)
+            .handler_functions(contract.handler_functions.clone())
+            .max_calls(4)
+            .literals(ExtractedLiterals::default());
+        let corpus = SharedCorpus::new(corpus_config);
+        let item = Item::from(vec![Call {
+            function: func,
+            args: alloy_dyn_abi::DynSolValue::Tuple(vec![alloy_dyn_abi::DynSolValue::Uint(
+                alloy_primitives::U256::from(7),
+                256,
+            )]),
+            ..Default::default()
+        }]);
+        corpus.add_item(item.clone()).unwrap();
+        let before = corpus.inner.items.read().vec[0].energy;
+        corpus.bump_energy(&item.id());
+        let after = corpus.inner.items.read().vec[0].energy;
+        assert_eq!(after, (before + 5).min(100));
     }
 }
