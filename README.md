@@ -80,7 +80,9 @@ to your Cargo bin directory.
 
 - [Rust](https://rustup.rs/) (edition 2024)
 - [Foundry](https://getfoundry.sh/) v1.7.1 or newer, used to compile the
-  harness contract
+  harness contract. For Foundry v1.8.0+, set `dynamic_test_linking = false`
+  in `foundry.toml` (dynamic linking removes `__$` placeholders and breaks
+  library linking).
 
 Ripfuzz uses Foundry to compile the harness contract. The project should be set
 up with the following in `foundry.toml` so artifacts include the AST and
@@ -90,6 +92,7 @@ storage layout:
 [profile.default]
 ast = true
 extra_output = ["storageLayout"]
+dynamic_test_linking = false # required for Foundry v1.8.0+
 ```
 
 ## Quick start
