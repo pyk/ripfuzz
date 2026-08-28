@@ -10,7 +10,7 @@ lint: # Run linter
 	@cargo fmt --check
 	@uvx --from panache-cli==2.61.0 panache format --check .
 	@echo "Run clippy"
-	@cargo clippy -- -D warnings
+	@cargo clippy --all-targets -- -D warnings
 	@echo "Run checkrs"
 	@uvx --from git+https://github.com/pyk/checkrs checkrs run src/
 
@@ -24,7 +24,7 @@ fmt: # Run formatter
 FIXTURE_DIRS := $(wildcard fixtures/*)
 
 .PHONY: build-fixtures
-build-fixtures: ## Force-rebuild all test fixtures with --ast
+build-fixtures: # Force-rebuild all test fixtures with --ast
 	@echo "Building fixtures"
 	@for d in $(FIXTURE_DIRS); do \
 		echo "  $$d"; \
@@ -32,17 +32,17 @@ build-fixtures: ## Force-rebuild all test fixtures with --ast
 	done
 
 .PHONY: bin
-bin: ## Install local binary
+bin: # Install local binary
 	@echo "Installing local binary"
 	@cargo install --path . --locked
 
 .PHONY: test
-test: ## Run tests
+test: # Run tests
 	@echo "Running tests"
 	@cargo test --quiet -- --skip live
 
 .PHONY: test-live
-test-live: ## Run tests against live network
+test-live: # Run tests against live network
 	@echo "Running tests"
 	@cargo test live
 
