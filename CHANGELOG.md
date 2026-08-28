@@ -10,6 +10,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- Coverage is now keyed by `(address, codehash)` for runtime contracts, so the
+  first `CALL` into each clone is considered interesting even when bytecode is
+  shared; initcode remains keyed by hash
 - Fork-mode progress and finished logs now include `rpc_hit`, `rpc_miss`, and
   `rpc_wait`, and loading a fork cache logs `loaded fork cache` with the entry
   count, so a stuck campaign can be diagnosed as RPC-bound vs EVM-bound

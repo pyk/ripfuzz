@@ -4,10 +4,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use alloy_primitives::{Address, B256};
+use alloy_primitives::Address;
 use anyhow::{Context, Result};
 use tracing::{debug, instrument};
 
+use crate::CoverageId;
 use crate::corpus::Item;
 use crate::evm;
 use crate::evm::{SharedCoverage, Transaction, TransactionResult};
@@ -209,7 +210,7 @@ impl<S: FuzzStrategy> Fuzzer<S> {
         transactions: Vec<Transaction>,
         item: Item,
         failure_index: Option<usize>,
-        failure_pc: Option<(B256, usize)>,
+        failure_pc: Option<(CoverageId, usize)>,
     ) {
         let Some(shared_failed_assertions) = &self.config.shared_failed_assertions else {
             return;

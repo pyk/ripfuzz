@@ -78,8 +78,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use alloy_primitives::{B256, keccak256};
-use tracing::instrument;
+use tracing::{debug, instrument, trace};
 
+use crate::evm::coverage::id::CoverageId;
 use crate::evm::coverage::shared::{RawEdgeCounts, SharedCoverage};
 use crate::evm::coverage::source_map::{SourceMapEntry, parse_source_map};
 use crate::foundry::{Artifact, ArtifactBytecode, ArtifactId, BuildInfo, LinkReferences};
@@ -396,7 +397,7 @@ fn collect_function_coverage(
     source_map_lines: &HashMap<PathBuf, HashSet<usize>>,
     matched_counts: &[RawEdgeCounts],
     pc_map_cache: &HashMap<(&ArtifactId, bool), Vec<Option<SourceMapEntry>>>,
-    codehash_match: &HashMap<B256, (&Artifact, bool)>,
+    codehash_match: &HashMap<CoverageId, (&Artifact, bool)>,
 ) -> HashMap<PathBuf, Vec<FunctionCoverage>> {
     let mut file_functions: HashMap<PathBuf, Vec<FunctionCoverage>> = HashMap::new();
 
@@ -514,10 +515,9 @@ fn collect_function_coverage(
                     });
                 }
 
-                if let Some(pc) = best_pc {
-                    entry_hits = counts.raw_edges.get(pc).copied().unwrap_or(0);
-                    break;
-                }
+                entry_hits = best_pc
+                    .and_then(|pc| counts.raw_edges.get(pc).copied())
+                    .map_or(entry_hits, |hits| entry_hits.max(hits));
             }
 
             // checkrs: allow(clone_in_loops)
@@ -692,10 +692,10 @@ impl CoverageReporter {
         // Step 2: Match active bytecodes → root artifacts.
         let index = ArtifactIndex::new(&self.artifacts);
         let all_bytecodes = self.shared_coverage.all_bytecodes();
-        tracing::trace!(all_bytecodes_len = all_bytecodes.len());
+        trace!(all_bytecodes_len = all_bytecodes.len());
 
-        let mut codehash_match: HashMap<B256, (&Artifact, bool)> = HashMap::new();
-        let mut matched_ids: Vec<B256> = Vec::new();
+        let mut codehash_match: HashMap<CoverageId, (&Artifact, bool)> = HashMap::new();
+        let mut matched_ids: Vec<CoverageId> = Vec::new();
         let mut root_artifact_ids: HashSet<&ArtifactId> = HashSet::new();
 
         for (id, bytecode) in &all_bytecodes {
@@ -705,7 +705,7 @@ impl CoverageReporter {
                 root_artifact_ids.insert(matched.0.id());
             }
         }
-        tracing::trace!(root_artifact_count = root_artifact_ids.len());
+        trace!(root_artifact_count = root_artifact_ids.len());
 
         // Pre-compute canonical project paths once so that qualify_path
         // below never calls canonicalize() inside a loop (deterministic).
@@ -905,7 +905,7 @@ impl CoverageReporter {
                 continue;
             };
 
-            tracing::debug!(
+            debug!(
                 "matched artifact: {} (bytecode len={}, initcode={})",
                 artifact.id(),
                 counts.bytecode.len(),
@@ -1411,7 +1411,10 @@ mod tests {
         fake_contract.bytecode = bytecode;
         fake_contract.edges[0] = 1;
         fake_contract.hit_pcs.push(0);
-        let contract_id = keccak256(&fake_contract.bytecode);
+        let contract_id = CoverageId::Runtime {
+            address: Address::ZERO,
+            codehash: keccak256(&fake_contract.bytecode),
+        };
         fake_local.contracts.insert(contract_id, fake_contract);
         global.merge(&fake_local);
 

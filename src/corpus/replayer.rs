@@ -3,12 +3,13 @@
 
 use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::Function;
-use alloy_primitives::{Address, B256};
+use alloy_primitives::Address;
 use anyhow::{Context, Result};
 use tracing::debug;
 
 use rayon::prelude::*;
 
+use crate::CoverageId;
 use crate::corpus::{Call, Item, SharedCorpus};
 use crate::evm;
 use crate::evm::{SharedCoverage, Transaction};
@@ -22,8 +23,8 @@ pub struct ReplayFailure {
     pub transactions: Vec<Transaction>,
     /// Index of the first transaction that triggered the failure.
     pub failure_index: Option<usize>,
-    /// Contract bytecode hash and PC identifying the failed `assert`.
-    pub failure_pc: Option<(B256, usize)>,
+    /// Contract coverage id and PC identifying the failed `assert`.
+    pub failure_pc: Option<(CoverageId, usize)>,
 }
 
 /// Replays all corpus items against a cloned chain to populate a shared

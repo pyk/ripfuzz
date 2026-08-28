@@ -2,19 +2,18 @@
 
 use std::collections::HashMap;
 
-use alloy_primitives::B256;
-
 use crate::evm::coverage::edge::DEPTH_TRACKED_PCS;
+use crate::evm::coverage::id::CoverageId;
 
-/// Per-fuzzer local coverage map keyed by contract bytecode hash.
+/// Per-fuzzer local coverage map keyed by contract coverage id.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExecutionCoverage {
-    pub contracts: HashMap<B256, ExecutionContractCoverage>,
+    pub contracts: HashMap<CoverageId, ExecutionContractCoverage>,
     /// PCs identifying Solidity `assert` panics, in execution order.
     ///
     /// The recorded PC is the taken jump that entered the shared panic routine
     /// when one is available, falling back to the panic PC itself.
-    pub panic_pcs: Vec<(B256, usize)>,
+    pub panic_pcs: Vec<(CoverageId, usize)>,
 }
 
 impl ExecutionCoverage {

@@ -187,6 +187,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
 
+    use tracing::warn;
     use tracing_subscriber::fmt::MakeWriter;
 
     use super::*;
@@ -220,7 +221,7 @@ mod tests {
             r#"RPC error 429: JSON-RPC response contains error object: "#,
             r#"{"jsonrpc":"2.0","id":1,"error":{"code":429,"message":"rate limited"}}"#,
         );
-        tracing::warn!(
+        warn!(
             retry = 1,
             retries = 3,
             backoff_ms = 100,

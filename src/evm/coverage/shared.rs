@@ -3,11 +3,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
-use alloy_primitives::B256;
 use papaya::HashMap;
 
 use crate::evm::coverage::edge::DEPTH_TRACKED_PCS;
 use crate::evm::coverage::exec::ExecutionCoverage;
+use crate::evm::coverage::id::CoverageId;
 
 /// Result of merging a local coverage map into the global map.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -64,7 +64,8 @@ impl ContractCoverage {
     }
 }
 
-/// Global coverage map keyed by contract bytecode hash.
+/// Global coverage map keyed by [`CoverageId`]: `(address, codehash)` for runtime
+/// and `codehash` for initcode.
 ///
 /// Designed for fast parallel fuzzing:
 ///
@@ -83,8 +84,8 @@ pub struct SharedCoverage {
 
 #[derive(Debug)]
 pub struct SharedCoverageInner {
-    contracts: HashMap<B256, ContractCoverage>,
-    bytecodes: HashMap<B256, Vec<u8>>,
+    contracts: HashMap<CoverageId, ContractCoverage>,
+    bytecodes: HashMap<CoverageId, Vec<u8>>,
 }
 
 impl SharedCoverage {
@@ -265,7 +266,7 @@ impl SharedCoverage {
     }
 
     /// Return the raw edge counts for a contract, if it exists.
-    pub fn raw_edge_counts(&self, contract_id: &B256) -> Option<Vec<u64>> {
+    pub fn raw_edge_counts(&self, contract_id: &CoverageId) -> Option<Vec<u64>> {
         let guard = self.inner.contracts.pin();
         let contract = guard.get(contract_id)?;
         Some(
@@ -278,7 +279,7 @@ impl SharedCoverage {
     }
 
     /// Return the raw edge counts for all contracts in the coverage map.
-    pub fn all_raw_edge_counts(&self) -> Vec<(B256, Vec<u64>)> {
+    pub fn all_raw_edge_counts(&self) -> Vec<(CoverageId, Vec<u64>)> {
         let guard = self.inner.contracts.pin();
         guard
             .iter()
@@ -320,7 +321,7 @@ impl SharedCoverage {
     /// This is cheaper than [`all_raw_edge_counts_with_bytecodes`] when the
     /// caller only needs to inspect the bytecodes (e.g. to match them against
     /// build artifacts) before deciding which contracts to fully materialise.
-    pub fn all_bytecodes(&self) -> Vec<(B256, Vec<u8>)> {
+    pub fn all_bytecodes(&self) -> Vec<(CoverageId, Vec<u8>)> {
         let guard = self.inner.contracts.pin();
         let bytecodes_guard = self.inner.bytecodes.pin();
         guard
@@ -336,7 +337,7 @@ impl SharedCoverage {
     ///
     /// Use this after filtering contract IDs against an artifact index so
     /// that unmatched (factory-generated) bytecodes are not materialised.
-    pub fn raw_edge_counts_with_bytecodes_for_ids(&self, ids: &[B256]) -> Vec<RawEdgeCounts> {
+    pub fn raw_edge_counts_with_bytecodes_for_ids(&self, ids: &[CoverageId]) -> Vec<RawEdgeCounts> {
         let guard = self.inner.contracts.pin();
         let bytecodes_guard = self.inner.bytecodes.pin();
         ids.iter()
@@ -361,7 +362,7 @@ impl SharedCoverage {
 /// Raw edge counts and bytecode for a single contract.
 #[derive(Debug, Clone)]
 pub struct RawEdgeCounts {
-    pub contract_id: B256,
+    pub contract_id: CoverageId,
     pub bytecode: Vec<u8>,
     pub raw_edges: Vec<u64>,
 }
@@ -384,6 +385,7 @@ mod tests {
     use alloy_primitives::B256;
 
     use crate::evm::coverage::exec::{ExecutionContractCoverage, ExecutionCoverage};
+    use crate::evm::coverage::id::CoverageId;
 
     use super::{CoverageUpdate, SharedCoverage};
 
@@ -400,7 +402,7 @@ mod tests {
         // Build a local coverage with one contract and one signal for every
         // merge loop: edges, depths, reverts, and jump edges.
         let mut local = ExecutionCoverage::new();
-        let contract_id = B256::ZERO;
+        let contract_id = CoverageId::Initcode(B256::ZERO);
         let mut contract = ExecutionContractCoverage::new(1024);
 
         // Edges
@@ -484,7 +486,7 @@ mod tests {
                 handles.push(s.spawn(move || {
                     let mut local = ExecutionCoverage::new();
                     let mut contract = ExecutionContractCoverage::new(1024);
-                    let contract_id = B256::ZERO;
+                    let contract_id = CoverageId::Initcode(B256::ZERO);
 
                     // Unique edge per thread.
                     let pc = i as usize;

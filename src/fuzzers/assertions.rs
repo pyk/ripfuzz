@@ -4,10 +4,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use alloy_primitives::B256;
 use parking_lot::Mutex;
 use revm::primitives::Bytes;
 
+use crate::CoverageId;
 use crate::corpus::Item;
 use crate::evm;
 use crate::evm::Transaction;
@@ -21,10 +21,10 @@ pub struct FailedAssertion {
     /// Index of the first transaction that triggered the failure.
     #[serde(default)]
     pub failure_index: Option<usize>,
-    /// Contract bytecode hash and PC identifying the failed `assert`
+    /// Contract coverage id and PC identifying the failed `assert`
     /// statement, when execution captured it.
     #[serde(default)]
-    pub failure_pc: Option<(B256, usize)>,
+    pub failure_pc: Option<(CoverageId, usize)>,
 }
 
 impl FailedAssertion {
@@ -37,7 +37,7 @@ impl FailedAssertion {
     /// function are treated as distinct bugs.
     pub fn dedup_key(&self) -> String {
         if let Some((contract, pc)) = self.failure_pc {
-            return format!("pc:{}:{pc}", hex::encode(contract));
+            return format!("pc:{}:{pc}", hex::encode(contract.codehash()));
         }
         let sequence = self
             .item
@@ -158,7 +158,9 @@ impl SharedFailedAssertions {
 mod tests {
     use alloy_dyn_abi::DynSolValue;
     use alloy_json_abi::Function;
-    use alloy_primitives::{B256, U256};
+    use alloy_primitives::{Address, B256, U256};
+
+    use crate::CoverageId;
 
     use super::*;
     use crate::corpus::{Call, Item};
@@ -218,9 +220,9 @@ mod tests {
         let assertions = SharedFailedAssertions::new(8);
 
         let mut first = failure("f(uint256)", 1, Some(0));
-        first.failure_pc = Some((B256::from([0xab; 32]), 10));
+        first.failure_pc = Some((CoverageId::Initcode(B256::from([0xab; 32])), 10));
         let mut second = failure("g(uint256)", 2, Some(1));
-        second.failure_pc = Some((B256::from([0xab; 32]), 10));
+        second.failure_pc = Some((CoverageId::Initcode(B256::from([0xab; 32])), 10));
 
         assert!(assertions.try_add(first));
         assert!(!assertions.try_add(second));
@@ -232,9 +234,9 @@ mod tests {
         let assertions = SharedFailedAssertions::new(8);
 
         let mut first = failure("f(uint256)", 1, Some(0));
-        first.failure_pc = Some((B256::from([0xab; 32]), 10));
+        first.failure_pc = Some((CoverageId::Initcode(B256::from([0xab; 32])), 10));
         let mut second = failure("f(uint256)", 1, Some(0));
-        second.failure_pc = Some((B256::from([0xab; 32]), 20));
+        second.failure_pc = Some((CoverageId::Initcode(B256::from([0xab; 32])), 20));
 
         assert!(assertions.try_add(first));
         assert!(assertions.try_add(second));

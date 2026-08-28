@@ -39,9 +39,11 @@ use revm::{
 };
 
 use alloy_primitives::B256;
+use revm::interpreter::interpreter_types::InputsTr;
 
 use crate::evm::coverage::edge::edge_marker;
 use crate::evm::coverage::exec::{ExecutionContractCoverage, ExecutionCoverage};
+use crate::evm::coverage::id::CoverageId;
 
 /// Solidity `Panic(uint256)` selector: keccak256("Panic(uint256)")[:4]
 const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
@@ -62,8 +64,8 @@ fn u256_to_usize(v: revm::primitives::U256) -> Option<usize> {
 pub struct Inspector {
     local: ExecutionCoverage,
     current_call_depth: u64,
-    current_contract: Option<B256>,
-    contract_stack: Vec<Option<B256>>,
+    current_contract: Option<CoverageId>,
+    contract_stack: Vec<Option<CoverageId>>,
     last_pc: usize,
     last_taken_jump_pc: Option<usize>,
     is_initcode: bool,
@@ -116,11 +118,19 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
     fn initialize_interp(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
         let hash = interp.bytecode.hash_slow();
         if !hash.is_zero() && !interp.bytecode.is_empty() {
-            let id = B256::from(hash);
-            self.current_contract = Some(id);
-            self.last_taken_jump_pc = None;
             let is_initcode = self.is_initcode;
             self.is_initcode = false;
+            let id = if is_initcode {
+                CoverageId::Initcode(B256::from(hash))
+            } else {
+                let address = interp.input.target_address();
+                CoverageId::Runtime {
+                    address,
+                    codehash: B256::from(hash),
+                }
+            };
+            self.current_contract = Some(id);
+            self.last_taken_jump_pc = None;
             self.local.contracts.entry(id).or_insert_with(|| {
                 let mut coverage = ExecutionContractCoverage::new(interp.bytecode.len());
                 coverage.bytecode = interp.bytecode.original_bytes().to_vec();
@@ -286,6 +296,7 @@ mod tests {
             function setup() external;
             function callChild1() external;
             function callChild2() external;
+            function callChild(uint256) external;
         }
 
         interface CoverageDeploy {
@@ -466,48 +477,88 @@ mod tests {
         );
     }
 
-    /// Two contracts with identical runtime bytecode deployed at different
-    /// addresses share the same coverage contract_id. Calling the second
-    /// instance after the first should not add new edges for the child.
+    /// Two clones at different addresses have distinct coverage ids even
+    /// when called via the same parent function with different indices.
+    /// `children[idx].doSomething()` with `idx=0` vs `idx=1` must be
+    /// interesting on the second call solely due to the child address,
+    /// mirroring `pools[poolId].swap` where `poolId` is otherwise silent.
     #[test]
     fn coverage_same_bytecode_two_addresses() {
         let contract = load_coverage_fixture("src/CoverageDuplicate.sol:CoverageDuplicate");
         let (mut chain, target) = deploy_and_setup(&contract);
 
+        // Same parent function, different child index -> same parent PCs.
         let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
-            CoverageDuplicate::callChild1Call::new(()).abi_encode(),
+            CoverageDuplicate::callChildCall::new((U256::from(0),)).abi_encode(),
         ))];
         let exec1 = chain.exec(&txs1).unwrap();
         let coverage1 = exec1.coverage.expect("coverage must be present");
 
         let txs2 = vec![Transaction::new(target).calldata(Bytes::from(
-            CoverageDuplicate::callChild2Call::new(()).abi_encode(),
+            CoverageDuplicate::callChildCall::new((U256::from(1),)).abi_encode(),
         ))];
         let exec2 = chain.exec(&txs2).unwrap();
         let coverage2 = exec2.coverage.expect("coverage must be present");
 
-        // The child contract has the shortest bytecode.
-        let child_hash = coverage1
+        // Pin child by address, not bytecode length.
+        let child_id1 = *coverage1
             .contracts
-            .iter()
-            .min_by_key(|(_, v)| v.edges.len())
-            .unwrap()
-            .0;
-
-        let child_cov1 = coverage1.contracts.get(child_hash).unwrap();
-        let child_cov2 = coverage2.contracts.get(child_hash).unwrap();
+            .keys()
+            .find(|id| id.address() != Some(target))
+            .expect("coverage must contain child contract");
+        let child_id2 = *coverage2
+            .contracts
+            .keys()
+            .find(|id| id.address() != Some(target))
+            .expect("coverage must contain child contract");
+        assert_ne!(
+            child_id1, child_id2,
+            "child contracts at different addresses should have distinct coverage ids"
+        );
+        assert_eq!(
+            child_id1.codehash(),
+            child_id2.codehash(),
+            "identical bytecode should have same codehash"
+        );
+        let child_cov1 = coverage1.contracts.get(&child_id1).unwrap();
+        let child_cov2 = coverage2.contracts.get(&child_id2).unwrap();
         assert_eq!(
             child_cov1.edges, child_cov2.edges,
             "identical bytecode should produce identical edges"
         );
 
-        // Merging the second execution should not add new edges for the child.
+        // Second call via same parent function must still be interesting
+        // solely because the child address differs.
         let global = SharedCoverage::new();
-        global.merge(&coverage1);
+        let update1 = global.merge(&coverage1);
+        assert!(
+            update1.is_interesting(),
+            "first indexed call should be interesting"
+        );
+        let count_after_1 = global.contract_count();
         let update2 = global.merge(&coverage2);
         assert!(
+            update2.is_interesting(),
+            "second indexed call with different child via same parent function should be interesting via per-address child"
+        );
+        assert_eq!(
             update2.new_edges > 0,
-            "parent contract should still add new edges"
+            true,
+            "second clone must add new edges for child"
+        );
+        let count_after_2 = global.contract_count();
+        assert_eq!(
+            count_after_2,
+            count_after_1 + 1,
+            "second child at new address should increase contract count"
+        );
+        // Identical second call with same idx must not be interesting.
+        let exec3 = chain.exec(&txs2).unwrap();
+        let coverage3 = exec3.coverage.expect("coverage must be present");
+        let update3 = global.merge(&coverage3);
+        assert!(
+            !update3.is_interesting(),
+            "repeating same idx should not be interesting"
         );
     }
 
@@ -575,8 +626,8 @@ mod tests {
         );
     }
 
-    /// Deploying the same child contract twice via CREATE must share the same
-    /// coverage contract_id, keeping the unique contract count at 2 (parent + child).
+    /// Deploying the same child contract twice via CREATE creates distinct
+    /// coverage entries per address.
     #[test]
     fn coverage_same_contract_deployed_twice() {
         let contract = load_coverage_fixture("src/CoverageDeploy.sol:CoverageDeploy");
@@ -605,15 +656,21 @@ mod tests {
         println!("contract count after 2: {}", count_after_2);
 
         assert_eq!(
-            count_after_1, count_after_2,
-            "deploying the same contract twice should not increase unique contract count"
+            count_after_1, 2,
+            "first deployment should have factory + one child"
+        );
+        assert_eq!(
+            count_after_2, 3,
+            "deploying same contract at new address should increase count"
+        );
+        assert!(
+            update2.is_interesting(),
+            "second deployment at new address should be interesting"
         );
     }
 
     /// Regression test: initcode coverage recorded during a successful CREATE
-    /// must not be kept in the local map, so that deploying the same runtime
-    /// contract with different constructor arguments does not inflate the unique
-    /// contracts count.
+    /// must not be kept, while runtime coverage is per-address.
     #[test]
     fn coverage_initcode_removed_on_successful_create() {
         let contract =
@@ -642,25 +699,19 @@ mod tests {
         let count_after_2 = global.contract_count();
         println!("contract count after 2: {}", count_after_2);
 
-        // With the fix, only the factory and the child's runtime bytecode are
-        // counted (initcode is discarded on successful CREATE). Without the fix,
-        // each distinct initcode creates a new contract entry.
+        // With per-address runtime, the second deployment creates a new child at
+        // a new address, so it is interesting. Initcode remains discarded.
         assert_eq!(
-            count_after_2, 2,
-            "deploying the same runtime contract with different constructor args should not increase unique contract count beyond factory + runtime"
+            count_after_1, 2,
+            "first deployment should have factory + one child"
         );
-
-        // Crucially, the second deployment must not be considered "interesting"
-        // coverage. If initcode were still tracked, the new initcode hash would
-        // produce new edges and the corpus would grow indefinitely.
+        assert_eq!(
+            count_after_2, 3,
+            "second deployment at new address should increase count per-address"
+        );
         assert!(
-            !update2.is_interesting(),
-            "second deployment with different constructor args must not produce new coverage edges; otherwise corpus would balloon"
-        );
-        assert_eq!(
-            update2,
-            CoverageUpdate::default(),
-            "all coverage metrics must be zero on second deployment with identical runtime bytecode"
+            update2.is_interesting(),
+            "second deployment at new address should be interesting via runtime"
         );
     }
 }

@@ -6,10 +6,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use alloy_primitives::{Address, B256};
+use alloy_primitives::Address;
 use ripfuzz::{
-    ArtifactId, Chain, ChainConfig, Contract, CorpusConfig, DEFAULT_DEPLOYER, DeployInput,
-    FailedAssertion, InvariantFuzzer, InvariantFuzzerConfig, InvariantShrinker,
+    ArtifactId, Chain, ChainConfig, Contract, CorpusConfig, CoverageId, DEFAULT_DEPLOYER,
+    DeployInput, FailedAssertion, InvariantFuzzer, InvariantFuzzerConfig, InvariantShrinker,
     InvariantShrinkerConfig, Item, Project, SharedCorpus, SharedCoverage, SharedFailedAssertions,
     SharedFailedCorpusItem, SharedMetrics, Transaction,
 };
@@ -169,7 +169,7 @@ fn multi_fail_collects_two_distinct_assertions() {
         .map(|assertion| assertion.dedup_key())
         .collect();
     assert_eq!(keys.len(), 2, "dedupe keys must be distinct");
-    let pcs: HashSet<(B256, usize)> = failed_assertions
+    let pcs: HashSet<(CoverageId, usize)> = failed_assertions
         .iter()
         .filter_map(|assertion| assertion.failure_pc)
         .collect();
@@ -201,7 +201,7 @@ fn same_function_different_assertions_are_distinct() {
         2,
         "two assertions in one function must produce two failed assertions"
     );
-    let pcs: HashSet<(B256, usize)> = failed_assertions
+    let pcs: HashSet<(CoverageId, usize)> = failed_assertions
         .iter()
         .filter_map(|assertion| assertion.failure_pc)
         .collect();

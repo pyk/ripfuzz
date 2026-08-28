@@ -15,6 +15,7 @@ use std::collections::HashMap;
 
 use alloy_dyn_abi::DynSolType;
 use alloy_primitives::{B256, keccak256};
+use tracing::debug;
 
 /// Function argument types extracted from deployed EVM bytecode by evmole.
 pub struct Evmole {
@@ -38,7 +39,7 @@ impl Evmole {
                 functions.insert(func.selector, args);
             }
         }
-        tracing::debug!(
+        debug!(
             code_hash = %hash,
             functions = functions.len(),
             "extracted evmole abi"
