@@ -277,18 +277,26 @@ impl FuzzStrategy for MaxxingStrategy {
                 FunctionMetricsSnapshot::from_transaction(result),
             );
 
-            let (improved, improved_value) = match self.objective.decode(result) {
-                Some(value) => {
-                    let prefix = Item::from(item.calls[..=i].to_vec());
-                    (self.corpus.record_improvement(value, prefix)?, value)
-                }
-                None => (false, U256::ZERO),
+            let Some(raw) = self.objective.decode(result) else {
+                continue;
             };
+            let prefix = Item::from(item.calls[..=i].to_vec());
+            // checkrs: allow(clone_in_loops)
+            let extreme_kept = self.corpus.record_extreme(raw, prefix.clone())?;
+            let improved = self.corpus.record_improvement(raw, prefix)?;
             if improved {
+                let baseline = self.corpus.baseline().unwrap_or(U256::ZERO);
+                let derived = raw.saturating_sub(baseline);
                 debug!(
                     objective = %self.objective.function.name,
-                    %improved_value,
+                    %derived,
                     "max value improved"
+                );
+            } else if extreme_kept {
+                debug!(
+                    objective = %self.objective.function.name,
+                    %raw,
+                    "new extreme score kept"
                 );
             }
         }
@@ -411,5 +419,47 @@ mod tests {
         assert_eq!(best.value, U256::from(7));
         assert_eq!(best.item.calls.len(), 1);
         assert_eq!(best.item.calls[0].function.name, "set");
+    }
+
+    #[test]
+    fn keeps_prefix_that_sets_new_min_and_reports_derived_profit() {
+        let contract = load_contract("src/MaxBasic.sol:MaxBasic");
+        let set = handler(&contract, "set");
+        let (chain, target) = deployed(&contract);
+        let objective = objective(&contract, "max_value");
+        let tmp = tempfile::tempdir().unwrap();
+        let config = CorpusConfig::new(tmp.path().join("corpus"))
+            .handler_functions(contract.handler_functions.clone())
+            .max_calls(4);
+        let corpus = MaxxingFuzzerCorpus::new(SharedCorpus::new(config));
+        corpus.set_baseline(U256::from(100));
+        let strategy = MaxxingStrategy::new(corpus.clone(), objective);
+        let item = Item::from(vec![
+            Call {
+                function: set.clone(),
+                args: DynSolValue::Tuple(vec![uint_arg(U256::from(90))]),
+                ..Default::default()
+            },
+            Call {
+                function: set.clone(),
+                args: DynSolValue::Tuple(vec![uint_arg(U256::from(110))]),
+                ..Default::default()
+            },
+        ]);
+        let transactions = strategy.sequence(&item, target, DEFAULT_DEPLOYER, 12_500_000);
+        let mut fresh_chain = chain.clone();
+        let exec = fresh_chain.exec(&transactions).unwrap();
+        let metrics = SharedMetrics::new(Vec::new());
+        strategy.observe(&item, &exec.results, &metrics).unwrap();
+        let best = corpus.best_item().expect("best must be recorded");
+        assert_eq!(best.value, U256::from(10));
+        assert_eq!(best.item.calls.len(), 2);
+        assert_eq!(best.item.calls[0].function.name, "set");
+        assert_eq!(best.item.calls[1].function.name, "set");
+        let count = corpus.corpus().stats().item_count;
+        assert!(
+            count >= 2,
+            "both new min and new max prefixes should be kept"
+        );
     }
 }

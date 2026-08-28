@@ -42,6 +42,7 @@ impl MaxxingShrinkerConfig {
             shared_corpus: MaxxingShrinkerCorpus::new(
                 Item::from(vec![]),
                 U256::ZERO,
+                U256::ZERO,
                 CorpusConfig::new(""),
                 SharedCorpus::new(CorpusConfig::new("")),
             ),
@@ -304,7 +305,8 @@ mod tests {
         let config = CorpusConfig::new(tmp.path().join("corpus"))
             .handler_functions(contract.handler_functions.clone())
             .max_calls(4);
-        let shrink_corpus = MaxxingShrinkerCorpus::new(item, U256::from(7), config, corpus);
+        let shrink_corpus =
+            MaxxingShrinkerCorpus::new(item, U256::from(7), U256::ZERO, config, corpus);
 
         let shrinker_config = MaxxingShrinkerConfig::new()
             .chain(chain)

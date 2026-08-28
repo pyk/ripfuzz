@@ -59,6 +59,29 @@ impl MaxxingCampaign {
         let shutdown_signal = Arc::new(AtomicBool::new(false));
 
         let fuzzer_corpus = MaxxingFuzzerCorpus::new(self.session.corpus.clone());
+        let baseline = {
+            let mut baseline_chain = self.session.chain.clone();
+            let tx = self.objective.transaction(
+                self.session.deployed_address,
+                self.session.args.deployer_address,
+                self.session.args.gas_limit,
+            );
+            let exec = baseline_chain
+                .exec(&[tx])
+                .context("failed to call max_* for baseline after setup")?;
+            let result = exec
+                .results
+                .first()
+                .context("missing max_* result for baseline")?;
+            self.objective.decode(result).with_context(|| {
+                format!(
+                    "max_* {} did not return uint256 after setup (reverted or empty)",
+                    self.objective.function.signature()
+                )
+            })?
+        };
+        fuzzer_corpus.set_baseline(baseline);
+        info!(baseline = %baseline, "maxxing baseline after setup");
 
         let fuzzers = self.session.args.threads;
         let timeout = self
@@ -198,7 +221,7 @@ impl MaxxingCampaign {
 
         let mut results = Vec::new();
         if let Some(best) = fuzzer_corpus.best_item() {
-            results.push(self.shrink_max(best)?);
+            results.push(self.shrink_max(best, baseline)?);
         }
 
         if results.is_empty() {
@@ -274,7 +297,7 @@ impl MaxxingCampaign {
     }
 
     /// Shrink the best max result and report it.
-    fn shrink_max(&mut self, best: MaxBestItem) -> Result<MaxxingResult> {
+    fn shrink_max(&mut self, best: MaxBestItem, baseline: U256) -> Result<MaxxingResult> {
         let objective = self.objective.clone();
         let session = &mut self.session;
 
@@ -299,6 +322,7 @@ impl MaxxingCampaign {
         let shrink_corpus = MaxxingShrinkerCorpus::new(
             best.item,
             best.value,
+            baseline,
             shrink_config,
             session.corpus.clone(),
         );

@@ -10,6 +10,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- Maxxing now treats `max_*` as raw `uint256` score with baseline after
+  `setup()` and keeps prefixes that set a new raw max or min, so lossy prefixes
+  that are on the path to profit stay in the corpus
 - Coverage now records `CALL` targets as `new_jump_edges` via
   `(caller_pc, callee_address)` hash, so calls to different addresses at the
   same PC are distinct even when bytecode is shared
