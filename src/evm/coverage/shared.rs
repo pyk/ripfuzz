@@ -500,7 +500,7 @@ mod tests {
 
                     // Unique revert per thread.
                     let rev_word = i as usize;
-                    let rev_bit = (i % 64) as u64;
+                    let rev_bit = i % 64;
                     contract.reverts[rev_word] = 1 << rev_bit;
                     contract.hit_reverts.push(rev_word);
 

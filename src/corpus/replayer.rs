@@ -264,9 +264,8 @@ mod tests {
 
         // Execute the same item again and merge into shared coverage.
         let exec = chain
-            .exec(&vec![Transaction::new(target).calldata(
-                CoverageBranch::branchCall::new((true,)).abi_encode().into(),
-            )])
+            .exec(&[Transaction::new(target)
+                .calldata(CoverageBranch::branchCall::new((true,)).abi_encode().into())])
             .unwrap();
         let exec_coverage = exec.coverage.expect("coverage must be present");
         let update = shared_coverage.merge(&exec_coverage);

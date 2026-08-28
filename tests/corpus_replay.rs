@@ -143,9 +143,8 @@ fn shrunk_failure_sequence_is_persisted_for_next_replay() {
         1,
         "exactly one new campaign directory expected"
     );
-    assert_eq!(
+    assert!(
         new_dirs[0].join("fulltrace.log").is_file(),
-        true,
         "replayed failed assertion must write fulltrace.log"
     );
 }
@@ -188,9 +187,8 @@ fn invariant_replay_reports_failed_assertion_from_corpus() {
         1,
         "exactly one new campaign directory expected"
     );
-    assert_eq!(
+    assert!(
         new_dirs[0].join("fulltrace.log").is_file(),
-        true,
         "replayed failed assertion must write fulltrace.log"
     );
 }

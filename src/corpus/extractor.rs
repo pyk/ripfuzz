@@ -498,7 +498,7 @@ mod tests {
     fn load_fixture() -> HashMap<ArtifactId, Artifact> {
         let project = foundry::Project::new("fixtures/harness-contract-with-literals");
         let artifacts = project.load_artifacts().unwrap();
-        artifacts.into_iter().map(|(k, v)| (k, v)).collect()
+        artifacts.into_iter().collect()
     }
 
     #[test]
@@ -1041,8 +1041,7 @@ mod tests {
             U256::from(0).to_be_bytes::<32>(),
             // useHexStrings() - left-aligned
             {
-                let w = [0u8; 32];
-                w // hex""
+                [0u8; 32] // hex""
             },
             {
                 let mut w = [0u8; 32];
@@ -1120,8 +1119,7 @@ mod tests {
             U256::from(0).to_be_bytes::<32>(),
             // useHexStrings() (<= 16 bytes)
             {
-                let w = [0u8; 32];
-                w // hex""
+                [0u8; 32] // hex""
             },
             {
                 let mut w = [0u8; 32];
@@ -1173,8 +1171,7 @@ mod tests {
             U256::from(0).to_be_bytes::<32>(),
             // useHexStrings() (<= 1 byte)
             {
-                let w = [0u8; 32];
-                w // hex""
+                [0u8; 32] // hex""
             },
             {
                 let mut w = [0u8; 32];

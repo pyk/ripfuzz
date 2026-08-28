@@ -97,7 +97,6 @@ impl Chain {
 #[cfg(test)]
 mod tests {
     use alloy_primitives::{Address, U256, address};
-    use hex;
     use revm::Database;
     use revm::DatabaseRef;
     use revm::bytecode::opcode::{CODECOPY, MSTORE, PUSH1, PUSH2, RETURN};
@@ -251,7 +250,7 @@ mod tests {
             PUSH1, 0x00,   // PUSH1 0x00
             RETURN, // RETURN
         ];
-        initcode.extend(std::iter::repeat(0x00).take(0x8001));
+        initcode.extend(std::iter::repeat_n(0x00, 0x8001));
 
         let initcode = format!("0x{}", hex::encode(initcode));
         let opts = DeployInput::new(&initcode);

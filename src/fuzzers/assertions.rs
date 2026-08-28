@@ -158,7 +158,7 @@ impl SharedFailedAssertions {
 mod tests {
     use alloy_dyn_abi::DynSolValue;
     use alloy_json_abi::Function;
-    use alloy_primitives::{Address, B256, U256};
+    use alloy_primitives::{B256, U256};
 
     use crate::CoverageId;
 

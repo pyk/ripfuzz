@@ -277,7 +277,6 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
-    use crate::CoverageUpdate;
     use crate::evm::Contract;
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::coverage::SharedCoverage;

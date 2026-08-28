@@ -1395,12 +1395,11 @@ mod tests {
         for artifact in &mut artifacts {
             if artifact.id().to_string()
                 == "src/CoverageTrailingNewline.sol:CoverageTrailingNewline"
+                && let Artifact::Contract(a) = artifact
             {
-                if let Artifact::Contract(a) = artifact {
-                    let original = a.deployed_bytecode.source_map.clone();
-                    a.deployed_bytecode.source_map =
-                        format!("{}:0:{}:-:0;{}", file_len, a.source_id, original);
-                }
+                let original = a.deployed_bytecode.source_map.clone();
+                a.deployed_bytecode.source_map =
+                    format!("{}:0:{}:-:0;{}", file_len, a.source_id, original);
             }
         }
 

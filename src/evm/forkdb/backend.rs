@@ -1055,8 +1055,7 @@ mod tests {
 
                 let responses: Vec<serde_json::Value> = requests
                     .iter()
-                    .enumerate()
-                    .map(|(_idx, req)| {
+                    .map(|req| {
                         let id = req
                             .get("id")
                             .and_then(|v| v.as_u64())
@@ -1128,7 +1127,7 @@ mod tests {
                 assert!(matches!(res[0], Response::Balance(v) if v == U256::from(1)));
                 assert!(matches!(res[1], Response::TransactionCount(2)));
                 assert!(
-                    matches!(res[2], Response::Code(ref bytes) if bytes.as_ref() == &[0x60, 0x00])
+                    matches!(res[2], Response::Code(ref bytes) if bytes.as_ref() == [0x60, 0x00])
                 );
             });
             handles.push(handle);
@@ -1607,7 +1606,9 @@ mod tests {
             block: 1,
         };
 
-        let first = backend.fetch_or_wait(&[cached.clone()]).unwrap();
+        let first = backend
+            .fetch_or_wait(std::slice::from_ref(&cached))
+            .unwrap();
         assert_eq!(first.len(), 1);
         match &first[0] {
             Response::StorageAt(value) => {

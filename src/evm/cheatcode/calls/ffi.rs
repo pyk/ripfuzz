@@ -103,9 +103,11 @@ mod tests {
     /// vm.ffi must return decoded bytes when ffi is enabled.
     #[test]
     fn ffi_enabled_returns_output() {
-        let mut state = ExecutionState::default();
-        state.ffi_enabled = true;
-        state.project_root = std::env::current_dir().unwrap_or_default();
+        let mut state = ExecutionState {
+            ffi_enabled: true,
+            project_root: std::env::current_dir().unwrap_or_default(),
+            ..Default::default()
+        };
         let outcome = ffi::handle(
             vec![
                 "printf".to_string(),
@@ -122,8 +124,10 @@ mod tests {
     /// vm.ffi with empty args must revert.
     #[test]
     fn ffi_empty_args_reverts() {
-        let mut state = ExecutionState::default();
-        state.ffi_enabled = true;
+        let mut state = ExecutionState {
+            ffi_enabled: true,
+            ..Default::default()
+        };
         let outcome = ffi::handle(vec![], &mut state);
         assert!(outcome.is_some(), "must return an outcome");
         let outcome = outcome.unwrap();
