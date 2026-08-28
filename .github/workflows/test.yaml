@@ -17,6 +17,8 @@ jobs:
             - run: rustup toolchain install stable --profile minimal
             - uses: Swatinem/rust-cache@v2
             - uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: "1.7.1"
             - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
             - run: make build-fixtures
             - run: make lint
