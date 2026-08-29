@@ -116,11 +116,11 @@ impl<'a> CampaignStats<'a> {
         }
     }
 
-    /// Log a maxxing snapshot with the current best max value.
+    /// Log a maxxing snapshot with the current best score.
     pub fn log_maxxing_summary(
         &self,
         snapshot: &Snapshot,
-        max_value: U256,
+        best_score: U256,
         rpc: RpcStats,
         function_metrics: &[(String, FunctionMetricsSnapshot)],
         message: &str,
@@ -139,7 +139,7 @@ impl<'a> CampaignStats<'a> {
             hot = %hot.function,
             hot_elapsed = %hot.elapsed,
             hot_rpc_miss = %hot.rpc_miss,
-            value = %max_value,
+            best_score = %best_score,
             contracts = %summary.contracts,
             coverage = %summary.coverage,
             corpus = %summary.corpus,

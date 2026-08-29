@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use alloy_json_abi::Function;
-use alloy_primitives::{Address, U256};
+use alloy_primitives::Address;
 use anyhow::Result;
 use tracing::debug;
 
@@ -289,12 +289,10 @@ impl FuzzStrategy for MaxxingStrategy {
                 found_new = true;
             }
             if improved {
-                let baseline = self.corpus.baseline().unwrap_or(U256::ZERO);
-                let derived = raw.saturating_sub(baseline);
                 debug!(
                     objective = %self.objective.function.name,
-                    %derived,
-                    "max value improved"
+                    best_score = %raw,
+                    "max best_score improved"
                 );
             } else if extreme_kept {
                 debug!(
@@ -424,13 +422,13 @@ mod tests {
         strategy.observe(&item, &exec.results, &metrics).unwrap();
 
         let best = corpus.best_item().expect("best must be recorded");
-        assert_eq!(best.value, U256::from(7));
+        assert_eq!(best.best_score, U256::from(7));
         assert_eq!(best.item.calls.len(), 1);
         assert_eq!(best.item.calls[0].function.name, "set");
     }
 
     #[test]
-    fn keeps_prefix_that_sets_new_min_and_reports_derived_profit() {
+    fn keeps_prefix_that_sets_new_min_and_reports_best_score() {
         let contract = load_contract("src/MaxBasic.sol:MaxBasic");
         let set = handler(&contract, "set");
         let (chain, target) = deployed(&contract);
@@ -440,7 +438,7 @@ mod tests {
             .handler_functions(contract.handler_functions.clone())
             .max_calls(4);
         let corpus = MaxxingFuzzerCorpus::new(SharedCorpus::new(config));
-        corpus.set_baseline(U256::from(100));
+        corpus.set_base_score(U256::from(100));
         let strategy = MaxxingStrategy::new(corpus.clone(), objective);
         let item = Item::from(vec![
             Call {
@@ -460,7 +458,7 @@ mod tests {
         let metrics = SharedMetrics::new(Vec::new());
         strategy.observe(&item, &exec.results, &metrics).unwrap();
         let best = corpus.best_item().expect("best must be recorded");
-        assert_eq!(best.value, U256::from(10));
+        assert_eq!(best.best_score, U256::from(110));
         assert_eq!(best.item.calls.len(), 2);
         assert_eq!(best.item.calls[0].function.name, "set");
         assert_eq!(best.item.calls[1].function.name, "set");

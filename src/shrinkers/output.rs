@@ -25,6 +25,6 @@ pub struct MaxxingShrinkerOutput {
 #[derive(Debug, Clone)]
 pub struct MaxxingResult {
     pub objective: MaxObjective,
-    pub value: U256,
+    pub best_score: U256,
     pub item: Item,
 }

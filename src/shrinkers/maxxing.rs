@@ -42,7 +42,6 @@ impl MaxxingShrinkerConfig {
             shared_corpus: MaxxingShrinkerCorpus::new(
                 Item::from(vec![]),
                 U256::ZERO,
-                U256::ZERO,
                 CorpusConfig::new(""),
                 SharedCorpus::new(CorpusConfig::new("")),
             ),
@@ -214,11 +213,11 @@ impl ShrinkStrategy for MaxxingStrategy {
     }
 
     fn observe(&self, item: Item, exec: &ExecOutput) -> Result<()> {
-        let value = self
+        let raw_score = self
             .objective
             .decode(exec.results.last().context("max call result missing")?)
             .unwrap_or_default();
-        self.shared_corpus.accept(item, value);
+        self.shared_corpus.accept(item, raw_score);
         Ok(())
     }
 
@@ -305,8 +304,7 @@ mod tests {
         let config = CorpusConfig::new(tmp.path().join("corpus"))
             .handler_functions(contract.handler_functions.clone())
             .max_calls(4);
-        let shrink_corpus =
-            MaxxingShrinkerCorpus::new(item, U256::from(7), U256::ZERO, config, corpus);
+        let shrink_corpus = MaxxingShrinkerCorpus::new(item, U256::from(7), config, corpus);
 
         let shrinker_config = MaxxingShrinkerConfig::new()
             .chain(chain)
@@ -325,8 +323,8 @@ mod tests {
 
         let final_item = shrink_corpus.item();
         assert!(
-            final_item.value >= U256::from(7),
-            "value must be preserved or improved"
+            final_item.best_score >= U256::from(7),
+            "best_score must be preserved or improved"
         );
         assert_eq!(
             final_item.item.calls.len(),

@@ -10,6 +10,16 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+### Changed
+
+- Maxxing reports use a consistent score vocabulary: `raw_score` is the value
+  returned by a `max_*` call, `base_score` is the raw score observed after
+  `setup()`, and `best_score` is the best raw score observed so far. Log fields
+  `value=` and `baseline=` become `best_score=` and `base_score=` on the
+  progress, finished, and setup lines
+
+### Fixed
+
 - Corpus now uses AFL-style energy for `pick_item` (finds boost energy even for
   existing ids via `bump_entry`, energy decays only after a mutation that adds
   nothing) and caps at 1024 items evicting lowest-energy entries while never

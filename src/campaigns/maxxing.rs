@@ -1,4 +1,4 @@
-//! Maxxing campaign: maximize a single `max_*` function's return value.
+//! Maxxing campaign: maximize a single `max_*` function's return.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -59,29 +59,32 @@ impl MaxxingCampaign {
         let shutdown_signal = Arc::new(AtomicBool::new(false));
 
         let fuzzer_corpus = MaxxingFuzzerCorpus::new(self.session.corpus.clone());
-        let baseline = {
-            let mut baseline_chain = self.session.chain.clone();
+        let base_score = {
+            let span = info_span!("setup");
+            let _guard = span.enter();
+            let mut base_score_chain = self.session.chain.clone();
             let tx = self.objective.transaction(
                 self.session.deployed_address,
                 self.session.args.deployer_address,
                 self.session.args.gas_limit,
             );
-            let exec = baseline_chain
+            let exec = base_score_chain
                 .exec(&[tx])
-                .context("failed to call max_* for baseline after setup")?;
+                .context("failed to call max_* for base score after setup")?;
             let result = exec
                 .results
                 .first()
-                .context("missing max_* result for baseline")?;
-            self.objective.decode(result).with_context(|| {
+                .context("missing max_* result for base score")?;
+            let base_score = self.objective.decode(result).with_context(|| {
                 format!(
                     "max_* {} did not return uint256 after setup (reverted or empty)",
                     self.objective.function.signature()
                 )
-            })?
+            })?;
+            info!(base_score = %base_score, "measured max_* return");
+            base_score
         };
-        fuzzer_corpus.set_baseline(baseline);
-        info!(baseline = %baseline, "maxxing baseline after setup");
+        fuzzer_corpus.set_base_score(base_score);
 
         let fuzzers = self.session.args.threads;
         let timeout = self
@@ -134,11 +137,14 @@ impl MaxxingCampaign {
 
         wait_for_workers(handles.iter().map(|(_, handle)| handle), || {
             if let Some(snapshot) = shared_metrics.try_snapshot() {
-                let value = fuzzer_corpus.best_value().unwrap_or(U256::ZERO);
+                let best_score = fuzzer_corpus
+                    .best_score()
+                    .or_else(|| fuzzer_corpus.base_score())
+                    .unwrap_or(U256::ZERO);
                 let function_metrics = shared_metrics.function_metrics();
                 stats_ctx.log_maxxing_summary(
                     &snapshot,
-                    value,
+                    best_score,
                     self.session.chain.rpc_stats(),
                     &function_metrics,
                     "progress",
@@ -197,10 +203,13 @@ impl MaxxingCampaign {
         }
 
         let function_metrics = shared_metrics.function_metrics();
-        let value = fuzzer_corpus.best_value().unwrap_or(U256::ZERO);
+        let best_score = fuzzer_corpus
+            .best_score()
+            .or_else(|| fuzzer_corpus.base_score())
+            .unwrap_or(U256::ZERO);
         stats_ctx.log_maxxing_summary(
             &shared_metrics.aggregate(),
-            value,
+            best_score,
             self.session.chain.rpc_stats(),
             &function_metrics,
             "finished",
@@ -221,20 +230,20 @@ impl MaxxingCampaign {
 
         let mut results = Vec::new();
         if let Some(best) = fuzzer_corpus.best_item() {
-            results.push(self.shrink_max(best, baseline)?);
+            results.push(self.shrink_max(best)?);
         }
 
         if results.is_empty() {
             warn!(
                 objective = %self.objective.function.name,
-                "no sequence improved the max value (best stayed at 0)",
+                "no raw_score exceeded the base_score (best_score unchanged)",
             );
         } else {
             for result in &results {
                 info!(
                     max = %result.objective.function.name,
-                    value = %result.value,
-                    "maximum value",
+                    best_score = %result.best_score,
+                    "maximum best_score",
                 );
             }
         }
@@ -297,7 +306,7 @@ impl MaxxingCampaign {
     }
 
     /// Shrink the best max result and report it.
-    fn shrink_max(&mut self, best: MaxBestItem, baseline: U256) -> Result<MaxxingResult> {
+    fn shrink_max(&mut self, best: MaxBestItem) -> Result<MaxxingResult> {
         let objective = self.objective.clone();
         let session = &mut self.session;
 
@@ -321,8 +330,7 @@ impl MaxxingCampaign {
 
         let shrink_corpus = MaxxingShrinkerCorpus::new(
             best.item,
-            best.value,
-            baseline,
+            best.best_score,
             shrink_config,
             session.corpus.clone(),
         );
@@ -410,7 +418,7 @@ impl MaxxingCampaign {
 
         Ok(MaxxingResult {
             objective,
-            value: shrunk.value,
+            best_score: shrunk.best_score,
             item: shrunk.item,
         })
     }

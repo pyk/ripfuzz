@@ -16,13 +16,13 @@ use crate::corpus::{
 /// A single max result being shrunk, shared across shrinker threads.
 #[derive(Debug, Clone)]
 pub struct MaxxingShrinkerItem {
-    pub value: U256,
+    pub best_score: U256,
     pub item: Item,
 }
 
 #[derive(Debug)]
 struct MaxxingShrinkerCorpusInner {
-    /// Current best derived profit.
+    /// Current best score.
     current: RwLock<MaxxingShrinkerItem>,
     /// Handler functions for mutation.
     handler_functions: Vec<alloy_json_abi::Function>,
@@ -30,8 +30,6 @@ struct MaxxingShrinkerCorpusInner {
     literals: ExtractedLiterals,
     /// Shared corpus for persistence.
     corpus: SharedCorpus,
-    /// Baseline raw score after `setup()` for derived profit.
-    baseline: U256,
 }
 
 /// Thread-safe corpus used by max shrinker threads for one objective.
@@ -46,22 +44,14 @@ impl MaxxingShrinkerCorpus {
     /// Create a shrinker corpus from a best item and a
     /// [`CorpusConfig`](crate::corpus::CorpusConfig).
     ///
-    /// `value` is the derived profit `raw.saturating_sub(baseline)` and
-    /// `baseline` is the raw `max_*` score after `setup()`.
-    pub fn new(
-        item: Item,
-        value: U256,
-        baseline: U256,
-        config: CorpusConfig,
-        corpus: SharedCorpus,
-    ) -> Self {
+    /// `best_score` is the best raw `max_*` score found by the fuzzer.
+    pub fn new(item: Item, best_score: U256, config: CorpusConfig, corpus: SharedCorpus) -> Self {
         Self {
             inner: Arc::new(MaxxingShrinkerCorpusInner {
-                current: RwLock::new(MaxxingShrinkerItem { value, item }),
+                current: RwLock::new(MaxxingShrinkerItem { best_score, item }),
                 handler_functions: config.handler_functions,
                 literals: config.literals,
                 corpus,
-                baseline,
             }),
         }
     }
@@ -78,21 +68,20 @@ impl MaxxingShrinkerCorpus {
         item
     }
 
-    /// Accept a candidate that improves the stored value or shrinks the stored
-    /// sequence without losing value.
+    /// Accept a candidate that improves the stored best raw score or shrinks
+    /// the stored sequence without losing best score.
     ///
-    /// `raw_value` is the raw `max_*` score; the derived profit
-    /// `raw_value.saturating_sub(baseline)` is compared against the stored
-    /// derived best. Accepted items are persisted to the shared corpus so
-    /// later campaigns start from the shrunken result.
-    pub fn accept(&self, item: Item, raw_value: U256) {
-        let value = raw_value.saturating_sub(self.inner.baseline);
+    /// `raw_score` is the raw `max_*` score and is compared against the
+    /// stored best score directly. Accepted items are persisted to the shared
+    /// corpus so later campaigns start from the shrunken result.
+    pub fn accept(&self, item: Item, raw_score: U256) {
         let mut current = self.inner.current.write();
-        let improves = value > current.value;
-        let shrinks = value >= current.value && item.calls.len() < current.item.calls.len();
+        let improves = raw_score > current.best_score;
+        let shrinks =
+            raw_score >= current.best_score && item.calls.len() < current.item.calls.len();
         if improves || shrinks {
             *current = MaxxingShrinkerItem {
-                value,
+                best_score: raw_score,
                 item: item.clone(),
             };
             drop(current);
@@ -223,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn shrinker_corpus_requires_value_or_size_improvement() {
+    fn shrinker_corpus_requires_best_score_or_size_improvement() {
         let tmp = tempfile::tempdir().unwrap();
         let corpus = SharedCorpus::new(CorpusConfig::new(tmp.path().join("corpus")));
         let functions = vec![Function::parse("foo()").unwrap()];
@@ -231,47 +220,44 @@ mod tests {
             .handler_functions(functions.clone())
             .max_calls(4);
         let seed_item = Item::from(vec![empty_call(), empty_call()]);
-        let shrink_corpus =
-            MaxxingShrinkerCorpus::new(seed_item, U256::from(5), U256::ZERO, config, corpus);
+        let shrink_corpus = MaxxingShrinkerCorpus::new(seed_item, U256::from(5), config, corpus);
 
-        // Smaller with the same value is accepted.
+        // Smaller with the same best_score is accepted.
         let smaller = Item::from(vec![empty_call()]);
         shrink_corpus.accept(smaller.clone(), U256::from(5));
         assert_eq!(shrink_corpus.item().item.calls.len(), 1);
-        assert_eq!(shrink_corpus.item().value, U256::from(5));
+        assert_eq!(shrink_corpus.item().best_score, U256::from(5));
 
-        // Same size with a lower value is rejected.
+        // Same size with a lower best_score is rejected.
         shrink_corpus.accept(smaller.clone(), U256::from(3));
         assert_eq!(shrink_corpus.item().item.calls.len(), 1);
-        assert_eq!(shrink_corpus.item().value, U256::from(5));
+        assert_eq!(shrink_corpus.item().best_score, U256::from(5));
     }
 
     #[test]
-    fn shrinker_corpus_baseline_is_used_for_derived_comparison() {
+    fn shrinker_corpus_compares_raw_scores() {
         let tmp = tempfile::tempdir().unwrap();
         let corpus = SharedCorpus::new(CorpusConfig::new(tmp.path().join("corpus")));
         let functions = vec![Function::parse("foo()").unwrap()];
         let config = CorpusConfig::new(tmp.path().join("corpus"))
             .handler_functions(functions.clone())
             .max_calls(4);
-        let baseline = U256::from(100);
         let seed_item = Item::from(vec![empty_call(), empty_call()]);
-        let shrink_corpus =
-            MaxxingShrinkerCorpus::new(seed_item, U256::from(50), baseline, config, corpus);
+        let shrink_corpus = MaxxingShrinkerCorpus::new(seed_item, U256::from(50), config, corpus);
         let smaller = Item::from(vec![empty_call()]);
-        shrink_corpus.accept(smaller.clone(), U256::from(90));
+        shrink_corpus.accept(smaller.clone(), U256::from(40));
         assert_eq!(
             shrink_corpus.item().item.calls.len(),
             2,
-            "raw 90 with baseline 100 is derived 0 and must be rejected"
+            "raw_score 40 below best_score 50 must be rejected"
         );
-        assert_eq!(shrink_corpus.item().value, U256::from(50));
+        assert_eq!(shrink_corpus.item().best_score, U256::from(50));
         shrink_corpus.accept(smaller.clone(), U256::from(150));
         assert_eq!(
             shrink_corpus.item().item.calls.len(),
             1,
-            "raw 150 with baseline 100 is derived 50 and shorter, must be accepted"
+            "raw_score 150 above best_score 50 and shorter, must be accepted"
         );
-        assert_eq!(shrink_corpus.item().value, U256::from(50));
+        assert_eq!(shrink_corpus.item().best_score, U256::from(150));
     }
 }

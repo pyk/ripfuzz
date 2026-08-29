@@ -11,7 +11,8 @@ use crate::corpus::{Item, SharedCorpus};
 /// The best sequence found so far for one max objective.
 #[derive(Debug, Clone)]
 pub struct MaxBestItem {
-    pub value: U256,
+    /// Highest raw `max_*` score observed.
+    pub best_score: U256,
     pub item: Item,
 }
 
@@ -29,11 +30,11 @@ struct Extremes {
 struct MaxxingFuzzerCorpusInner {
     /// Coverage-guided corpus.
     corpus: SharedCorpus,
-    /// Best derived profit `raw.saturating_sub(baseline)`.
+    /// Best raw score observed so far.
     best: RwLock<Option<MaxBestItem>>,
-    /// Baseline raw score after `setup()`.
-    baseline: RwLock<Option<U256>>,
-    /// Raw-score extremes, initialized to `baseline`.
+    /// Raw `max_*` score observed after `setup()`.
+    base_score: RwLock<Option<U256>>,
+    /// Raw-score extremes, initialized to `base_score`.
     extremes: RwLock<Option<Extremes>>,
     /// Protected best id for eviction.
     protected_best: RwLock<Option<String>>,
@@ -45,7 +46,7 @@ struct MaxxingFuzzerCorpusInner {
 
 /// Thread-safe corpus used by maxxing fuzzer threads.
 ///
-/// Wraps the coverage-guided corpus and tracks the best value and sequence for
+/// Wraps the coverage-guided corpus and tracks the best score and sequence for
 /// the max objective. Cloning is cheap (shares the same inner state).
 #[derive(Debug, Clone)]
 pub struct MaxxingFuzzerCorpus {
@@ -59,7 +60,7 @@ impl MaxxingFuzzerCorpus {
             inner: Arc::new(MaxxingFuzzerCorpusInner {
                 corpus,
                 best: RwLock::new(None),
-                baseline: RwLock::new(None),
+                base_score: RwLock::new(None),
                 extremes: RwLock::new(None),
                 protected_best: RwLock::new(None),
                 protected_max: RwLock::new(None),
@@ -68,35 +69,36 @@ impl MaxxingFuzzerCorpus {
         }
     }
 
-    /// Set the baseline score observed after `setup()`.
+    /// Set the base score observed after `setup()`.
     ///
-    /// The baseline is the raw `max_*` value before any handler. Derived
-    /// profit is `score.saturating_sub(baseline)` and extremes are tracked
-    /// against the raw score. Calling this more than once is a no-op.
-    pub fn set_baseline(&self, baseline: U256) {
-        let mut guard = self.inner.baseline.write();
+    /// The base score is the raw `max_*` value before any handler. A raw
+    /// score only counts as an improvement once it exceeds the base score,
+    /// and extremes are tracked against the raw score. Calling this more
+    /// than once is a no-op.
+    pub fn set_base_score(&self, base_score: U256) {
+        let mut guard = self.inner.base_score.write();
         if guard.is_some() {
             return;
         }
-        *guard = Some(baseline);
+        *guard = Some(base_score);
         drop(guard);
         let mut extremes = self.inner.extremes.write();
         if extremes.is_none() {
             *extremes = Some(Extremes {
-                max: baseline,
-                min: baseline,
+                max: base_score,
+                min: base_score,
             });
         }
     }
 
-    /// Baseline score, if set.
-    pub fn baseline(&self) -> Option<U256> {
-        *self.inner.baseline.read()
+    /// Base score, if set.
+    pub fn base_score(&self) -> Option<U256> {
+        *self.inner.base_score.read()
     }
 
-    /// Return the current best max value, if any.
-    pub fn best_value(&self) -> Option<U256> {
-        self.inner.best.read().as_ref().map(|best| best.value)
+    /// Return the best raw score observed so far, if any.
+    pub fn best_score(&self) -> Option<U256> {
+        self.inner.best.read().as_ref().map(|best| best.best_score)
     }
 
     /// Return the next corpus item for execution.
@@ -114,25 +116,26 @@ impl MaxxingFuzzerCorpus {
         self.inner.corpus.add_item(item)
     }
 
-    /// Record a new best value.
+    /// Record a new best score.
     ///
-    /// `raw_score` is the raw `max_*` return. The stored best is the derived
-    /// profit `raw_score.saturating_sub(baseline)` where baseline is the value
-    /// after `setup()`, falling back to zero when no baseline was set. Returns
-    /// `true` when the derived value improved the stored best. The improving
-    /// prefix is added to the shared corpus so later campaigns mutate from it.
+    /// `raw_score` is the raw `max_*` return. It improves the best when it
+    /// exceeds the base score (falling back to zero when no base score was
+    /// set) and then the stored best score. Returns `true` when the best
+    /// improved. The improving prefix is added to the shared corpus so later
+    /// campaigns mutate from it.
     pub fn record_improvement(&self, raw_score: U256, item: Item) -> Result<bool> {
-        let baseline = self.inner.baseline.read().unwrap_or(U256::ZERO);
-        let value = raw_score.saturating_sub(baseline);
         let improved = {
             let mut best = self.inner.best.write();
             let improved = match best.as_ref() {
-                Some(current) => value > current.value,
-                None => value > U256::ZERO,
+                Some(current) => raw_score > current.best_score,
+                None => {
+                    let base_score = self.inner.base_score.read().unwrap_or(U256::ZERO);
+                    raw_score > base_score
+                }
             };
             if improved {
                 *best = Some(MaxBestItem {
-                    value,
+                    best_score: raw_score,
                     item: item.clone(),
                 });
             }
@@ -161,7 +164,7 @@ impl MaxxingFuzzerCorpus {
     /// Keep a prefix that set a new raw-score extreme.
     ///
     /// The raw `max_*` score is compared against the current max and min
-    /// (both initialized to the baseline). When the score is a new max or a
+    /// (both initialized to the base score). When the score is a new max or a
     /// new min the prefix is added to the shared corpus so it can be
     /// mutated. Returns `true` when the prefix was kept.
     pub fn record_extreme(&self, raw_score: U256, item: Item) -> Result<bool> {
@@ -268,43 +271,43 @@ mod tests {
         );
 
         let best = fuzzer_corpus.best_item().expect("best must be recorded");
-        assert_eq!(best.value, U256::from(5));
+        assert_eq!(best.best_score, U256::from(5));
         assert_eq!(best.item.calls.len(), 1);
     }
 
     #[test]
-    fn record_improvement_uses_baseline_for_derived_value() {
+    fn record_improvement_uses_base_score_for_best_score() {
         let tmp = tempfile::tempdir().unwrap();
         let corpus = SharedCorpus::new(CorpusConfig::new(tmp.path().join("corpus")));
         let fuzzer_corpus = MaxxingFuzzerCorpus::new(corpus);
-        fuzzer_corpus.set_baseline(U256::from(100));
+        fuzzer_corpus.set_base_score(U256::from(100));
         let item = Item::from(vec![empty_call()]);
 
         assert!(
             !fuzzer_corpus
                 .record_improvement(U256::from(90), item.clone())
                 .unwrap(),
-            "raw below baseline must not improve (value 0)"
+            "raw_score below base_score must not improve"
         );
         assert!(
             !fuzzer_corpus
                 .record_improvement(U256::from(100), item.clone())
                 .unwrap(),
-            "raw equal to baseline must not improve"
+            "raw_score equal to base_score must not improve"
         );
         assert!(
             fuzzer_corpus
                 .record_improvement(U256::from(150), item.clone())
                 .unwrap(),
-            "raw above baseline must improve"
+            "raw_score above base_score must improve"
         );
         let best = fuzzer_corpus.best_item().expect("best must be recorded");
-        assert_eq!(best.value, U256::from(50));
+        assert_eq!(best.best_score, U256::from(150));
         assert!(
             !fuzzer_corpus
                 .record_improvement(U256::from(120), item)
                 .unwrap(),
-            "lower derived value must not beat best"
+            "raw_score below best_score must not improve"
         );
     }
 
@@ -313,7 +316,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let corpus = SharedCorpus::new(CorpusConfig::new(tmp.path().join("corpus")));
         let fuzzer_corpus = MaxxingFuzzerCorpus::new(corpus);
-        fuzzer_corpus.set_baseline(U256::from(100));
+        fuzzer_corpus.set_base_score(U256::from(100));
         let item_min = Item::from(vec![empty_call()]);
         let item_max = Item::from(vec![empty_call(), empty_call()]);
 
@@ -336,13 +339,13 @@ mod tests {
             !fuzzer_corpus
                 .record_extreme(U256::from(95), item_min.clone())
                 .unwrap(),
-            "value between min and max must not be kept"
+            "score between min and max must not be kept"
         );
         assert!(
             !fuzzer_corpus
                 .record_extreme(U256::from(105), item_min)
                 .unwrap(),
-            "value between min and max must not be kept"
+            "score between min and max must not be kept"
         );
     }
 
@@ -351,7 +354,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let corpus = SharedCorpus::new(CorpusConfig::new(tmp.path().join("corpus")));
         let fuzzer_corpus = MaxxingFuzzerCorpus::new(corpus);
-        fuzzer_corpus.set_baseline(U256::from(100));
+        fuzzer_corpus.set_base_score(U256::from(100));
         let item1 = Item::from(vec![empty_call()]);
         let item2 = Item::from(vec![empty_call(), empty_call()]);
         assert!(
@@ -382,7 +385,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let corpus = SharedCorpus::new(CorpusConfig::new(tmp.path().join("corpus")));
         let fuzzer_corpus = MaxxingFuzzerCorpus::new(corpus);
-        fuzzer_corpus.set_baseline(U256::from(100));
+        fuzzer_corpus.set_base_score(U256::from(100));
         let item_min1 = Item::from(vec![empty_call()]);
         let item_min2 = Item::from(vec![empty_call(), empty_call()]);
         assert!(
