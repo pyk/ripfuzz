@@ -183,6 +183,68 @@ fn with_root_resolves_relative_target_and_out() {
 }
 
 #[test]
+fn compiles_harness_with_remappings() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = tmp.path().join("lib/ripfuzz/src");
+    fs::create_dir_all(&lib).unwrap();
+    fs::write(
+        lib.join("Support.sol"),
+        "pragma solidity ^0.8.36;\n\ncontract Support {}",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("remappings.txt"),
+        "ripfuzz/=lib/ripfuzz/src/\n",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("Harness.sol"),
+        "pragma solidity ^0.8.36;\n\nimport {Support} from \"ripfuzz/Support.sol\";\n\ncontract Harness { Support public support; }",
+    )
+    .unwrap();
+
+    Solc::new()
+        .with_version(VERSION)
+        .with_root(tmp.path())
+        .with_target("Harness.sol")
+        .with_out("out")
+        .compile()
+        .unwrap();
+
+    let harness_artifact = tmp
+        .path()
+        .join("out")
+        .join("Harness.sol")
+        .join("Harness.json");
+    assert!(harness_artifact.is_file(), "harness must compile");
+    let support_artifact = tmp
+        .path()
+        .join("out")
+        .join("Support.sol")
+        .join("Support.json");
+    assert!(
+        support_artifact.is_file(),
+        "remapped import must compile at {}",
+        support_artifact.display()
+    );
+
+    let output: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(tmp.path().join("out/output.json")).unwrap())
+            .unwrap();
+    let contracts = output.get("contracts").unwrap().as_object().unwrap();
+    assert!(
+        contracts.contains_key("Harness.sol"),
+        "contract keys must be relative to the root, got: {:?}",
+        contracts.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        contracts.contains_key("lib/ripfuzz/src/Support.sol"),
+        "remapped keys must be relative to the root, got {:?}",
+        contracts.keys().collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn missing_target_fails() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("out");

@@ -15,9 +15,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - `ripfuzz max --root <path>` resolves the config file, harness path, and
   output directory relative to the given project root instead of the current
   working directory
+- Solc compilation resolves imports through `{root}/remappings.txt`, so
+  harnesses importing dependencies via remappings (e.g. `ripfuzz/Harness.sol`)
+  compile
 
 ### Changed
 
+- Upgraded solc dependency to v0.3.3
 - Maxxing reports use a consistent score vocabulary: `raw_score` is the value
   returned by a `max_*` call, `base_score` is the raw score observed after
   `setup()`, and `best_score` is the best raw score observed so far. Log fields
