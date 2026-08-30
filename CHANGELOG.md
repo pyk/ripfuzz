@@ -78,6 +78,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- `ripfuzz max` now generates arguments for handlers that take struct (tuple)
+  parameters, including arrays and nested structs, by resolving JSON-ABI
+  parameters with their components instead of parsing the bare `tuple` type
+  string, which crashed the campaign at startup on such harnesses
+
 - `ripfuzz` now loads `{cwd}/.env` at startup for every command instead of only
   `ripfuzz run`, so harnesses using `vm.getEnv` see the same values in `run`
   and `max`; existing environment variables still take precedence
