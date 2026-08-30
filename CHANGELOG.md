@@ -21,6 +21,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- `ripfuzz max` now deploys the compiled harness on a sandbox chain after
+  compilation and prints the deployed address instead of the solc version
+- `HarnessId` moved from `ripfuzz::cli` to `ripfuzz::harness`, next to the
+  compiled `Harness` type it identifies
+- Solc artifacts are written under a namespace derived from the target source
+  path (e.g. `.ripfuzz/out/src/Harness.sol/out.json`), so targets sharing an
+  out directory never overwrite each other's artifacts; the combined output
+  file is renamed from `output.json` to `out.json`
 - Upgraded solc dependency to v0.3.3
 - Maxxing reports use a consistent score vocabulary: `raw_score` is the value
   returned by a `max_*` call, `base_score` is the raw score observed after

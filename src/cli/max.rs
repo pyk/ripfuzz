@@ -2,12 +2,13 @@
 
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use tracing::info;
 
 use crate::cli::config::Config;
-use crate::cli::harness_id::HarnessId;
+use crate::evm::{Chain, ChainConfig};
+use crate::harness::HarnessId;
 use crate::solc::Solc;
 
 /// Maximize a harness value.
@@ -39,15 +40,29 @@ pub fn run(args: Args) -> Result<()> {
     let config = Config::new().with_root(&root).load(&args.config)?;
 
     // 3. Compile harness via Solc relative to the project root.
-    Solc::new()
+    let harness = Solc::new()
         .with_version(&config.solc)
         .with_root(&root)
         .with_target(&args.harness.path)
+        .with_name(&args.harness.name)
         .with_out(&config.out)
         .compile()?;
 
-    // 4. Log and print solc version.
-    info!(solc = %config.solc, "solc ready");
-    println!("{}", config.solc);
+    // 4. Create the test chain the harness will be deployed to.
+    let chain_config = ChainConfig::new(&root).coverage(true);
+    let mut chain = Chain::new(chain_config)?;
+
+    // 5. Deploy the harness contract.
+    let deployment = chain.deploy(harness.deploy_input())?;
+    ensure!(
+        deployment.result.success,
+        "harness contract `{}` deployment failed",
+        harness.id.name
+    );
+    let address = deployment
+        .address
+        .context("deployment succeeded but created_address is missing")?;
+    info!(harness = %harness.id, address = %address, "harness deployed");
+    println!("{address}");
     Ok(())
 }
