@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use alloy_primitives::U256;
 use ripfuzz::DEFAULT_DEPLOYER;
-use ripfuzz::commands::run::{Args, run};
+use ripfuzz::cli::run::{Args, run};
 
 const PROJECT: &str = "fixtures/basic-harness";
 

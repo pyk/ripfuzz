@@ -24,7 +24,7 @@ pub use shrinkers::{
     MaxxingShrinker, MaxxingShrinkerConfig, MaxxingShrinkerCorpus, MaxxingShrinkerOutput,
 };
 
-pub mod commands;
+pub mod cli;
 pub mod logger;
 
 mod campaigns;
