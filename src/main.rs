@@ -29,7 +29,7 @@ fn main() -> ExitCode {
 
     let result = match cli.command {
         Commands::Run(args) => cli::run::run(*args),
-        Commands::Max(args) => cli::max::run(args),
+        Commands::Max(args) => cli::max::run(args).map(|_| ()),
         Commands::Init(args) => cli::init::run(args),
     };
 

@@ -29,6 +29,13 @@ const MAX_STRING_LEN: usize = 16;
 /// Maximum length of randomly generated dynamic arrays.
 const MAX_ARRAY_LEN: usize = 4;
 
+/// One in this many uniform integers becomes a boundary value instead, because
+/// a uniform random value almost never lands on a Solidity edge case.
+const BOUNDARY_PROBABILITY: u32 = 8;
+
+/// Number of boundary candidates to pick from.
+const BOUNDARY_COUNT: usize = 6;
+
 /// A single harness call with generated arguments.
 #[derive(Debug, Clone)]
 pub struct Call {
@@ -59,6 +66,11 @@ impl Call {
     /// The human-readable signature of the called function.
     pub fn signature(&self) -> String {
         self.function.signature()
+    }
+
+    /// The called function.
+    pub fn function(&self) -> &Function {
+        &self.function
     }
 
     /// Encode the call as EVM calldata: selector plus encoded arguments.
@@ -134,6 +146,9 @@ fn random_values(rng: &mut fastrand::Rng, ty: &DynSolType, len: usize) -> Result
 
 /// Generate a random `uint256` limited to the given bit width.
 fn random_uint(rng: &mut fastrand::Rng, bits: usize) -> U256 {
+    if rng.u32(..BOUNDARY_PROBABILITY) == 0 {
+        return boundary_uint(rng, bits);
+    }
     let low = U256::from(rng.u128(..));
     let high = U256::from(rng.u128(..)) << 128;
     let value = high | low;
@@ -142,6 +157,24 @@ fn random_uint(rng: &mut fastrand::Rng, bits: usize) -> U256 {
     } else {
         value & ((U256::from(1) << bits) - U256::from(1))
     }
+}
+
+/// Generate a boundary `uint256` limited to the given bit width.
+fn boundary_uint(rng: &mut fastrand::Rng, bits: usize) -> U256 {
+    let max = if bits >= 256 {
+        U256::MAX
+    } else {
+        (U256::from(1) << bits) - U256::from(1)
+    };
+    let candidates = [
+        U256::ZERO,
+        U256::from(1),
+        U256::from(2),
+        max,
+        max >> 1,
+        U256::from(10_000_000_000_000_000_000u64),
+    ];
+    candidates[rng.usize(..BOUNDARY_COUNT)] & max
 }
 
 #[cfg(test)]
@@ -198,6 +231,33 @@ mod tests {
             err.to_string(),
             "random arguments for `function` parameters are not supported"
         );
+    }
+
+    #[test]
+    fn random_uints_stay_within_the_bit_width() {
+        let mut rng = fastrand::Rng::new();
+        for bits in [1, 4, 8, 64, 255, 256] {
+            let mask = if bits >= 256 {
+                U256::MAX
+            } else {
+                (U256::from(1) << bits) - U256::from(1)
+            };
+            for _ in 0..200 {
+                let value = random_uint(&mut rng, bits);
+                assert!(value <= mask, "value {value} exceeds {bits} bits");
+            }
+        }
+    }
+
+    #[test]
+    fn function_exposes_the_called_function() {
+        let function = Function::parse("set(uint256)").unwrap();
+        let call = Call::new(
+            function.clone(),
+            DynSolValue::Tuple(vec![DynSolValue::Uint(U256::from(1), 256)]),
+        );
+
+        assert_eq!(call.function().selector(), function.selector());
     }
 
     #[test]

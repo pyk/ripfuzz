@@ -28,11 +28,14 @@ use anyhow::{Context, Result};
 use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
-use crate::evm::{Chain, Transaction};
-use crate::max::{Best, Sequence, Value};
+use crate::evm::{Chain, SharedCoverage, Transaction};
+use crate::max::{Best, Corpus, Sequence, Value};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
+
+/// Interval between finished checks while waiting for the fuzzers.
+const PROGRESS_TICK: Duration = Duration::from_millis(100);
 
 /// Fuzzer configuration, configured via a fluent builder API.
 #[derive(Clone, Debug)]
@@ -42,6 +45,8 @@ pub struct FuzzerConfig {
     deployer: Address,
     value_calldata: Bytes,
     handlers: Vec<Function>,
+    corpus: Corpus,
+    coverage: SharedCoverage,
     initial_value: Value,
     seed: u64,
     threads: usize,
@@ -60,6 +65,8 @@ impl FuzzerConfig {
             deployer: Address::ZERO,
             value_calldata: Bytes::new(),
             handlers: Vec::new(),
+            corpus: Corpus::new(),
+            coverage: SharedCoverage::new(),
             initial_value: Value::new(U256::ZERO),
             seed: 0,
             threads: 1,
@@ -97,6 +104,18 @@ impl FuzzerConfig {
     /// Set the fuzzable handler functions.
     pub fn handlers(mut self, value: Vec<Function>) -> Self {
         self.handlers = value;
+        self
+    }
+
+    /// Set the shared corpus of interesting sequences.
+    pub fn corpus(mut self, value: Corpus) -> Self {
+        self.corpus = value;
+        self
+    }
+
+    /// Set the shared coverage map.
+    pub fn coverage(mut self, value: SharedCoverage) -> Self {
+        self.coverage = value;
         self
     }
 
@@ -201,6 +220,7 @@ impl Fuzzer {
         );
 
         // 4. Spawn fuzzers with split run budgets.
+        // 4. Spawn fuzzers with split run budgets.
         let budgets = split_runs(self.config.max_runs, self.config.threads);
         let mut handles = Vec::with_capacity(budgets.len());
         for (thread_id, budget) in budgets.into_iter().enumerate() {
@@ -215,17 +235,23 @@ impl Fuzzer {
         }
 
         // 5. Log progress while the fuzzers run.
+        let mut last_progress = Instant::now();
         while handles.iter().any(|(_, handle)| !handle.is_finished()) {
-            std::thread::sleep(PROGRESS_INTERVAL);
+            std::thread::sleep(PROGRESS_TICK);
             if handles.iter().all(|(_, handle)| handle.is_finished()) {
                 break;
             }
-            info!(
-                runs = shared.runs(),
-                best = %shared.best_value(),
-                elapsed = start.elapsed().as_secs(),
-                "fuzzing progress"
-            );
+            if last_progress.elapsed() >= PROGRESS_INTERVAL {
+                info!(
+                    runs = shared.runs(),
+                    best = %shared.best_value(),
+                    corpus = self.config.corpus.len(),
+                    edges = self.config.coverage.edge_count(),
+                    elapsed = start.elapsed().as_secs(),
+                    "fuzzing progress"
+                );
+                last_progress = Instant::now();
+            }
         }
 
         // 6. Join the fuzzers and propagate failures.
@@ -356,16 +382,30 @@ fn worker(config: &FuzzerConfig, shared: &Shared, thread_id: usize, runs: u64) -
         }
         shared.record_run();
 
-        // 1. Generate a random handler call sequence.
-        let sequence = Sequence::random(&mut rng, &config.handlers, config.max_calls)?;
+        // 1. Generate the next sequence: mutate a corpus entry when one is
+        // available, otherwise generate a random one.
+        let sequence = match config.corpus.random(&mut rng) {
+            Some(base) if rng.usize(..4) != 0 => {
+                let other = config.corpus.random(&mut rng).unwrap_or_default();
+                base.mutate(&mut rng, &config.handlers, &other, config.max_calls)?
+            }
+            _ => Sequence::random(&mut rng, &config.handlers, config.max_calls)?,
+        };
 
         // 2. Execute the sequence on a clean chain clone.
         // checkrs: allow(clone_in_loops)
         let mut chain = config.chain.clone();
         let transactions = sequence.transactions(config.target, config.deployer);
-        chain.exec(&transactions)?;
+        let mut exec = chain.exec(&transactions)?;
 
-        // 3. Measure the value after the sequence.
+        // 3. Merge execution coverage into the shared map.
+        let coverage = exec
+            .coverage
+            .take()
+            .context("execution coverage expected")?;
+        let update = config.coverage.merge(&coverage);
+
+        // 4. Measure the value after the sequence.
         let output = chain.exec(std::slice::from_ref(&value_tx))?;
         let result = output
             .results
@@ -376,9 +416,10 @@ fn worker(config: &FuzzerConfig, shared: &Shared, thread_id: usize, runs: u64) -
         }
         let value = Value::decode(result)?;
 
-        // 4. Record the sequence when it improves the best value.
+        // 5. Record the sequence when it improves the best value.
         // checkrs: allow(clone_in_loops)
-        if shared.consider(sequence.clone(), value) {
+        let improved = shared.consider(sequence.clone(), value);
+        if improved {
             info!(
                 thread = thread_id,
                 value = %value,
@@ -386,6 +427,14 @@ fn worker(config: &FuzzerConfig, shared: &Shared, thread_id: usize, runs: u64) -
                 sequence = %sequence,
                 "new best sequence"
             );
+        }
+
+        // 6. Keep the sequence when it found new coverage or a new best value.
+        if update.is_interesting() || improved {
+            let new_edges =
+                (update.new_edges + update.new_depths + update.new_reverts + update.new_jump_edges)
+                    as u64;
+            config.corpus.add(sequence, value, new_edges);
         }
     }
     Ok(())

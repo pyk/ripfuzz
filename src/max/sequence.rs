@@ -12,6 +12,7 @@
 //! ```
 
 use std::fmt;
+use std::ops::Range;
 
 use alloy_json_abi::Function;
 use alloy_primitives::Address;
@@ -66,6 +67,80 @@ impl Sequence {
             .map(|call| call.transaction(target, caller))
             .collect()
     }
+
+    /// Create a copy of this sequence without the calls in the given range.
+    pub fn without(&self, range: Range<usize>) -> Sequence {
+        let mut calls = self.0.clone();
+        calls.drain(range);
+        Self(calls)
+    }
+
+    /// Mutate this sequence with a random operation.
+    ///
+    /// Operations: insert, delete, replace, duplicate, splice with `other`,
+    /// and argument regeneration. When an operation cannot apply or the
+    /// result would be empty, a fresh random sequence is generated instead.
+    pub fn mutate(
+        &self,
+        rng: &mut fastrand::Rng,
+        handlers: &[Function],
+        other: &Sequence,
+        max_calls: usize,
+    ) -> Result<Self> {
+        ensure!(
+            !handlers.is_empty(),
+            "no handler functions to mutate calls from"
+        );
+        if self.0.is_empty() {
+            return Self::random(rng, handlers, max_calls);
+        }
+        let mut calls = self.0.clone();
+        match rng.usize(..6) {
+            // insert a fresh call at a random position
+            0 => {
+                let function = &handlers[rng.usize(..handlers.len())];
+                let call = Call::random(rng, function)?;
+                let pos = rng.usize(..=calls.len());
+                calls.insert(pos, call);
+            }
+            // delete a call
+            1 if calls.len() > 1 => {
+                let pos = rng.usize(..calls.len());
+                calls.remove(pos);
+            }
+            // replace a call with a fresh one
+            2 => {
+                let function = &handlers[rng.usize(..handlers.len())];
+                let call = Call::random(rng, function)?;
+                let pos = rng.usize(..calls.len());
+                calls[pos] = call;
+            }
+            // duplicate a call right after itself
+            3 => {
+                let pos = rng.usize(..calls.len());
+                let call = calls[pos].clone();
+                calls.insert(pos + 1, call);
+            }
+            // splice: prefix of this sequence with a suffix of the other
+            4 if !other.0.is_empty() => {
+                let pos = rng.usize(..=calls.len());
+                let suffix_start = pos.min(other.0.len());
+                calls.truncate(pos);
+                calls.extend_from_slice(&other.0[suffix_start..]);
+            }
+            // regenerate the arguments of one call
+            _ => {
+                let pos = rng.usize(..calls.len());
+                let function = calls[pos].function().clone();
+                calls[pos] = Call::random(rng, &function)?;
+            }
+        }
+        if calls.is_empty() {
+            return Self::random(rng, handlers, max_calls);
+        }
+        calls.truncate(max_calls);
+        Ok(Self(calls))
+    }
 }
 
 impl fmt::Display for Sequence {
@@ -77,9 +152,14 @@ impl fmt::Display for Sequence {
 
 #[cfg(test)]
 mod tests {
+    use alloy_dyn_abi::DynSolValue;
     use alloy_json_abi::Function;
 
     use super::*;
+
+    fn call(name: &str) -> Call {
+        Call::new(Function::parse(name).unwrap(), DynSolValue::Tuple(vec![]))
+    }
 
     fn handlers() -> Vec<Function> {
         vec![
@@ -141,5 +221,51 @@ mod tests {
         let displayed = sequence.to_string();
 
         assert_eq!(displayed, sequence.0[0].signature());
+    }
+
+    #[test]
+    fn without_removes_the_range() {
+        let sequence = Sequence(vec![call("a()"), call("b()"), call("c()")]);
+
+        let without = sequence.without(1..3);
+        assert_eq!(without.len(), 1);
+        assert_eq!(without.0[0].signature(), "a()");
+
+        let without_all = sequence.without(0..3);
+        assert!(without_all.is_empty());
+    }
+
+    #[test]
+    fn mutate_respects_the_call_limit() {
+        let mut rng = fastrand::Rng::new();
+        for _ in 0..32 {
+            let base = Sequence::random(&mut rng, &handlers(), 8).unwrap();
+            let mutated = base
+                .mutate(&mut rng, &handlers(), &Sequence::empty(), 4)
+                .unwrap();
+            assert!((1..=4).contains(&mutated.len()));
+        }
+    }
+
+    #[test]
+    fn mutate_an_empty_sequence_generates_a_random_one() {
+        let mut rng = fastrand::Rng::new();
+        let mutated = Sequence::empty()
+            .mutate(&mut rng, &handlers(), &Sequence::empty(), 4)
+            .unwrap();
+
+        assert!(!mutated.is_empty());
+    }
+
+    #[test]
+    fn mutate_with_an_empty_other_still_works() {
+        let mut rng = fastrand::Rng::new();
+        let base = Sequence::random(&mut rng, &handlers(), 4).unwrap();
+        for _ in 0..32 {
+            let mutated = base
+                .mutate(&mut rng, &handlers(), &Sequence::empty(), 4)
+                .unwrap();
+            assert!(!mutated.is_empty());
+        }
     }
 }

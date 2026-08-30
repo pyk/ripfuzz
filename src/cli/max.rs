@@ -11,9 +11,11 @@ use revm::primitives::Bytes;
 use tracing::{error, info};
 
 use crate::config::Config;
-use crate::evm::{Chain, ChainConfig, SetupInput, Trace, TraceContext, Transaction};
+use crate::evm::{
+    Chain, ChainConfig, SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
+};
 use crate::harness::HarnessId;
-use crate::max::{Fuzzer, FuzzerConfig, MaxHarness, Value};
+use crate::max::{Best, Corpus, Fuzzer, FuzzerConfig, MaxHarness, Value};
 use crate::solc::Solc;
 
 /// Maximize a harness value.
@@ -57,8 +59,8 @@ fn parse_u256(value: &str) -> Result<U256, String> {
     value.parse::<U256>().map_err(|err| err.to_string())
 }
 
-/// Run the `max` command.
-pub fn run(args: Args) -> Result<()> {
+/// Run the `max` command and return the best sequence found.
+pub fn run(args: Args) -> Result<Best> {
     // 1. Initialize tracing subscriber.
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
@@ -153,26 +155,29 @@ pub fn run(args: Args) -> Result<()> {
         "initial value measured"
     );
 
-    // 10. Discover the best sequence within the stop conditions.
+    // 10. Fuzz for the highest value within the stop conditions.
+    let seed = jiff::Timestamp::now().as_nanosecond() as u64;
     let deployer = chain.deployer();
     let fuzzer_config = FuzzerConfig::new()
-        .chain(chain)
+        .chain(chain.clone())
         .target(address)
         .deployer(deployer)
-        .value_calldata(value_calldata)
+        .value_calldata(value_calldata.clone())
         .handlers(max_harness.handlers())
+        .corpus(Corpus::new())
+        .coverage(SharedCoverage::new())
         .initial_value(initial_value)
         .threads(args.threads)
         .max_runs(args.max_runs)
         .max_calls(args.max_calls)
         .timeout(args.timeout.map(Duration::from_secs))
         .target_value(args.target_value.map(Value::new))
-        .seed(jiff::Timestamp::now().as_nanosecond() as u64);
+        .seed(seed);
     let fuzzer = Fuzzer::new(fuzzer_config);
-    fuzzer.run()?;
+    let best = fuzzer.run()?;
 
     println!("{address}");
-    Ok(())
+    Ok(best)
 }
 
 /// Dump an execution trace and return its absolute path.

@@ -14,13 +14,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   function after deployment and setup, and logs it as the campaign baseline
   (profit is measured against it during maximization); a reverting `value` call
   fails with a dumped execution trace, mirroring deployment and setup
-- `ripfuzz max` runs a random discovery phase after the initial value is
-  measured: worker threads generate handler-call sequences, execute each on a
-  clean chain clone, and track the best sequence by final value, logging new
-  maxima as they are found; `--threads` sets the worker count, `--max-runs`
-  bounds the total number of sequences, `--max-calls` bounds the sequence
-  length, `--timeout` and `--target-value` stop discovery early, and progress
-  is logged every 3 seconds
+- `ripfuzz max` runs coverage-guided evolutionary fuzzing after the initial
+  value is measured: fuzzers draw from a shared corpus of interesting sequences
+  (new coverage or a new best value), mutate them via insert, delete, replace,
+  duplicate, splice, and argument regeneration, and merge execution coverage
+  into a shared map; `--threads` sets the fuzzer count, `--max-runs` bounds the
+  total number of sequences, `--max-calls` bounds the sequence length,
+  `--timeout` and `--target-value` stop fuzzing early, and progress is logged
+  every 3 seconds
 - `ripfuzz init` writes a starter `ripfuzz.toml` with `solc = "0.8.36"` in the
   current directory and refuses to overwrite an existing file
 - `MaxHarness` validates a compiled `Harness` against the max harness rules (a
