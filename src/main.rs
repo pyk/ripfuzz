@@ -17,14 +17,17 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Run a fuzzing campaign.
-    Run(cli::run::Args),
+    Run(Box<cli::run::Args>),
+    /// Maximize a harness value.
+    Max(cli::max::Args),
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Run(args) => cli::run::run(args),
+        Commands::Run(args) => cli::run::run(*args),
+        Commands::Max(args) => cli::max::run(args),
     };
 
     if let Err(e) = result {
