@@ -19,9 +19,10 @@ const MAX_CALLS: usize = 8;
 const CHALLENGES: &[(&str, &str, &str)] = &[
     ("Accumulate", "Accumulate", "easy"),
     ("AccumulateWithNoise", "AccumulateWithNoise", "easy"),
+    ("Gated", "Gated", "medium"),
+    ("GatedWithNoise", "GatedWithNoise", "medium"),
     ("hard-combo", "Combo", "hard"),
     ("medium-double", "Double", "medium"),
-    ("medium-gated", "Gated", "medium"),
 ];
 
 fn budget(level: &str) -> (usize, u64) {
@@ -38,7 +39,7 @@ fn expected_value(stem: &str) -> U256 {
     match stem {
         // The noise harness must reach the same value as the plain one.
         "Accumulate" | "AccumulateWithNoise" => U256::MAX,
-        "medium-gated" => U256::MAX,
+        "Gated" | "GatedWithNoise" => U256::MAX,
         // The total starts at 1 and doubles once per call, so a full
         // `MAX_CALLS` sequence reaches `2 ** MAX_CALLS`.
         "medium-double" => U256::from(2).pow(U256::from(MAX_CALLS)),
