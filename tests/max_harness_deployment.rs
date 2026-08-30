@@ -15,6 +15,7 @@ const HARNESS: &str =
 const REVERTING: &str = "fixtures/max-harness-deployment/HarnessWithRevertingConstructor.sol:HarnessWithRevertingConstructor";
 const REVERTING_SETUP: &str =
     "fixtures/max-harness-deployment/HarnessWithRevertingSetup.sol:HarnessWithRevertingSetup";
+const SETUP: &str = "fixtures/max-harness-deployment/HarnessWithSetup.sol:HarnessWithSetup";
 const WRONG_NAME: &str = "fixtures/max-harness-deployment/HarnessWithIncrement.sol:DoesNotExist";
 
 fn args(harness: &str) -> Args {
@@ -60,11 +61,28 @@ fn latest_trace_file(dir: &str) -> PathBuf {
         .expect("trace file must exist")
 }
 
-/// A harness whose `setup` reverts must still deploy: `setup` runs after
-/// deployment, so a reverting `setup` must not affect the deploy step.
+/// A harness whose `setup` reverts must fail after deployment, with the
+/// execution trace dumped to the traces directory.
 #[test]
-fn max_deploys_harness_with_reverting_setup() {
-    run(args(REVERTING_SETUP)).expect("max must deploy a harness with a reverting setup");
+fn max_fails_when_setup_reverts() {
+    let err = run(args(REVERTING_SETUP)).expect_err("max must fail when setup reverts");
+    assert_eq!(
+        err.to_string(),
+        "harness contract `HarnessWithRevertingSetup` setup failed"
+    );
+
+    let trace_file = latest_trace_file(".ripfuzz/traces");
+    let trace = fs::read_to_string(&trace_file).expect("execution trace file must exist");
+    assert!(
+        trace.contains("[revert] setup failed"),
+        "trace must contain the revert reason:\n{trace}"
+    );
+}
+
+/// A harness with a working `setup` must compile, deploy, and run `setup`.
+#[test]
+fn max_runs_setup_after_deployment() {
+    run(args(SETUP)).expect("max must run setup after deployment");
 }
 
 /// A harness path that exists but names a missing contract must fail with

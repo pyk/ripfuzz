@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf, absolute};
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
+use revm::primitives::Bytes;
 use tracing::{error, info};
 
 use crate::config::Config;
-use crate::evm::{Chain, ChainConfig, DeployOutput, TraceContext};
+use crate::evm::{Chain, ChainConfig, SetupInput, Trace, TraceContext};
 use crate::harness::HarnessId;
 use crate::max::MaxHarness;
 use crate::solc::Solc;
@@ -57,18 +58,17 @@ pub fn run(args: Args) -> Result<()> {
     let chain_config = ChainConfig::new(&root).coverage(true);
     let mut chain = Chain::new(chain_config)?;
 
-    // 6. Deploy the harness contract.
+    // 6. Label the trace context from the compilation output and the chain.
+    let mut trace_context = TraceContext::from(&solc_output);
+    let labels = chain.labels().clone();
+    for (address, label) in labels {
+        trace_context = trace_context.with_label(address, label);
+    }
+
+    // 7. Deploy the harness contract.
     let deployment = chain.deploy(&max_harness)?;
     if !deployment.result.success {
-        // 6a. Label the trace context from the compilation output and chain.
-        let mut trace_context = TraceContext::from(&solc_output);
-        let labels = chain.labels().clone();
-        for (address, label) in labels {
-            trace_context = trace_context.with_label(address, label);
-        }
-
-        // 6b. Dump the execution trace and point at it from the logs.
-        let trace_file = dump_failed_deployment_trace(&root, &trace_context, &deployment)?;
+        let trace_file = dump_execution_trace(&root, &trace_context, &deployment.trace)?;
         error!("execution trace: {}", trace_file.display());
         bail!(
             "harness contract `{}` deployment failed",
@@ -79,26 +79,40 @@ pub fn run(args: Args) -> Result<()> {
         .address
         .context("deployment succeeded but created_address is missing")?;
     info!(harness = %max_harness.id(), address = %address, "harness deployed");
+
+    // 8. Run the setup function if the harness defines one.
+    // checkrs: allow(nested_if_let)
+    if let Some(setup) = max_harness.setup() {
+        let setup_input =
+            SetupInput::new(address).calldata(Bytes::from(setup.selector().as_slice().to_vec()));
+        let setup_output = chain.setup(setup_input)?;
+        if !setup_output.result.success {
+            let trace_file = dump_execution_trace(&root, &trace_context, &setup_output.trace)?;
+            error!("execution trace: {}", trace_file.display());
+            bail!("harness contract `{}` setup failed", max_harness.id().name);
+        }
+        info!(harness = %max_harness.id(), address = %address, "setup executed");
+    }
+
     println!("{address}");
     Ok(())
 }
 
-/// Dump the execution trace of a failed deployment and return its absolute
-/// path.
+/// Dump an execution trace and return its absolute path.
 ///
 /// The trace is written to
 /// `{root}/.ripfuzz/traces/{unix-timestamp}-{id}.log`.
-fn dump_failed_deployment_trace(
+fn dump_execution_trace(
     root: &Path,
     trace_context: &TraceContext,
-    deployment: &DeployOutput,
+    trace: &Trace,
 ) -> Result<PathBuf> {
     // 1. Write the execution trace to a timestamped trace file.
     let trace_dir = root.join(".ripfuzz").join("traces");
     fs::create_dir_all(&trace_dir)?;
     let timestamp = jiff::Timestamp::now().as_second();
     let trace_file = trace_dir.join(format!("{timestamp}-{}.log", trace_id()));
-    let trace = deployment.trace.display_with(trace_context).to_string();
+    let trace = trace.display_with(trace_context).to_string();
     fs::write(&trace_file, trace)
         .with_context(|| format!("failed to write {}", trace_file.display()))?;
 

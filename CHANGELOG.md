@@ -26,6 +26,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- `ripfuzz max` runs the harness `setup` function after deployment and fails
+  with a dumped execution trace when it reverts
 - `Solc::compile` returns `SolcOutput` (the resolved `HarnessId` plus the raw
   `StandardJSONOutput`) instead of `Harness`, so callers can extract the target
   contract and build trace contexts from the same compilation result
