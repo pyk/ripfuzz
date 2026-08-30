@@ -73,6 +73,15 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- Max fuzzers now spend half of their mutated sequences extending the current
+  best sequence instead of only corpus entries and fresh random sequences, so a
+  value that needs a long chain of calls still climbs when decoy handlers
+  dilute the corpus; previously a full corpus rejected new-best sequences that
+  brought no new coverage, so the best rung was never a mutation base and the
+  climb stalled
+- Max best tracking now prefers the same value with fewer calls, so mutations
+  can free call slots occupied by calls that do not affect the value and extend
+  the value further within the call limit
 - Corpus now uses AFL-style energy for `pick_item` (finds boost energy even for
   existing ids via `bump_entry`, energy decays only after a mutation that adds
   nothing) and caps at 1024 items evicting lowest-energy entries while never

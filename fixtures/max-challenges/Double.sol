@@ -14,9 +14,7 @@ contract Double {
     }
 
     function double() external {
-        unchecked {
-            total *= 2;
-        }
+        total *= 2;
     }
 
     function reset() external {

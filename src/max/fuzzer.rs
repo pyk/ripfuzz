@@ -352,6 +352,18 @@ impl Shared {
         self.lock_best().value()
     }
 
+    /// Clone the current best sequence for exploitation.
+    ///
+    /// Returns `None` while no sequence has improved the initial value.
+    fn best_sequence(&self) -> Option<Sequence> {
+        let best = self.lock_best();
+        if best.sequence().is_empty() {
+            None
+        } else {
+            Some(best.sequence().clone())
+        }
+    }
+
     /// Whether another fuzzer asked to stop.
     fn stopped(&self) -> bool {
         self.stop.load(Ordering::Relaxed)
@@ -382,14 +394,22 @@ fn worker(config: &FuzzerConfig, shared: &Shared, thread_id: usize, runs: u64) -
         }
         shared.record_run();
 
-        // 1. Generate the next sequence: mutate a corpus entry when one is
-        // available, otherwise generate a random one.
-        let sequence = match config.corpus.random(&mut rng) {
-            Some(base) if rng.usize(..4) != 0 => {
-                let other = config.corpus.random(&mut rng).unwrap_or_default();
-                base.mutate(&mut rng, &config.handlers, &other, config.max_calls)?
-            }
-            _ => Sequence::random(&mut rng, &config.handlers, config.max_calls)?,
+        // 1. Generate the next sequence. A quarter of the runs are fresh
+        //    random sequences for broad exploration. The rest mutate a base
+        //    sequence, split evenly between the current best and a corpus
+        //    entry: the best is the most promising prefix, so extending it
+        //    keeps the climb alive even when the corpus churns under new
+        //    coverage from decoy handlers.
+        let sequence = if rng.usize(..4) == 0 {
+            Sequence::random(&mut rng, &config.handlers, config.max_calls)?
+        } else {
+            let base = if rng.usize(..2) == 0 {
+                shared.best_sequence().unwrap_or_default()
+            } else {
+                config.corpus.random(&mut rng).unwrap_or_default()
+            };
+            let other = config.corpus.random(&mut rng).unwrap_or_default();
+            base.mutate(&mut rng, &config.handlers, &other, config.max_calls)?
         };
 
         // 2. Execute the sequence on a clean chain clone.

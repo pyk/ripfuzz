@@ -21,9 +21,7 @@ contract GatedWithNoise is NoiseBase {
 
     function deposit(uint256 amount) external {
         require(entered);
-        unchecked {
-            total += amount;
-        }
+        total += amount;
     }
 
     function value() external view returns (uint256) {

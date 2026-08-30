@@ -19,10 +19,11 @@ const MAX_CALLS: usize = 32;
 const CHALLENGES: &[(&str, &str, &str)] = &[
     ("Accumulate", "Accumulate", "easy"),
     ("AccumulateWithNoise", "AccumulateWithNoise", "easy"),
+    ("Double", "Double", "medium"),
+    ("DoubleWithNoise", "DoubleWithNoise", "medium"),
     ("Gated", "Gated", "medium"),
     ("GatedWithNoise", "GatedWithNoise", "medium"),
     ("hard-combo", "Combo", "hard"),
-    ("medium-double", "Double", "medium"),
 ];
 
 fn budget(level: &str) -> (usize, u64) {
@@ -42,7 +43,7 @@ fn expected_value(stem: &str) -> U256 {
         "Gated" | "GatedWithNoise" => U256::MAX,
         // The total starts at 1 and doubles once per call, so a full
         // `MAX_CALLS` sequence reaches `2 ** MAX_CALLS`.
-        "medium-double" => U256::from(2).pow(U256::from(MAX_CALLS)),
+        "Double" | "DoubleWithNoise" => U256::from(2).pow(U256::from(MAX_CALLS)),
         "hard-combo" => U256::from(1000),
         other => panic!("challenge without an expected value: {other}"),
     }

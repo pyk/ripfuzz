@@ -35,10 +35,18 @@ impl Best {
         &self.sequence
     }
 
-    /// Record the sequence when its value is strictly higher, returning
-    /// whether it replaced the current best.
+    /// Record the sequence when it is better than the current best,
+    /// returning whether it replaced it.
+    ///
+    /// Better means a strictly higher value, or the same value with fewer
+    /// calls once a sequence has improved the initial value. The tie-break
+    /// frees call slots occupied by calls that do not affect the value, so
+    /// mutations can extend the value further within the call limit.
     pub fn consider(&mut self, sequence: Sequence, value: Value) -> bool {
-        if value > self.value {
+        let shorter = value == self.value
+            && !self.sequence.is_empty()
+            && sequence.len() < self.sequence.len();
+        if value > self.value || shorter {
             self.value = value;
             self.sequence = sequence;
             true
@@ -95,5 +103,52 @@ mod tests {
         assert!(best.consider(sequence.clone(), value(12)));
         assert_eq!(best.sequence().len(), sequence.len());
         assert_eq!(U256::from(best.value().get()), U256::from(12));
+    }
+
+    #[test]
+    fn consider_replaces_equal_value_with_fewer_calls() {
+        let mut rng = fastrand::Rng::new();
+        let long = sequence_of_len(&mut rng, 4);
+        let short = sequence_of_len(&mut rng, 2);
+        let mut best = Best::new(long, value(10));
+
+        assert!(best.consider(short, value(10)));
+        assert_eq!(best.sequence().len(), 2);
+        assert_eq!(best.value(), value(10));
+    }
+
+    #[test]
+    fn consider_never_ties_against_the_empty_sequence() {
+        let mut rng = fastrand::Rng::new();
+        let sequence = sequence_of_len(&mut rng, 2);
+        let mut best = Best::new(Sequence::empty(), value(10));
+
+        assert!(!best.consider(sequence, value(10)));
+        assert!(best.sequence().is_empty());
+    }
+
+    #[test]
+    fn consider_keeps_equal_value_with_equal_calls() {
+        let mut rng = fastrand::Rng::new();
+        let first = sequence_of_len(&mut rng, 2);
+        let second = sequence_of_len(&mut rng, 2);
+        let mut best = Best::new(first.clone(), value(10));
+
+        assert!(!best.consider(second, value(10)));
+        assert_eq!(best.sequence().len(), first.len());
+    }
+
+    /// A random sequence with exactly `len` calls.
+    ///
+    /// `Sequence::random` draws the length from `1..=max_calls`, so keep
+    /// drawing until the requested length comes up.
+    fn sequence_of_len(rng: &mut fastrand::Rng, len: usize) -> Sequence {
+        let handlers = [Function::parse("inc()").unwrap()];
+        loop {
+            let sequence = Sequence::random(rng, &handlers, len).unwrap();
+            if sequence.len() == len {
+                return sequence;
+            }
+        }
     }
 }
