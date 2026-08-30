@@ -30,6 +30,7 @@ impl SolcInstaller {
     pub fn ensure_installed(&self) -> Result<()> {
         let binary_path = self.binary_path();
 
+        // 1. Reuse the binary when it is already installed.
         if binary_path.is_file() {
             info!(
                 version = %self.version,
@@ -39,6 +40,7 @@ impl SolcInstaller {
             return Ok(());
         }
 
+        // 2. Detect the platform and fetch the release list.
         let platform = detect_platform()?;
         let list_url = format!("https://binaries.soliditylang.org/{platform}/list.json");
 
@@ -59,12 +61,14 @@ impl SolcInstaller {
         let list: SolcList =
             serde_json::from_str(&list_text).context("failed to parse solc list")?;
 
+        // 3. Find the release build for the requested version.
         let build = list
             .builds
             .iter()
             .find(|b| b.version == self.version)
             .with_context(|| format!("solc version {} not found for {platform}", self.version))?;
 
+        // 4. Download the binary.
         let bin_url = format!(
             "https://binaries.soliditylang.org/{platform}/{}",
             build.path.display()
@@ -87,6 +91,7 @@ impl SolcInstaller {
             .read_to_vec()
             .context("failed to read solc binary")?;
 
+        // 5. Verify the sha256 checksum.
         let mut hasher = Sha256::new();
         hasher.update(&bytes);
         let hash = hasher.finalize();
@@ -99,6 +104,7 @@ impl SolcInstaller {
             self.version
         );
 
+        // 6. Save the binary and make it executable.
         if let Some(parent) = binary_path.parent() {
             fs::create_dir_all(parent).context("failed to create bin dir")?;
         }

@@ -12,8 +12,8 @@ use anyhow::{Result, ensure};
 /// - `src/MyHarness.sol` (contract name derived from file stem)
 /// - `src/MyHarness.sol:MyHarness` (explicit contract name)
 ///
-/// The path is parsed only; it is not required to exist. Consumers resolve it
-/// against the project root.
+/// The path is parsed only and is not required to exist.
+/// Consumers resolve it against the project root.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HarnessId {
     pub path: PathBuf,
