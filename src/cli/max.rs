@@ -15,7 +15,7 @@ use crate::evm::{
     Chain, ChainConfig, SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
 };
 use crate::harness::HarnessId;
-use crate::max::{Best, Corpus, Fuzzer, FuzzerConfig, MaxHarness, Value};
+use crate::max::{Best, Corpus, Fuzzer, FuzzerConfig, MaxHarness, Shrinker, ShrinkerConfig, Value};
 use crate::solc::Solc;
 
 /// Maximize a harness value.
@@ -175,6 +175,27 @@ pub fn run(args: Args) -> Result<Best> {
         .seed(seed);
     let fuzzer = Fuzzer::new(fuzzer_config);
     let best = fuzzer.run()?;
+
+    // 11. Shrink the best sequence while preserving its value.
+    if !best.sequence().is_empty() {
+        let shrinker_config = ShrinkerConfig::new()
+            .chain(chain)
+            .target(address)
+            .deployer(deployer)
+            .value_calldata(value_calldata)
+            .target_value(best.value())
+            .threads(args.threads)
+            .max_runs(args.max_runs)
+            .timeout(args.timeout.map(Duration::from_secs))
+            .seed(seed);
+        let shrinker = Shrinker::new(shrinker_config);
+        let shrunk = shrinker.shrink(best.sequence())?;
+        info!(
+            calls = shrunk.len(),
+            sequence = %shrunk,
+            "shrunk best sequence"
+        );
+    }
 
     println!("{address}");
     Ok(best)

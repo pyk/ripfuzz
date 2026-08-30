@@ -22,6 +22,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   total number of sequences, `--max-calls` bounds the sequence length,
   `--timeout` and `--target-value` stop fuzzing early, and progress is logged
   every 3 seconds
+- `ripfuzz max` shrinks the best sequence in parallel: shrinkers delete random
+  chunks of calls and accept a candidate only when a clean-state replay keeps
+  the final value at or above the best value found, so the reported sequence is
+  the shortest one found within the budget
 - `ripfuzz init` writes a starter `ripfuzz.toml` with `solc = "0.8.36"` in the
   current directory and refuses to overwrite an existing file
 - `MaxHarness` validates a compiled `Harness` against the max harness rules (a
