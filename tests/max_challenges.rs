@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use alloy_primitives::U256;
 use ripfuzz::cli::max::{Args, run};
 
-const MAX_CALLS: usize = 8;
+const MAX_CALLS: usize = 32;
 
 /// The challenge fixtures as `(stem, contract, level)` triples.
 ///
