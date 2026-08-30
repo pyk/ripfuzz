@@ -31,6 +31,7 @@ fn main() -> ExitCode {
     };
 
     if let Err(e) = result {
+        eprintln!("Error: {e:#}");
         error!("{e:#}");
         return ExitCode::FAILURE;
     }
