@@ -25,6 +25,7 @@ pub use shrinkers::{
 };
 
 pub mod cli;
+pub mod harness;
 pub mod logger;
 pub mod solc;
 
