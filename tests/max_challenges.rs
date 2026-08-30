@@ -25,7 +25,8 @@ const CHALLENGES: &[(&str, &str, &str)] = &[
     ("DoubleWithNoise", "DoubleWithNoise", "medium"),
     ("Gated", "Gated", "medium"),
     ("GatedWithNoise", "GatedWithNoise", "medium"),
-    ("hard-combo", "Combo", "hard"),
+    ("Combo", "Combo", "hard"),
+    ("ComboWithNoise", "ComboWithNoise", "hard"),
 ];
 
 fn budget(level: &str) -> (usize, u64) {
@@ -46,7 +47,9 @@ fn expected_value(stem: &str) -> U256 {
         // The total starts at 1 and doubles once per call, so a full
         // `MAX_CALLS` sequence reaches `2 ** MAX_CALLS`.
         "Double" | "DoubleWithNoise" => U256::from(2).pow(U256::from(MAX_CALLS)),
-        "hard-combo" => U256::from(1000),
+        // The reward of 1000 is only paid when `open`, `grab`, and `claim`
+        // run in that exact order.
+        "Combo" | "ComboWithNoise" => U256::from(1000),
         other => panic!("challenge without an expected value: {other}"),
     }
 }
