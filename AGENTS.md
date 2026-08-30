@@ -17,28 +17,36 @@ have a severe negative impact on the project and the user.
 
 ### Code Design Rules
 
-| ID      | Rule                                                                                                                     |
-| :------ | :----------------------------------------------------------------------------------------------------------------------- |
-| CODE-01 | MUST separate I/O from logic                                                                                             |
-| CODE-02 | MUST NOT add comment block headers                                                                                       |
-| CODE-03 | MUST design the public API around types, not functions                                                                   |
-| CODE-04 | MUST organize modules around domain concepts                                                                             |
-| CODE-05 | MUST keep one primary type per module (`fuzzer.rs` -> Fuzzer)                                                            |
-| CODE-06 | MUST re-export public types at the module level                                                                          |
-| CODE-07 | MUST keep implementation details private                                                                                 |
-| CODE-08 | MUST NOT create `utils.rs`, `helpers.rs`, or `common.rs`                                                                 |
-| CODE-09 | MUST put behavior on the type that owns the state                                                                        |
-| CODE-10 | MUST use constructors as entry points (e.g. `Project::open(path)`)                                                       |
-| CODE-11 | MUST NOT prefix function names with the type name (bad: `build_project`)                                                 |
-| CODE-12 | MUST use free functions only when there is no natural owner                                                              |
-| CODE-13 | MUST use option structs for methods with many parameters                                                                 |
-| CODE-14 | MUST use operation types (Analyzer, Linker, Builder) for complex workflows                                               |
-| CODE-15 | MUST use context objects for internal workflows to prevent parameter explosion                                           |
-| CODE-16 | MUST avoid deep module hierarchies                                                                                       |
-| CODE-17 | MUST put code snippets in module docs inside fenced code blocks, not inline backticks                                    |
-| CODE-18 | MUST prefer `mod.rs`: a module with children lives at `foo/mod.rs` with submodules in `foo/`                             |
-| CODE-19 | MUST NOT make fuzzer logic depend on harness-specific details such as function names, selectors, or hard-coded addresses |
-| CODE-20 | MUST keep fuzzer strategies generic and harness-agnostic                                                                 |
+| ID      | Rule                                                                                                                                                                                                                                                                       |
+| :------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CODE-01 | MUST separate I/O from logic                                                                                                                                                                                                                                               |
+| CODE-02 | MUST NOT add comment block headers                                                                                                                                                                                                                                         |
+| CODE-03 | MUST design the public API around types, not functions                                                                                                                                                                                                                     |
+| CODE-04 | MUST organize modules around domain concepts                                                                                                                                                                                                                               |
+| CODE-05 | MUST keep one primary type per module (`fuzzer.rs` -> Fuzzer)                                                                                                                                                                                                              |
+| CODE-06 | MUST re-export public types at the module level                                                                                                                                                                                                                            |
+| CODE-07 | MUST keep implementation details private                                                                                                                                                                                                                                   |
+| CODE-08 | MUST NOT create `utils.rs`, `helpers.rs`, or `common.rs`                                                                                                                                                                                                                   |
+| CODE-09 | MUST put behavior on the type that owns the state                                                                                                                                                                                                                          |
+| CODE-10 | MUST use constructors as entry points (e.g. `Project::open(path)`)                                                                                                                                                                                                         |
+| CODE-11 | MUST NOT prefix function names with the type name (bad: `build_project`)                                                                                                                                                                                                   |
+| CODE-12 | MUST use free functions only when there is no natural owner                                                                                                                                                                                                                |
+| CODE-13 | MUST use option structs for methods with many parameters                                                                                                                                                                                                                   |
+| CODE-14 | MUST use operation types (Analyzer, Linker, Builder) for complex workflows                                                                                                                                                                                                 |
+| CODE-15 | MUST use context objects for internal workflows to prevent parameter explosion                                                                                                                                                                                             |
+| CODE-16 | MUST avoid deep module hierarchies                                                                                                                                                                                                                                         |
+| CODE-17 | MUST put code snippets in module docs inside fenced code blocks, not inline backticks                                                                                                                                                                                      |
+| CODE-18 | MUST prefer `mod.rs`: a module with children lives at `foo/mod.rs` with submodules in `foo/`                                                                                                                                                                               |
+| CODE-19 | MUST break long functions into numbered steps with `// N.` comments (e.g. `// 1. Resolve the configured version and target.`), one comment per block of code that forms a single phase, with lettered substeps (`// 4a.`, `// 4b.`) for ordered alternatives inside a step |
+| CODE-20 | MUST NOT use `;` inside code comments (`//`, `///`, `//!`). Use separate sentences or commas instead                                                                                                                                                                       |
+| CODE-21 | MUST keep comments readable: split large single paragraphs into multiple paragraphs and use bullet lists for enumerations instead of inline comma lists                                                                                                                    |
+
+### Ripfuzz Rules
+
+| ID     | Rule                                                                                                                     |
+| :----- | :----------------------------------------------------------------------------------------------------------------------- |
+| RIP-01 | MUST NOT make fuzzer logic depend on harness-specific details such as function names, selectors, or hard-coded addresses |
+| RIP-02 | MUST keep fuzzer strategies generic and harness-agnostic                                                                 |
 
 ### Linter Rules
 
