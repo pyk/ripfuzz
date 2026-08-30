@@ -12,6 +12,9 @@ use ripfuzz::cli::max::{Args, run};
 const HARNESS: &str =
     "fixtures/max-harness-deployment/HarnessWithIncrement.sol:HarnessWithIncrement";
 const REVERTING: &str = "fixtures/max-harness-deployment/HarnessWithRevertingConstructor.sol:HarnessWithRevertingConstructor";
+const REVERTING_SETUP: &str =
+    "fixtures/max-harness-deployment/HarnessWithRevertingSetup.sol:HarnessWithRevertingSetup";
+const WRONG_NAME: &str = "fixtures/max-harness-deployment/HarnessWithIncrement.sol:DoesNotExist";
 
 fn args(harness: &str) -> Args {
     Args {
@@ -35,5 +38,23 @@ fn max_fails_when_harness_constructor_reverts() {
     assert_eq!(
         err.to_string(),
         "harness contract `HarnessWithRevertingConstructor` deployment failed"
+    );
+}
+
+/// A harness whose `setup` reverts must still deploy: `setup` runs after
+/// deployment, so a reverting `setup` must not affect the deploy step.
+#[test]
+fn max_deploys_harness_with_reverting_setup() {
+    run(args(REVERTING_SETUP)).expect("max must deploy a harness with a reverting setup");
+}
+
+/// A harness path that exists but names a missing contract must fail with
+/// the available contracts listed.
+#[test]
+fn max_fails_when_contract_name_is_wrong() {
+    let err = run(args(WRONG_NAME)).expect_err("max must fail for a wrong contract name");
+    assert_eq!(
+        err.to_string(),
+        "contract `DoesNotExist` not found in `fixtures/max-harness-deployment/HarnessWithIncrement.sol`, available contracts: HarnessWithIncrement"
     );
 }
