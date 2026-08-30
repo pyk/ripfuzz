@@ -15,6 +15,8 @@ const HARNESS: &str =
 const REVERTING: &str = "fixtures/max-harness-deployment/HarnessWithRevertingConstructor.sol:HarnessWithRevertingConstructor";
 const REVERTING_SETUP: &str =
     "fixtures/max-harness-deployment/HarnessWithRevertingSetup.sol:HarnessWithRevertingSetup";
+const REVERTING_VALUE: &str =
+    "fixtures/max-harness-deployment/HarnessWithRevertingValue.sol:HarnessWithRevertingValue";
 const SETUP: &str = "fixtures/max-harness-deployment/HarnessWithSetup.sol:HarnessWithSetup";
 const WRONG_NAME: &str = "fixtures/max-harness-deployment/HarnessWithIncrement.sol:DoesNotExist";
 
@@ -75,6 +77,24 @@ fn max_fails_when_setup_reverts() {
     let trace = fs::read_to_string(&trace_file).expect("execution trace file must exist");
     assert!(
         trace.contains("[revert] setup failed"),
+        "trace must contain the revert reason:\n{trace}"
+    );
+}
+
+/// A harness whose `value` reverts after setup must fail with the execution
+/// trace dumped to the traces directory.
+#[test]
+fn max_fails_when_value_reverts() {
+    let err = run(args(REVERTING_VALUE)).expect_err("max must fail when value reverts");
+    assert_eq!(
+        err.to_string(),
+        "harness contract `HarnessWithRevertingValue` value call failed"
+    );
+
+    let trace_file = latest_trace_file(".ripfuzz/traces");
+    let trace = fs::read_to_string(&trace_file).expect("execution trace file must exist");
+    assert!(
+        trace.contains("[revert] value failed"),
         "trace must contain the revert reason:\n{trace}"
     );
 }

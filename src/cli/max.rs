@@ -9,9 +9,9 @@ use revm::primitives::Bytes;
 use tracing::{error, info};
 
 use crate::config::Config;
-use crate::evm::{Chain, ChainConfig, SetupInput, Trace, TraceContext};
+use crate::evm::{Chain, ChainConfig, SetupInput, Trace, TraceContext, Transaction};
 use crate::harness::HarnessId;
-use crate::max::MaxHarness;
+use crate::max::{MaxHarness, Value};
 use crate::solc::Solc;
 
 /// Maximize a harness value.
@@ -93,6 +93,39 @@ pub fn run(args: Args) -> Result<()> {
         }
         info!(harness = %max_harness.id(), address = %address, "setup executed");
     }
+
+    // 9. Measure the initial value reported by the harness. The call runs on
+    // a traced chain clone because `Chain::call` returns no execution trace.
+    let mut value_chain = chain.clone();
+    value_chain.set_trace(true);
+    let value_tx = Transaction::new(address).calldata(Bytes::from(
+        max_harness.value().selector().as_slice().to_vec(),
+    ));
+    let value_output = value_chain.exec(std::slice::from_ref(&value_tx))?;
+    let value_result = value_output
+        .results
+        .first()
+        .context("value call result missing")?;
+    if !value_result.success {
+        let trace = value_output.trace.context("value call trace missing")?;
+        let trace_file = dump_execution_trace(&root, &trace_context, &trace)?;
+        error!("execution trace: {}", trace_file.display());
+        bail!(
+            "harness contract `{}` value call failed",
+            max_harness.id().name
+        );
+    }
+    let initial_value = Value::decode(value_result).with_context(|| {
+        format!(
+            "harness contract `{}` returned an invalid value",
+            max_harness.id()
+        )
+    })?;
+    info!(
+        harness = %max_harness.id(),
+        initial_value = %initial_value,
+        "initial value measured"
+    );
 
     println!("{address}");
     Ok(())

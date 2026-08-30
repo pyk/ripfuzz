@@ -10,6 +10,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz max` measures the initial value by calling the harness `value`
+  function after deployment and setup, and logs it as the campaign baseline
+  (profit is measured against it during maximization); a reverting `value` call
+  fails with a dumped execution trace, mirroring deployment and setup
 - `ripfuzz init` writes a starter `ripfuzz.toml` with `solc = "0.8.36"` in the
   current directory and refuses to overwrite an existing file
 - `MaxHarness` validates a compiled `Harness` against the max harness rules (a
