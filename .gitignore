@@ -10,3 +10,6 @@ cache
 
 # Scripts
 __pycache__
+
+# ripfuzz solc binaries
+.ripfuzz

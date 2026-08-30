@@ -43,6 +43,9 @@ revm = { version = "38.0.0", features = [
 # Hex decoding for foundry artifacts
 hex = "0.4.3"
 
+# SHA-256 for solc binary verification
+sha2 = "0.10"
+
 # EVM stuff
 alloy-chains = "0.2"
 alloy-hardforks = "0.4"
