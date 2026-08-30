@@ -10,6 +10,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz init` writes a starter `ripfuzz.toml` with `solc = "0.8.36"` in the
+  current directory and refuses to overwrite an existing file
+
 ### Changed
 
 - Maxxing reports use a consistent score vocabulary: `raw_score` is the value
@@ -42,9 +45,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   run is still stuck
 - `-q`/`--quiet` suppresses terminal logs while still writing the campaign log
   file
-
-### Changed
-
 - Fork-mode campaigns now throttle RPC batches to a conservative default of 10
   batches per second so default runs stay under public-provider rate quotas;
   override per fork with `vm.fork(..., ForkConfig{rateLimit: N})` or disable
@@ -55,9 +55,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   no payload, short error) while the campaign log file keeps the full fields
 - Per-thread fuzzer `run` spans now include `fuzzer_id`, so nested logs such as
   RPC retry warnings identify which fuzzer emitted them
-
-### Fixed
-
 - Integration tests pass `--quiet` so `make test` no longer prints campaign
   logs
 - Provider rate-limit (429) and 5xx JSON-RPC error objects inside batch
