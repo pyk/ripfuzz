@@ -1,9 +1,47 @@
 use std::fs;
 use std::path::Path;
 
-use ripfuzz::solc::Solc;
+use ripfuzz::max::MaxHarness;
+use ripfuzz::solc::{Solc, SolcOutput};
+use solc::abi::Item;
 
 const VERSION: &str = "0.8.36";
+
+/// Decode the compiled target contract's initcode from the solc output.
+fn initcode(solc_output: &SolcOutput) -> String {
+    let contract = solc_output
+        .output
+        .contracts
+        .get(&solc_output.id.path)
+        .and_then(|contracts| contracts.get(&solc_output.id.name))
+        .expect("target contract must be in the compilation output");
+    contract
+        .evm
+        .as_ref()
+        .and_then(|evm| evm.bytecode.as_ref())
+        .and_then(|bytecode| bytecode.object.clone())
+        .unwrap_or_default()
+}
+
+/// Decode the compiled target contract's ABI function names.
+fn abi_functions(solc_output: &SolcOutput) -> Vec<String> {
+    let contract = solc_output
+        .output
+        .contracts
+        .get(&solc_output.id.path)
+        .and_then(|contracts| contracts.get(&solc_output.id.name))
+        .expect("target contract must be in the compilation output");
+    contract
+        .abi
+        .iter()
+        .flat_map(|abi| {
+            abi.items.iter().filter_map(|item| match item {
+                Item::Function(function) => Some(function.name.clone()),
+                _ => None,
+            })
+        })
+        .collect()
+}
 
 fn contains_bytecode(path: &Path) -> bool {
     let content = fs::read_to_string(path).unwrap();
@@ -26,16 +64,19 @@ fn contains_bytecode(path: &Path) -> bool {
 fn compiles_harness_with_no_imports() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("out");
-    let harness = Solc::new()
+    let solc_output = Solc::new()
         .with_version(VERSION)
         .with_target("fixtures/solc-compilation/HarnessWithNoImports.sol")
         .with_out(&out)
         .compile()
         .unwrap();
 
-    assert_eq!(harness.id.name, "HarnessWithNoImports");
-    assert!(harness.abi.functions.contains_key("set"));
-    assert!(!harness.initcode.is_empty(), "initcode must be non-empty");
+    assert_eq!(solc_output.id.name, "HarnessWithNoImports");
+    assert!(abi_functions(&solc_output).contains(&"set".to_owned()));
+    assert!(
+        !initcode(&solc_output).is_empty(),
+        "initcode must be non-empty"
+    );
 
     assert!(out.exists(), "out dir must exist");
 
@@ -74,16 +115,19 @@ fn compiles_harness_with_no_imports() {
 fn compiles_harness_with_imports() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("out");
-    let harness = Solc::new()
+    let solc_output = Solc::new()
         .with_version(VERSION)
         .with_target("fixtures/solc-compilation/HarnessWithImports.sol")
         .with_out(&out)
         .compile()
         .unwrap();
 
-    assert_eq!(harness.id.name, "HarnessWithImports");
-    assert!(harness.abi.functions.contains_key("set"));
-    assert!(!harness.initcode.is_empty(), "initcode must be non-empty");
+    assert_eq!(solc_output.id.name, "HarnessWithImports");
+    assert!(abi_functions(&solc_output).contains(&"set".to_owned()));
+    assert!(
+        !initcode(&solc_output).is_empty(),
+        "initcode must be non-empty"
+    );
 
     assert!(out.exists());
 
@@ -266,7 +310,7 @@ fn with_name_selects_the_harness_contract() {
     )
     .unwrap();
 
-    let harness = Solc::new()
+    let solc_output = Solc::new()
         .with_version(VERSION)
         .with_root(tmp.path())
         .with_target("Two.sol")
@@ -275,11 +319,13 @@ fn with_name_selects_the_harness_contract() {
         .compile()
         .unwrap();
 
-    assert_eq!(harness.id.path, Path::new("Two.sol"));
-    assert_eq!(harness.id.name, "Beta");
-    assert!(harness.abi.functions.is_empty());
+    assert_eq!(solc_output.id.path, Path::new("Two.sol"));
+    assert_eq!(solc_output.id.name, "Beta");
+    assert!(abi_functions(&solc_output).is_empty());
 }
 
+/// An unknown contract name must fail MaxHarness validation with the
+/// available contracts listed.
 #[test]
 fn unknown_harness_name_fails_with_alternatives() {
     let tmp = tempfile::tempdir().unwrap();
@@ -289,14 +335,15 @@ fn unknown_harness_name_fails_with_alternatives() {
     )
     .unwrap();
 
-    let err = Solc::new()
+    let solc_output = Solc::new()
         .with_version(VERSION)
         .with_root(tmp.path())
         .with_target("Two.sol")
         .with_name("Missing")
         .with_out(tmp.path().join("out"))
         .compile()
-        .unwrap_err();
+        .unwrap();
+    let err = MaxHarness::try_from(&solc_output).unwrap_err();
     assert_eq!(
         err.to_string(),
         "contract `Missing` not found in `Two.sol`, available contracts: Alpha, Beta"

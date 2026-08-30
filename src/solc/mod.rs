@@ -8,7 +8,7 @@
 //! use ripfuzz::solc::Solc;
 //!
 //! let solc = Solc::new().with_version("0.8.28").with_target("src/MyHarness.sol");
-//! // let harness = solc.compile()?;
+//! // let solc_output = solc.compile()?;
 //! ```
 
 use std::fs;
@@ -24,13 +24,26 @@ pub use installer::SolcInstaller;
 pub use remappings::RemappingsResolver;
 pub use source::SourceResolver;
 
-use crate::harness::{Harness, HarnessId};
+use crate::harness::HarnessId;
 
 pub mod exec;
 pub mod input;
 pub mod installer;
 pub mod remappings;
 pub mod source;
+
+/// Result of a successful `Solc::compile` call.
+///
+/// Carries the identifier of the compiled target contract next to the raw
+/// solc output, so consumers can extract the target contract and render
+/// source-aware traces without re-resolving paths.
+#[derive(Debug, Clone)]
+pub struct SolcOutput {
+    /// Identifier of the compiled target contract (source path and name).
+    pub id: HarnessId,
+    /// Raw solc standard JSON output for the whole compilation unit.
+    pub output: StandardJSONOutput,
+}
 
 /// Solidity compiler builder.
 ///
@@ -98,7 +111,7 @@ impl Solc {
         }
     }
 
-    pub fn compile(self) -> Result<Harness> {
+    pub fn compile(self) -> Result<SolcOutput> {
         // 1. Resolve the configured version and target.
         let version = self
             .version
@@ -167,7 +180,7 @@ impl Solc {
             "compilation succeeded"
         );
 
-        // 8. Extract the harness contract from the compiled output.
+        // 8. Identify the compiled target contract.
         let name = match self.name {
             Some(name) => name,
             None => target
@@ -177,9 +190,8 @@ impl Solc {
                 .to_owned(),
         };
         let id = HarnessId::try_from(format!("{}:{}", source_path.display(), name))?;
-        let harness = Harness::from_solc_output(id, &output)?;
 
-        Ok(harness)
+        Ok(SolcOutput { id, output })
     }
 }
 

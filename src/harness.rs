@@ -1,21 +1,19 @@
-//! Compiled harness contract ready for deployment.
+//! Harness identity for the `max` command.
 //!
-//! [`HarnessId`] identifies a harness by source path and contract name, and
-//! [`Harness`] is the compiled contract ready for deployment.
+//! [`HarnessId`] identifies a harness by source path and contract name.
 //!
 //! ```rust
-//! use ripfuzz::harness::Harness;
+//! use ripfuzz::harness::HarnessId;
 //!
-//! // let harness = Harness::from_solc_output(id, &output)?;
+//! let id = HarnessId::try_from("src/MyHarness.sol:MyHarness")?;
+//! # Ok::<(), anyhow::Error>(())
 //! ```
 
 use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use alloy_json_abi::JsonAbi;
-use anyhow::{Context, Result, ensure};
-use solc::StandardJSONOutput;
+use anyhow::{Result, ensure};
 
 /// Unique identifier for a harness used by `ripfuzz max`.
 ///
@@ -114,88 +112,12 @@ impl From<&HarnessId> for String {
     }
 }
 
-/// A compiled harness contract ready for deployment.
-#[derive(Debug, Clone)]
-pub struct Harness {
-    /// Unique identifier of the harness (source path and contract name).
-    pub id: HarnessId,
-    /// Full contract ABI (includes all functions).
-    pub abi: JsonAbi,
-    /// Hex-encoded initcode used to deploy the contract.
-    pub initcode: String,
-}
-
-impl Harness {
-    /// Extract the harness contract from the solc standard JSON output.
-    ///
-    /// `id.path` must match the source key in the output, which is relative
-    /// to the project root.
-    pub fn from_solc_output(id: HarnessId, output: &StandardJSONOutput) -> Result<Self> {
-        // 1. Find the compiled contracts for the harness source file.
-        let contracts = output.contracts.get(&id.path).with_context(|| {
-            format!(
-                "harness source `{}` not found in compilation output",
-                id.path.display()
-            )
-        })?;
-
-        // 2. Find the harness contract by name and list the compiled
-        //    alternatives on a mismatch.
-        let contract = contracts.get(&id.name).with_context(|| {
-            let mut names: Vec<String> = contracts.keys().map(|name| name.to_owned()).collect();
-            names.sort();
-            format!(
-                "contract `{}` not found in `{}`, available contracts: {}",
-                id.name,
-                id.path.display(),
-                names.join(", ")
-            )
-        })?;
-
-        // 3. Decode the ABI JSON into the alloy JSON ABI representation.
-        let abi = contract
-            .abi
-            .as_ref()
-            .context("harness ABI missing from compilation output")?;
-        let abi = serde_json::to_value(&abi.items).context("failed to serialize harness ABI")?;
-        let abi: JsonAbi = serde_json::from_value(abi).context("failed to decode harness ABI")?;
-
-        // 4. Extract the initcode and reject contracts without bytecode.
-        let initcode = contract
-            .evm
-            .as_ref()
-            .and_then(|evm| evm.bytecode.as_ref())
-            .and_then(|bytecode| bytecode.object.as_ref())
-            .context("harness initcode missing from compilation output")?;
-        ensure!(
-            !initcode.is_empty(),
-            "harness contract `{}` has empty initcode",
-            id
-        );
-
-        Ok(Self {
-            id,
-            abi,
-            initcode: initcode.clone(),
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
     use super::*;
-    use serde_json::json;
-
-    fn output(contracts: serde_json::Value) -> StandardJSONOutput {
-        serde_json::from_value(contracts).unwrap()
-    }
-
-    fn id() -> HarnessId {
-        HarnessId::try_from("src/Harness.sol:Harness").unwrap()
-    }
 
     fn create_sol_file(dir: impl AsRef<Path>, name: &str) -> PathBuf {
         let path = dir.as_ref().join(name);
@@ -204,85 +126,6 @@ mod tests {
         }
         fs::write(&path, "// dummy").unwrap();
         path
-    }
-
-    #[test]
-    fn extracts_abi_and_initcode() {
-        let output = output(json!({
-            "contracts": {
-                "src/Harness.sol": {
-                    "Harness": {
-                        "abi": [
-                            {
-                                "type": "function",
-                                "name": "set",
-                                "inputs": [
-                                    {
-                                        "name": "x",
-                                        "type": "uint256",
-                                        "internalType": "uint256"
-                                    }
-                                ],
-                                "outputs": [],
-                                "stateMutability": "nonpayable"
-                            }
-                        ],
-                        "evm": {"bytecode": {"object": "0x6080"}}
-                    }
-                }
-            }
-        }));
-
-        let harness = Harness::from_solc_output(id(), &output).unwrap();
-        assert_eq!(harness.id.name, "Harness");
-        assert_eq!(harness.initcode, "0x6080");
-        assert!(harness.abi.functions.contains_key("set"));
-    }
-
-    #[test]
-    fn missing_source_fails() {
-        let output = output(json!({"contracts": {}}));
-
-        let err = Harness::from_solc_output(id(), &output).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "harness source `src/Harness.sol` not found in compilation output"
-        );
-    }
-
-    #[test]
-    fn missing_contract_lists_alternatives() {
-        let output = output(json!({
-            "contracts": {
-                "src/Harness.sol": {"Alpha": {}, "Beta": {}}
-            }
-        }));
-
-        let err = Harness::from_solc_output(id(), &output).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "contract `Harness` not found in `src/Harness.sol`, available contracts: Alpha, Beta"
-        );
-    }
-
-    #[test]
-    fn empty_initcode_fails() {
-        let output = output(json!({
-            "contracts": {
-                "src/Harness.sol": {
-                    "Harness": {
-                        "abi": [],
-                        "evm": {"bytecode": {"object": ""}}
-                    }
-                }
-            }
-        }));
-
-        let err = Harness::from_solc_output(id(), &output).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "harness contract `src/Harness.sol:Harness` has empty initcode"
-        );
     }
 
     #[test]

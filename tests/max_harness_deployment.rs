@@ -5,6 +5,7 @@
 //! project rooted at the current directory, and compilation artifacts are
 //! shared under `./.ripfuzz/out` namespaced by the harness source path.
 
+use std::fs;
 use std::path::PathBuf;
 
 use ripfuzz::cli::max::{Args, run};
@@ -31,7 +32,7 @@ fn max_compiles_and_deploys_harness() {
 }
 
 /// A harness whose constructor reverts must fail deployment with a clear
-/// error.
+/// error, and the execution trace must be dumped to the traces directory.
 #[test]
 fn max_fails_when_harness_constructor_reverts() {
     let err = run(args(REVERTING)).expect_err("max must fail when deployment reverts");
@@ -39,6 +40,24 @@ fn max_fails_when_harness_constructor_reverts() {
         err.to_string(),
         "harness contract `HarnessWithRevertingConstructor` deployment failed"
     );
+
+    let trace_file = latest_trace_file(".ripfuzz/traces");
+    let trace = fs::read_to_string(&trace_file).expect("execution trace file must exist");
+    assert!(
+        trace.contains("[revert] nope"),
+        "trace must contain the revert reason:\n{trace}"
+    );
+}
+
+/// The most recently written `.log` file under the given traces directory.
+fn latest_trace_file(dir: &str) -> PathBuf {
+    fs::read_dir(dir)
+        .expect("traces dir must exist")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "log"))
+        .max_by_key(|path| fs::metadata(path).and_then(|meta| meta.modified()).ok())
+        .expect("trace file must exist")
 }
 
 /// A harness whose `setup` reverts must still deploy: `setup` runs after

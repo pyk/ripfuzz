@@ -259,7 +259,7 @@ pub struct StructMember {
 }
 
 /// The `storageLayout` section of a compiled artifact.
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 pub struct StorageLayout {
     pub storage: Vec<StorageSlot>,
     #[serde(default)]
@@ -304,7 +304,7 @@ pub type LinkReferences = HashMap<String, HashMap<String, Vec<LinkReference>>>;
 /// deployed bytecode where the immutable value is embedded.
 pub type ImmutableReferences = HashMap<String, Vec<LinkReference>>;
 
-#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 pub struct ArtifactBytecode {
     #[serde(default)]
     pub object: String,

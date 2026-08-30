@@ -4,6 +4,7 @@
 //! then provides lookup methods used by [`Trace::display_with`](crate::evm::trace::Trace::display_with).
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use alloy_dyn_abi::{DynSolEvent, DynSolType, DynSolValue};
 use alloy_json_abi::{EventParam, InternalType, JsonAbi, Param};
@@ -11,16 +12,23 @@ use alloy_primitives::{B256, FixedBytes, U256, b256, keccak256};
 use alloy_sol_types::SolError;
 use anyhow::Result;
 use revm::primitives::{Address, Bytes};
+use serde::de::DeserializeOwned;
 use solc::ast::{
-    ContractDefinitionNode, ElementaryType, FunctionDefinition, SourceUnitNode, StorageLocation,
+    ContractDefinitionNode, ElementaryType, FunctionDefinition, SourceUnit, SourceUnitNode,
+    StorageLocation,
 };
+use solc::{ContractOutput, StandardJSONOutput};
 
 use crate::evm::chain::DEFAULT_DEPLOYER;
 use crate::evm::cheatcode::VM_ADDRESS;
 use crate::evm::trace::common_events::CommonEvents;
 use crate::evm::trace::evmole::Evmole;
 use crate::evm::trace::{MappingSlots, StorageType};
-use crate::foundry::{Artifact, ArtifactId, Project, StorageTypeInfo};
+use crate::foundry::{
+    AbstractArtifact, Artifact, ArtifactBytecode, ArtifactId, ContractArtifact, InterfaceArtifact,
+    LibraryArtifact, Project, StorageTypeInfo, get_contract_definition,
+};
+use crate::solc::SolcOutput;
 
 /// A single bytecode entry for matching runtime code against artifacts.
 #[derive(Debug, Clone)]
@@ -136,6 +144,22 @@ impl TraceContext {
     pub fn from_project(project: &Project) -> Result<Self> {
         let artifacts = project.load_artifacts()?;
         Ok(Self::from_artifacts(artifacts))
+    }
+
+    /// Build a [`TraceContext`] from a solc standard JSON output.
+    ///
+    /// Every contract in the compilation unit contributes its ABI, bytecode
+    /// entries, AST indexes, and storage layout, mirroring `from_artifacts`
+    /// without requiring a Foundry project. Contracts without an AST are
+    /// skipped since they cannot be classified.
+    pub fn from_solc_output(output: &StandardJSONOutput) -> Self {
+        // 1. Collect one artifact per contract that has an ABI and an AST.
+        let mut artifacts = HashMap::new();
+        for (source_path, contracts) in &output.contracts {
+            artifacts.extend(solc_source_artifacts(output, source_path, contracts));
+        }
+
+        Self::from_artifacts(artifacts)
     }
 
     /// Build a [`TraceContext`] from a map of build artifacts.
@@ -1835,6 +1859,142 @@ fn parse_bytecode_with_placeholders(object: &str, link_refs: &LinkReferences) ->
     cleaned.push_str(&hex[last_end..]);
 
     hex::decode(cleaned).unwrap_or_default()
+}
+
+impl From<&SolcOutput> for TraceContext {
+    fn from(solc_output: &SolcOutput) -> Self {
+        Self::from_solc_output(&solc_output.output)
+    }
+}
+
+/// Collect the artifacts for every contract of one solc source output.
+///
+/// Sources without an AST are skipped since their contracts cannot be
+/// classified.
+fn solc_source_artifacts(
+    output: &StandardJSONOutput,
+    source_path: impl AsRef<Path>,
+    contracts: &HashMap<String, ContractOutput>,
+) -> HashMap<ArtifactId, Artifact> {
+    // 1. Skip sources without an AST since contracts cannot be classified.
+    let source_path = source_path.as_ref();
+    let Some(source) = output.sources.get(source_path) else {
+        return HashMap::new();
+    };
+    let Some(ast) = source.ast.clone() else {
+        return HashMap::new();
+    };
+    let source_id = usize::try_from(source.id).unwrap_or_default();
+
+    // 2. Build one artifact per contract of the source.
+    let mut artifacts = HashMap::new();
+    for (contract_name, contract) in contracts {
+        let id = ArtifactId {
+            path: source_path.to_path_buf(),
+            name: contract_name.to_owned(),
+        };
+        if let Some(artifact) = solc_contract_artifact(&id, contract, &ast, source_id) {
+            artifacts.insert(id, artifact);
+        }
+    }
+    artifacts
+}
+
+/// Build a foundry artifact from one solc contract output.
+///
+/// Returns `None` when the contract has no ABI or no AST definition, since
+/// such contracts cannot be classified.
+fn solc_contract_artifact(
+    id: &ArtifactId,
+    contract: &ContractOutput,
+    ast: &SourceUnit,
+    source_id: usize,
+) -> Option<Artifact> {
+    // 1. Skip contracts without an ABI or without an AST definition.
+    let abi = contract.abi.as_ref()?;
+    let abi = retype(abi);
+    let def = get_contract_definition(ast, &id.name).ok()?;
+
+    // 2. Convert the EVM outputs and the storage layout to artifact types.
+    let evm = contract.evm.as_ref();
+    let bytecode = artifact_bytecode(evm.and_then(|evm| evm.bytecode.as_ref()));
+    let deployed_bytecode = artifact_bytecode(evm.and_then(|evm| evm.deployed_bytecode.as_ref()));
+    let method_identifiers = evm
+        .and_then(|evm| evm.method_identifiers.as_ref())
+        .cloned()
+        .unwrap_or_default();
+    let storage_layout = contract.storage_layout.as_ref().map(retype);
+
+    // 3. Assemble the artifact matching the contract kind.
+    Some(match def.contract_kind {
+        solc::ast::ContractKind::Contract if !def.r#abstract.unwrap_or(false) => {
+            Artifact::Contract(ContractArtifact {
+                id: id.clone(),
+                project_path: PathBuf::new(),
+                ast: ast.clone(),
+                abi,
+                bytecode,
+                deployed_bytecode,
+                storage_layout,
+                source_id,
+                sources: None,
+                optimizer: None,
+                method_identifiers,
+            })
+        }
+        solc::ast::ContractKind::Contract => Artifact::Abstract(AbstractArtifact {
+            id: id.clone(),
+            project_path: PathBuf::new(),
+            ast: ast.clone(),
+            abi,
+            source_id,
+            sources: None,
+            optimizer: None,
+            method_identifiers,
+        }),
+        solc::ast::ContractKind::Interface => Artifact::Interface(InterfaceArtifact {
+            id: id.clone(),
+            project_path: PathBuf::new(),
+            ast: ast.clone(),
+            abi,
+            source_id,
+            sources: None,
+            optimizer: None,
+            method_identifiers,
+        }),
+        solc::ast::ContractKind::Library => Artifact::Library(LibraryArtifact {
+            id: id.clone(),
+            project_path: PathBuf::new(),
+            ast: ast.clone(),
+            abi,
+            bytecode,
+            deployed_bytecode,
+            storage_layout,
+            source_id,
+            sources: None,
+            optimizer: None,
+            method_identifiers,
+        }),
+    })
+}
+
+/// Convert a solc output type into the artifact type with the same JSON shape.
+///
+/// The two type families share their serialized layouts, so a JSON round trip
+/// preserves every field without hand-written conversions. Returns the default
+/// value when the round trip fails.
+fn retype<T: serde::Serialize, U: DeserializeOwned + Default>(value: &T) -> U {
+    let json = serde_json::to_value(value).unwrap_or_default();
+    serde_json::from_value(json).unwrap_or_default()
+}
+
+/// Convert solc bytecode output into an artifact bytecode, defaulting to an
+/// empty object when the output selector omitted the bytecode.
+fn artifact_bytecode(bytecode: Option<&solc::Bytecode>) -> ArtifactBytecode {
+    match bytecode {
+        Some(bytecode) => retype(bytecode),
+        None => ArtifactBytecode::default(),
+    }
 }
 
 #[cfg(test)]

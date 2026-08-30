@@ -26,6 +26,16 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- `Solc::compile` returns `SolcOutput` (the resolved `HarnessId` plus the raw
+  `StandardJSONOutput`) instead of `Harness`, so callers can extract the target
+  contract and build trace contexts from the same compilation result
+- `MaxHarness::try_from` accepts `&SolcOutput` and extracts the target contract
+  directly from the solc output; the generic `Harness` type in
+  `ripfuzz::harness` is removed while `HarnessId` stays for CLI parsing
+- `TraceContext` converts from a solc compilation result via
+  `From<&SolcOutput>`, building ABI, bytecode, AST, and storage layout entries
+  without a Foundry project; `ripfuzz max` dumps the failed deployment trace to
+  an absolute `.ripfuzz/traces/<unix-timestamp>-<id>.log` path and logs it
 - `ripfuzz max` now deploys the compiled harness on a sandbox chain after
   compilation and prints the deployed address instead of the solc version
 - `HarnessId` moved from `ripfuzz::cli` to `ripfuzz::harness`, next to the
@@ -34,7 +44,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   path (e.g. `.ripfuzz/out/src/Harness.sol/out.json`), so targets sharing an
   out directory never overwrite each other's artifacts; the combined output
   file is renamed from `output.json` to `out.json`
-- Upgraded solc dependency to v0.3.3
+- Upgraded solc dependency to v0.3.4, which re-exports the standard JSON output
+  types (`ContractOutput`, `SourceOutput`, `Bytecode`, and friends) at the
+  crate root
 - Maxxing reports use a consistent score vocabulary: `raw_score` is the value
   returned by a `max_*` call, `base_score` is the raw score observed after
   `setup()`, and `best_score` is the best raw score observed so far. Log fields

@@ -10,7 +10,8 @@
 //!    `out/build-info/` directory via [`BuildInfo::load_source_index_for_artifact`].
 
 pub use artifact::{
-    Artifact, ArtifactBytecode, ArtifactId, ContractArtifact, LinkReferences, StorageTypeInfo,
+    AbstractArtifact, Artifact, ArtifactBytecode, ArtifactId, ContractArtifact, InterfaceArtifact,
+    LibraryArtifact, LinkReferences, StorageTypeInfo, get_contract_definition,
 };
 pub use build_info::BuildInfo;
 pub use build_options::BuildOptions;
