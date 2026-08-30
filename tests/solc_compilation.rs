@@ -26,16 +26,22 @@ fn contains_bytecode(path: &Path) -> bool {
 fn compiles_harness_with_no_imports() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("out");
-    Solc::new()
+    let harness = Solc::new()
         .with_version(VERSION)
         .with_target("fixtures/solc-compilation/HarnessWithNoImports.sol")
         .with_out(&out)
         .compile()
         .unwrap();
 
+    assert_eq!(harness.id.name, "HarnessWithNoImports");
+    assert!(harness.abi.functions.contains_key("set"));
+    assert!(!harness.initcode.is_empty(), "initcode must be non-empty");
+
     assert!(out.exists(), "out dir must exist");
 
-    let combined = out.join("output.json");
+    let combined = out
+        .join("fixtures/solc-compilation/HarnessWithNoImports.sol")
+        .join("out.json");
     assert!(
         combined.is_file(),
         "combined output must exist at {}",
@@ -50,6 +56,7 @@ fn compiles_harness_with_no_imports() {
     );
 
     let artifact = out
+        .join("fixtures/solc-compilation/HarnessWithNoImports.sol")
         .join("HarnessWithNoImports.sol")
         .join("HarnessWithNoImports.json");
     assert!(
@@ -67,16 +74,21 @@ fn compiles_harness_with_no_imports() {
 fn compiles_harness_with_imports() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("out");
-    Solc::new()
+    let harness = Solc::new()
         .with_version(VERSION)
         .with_target("fixtures/solc-compilation/HarnessWithImports.sol")
         .with_out(&out)
         .compile()
         .unwrap();
 
+    assert_eq!(harness.id.name, "HarnessWithImports");
+    assert!(harness.abi.functions.contains_key("set"));
+    assert!(!harness.initcode.is_empty(), "initcode must be non-empty");
+
     assert!(out.exists());
 
     let harness_artifact = out
+        .join("fixtures/solc-compilation/HarnessWithImports.sol")
         .join("HarnessWithImports.sol")
         .join("HarnessWithImports.json");
     assert!(
@@ -86,7 +98,10 @@ fn compiles_harness_with_imports() {
     );
     assert!(contains_bytecode(&harness_artifact));
 
-    let support_artifact = out.join("Support.sol").join("Support.json");
+    let support_artifact = out
+        .join("fixtures/solc-compilation/HarnessWithImports.sol")
+        .join("Support.sol")
+        .join("Support.json");
     assert!(
         support_artifact.is_file(),
         "support artifact must exist at {}",
@@ -94,7 +109,10 @@ fn compiles_harness_with_imports() {
     );
     assert!(contains_bytecode(&support_artifact));
 
-    let lib_artifact = out.join("Lib.sol").join("Lib.json");
+    let lib_artifact = out
+        .join("fixtures/solc-compilation/HarnessWithImports.sol")
+        .join("Lib.sol")
+        .join("Lib.json");
     assert!(
         lib_artifact.is_file(),
         "lib artifact must exist at {}",
@@ -118,19 +136,10 @@ fn with_out_uses_custom_dir() {
 
     assert!(custom.exists(), "custom out must exist");
     let artifact = custom
+        .join("fixtures/solc-compilation/HarnessWithNoImports.sol")
         .join("HarnessWithNoImports.sol")
         .join("HarnessWithNoImports.json");
     assert!(artifact.is_file(), "artifact must be in custom dir");
-
-    let default_out = Path::new(".ripfuzz/out");
-    if default_out.exists() {
-        let maybe = default_out
-            .join("HarnessWithNoImports.sol")
-            .join("HarnessWithNoImports.json");
-        if maybe.is_file() {
-            let _ = fs::remove_file(maybe);
-        }
-    }
 }
 
 #[test]
@@ -174,6 +183,7 @@ fn with_root_resolves_relative_target_and_out() {
         .join(".ripfuzz")
         .join("out")
         .join("HarnessWithNoImports.sol")
+        .join("HarnessWithNoImports.sol")
         .join("HarnessWithNoImports.json");
     assert!(
         artifact.is_file(),
@@ -215,11 +225,13 @@ fn compiles_harness_with_remappings() {
         .path()
         .join("out")
         .join("Harness.sol")
+        .join("Harness.sol")
         .join("Harness.json");
     assert!(harness_artifact.is_file(), "harness must compile");
     let support_artifact = tmp
         .path()
         .join("out")
+        .join("Harness.sol")
         .join("Support.sol")
         .join("Support.json");
     assert!(
@@ -228,9 +240,10 @@ fn compiles_harness_with_remappings() {
         support_artifact.display()
     );
 
-    let output: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(tmp.path().join("out/output.json")).unwrap())
-            .unwrap();
+    let output: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(tmp.path().join("out/Harness.sol/out.json")).unwrap(),
+    )
+    .unwrap();
     let contracts = output.get("contracts").unwrap().as_object().unwrap();
     assert!(
         contracts.contains_key("Harness.sol"),
@@ -241,6 +254,52 @@ fn compiles_harness_with_remappings() {
         contracts.contains_key("lib/ripfuzz/src/Support.sol"),
         "remapped keys must be relative to the root, got {:?}",
         contracts.keys().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn with_name_selects_the_harness_contract() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(
+        tmp.path().join("Two.sol"),
+        "pragma solidity 0.8.36;\n\ncontract Alpha {}\n\ncontract Beta {}",
+    )
+    .unwrap();
+
+    let harness = Solc::new()
+        .with_version(VERSION)
+        .with_root(tmp.path())
+        .with_target("Two.sol")
+        .with_name("Beta")
+        .with_out(tmp.path().join("out"))
+        .compile()
+        .unwrap();
+
+    assert_eq!(harness.id.path, Path::new("Two.sol"));
+    assert_eq!(harness.id.name, "Beta");
+    assert!(harness.abi.functions.is_empty());
+}
+
+#[test]
+fn unknown_harness_name_fails_with_alternatives() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(
+        tmp.path().join("Two.sol"),
+        "pragma solidity 0.8.36;\n\ncontract Alpha {}\n\ncontract Beta {}",
+    )
+    .unwrap();
+
+    let err = Solc::new()
+        .with_version(VERSION)
+        .with_root(tmp.path())
+        .with_target("Two.sol")
+        .with_name("Missing")
+        .with_out(tmp.path().join("out"))
+        .compile()
+        .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "contract `Missing` not found in `Two.sol`, available contracts: Alpha, Beta"
     );
 }
 

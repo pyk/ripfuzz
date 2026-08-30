@@ -8,7 +8,7 @@
 //! use ripfuzz::solc::Solc;
 //!
 //! let solc = Solc::new().with_version("0.8.28").with_target("src/MyHarness.sol");
-//! // solc.compile()?;
+//! // let harness = solc.compile()?;
 //! ```
 
 use std::fs;
@@ -24,6 +24,8 @@ pub use installer::SolcInstaller;
 pub use remappings::RemappingsResolver;
 pub use source::SourceResolver;
 
+use crate::harness::{Harness, HarnessId};
+
 pub mod exec;
 pub mod input;
 pub mod installer;
@@ -37,10 +39,15 @@ pub mod source;
 /// - When a root is set via `with_root`, relative paths resolve against it
 /// - Imports are resolved using remappings from `{root}/remappings.txt` when
 ///   present
+/// - The harness contract name defaults to the target file stem and can be
+///   overridden with `with_name`
+/// - Artifacts are written under a namespace derived from the target source
+///   path, so targets sharing an out dir never overwrite each other
 #[derive(Clone, Debug, Default)]
 pub struct Solc {
     version: Option<String>,
     target: Option<PathBuf>,
+    name: Option<String>,
     out: Option<PathBuf>,
     root: Option<PathBuf>,
 }
@@ -65,6 +72,12 @@ impl Solc {
         self
     }
 
+    /// Set the harness contract name within the target file.
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
     pub fn with_out(mut self, out: impl AsRef<Path>) -> Self {
         self.out = Some(out.as_ref().to_path_buf());
         self
@@ -85,7 +98,7 @@ impl Solc {
         }
     }
 
-    pub fn compile(self) -> Result<()> {
+    pub fn compile(self) -> Result<Harness> {
         // 1. Resolve the configured version and target.
         let version = self
             .version
@@ -121,19 +134,32 @@ impl Solc {
         let resolver = SourceResolver::new()
             .with_root(&root)
             .with_remappings(RemappingsResolver::load(&root)?);
-        let sources = resolver.resolve(target)?;
+        let sources = resolver.resolve(&target)?;
         let input = StandardJSONInputBuilder::new()
             .with_sources(sources)
             .with_remappings(resolver.solc_remappings())
             .build();
 
-        // 5. Run solc, write the artifacts, and log the result.
+        // 5. Run solc.
         let output = SolcExecutor::new()
             .with_version(version)
             .with_root(&root)
             .with_input(input)
             .exec()?;
-        write_output(&out_dir, &output)?;
+
+        // 6. Resolve the target path relative to the root. The solc output
+        //    keys sources by this path, so it namespaces the written
+        //    artifacts and identifies the harness contract.
+        let canonical_target = target.canonicalize().unwrap_or_else(|_| target.clone());
+        let canonical_root = root.canonicalize().unwrap_or_else(|_| root.clone());
+        let source_path = canonical_target
+            .strip_prefix(&canonical_root)
+            .unwrap_or(&canonical_target)
+            .to_path_buf();
+
+        // 7. Write the artifacts under the target namespace and log the
+        //    result.
+        write_output(&out_dir, &source_path, &output)?;
 
         info!(
             version = %version,
@@ -141,15 +167,31 @@ impl Solc {
             "compilation succeeded"
         );
 
-        Ok(())
+        // 8. Extract the harness contract from the compiled output.
+        let name = match self.name {
+            Some(name) => name,
+            None => target
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or_default()
+                .to_owned(),
+        };
+        let id = HarnessId::try_from(format!("{}:{}", source_path.display(), name))?;
+        let harness = Harness::from_solc_output(id, &output)?;
+
+        Ok(harness)
     }
 }
 
-fn write_output(out_dir: impl AsRef<Path>, output: &StandardJSONOutput) -> Result<()> {
-    let out_dir = out_dir.as_ref();
-    fs::create_dir_all(out_dir).context("failed to create out dir")?;
+fn write_output(
+    out_dir: impl AsRef<Path>,
+    namespace: impl AsRef<Path>,
+    output: &StandardJSONOutput,
+) -> Result<()> {
+    let out_dir = out_dir.as_ref().join(namespace.as_ref());
+    fs::create_dir_all(&out_dir).context("failed to create out dir")?;
 
-    let full_path = out_dir.join("output.json");
+    let full_path = out_dir.join("out.json");
     fs::write(
         &full_path,
         serde_json::to_string_pretty(output).context("failed to serialize output")?,
