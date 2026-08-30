@@ -5,13 +5,24 @@
 //! rooted at the current directory, and compilation artifacts are shared
 //! under `./.ripfuzz/out` namespaced by the harness source path.
 
-use std::fs;
 use std::path::PathBuf;
 
 use alloy_primitives::U256;
 use ripfuzz::cli::max::{Args, run};
 
 const MAX_CALLS: usize = 8;
+
+/// The challenge fixtures as `(stem, contract, level)` triples.
+///
+/// `NoiseBase` is an abstract helper inherited by `AccumulateWithNoise`, so
+/// it is not a challenge of its own.
+const CHALLENGES: &[(&str, &str, &str)] = &[
+    ("Accumulate", "Accumulate", "easy"),
+    ("AccumulateWithNoise", "AccumulateWithNoise", "easy"),
+    ("hard-combo", "Combo", "hard"),
+    ("medium-double", "Double", "medium"),
+    ("medium-gated", "Gated", "medium"),
+];
 
 fn budget(level: &str) -> (usize, u64) {
     match level {
@@ -25,7 +36,8 @@ fn budget(level: &str) -> (usize, u64) {
 /// The highest value reachable within the challenge budget.
 fn expected_value(stem: &str) -> U256 {
     match stem {
-        "easy-accumulate" => U256::MAX,
+        // The noise harness must reach the same value as the plain one.
+        "Accumulate" | "AccumulateWithNoise" => U256::MAX,
         "medium-gated" => U256::MAX,
         // The total starts at 1 and doubles once per call, so a full
         // `MAX_CALLS` sequence reaches `2 ** MAX_CALLS`.
@@ -35,45 +47,16 @@ fn expected_value(stem: &str) -> U256 {
     }
 }
 
-/// The contract name declared in the challenge source.
-///
-/// The file stem is `{level}-{name}`, and the contract is the PascalCase
-/// form of the name part, e.g. `easy-accumulate` declares `Accumulate`.
-fn contract_name(stem: &str) -> String {
-    stem.split('-')
-        .skip(1)
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect()
-}
-
 /// Every challenge harness must reach its highest value within its budget.
 #[test]
 fn max_challenges_reach_the_highest_value() {
     let dir = PathBuf::from("fixtures/max-challenges");
-    let mut challenged = 0;
-    for entry in fs::read_dir(&dir).expect("challenges dir must exist") {
-        let path = entry.expect("challenge entry must exist").path();
-        if path.extension().is_some_and(|ext| ext != "sol") {
-            continue;
-        }
-        let stem = path
-            .file_stem()
-            .expect("challenge must have a file stem")
-            .to_string_lossy()
-            .to_string();
-        let (level, _) = stem
-            .split_once('-')
-            .expect("challenge must be prefixed by level");
+    for &(stem, contract, level) in CHALLENGES {
+        let path = dir.join(format!("{stem}.sol"));
         let (threads, max_runs) = budget(level);
-        let expected = expected_value(&stem);
+        let expected = expected_value(stem);
 
-        let harness = format!("{}:{}", path.display(), contract_name(&stem));
+        let harness = format!("{}:{}", path.display(), contract);
         let args = Args {
             harness: harness.parse().unwrap(),
             config: PathBuf::from("./ripfuzz.toml"),
@@ -92,7 +75,5 @@ fn max_challenges_reach_the_highest_value() {
             "challenge {stem} did not reach the highest value within its budget (best {})",
             best.value()
         );
-        challenged += 1;
     }
-    assert!(challenged > 0, "no challenge fixtures found");
 }

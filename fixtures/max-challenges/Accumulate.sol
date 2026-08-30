@@ -9,9 +9,7 @@ contract Accumulate {
     uint256 internal total;
 
     function deposit(uint256 amount) external {
-        unchecked {
-            total += amount;
-        }
+        total += amount;
     }
 
     function value() external view returns (uint256) {
