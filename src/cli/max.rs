@@ -24,16 +24,23 @@ pub struct Args {
 
 /// Run the `max` command.
 pub fn run(args: Args) -> Result<()> {
+    // 1. Initialize tracing subscriber.
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .with_target(false)
         .try_init();
 
+    // 2. Load configuration.
     let config = Config::load(&args.config)?;
+
+    // 3. Compile harness via Solc.
     Solc::new()
         .with_version(&config.solc)
         .with_target(&args.harness.path)
+        .with_out(&config.out)
         .compile()?;
+
+    // 4. Log and print solc version.
     info!(solc = %config.solc, "solc ready");
     println!("{}", config.solc);
     Ok(())
