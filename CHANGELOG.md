@@ -78,52 +78,70 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- `ripfuzz` now loads `{cwd}/.env` at startup for every command instead of only
+  `ripfuzz run`, so harnesses using `vm.getEnv` see the same values in `run`
+  and `max`; existing environment variables still take precedence
+
 - Max fuzzers now spend half of their mutated sequences extending the current
   best sequence instead of only corpus entries and fresh random sequences, so a
   value that needs a long chain of calls still climbs when decoy handlers
   dilute the corpus; previously a full corpus rejected new-best sequences that
   brought no new coverage, so the best rung was never a mutation base and the
   climb stalled
+
 - Max best tracking now prefers the same value with fewer calls, so mutations
   can free call slots occupied by calls that do not affect the value and extend
   the value further within the call limit
+
 - Corpus now uses AFL-style energy for `pick_item` (finds boost energy even for
   existing ids via `bump_entry`, energy decays only after a mutation that adds
   nothing) and caps at 1024 items evicting lowest-energy entries while never
   evicting the current best, min and max
+
 - Maxxing now treats `max_*` as raw `uint256` score with baseline after
   `setup()` and keeps prefixes that set a new raw max or min, so lossy prefixes
   that are on the path to profit stay in the corpus
+
 - Coverage now records `CALL` targets as `new_jump_edges` via
   `(caller_pc, callee_address)` hash, so calls to different addresses at the
   same PC are distinct even when bytecode is shared
+
 - Coverage is now keyed by `(address, codehash)` for runtime contracts, so the
   first `CALL` into each clone is considered interesting even when bytecode is
   shared; initcode remains keyed by hash
+
 - Fork-mode progress and finished logs now include `rpc_hit`, `rpc_miss`, and
   `rpc_wait`, and loading a fork cache logs `loaded fork cache` with the entry
   count, so a stuck campaign can be diagnosed as RPC-bound vs EVM-bound
+
 - Campaign progress names the current hotspot handler (`hot`, `hot_elapsed`,
   `hot_rpc_miss`), and finished per-function rows include wall time and RPC
   counters, so a slow handler like an unbounded `getQuote` shows up while the
   run is still stuck
+
 - `-q`/`--quiet` suppresses terminal logs while still writing the campaign log
   file
+
 - Fork-mode campaigns now throttle RPC batches to a conservative default of 10
   batches per second so default runs stay under public-provider rate quotas;
   override per fork with `vm.fork(..., ForkConfig{rateLimit: N})` or disable
   with `rateLimit: 0`
+
 - The RPC batch retry loop now logs a warning with the retry number, total
   retries, backoff duration, batch size, endpoint, request payload, and error
   as structured fields; the terminal prints a one-line form (origin-only URL,
   no payload, short error) while the campaign log file keeps the full fields
+
 - Per-thread fuzzer `run` spans now include `fuzzer_id`, so nested logs such as
   RPC retry warnings identify which fuzzer emitted them
+
 - Integration tests pass `--quiet` so `make test` no longer prints campaign
   logs
+
 - Provider rate-limit (429) and 5xx JSON-RPC error objects inside batch
   responses are now retried with capped exponential backoff instead of killing
   the fuzzer thread immediately
+
 - Maxxing progress and finished logs now always include `value`, showing `0`
   until a non-zero best is found
 

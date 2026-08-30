@@ -27,6 +27,16 @@ enum Commands {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
+    // Load `.env` from the working directory or a parent so every command
+    // (and the harness `vm.getEnv` cheatcode) sees the same environment.
+    // Print directly because no logger is initialized yet.
+    if let Err(e) = dotenvy::dotenv()
+        && !e.not_found()
+    {
+        eprintln!("failed to load .env: {e}");
+        return ExitCode::FAILURE;
+    }
+
     let result = match cli.command {
         Commands::Run(args) => cli::run::run(*args),
         Commands::Max(args) => cli::max::run(args).map(|_| ()),
