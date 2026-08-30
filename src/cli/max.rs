@@ -6,7 +6,7 @@ use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use tracing::info;
 
-use crate::cli::config::Config;
+use crate::config::Config;
 use crate::evm::{Chain, ChainConfig};
 use crate::harness::HarnessId;
 use crate::solc::Solc;
