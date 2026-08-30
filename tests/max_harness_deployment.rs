@@ -25,6 +25,11 @@ fn args(harness: &str) -> Args {
         harness: harness.parse().unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
         root: None,
+        threads: 2,
+        max_runs: 256,
+        max_calls: 8,
+        timeout: None,
+        target_value: None,
     }
 }
 
@@ -44,23 +49,26 @@ fn max_fails_when_harness_constructor_reverts() {
         "harness contract `HarnessWithRevertingConstructor` deployment failed"
     );
 
-    let trace_file = latest_trace_file(".ripfuzz/traces");
-    let trace = fs::read_to_string(&trace_file).expect("execution trace file must exist");
     assert!(
-        trace.contains("[revert] nope"),
-        "trace must contain the revert reason:\n{trace}"
+        traces_contain(".ripfuzz/traces", "[revert] nope"),
+        "a dumped trace must contain the revert reason"
     );
 }
 
-/// The most recently written `.log` file under the given traces directory.
-fn latest_trace_file(dir: &str) -> PathBuf {
+/// Whether any dumped trace file under the directory contains the needle.
+///
+/// Tests run in parallel and share the traces directory, so the most recent
+/// trace file may belong to another test.
+fn traces_contain(dir: &str, needle: &str) -> bool {
     fs::read_dir(dir)
         .expect("traces dir must exist")
         .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "log"))
-        .max_by_key(|path| fs::metadata(path).and_then(|meta| meta.modified()).ok())
-        .expect("trace file must exist")
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "log"))
+        .any(|entry| {
+            fs::read_to_string(entry.path())
+                .map(|trace| trace.contains(needle))
+                .unwrap_or(false)
+        })
 }
 
 /// A harness whose `setup` reverts must fail after deployment, with the
@@ -73,11 +81,9 @@ fn max_fails_when_setup_reverts() {
         "harness contract `HarnessWithRevertingSetup` setup failed"
     );
 
-    let trace_file = latest_trace_file(".ripfuzz/traces");
-    let trace = fs::read_to_string(&trace_file).expect("execution trace file must exist");
     assert!(
-        trace.contains("[revert] setup failed"),
-        "trace must contain the revert reason:\n{trace}"
+        traces_contain(".ripfuzz/traces", "[revert] setup failed"),
+        "a dumped trace must contain the revert reason"
     );
 }
 
@@ -91,11 +97,9 @@ fn max_fails_when_value_reverts() {
         "harness contract `HarnessWithRevertingValue` value call failed"
     );
 
-    let trace_file = latest_trace_file(".ripfuzz/traces");
-    let trace = fs::read_to_string(&trace_file).expect("execution trace file must exist");
     assert!(
-        trace.contains("[revert] value failed"),
-        "trace must contain the revert reason:\n{trace}"
+        traces_contain(".ripfuzz/traces", "[revert] value failed"),
+        "a dumped trace must contain the revert reason"
     );
 }
 

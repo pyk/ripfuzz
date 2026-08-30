@@ -179,6 +179,18 @@ impl MaxHarness {
     pub fn summary(&self) -> Option<&Function> {
         self.summary.as_ref()
     }
+
+    /// The fuzzable handler functions, excluding `value`, `setup`, and
+    /// `summary`.
+    pub fn handlers(&self) -> Vec<Function> {
+        self.abi
+            .functions()
+            .filter(|function| {
+                function.name != "value" && function.name != "setup" && function.name != "summary"
+            })
+            .cloned()
+            .collect()
+    }
 }
 
 impl From<&MaxHarness> for DeployInput {
@@ -251,6 +263,24 @@ mod tests {
             max_harness.summary().map(|f| f.name.as_str()),
             Some("summary")
         );
+    }
+
+    #[test]
+    fn handlers_exclude_value_setup_and_summary() {
+        let max_harness = MaxHarness::try_from(&solc_output_with(&[
+            "function set(uint256)",
+            "function value() view returns (uint256)",
+            "function setup()",
+            "function summary() view returns (string memory)",
+        ]))
+        .unwrap();
+        let handlers = max_harness.handlers();
+        let names: Vec<&str> = handlers
+            .iter()
+            .map(|function| function.name.as_str())
+            .collect();
+
+        assert_eq!(names, vec!["set"]);
     }
 
     #[test]

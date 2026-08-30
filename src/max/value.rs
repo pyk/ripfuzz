@@ -23,6 +23,11 @@ use crate::evm::TransactionResult;
 pub struct Value(U256);
 
 impl Value {
+    /// Create a value from a raw `uint256`.
+    pub fn new(value: U256) -> Self {
+        Self(value)
+    }
+
     /// Decode a successful `uint256` call result.
     pub fn decode(result: &TransactionResult) -> Result<Self> {
         ensure!(result.success, "value call reverted");

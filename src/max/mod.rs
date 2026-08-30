@@ -1,7 +1,15 @@
 //! Maximize harness values.
 
+pub use best::Best;
+pub use call::Call;
+pub use fuzzer::{Fuzzer, FuzzerConfig};
 pub use harness::MaxHarness;
+pub use sequence::Sequence;
 pub use value::Value;
 
+pub mod best;
+pub mod call;
+pub mod fuzzer;
 pub mod harness;
+pub mod sequence;
 pub mod value;

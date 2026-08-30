@@ -2,7 +2,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf, absolute};
+use std::time::Duration;
 
+use alloy_primitives::U256;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use revm::primitives::Bytes;
@@ -11,7 +13,7 @@ use tracing::{error, info};
 use crate::config::Config;
 use crate::evm::{Chain, ChainConfig, SetupInput, Trace, TraceContext, Transaction};
 use crate::harness::HarnessId;
-use crate::max::{MaxHarness, Value};
+use crate::max::{Fuzzer, FuzzerConfig, MaxHarness, Value};
 use crate::solc::Solc;
 
 /// Maximize a harness value.
@@ -28,6 +30,31 @@ pub struct Args {
     /// Project root directory.
     #[arg(long, value_name = "PATH")]
     pub root: Option<PathBuf>,
+
+    /// Number of fuzzers.
+    #[arg(long, default_value_t = 1, value_name = "THREADS")]
+    pub threads: usize,
+
+    /// Maximum number of sequences to run across all threads.
+    #[arg(long, default_value_t = 256, value_name = "RUNS")]
+    pub max_runs: u64,
+
+    /// Maximum number of handler calls per sequence.
+    #[arg(long, default_value_t = 8, value_name = "COUNT")]
+    pub max_calls: usize,
+
+    /// Stop fuzzing after this many seconds.
+    #[arg(long, value_name = "SECONDS")]
+    pub timeout: Option<u64>,
+
+    /// Stop fuzzing when the best value reaches this value.
+    #[arg(long, value_name = "VALUE", value_parser = parse_u256)]
+    pub target_value: Option<U256>,
+}
+
+/// Parse a `uint256` CLI value in decimal or `0x`-prefixed hex.
+fn parse_u256(value: &str) -> Result<U256, String> {
+    value.parse::<U256>().map_err(|err| err.to_string())
 }
 
 /// Run the `max` command.
@@ -96,11 +123,10 @@ pub fn run(args: Args) -> Result<()> {
 
     // 9. Measure the initial value reported by the harness. The call runs on
     // a traced chain clone because `Chain::call` returns no execution trace.
+    let value_calldata = Bytes::from(max_harness.value().selector().as_slice().to_vec());
     let mut value_chain = chain.clone();
     value_chain.set_trace(true);
-    let value_tx = Transaction::new(address).calldata(Bytes::from(
-        max_harness.value().selector().as_slice().to_vec(),
-    ));
+    let value_tx = Transaction::new(address).calldata(value_calldata.clone());
     let value_output = value_chain.exec(std::slice::from_ref(&value_tx))?;
     let value_result = value_output
         .results
@@ -126,6 +152,24 @@ pub fn run(args: Args) -> Result<()> {
         initial_value = %initial_value,
         "initial value measured"
     );
+
+    // 10. Discover the best sequence within the stop conditions.
+    let deployer = chain.deployer();
+    let fuzzer_config = FuzzerConfig::new()
+        .chain(chain)
+        .target(address)
+        .deployer(deployer)
+        .value_calldata(value_calldata)
+        .handlers(max_harness.handlers())
+        .initial_value(initial_value)
+        .threads(args.threads)
+        .max_runs(args.max_runs)
+        .max_calls(args.max_calls)
+        .timeout(args.timeout.map(Duration::from_secs))
+        .target_value(args.target_value.map(Value::new))
+        .seed(jiff::Timestamp::now().as_nanosecond() as u64);
+    let fuzzer = Fuzzer::new(fuzzer_config);
+    fuzzer.run()?;
 
     println!("{address}");
     Ok(())
