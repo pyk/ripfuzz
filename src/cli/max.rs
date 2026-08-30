@@ -20,6 +20,10 @@ pub struct Args {
     /// Path to the ripfuzz config file.
     #[arg(long, default_value = "ripfuzz.toml", value_name = "PATH")]
     pub config: PathBuf,
+
+    /// Project root directory.
+    #[arg(long, value_name = "PATH")]
+    pub root: Option<PathBuf>,
 }
 
 /// Run the `max` command.
@@ -30,12 +34,14 @@ pub fn run(args: Args) -> Result<()> {
         .with_target(false)
         .try_init();
 
-    // 2. Load configuration.
-    let config = Config::load(&args.config)?;
+    // 2. Load configuration relative to the project root.
+    let root = args.root.clone().unwrap_or_else(|| PathBuf::from("."));
+    let config = Config::new().with_root(&root).load(&args.config)?;
 
-    // 3. Compile harness via Solc.
+    // 3. Compile harness via Solc relative to the project root.
     Solc::new()
         .with_version(&config.solc)
+        .with_root(&root)
         .with_target(&args.harness.path)
         .with_out(&config.out)
         .compile()?;

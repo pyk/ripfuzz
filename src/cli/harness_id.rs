@@ -11,6 +11,9 @@ use anyhow::{Result, ensure};
 /// Accepted forms:
 /// - `src/MyHarness.sol` (contract name derived from file stem)
 /// - `src/MyHarness.sol:MyHarness` (explicit contract name)
+///
+/// The path is parsed only; it is not required to exist. Consumers resolve it
+/// against the project root.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HarnessId {
     pub path: PathBuf,
@@ -52,11 +55,6 @@ impl TryFrom<&str> for HarnessId {
                 "path must end with `.sol`, got `{}`",
                 path.display()
             );
-            ensure!(
-                path.is_file(),
-                "harness file `{}` not found",
-                path.display()
-            );
             Ok(Self {
                 path,
                 name: name.to_owned(),
@@ -74,11 +72,6 @@ impl TryFrom<&str> for HarnessId {
                 .unwrap_or_default()
                 .to_owned();
             ensure!(!stem.is_empty(), "path and contract name must be non-empty");
-            ensure!(
-                path.is_file(),
-                "harness file `{}` not found",
-                path.display()
-            );
             Ok(Self { path, name: stem })
         }
     }
@@ -265,28 +258,5 @@ mod tests {
         let id = HarnessId::try_from(spec.as_str()).unwrap();
         assert_eq!(id.path, path);
         assert_eq!(id.name, "MyHarness");
-    }
-
-    #[test]
-    fn harness_id_file_not_found_fails() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("Missing.sol");
-        let err = HarnessId::try_from(path.to_str().unwrap()).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            format!("harness file `{}` not found", path.display())
-        );
-    }
-
-    #[test]
-    fn harness_id_file_not_found_with_contract_fails() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("Missing.sol");
-        let spec = format!("{}:Missing", path.display());
-        let err = HarnessId::try_from(spec.as_str()).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            format!("harness file `{}` not found", path.display())
-        );
     }
 }

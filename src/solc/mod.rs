@@ -26,11 +26,15 @@ pub use installer::SolcInstaller;
 pub mod installer;
 
 /// Solidity compiler builder.
+///
+/// Paths set via `with_target` and `with_out` may be relative; when a root is
+/// set via `with_root`, relative paths resolve against it.
 #[derive(Clone, Debug, Default)]
 pub struct Solc {
     version: Option<String>,
     target: Option<PathBuf>,
     out: Option<PathBuf>,
+    root: Option<PathBuf>,
 }
 
 impl Solc {
@@ -40,6 +44,11 @@ impl Solc {
 
     pub fn with_version(mut self, version: impl Into<String>) -> Self {
         self.version = Some(version.into());
+        self
+    }
+
+    pub fn with_root(mut self, root: impl AsRef<Path>) -> Self {
+        self.root = Some(root.as_ref().to_path_buf());
         self
     }
 
@@ -54,9 +63,18 @@ impl Solc {
     }
 
     pub fn out_dir(&self) -> PathBuf {
-        self.out
-            .clone()
-            .unwrap_or_else(|| PathBuf::from(".ripfuzz/out"))
+        self.resolve(self.out.as_deref().unwrap_or(Path::new(".ripfuzz/out")))
+    }
+
+    fn resolve(&self, path: impl AsRef<Path>) -> PathBuf {
+        let path = path.as_ref();
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else if let Some(root) = &self.root {
+            root.join(path)
+        } else {
+            path.to_path_buf()
+        }
     }
 
     pub fn compile(self) -> Result<()> {
@@ -68,6 +86,7 @@ impl Solc {
             .target
             .as_deref()
             .context("solc target not set, call Solc::new().with_target(..)")?;
+        let target = self.resolve(target);
 
         ensure!(
             target.is_file(),

@@ -153,6 +153,36 @@ fn with_out_overrides_default() {
 }
 
 #[test]
+fn with_root_resolves_relative_target_and_out() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::copy(
+        "fixtures/solc-compilation/HarnessWithNoImports.sol",
+        tmp.path().join("HarnessWithNoImports.sol"),
+    )
+    .unwrap();
+
+    Solc::new()
+        .with_version(VERSION)
+        .with_root(tmp.path())
+        .with_target("HarnessWithNoImports.sol")
+        .with_out(".ripfuzz/out")
+        .compile()
+        .unwrap();
+
+    let artifact = tmp
+        .path()
+        .join(".ripfuzz")
+        .join("out")
+        .join("HarnessWithNoImports.sol")
+        .join("HarnessWithNoImports.json");
+    assert!(
+        artifact.is_file(),
+        "artifact must be under the project root at {}",
+        artifact.display()
+    );
+}
+
+#[test]
 fn missing_target_fails() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("out");
