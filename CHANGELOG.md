@@ -12,6 +12,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 - `ripfuzz init` writes a starter `ripfuzz.toml` with `solc = "0.8.36"` in the
   current directory and refuses to overwrite an existing file
+- `MaxHarness` validates a compiled `Harness` against the max harness rules (a
+  `view`/`pure` `value` function returning `uint256`, no `invariant_*`
+  functions, optional `setup` and `summary` functions) and resolves those
+  functions for later steps; `ripfuzz max` rejects invalid harnesses before
+  deployment
 - `ripfuzz max --root <path>` resolves the config file, harness path, and
   output directory relative to the given project root instead of the current
   working directory

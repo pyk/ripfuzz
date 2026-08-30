@@ -28,6 +28,7 @@ pub mod cli;
 pub mod config;
 pub mod harness;
 pub mod logger;
+pub mod max;
 pub mod solc;
 
 mod campaigns;

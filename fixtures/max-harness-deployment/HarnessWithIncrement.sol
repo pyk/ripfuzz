@@ -7,4 +7,8 @@ contract HarnessWithIncrement {
     function increment() external {
         count += 1;
     }
+
+    function value() external view returns (uint256) {
+        return count;
+    }
 }

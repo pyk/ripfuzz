@@ -7,7 +7,6 @@
 //! use ripfuzz::harness::Harness;
 //!
 //! // let harness = Harness::from_solc_output(id, &output)?;
-//! // chain.deploy(harness.deploy_input())?;
 //! ```
 
 use std::fmt;
@@ -17,8 +16,6 @@ use std::str::FromStr;
 use alloy_json_abi::JsonAbi;
 use anyhow::{Context, Result, ensure};
 use solc::StandardJSONOutput;
-
-use crate::evm::DeployInput;
 
 /// Unique identifier for a harness used by `ripfuzz max`.
 ///
@@ -181,11 +178,6 @@ impl Harness {
             abi,
             initcode: initcode.clone(),
         })
-    }
-
-    /// Build the deployment input for this harness.
-    pub fn deploy_input(&self) -> DeployInput {
-        DeployInput::new(&self.initcode)
     }
 }
 

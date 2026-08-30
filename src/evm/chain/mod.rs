@@ -152,10 +152,15 @@ impl Chain {
     /// A [`cheatcode::Inspector`] is included so that harness contracts can call
     /// ripfuzz cheatcodes (e.g. `vm.warp`) during constructor execution.
     ///
+    /// Anything convertible into [`DeployInput`] is accepted, so callers can
+    /// pass a [`DeployInput`] directly or a harness type with an `Into`
+    /// implementation (e.g. `&MaxHarness`).
+    ///
     /// If `opts.libraries` is non-empty, the linked libraries are deployed first
     /// (recursively, in dependency order), their addresses are collected, and the
     /// harness contract initcode is linked before deployment.
-    pub fn deploy(&mut self, opts: DeployInput) -> Result<DeployOutput> {
+    pub fn deploy(&mut self, opts: impl Into<DeployInput>) -> Result<DeployOutput> {
+        let opts = opts.into();
         let library_addrs = self.deploy_libraries(opts.libraries, opts.caller)?;
 
         let initcode = if library_addrs.is_empty() {

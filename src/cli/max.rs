@@ -9,6 +9,7 @@ use tracing::info;
 use crate::config::Config;
 use crate::evm::{Chain, ChainConfig};
 use crate::harness::HarnessId;
+use crate::max::MaxHarness;
 use crate::solc::Solc;
 
 /// Maximize a harness value.
@@ -48,21 +49,24 @@ pub fn run(args: Args) -> Result<()> {
         .with_out(&config.out)
         .compile()?;
 
-    // 4. Create the test chain the harness will be deployed to.
+    // 4. Validate the compiled harness against the max harness rules.
+    let max_harness = MaxHarness::try_from(harness)?;
+
+    // 5. Create the test chain the harness will be deployed to.
     let chain_config = ChainConfig::new(&root).coverage(true);
     let mut chain = Chain::new(chain_config)?;
 
-    // 5. Deploy the harness contract.
-    let deployment = chain.deploy(harness.deploy_input())?;
+    // 6. Deploy the harness contract.
+    let deployment = chain.deploy(&max_harness)?;
     ensure!(
         deployment.result.success,
         "harness contract `{}` deployment failed",
-        harness.id.name
+        max_harness.id().name
     );
     let address = deployment
         .address
         .context("deployment succeeded but created_address is missing")?;
-    info!(harness = %harness.id, address = %address, "harness deployed");
+    info!(harness = %max_harness.id(), address = %address, "harness deployed");
     println!("{address}");
     Ok(())
 }

@@ -5,4 +5,8 @@ contract HarnessWithRevertingConstructor {
     constructor() {
         revert("nope");
     }
+
+    function value() external pure returns (uint256) {
+        return 0;
+    }
 }
