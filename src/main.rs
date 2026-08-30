@@ -20,6 +20,8 @@ enum Commands {
     Run(Box<cli::run::Args>),
     /// Maximize a harness value.
     Max(cli::max::Args),
+    /// Initialize a new ripfuzz project.
+    Init(cli::init::Args),
 }
 
 fn main() -> ExitCode {
@@ -28,10 +30,10 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Commands::Run(args) => cli::run::run(*args),
         Commands::Max(args) => cli::max::run(args),
+        Commands::Init(args) => cli::init::run(args),
     };
 
     if let Err(e) = result {
-        eprintln!("Error: {e:#}");
         error!("{e:#}");
         return ExitCode::FAILURE;
     }

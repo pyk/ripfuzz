@@ -5,5 +5,6 @@ pub use harness_id::HarnessId;
 
 pub mod config;
 pub mod harness_id;
+pub mod init;
 pub mod max;
 pub mod run;
