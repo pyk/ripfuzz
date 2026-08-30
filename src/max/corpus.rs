@@ -29,6 +29,17 @@ struct Entry {
     new_edges: u64,
 }
 
+/// A read-only snapshot of a corpus entry for reporting and debugging.
+#[derive(Debug, Clone)]
+pub struct EntrySnapshot {
+    /// The sequence kept in the corpus.
+    pub sequence: Sequence,
+    /// The value measured after executing the sequence.
+    pub value: Value,
+    /// The new coverage the sequence brought when it was added.
+    pub new_edges: u64,
+}
+
 /// Corpus of interesting sequences shared across fuzzers.
 ///
 /// Cloning is cheap (shares the same inner entries).
@@ -58,6 +69,24 @@ impl Corpus {
     /// Whether the corpus has no entries.
     pub fn is_empty(&self) -> bool {
         self.lock().is_empty()
+    }
+
+    /// Snapshot all entries for reporting and debugging.
+    ///
+    /// The snapshot is in corpus order, which reflects the eviction history:
+    /// entries kept early sit at the front, recently added entries at the
+    /// back.
+    pub fn entries(&self) -> Vec<EntrySnapshot> {
+        let mut entries = Vec::new();
+        for entry in self.lock().iter() {
+            entries.push(EntrySnapshot {
+                // checkrs: allow(clone_in_loops) a snapshot must own its entries
+                sequence: entry.sequence.clone(),
+                value: entry.value,
+                new_edges: entry.new_edges,
+            });
+        }
+        entries
     }
 
     /// A random sequence from the corpus.
@@ -137,6 +166,20 @@ mod tests {
         assert_eq!(corpus.len(), 2);
         let random = corpus.random(&mut Rng::new()).unwrap();
         assert!(!random.is_empty());
+    }
+
+    #[test]
+    fn entries_snapshot_lists_all_entries_in_order() {
+        let corpus = Corpus::new();
+        corpus.add(random_sequence(), Value::new(U256::from(1)), 3);
+        corpus.add(random_sequence(), Value::new(U256::from(2)), 5);
+
+        let entries = corpus.entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].value, Value::new(U256::from(1)));
+        assert_eq!(entries[0].new_edges, 3);
+        assert_eq!(entries[1].value, Value::new(U256::from(2)));
+        assert_eq!(entries[1].new_edges, 5);
     }
 
     #[test]

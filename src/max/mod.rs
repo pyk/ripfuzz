@@ -2,7 +2,7 @@
 
 pub use best::Best;
 pub use call::Call;
-pub use corpus::Corpus;
+pub use corpus::{Corpus, EntrySnapshot};
 pub use fuzzer::{Fuzzer, FuzzerConfig};
 pub use harness::MaxHarness;
 pub use sequence::Sequence;

@@ -39,6 +39,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - Solc compilation resolves imports through `{root}/remappings.txt`, so
   harnesses importing dependencies via remappings (e.g. `ripfuzz/Harness.sol`)
   compile
+- `ripfuzz max --corpus-dir <path>` dumps the corpus of interesting sequences
+  when the campaign finishes (and best-effort when it fails), one line per
+  entry with its value, new coverage, call count, and sequence; the dump
+  defaults to `{root}/.ripfuzz/corpus/{source-file}/{contract}/corpus.log`, so
+  a surprising campaign can be analyzed offline
 
 ### Changed
 

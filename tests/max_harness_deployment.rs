@@ -30,6 +30,7 @@ fn args(harness: &str) -> Args {
         max_calls: 8,
         timeout: None,
         target_value: None,
+        corpus_dir: None,
     }
 }
 

@@ -3,7 +3,9 @@
 //!
 //! The fixtures under `fixtures/max-challenges` are sources of the project
 //! rooted at the current directory, and compilation artifacts are shared
-//! under `./.ripfuzz/out` namespaced by the harness source path.
+//! under `./.ripfuzz/out` namespaced by the harness source path. The corpus
+//! of each challenge is dumped under `./.ripfuzz/corpus-test`, so a failed
+//! challenge can be analyzed offline.
 
 use std::path::PathBuf;
 
@@ -59,6 +61,7 @@ fn max_challenges_reach_the_highest_value() {
         let expected = expected_value(stem);
 
         let harness = format!("{}:{}", path.display(), contract);
+        let corpus_dir = PathBuf::from(".ripfuzz/corpus-test");
         let args = Args {
             harness: harness.parse().unwrap(),
             config: PathBuf::from("./ripfuzz.toml"),
@@ -68,14 +71,25 @@ fn max_challenges_reach_the_highest_value() {
             max_calls: MAX_CALLS,
             timeout: Some(120),
             target_value: None,
+            corpus_dir: Some(corpus_dir.clone()),
         };
-        let best = run(args).unwrap_or_else(|err| panic!("challenge {stem} failed: {err:#}"));
+        let corpus_file = corpus_dir
+            .join(format!("{stem}.sol"))
+            .join(contract)
+            .join("corpus.log");
+        let best = run(args).unwrap_or_else(|err| {
+            panic!(
+                "challenge {stem} failed: {err:#} (corpus {})",
+                corpus_file.display()
+            )
+        });
 
         assert_eq!(
             best.value().get(),
             expected,
-            "challenge {stem} did not reach the highest value within its budget (best {})",
-            best.value()
+            "challenge {stem} did not reach the highest value within its budget (best {}, corpus {})",
+            best.value(),
+            corpus_file.display()
         );
     }
 }

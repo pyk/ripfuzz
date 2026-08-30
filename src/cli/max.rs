@@ -8,7 +8,7 @@ use alloy_primitives::U256;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use revm::primitives::Bytes;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::evm::{
@@ -49,9 +49,19 @@ pub struct Args {
     #[arg(long, value_name = "SECONDS")]
     pub timeout: Option<u64>,
 
-    /// Stop fuzzing when the best value reaches this value.
+    /// Stop fuzzing when the target value is reached.
     #[arg(long, value_name = "VALUE", value_parser = parse_u256)]
     pub target_value: Option<U256>,
+
+    /// Directory to dump the corpus of interesting sequences at the end of
+    /// the campaign.
+    ///
+    /// Defaults to `{root}/.ripfuzz/corpus`, namespaced by the harness source
+    /// file and contract name. The dump lists one entry per line with its
+    /// value, new coverage, length, and sequence, so a surprising campaign
+    /// can be analyzed offline.
+    #[arg(long, value_name = "PATH")]
+    pub corpus_dir: Option<PathBuf>,
 }
 
 /// Parse a `uint256` CLI value in decimal or `0x`-prefixed hex.
@@ -158,13 +168,14 @@ pub fn run(args: Args) -> Result<Best> {
     // 10. Fuzz for the highest value within the stop conditions.
     let seed = jiff::Timestamp::now().as_nanosecond() as u64;
     let deployer = chain.deployer();
+    let corpus = Corpus::new();
     let fuzzer_config = FuzzerConfig::new()
         .chain(chain.clone())
         .target(address)
         .deployer(deployer)
         .value_calldata(value_calldata.clone())
         .handlers(max_harness.handlers())
-        .corpus(Corpus::new())
+        .corpus(corpus.clone())
         .coverage(SharedCoverage::new())
         .initial_value(initial_value)
         .threads(args.threads)
@@ -174,7 +185,20 @@ pub fn run(args: Args) -> Result<Best> {
         .target_value(args.target_value.map(Value::new))
         .seed(seed);
     let fuzzer = Fuzzer::new(fuzzer_config);
-    let best = fuzzer.run()?;
+    let corpus_file = corpus_dump_path(&root, &args.corpus_dir, &args.harness)?;
+    let best = match fuzzer.run() {
+        Ok(best) => {
+            dump_corpus(&corpus, &corpus_file)?;
+            best
+        }
+        Err(err) => {
+            // Best-effort dump so the corpus survives a failed campaign.
+            if let Err(dump_err) = dump_corpus(&corpus, &corpus_file) {
+                warn!(error = %dump_err, "corpus dump failed");
+            }
+            return Err(err);
+        }
+    };
 
     // 11. Shrink the best sequence while preserving its value.
     if !best.sequence().is_empty() {
@@ -199,6 +223,59 @@ pub fn run(args: Args) -> Result<Best> {
 
     println!("{address}");
     Ok(best)
+}
+
+/// Resolve the corpus dump file path for a harness.
+///
+/// The dump defaults to `{root}/.ripfuzz/corpus` and is namespaced by the
+/// harness source file and contract name, mirroring the compilation output
+/// layout, so targets sharing a corpus directory never overwrite each
+/// other's dumps.
+fn corpus_dump_path(
+    root: impl AsRef<Path>,
+    corpus_dir: &Option<PathBuf>,
+    harness: &HarnessId,
+) -> Result<PathBuf> {
+    // 1. Resolve the corpus base directory relative to the project root.
+    let base = corpus_dir
+        .clone()
+        .unwrap_or_else(|| root.as_ref().join(".ripfuzz").join("corpus"));
+
+    // 2. Namespace the dump by the source file and contract name.
+    let file_name = harness
+        .path
+        .file_name()
+        .context("harness path has no file name")?;
+    Ok(base.join(file_name).join(&harness.name).join("corpus.log"))
+}
+
+/// Dump the corpus of interesting sequences and return the written path.
+///
+/// Each entry is one line with its value, new coverage, call count, and
+/// sequence, in corpus order so the file also reflects the eviction
+/// history.
+fn dump_corpus(corpus: &Corpus, path: impl AsRef<Path>) -> Result<()> {
+    let path = path.as_ref();
+    // 1. Render one line per entry.
+    let mut dump = String::new();
+    for entry in corpus.entries() {
+        dump.push_str(&format!(
+            "value={} edges={} calls={} sequence={}\n",
+            entry.value,
+            entry.new_edges,
+            entry.sequence.len(),
+            entry.sequence
+        ));
+    }
+
+    // 2. Write the dump under its namespaced directory.
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    fs::write(path, &dump).with_context(|| format!("failed to write {}", path.display()))?;
+    info!(entries = corpus.len(), path = %path.display(), "corpus dumped");
+    Ok(())
 }
 
 /// Dump an execution trace and return its absolute path.
