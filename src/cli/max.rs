@@ -154,8 +154,10 @@ pub fn run(args: Args) -> Result<Best> {
         info!(harness = %max_harness.id(), address = %address, "setup executed");
     }
 
-    // 9. Measure the initial value reported by the harness. The call runs on
-    // a traced chain clone because `Chain::call` returns no execution trace.
+    // 9. Measure the initial value reported by the harness.
+    //
+    //    The call runs on a traced chain clone because `Chain::call`
+    //    returns no execution trace.
     let value_calldata = Bytes::from(max_harness.value().selector().as_slice().to_vec());
     let mut value_chain = chain.clone();
     value_chain.set_trace(true);
