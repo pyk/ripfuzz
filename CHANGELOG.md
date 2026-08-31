@@ -44,6 +44,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   entry with its value, new coverage, call count, and sequence; the dump
   defaults to `{root}/.ripfuzz/corpus/{source-file}/{contract}/corpus.log`, so
   a surprising campaign can be analyzed offline
+- `ripfuzz max --quiet` (`-q`) suppresses terminal logs by writing the
+  subscriber to a null sink, so harnesses forking in tests cannot leak output;
+  the deployed address still prints to stdout
 
 ### Changed
 
@@ -75,6 +78,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   `setup()`, and `best_score` is the best raw score observed so far. Log fields
   `value=` and `baseline=` become `best_score=` and `base_score=` on the
   progress, finished, and setup lines
+- `ripfuzz max` wires the same fork defaults as the campaign command, so
+  harness forks share the `.ripfuzz/cache` rpc cache across commands and use a
+  conservative batch rate limit that keeps default campaigns under
+  public-provider quotas
 
 ### Fixed
 
