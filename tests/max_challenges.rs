@@ -55,6 +55,8 @@ fn expected_value(stem: &str) -> U256 {
 }
 
 /// Every challenge harness must reach its highest value within its budget.
+/// Slow: ignored by default and run explicitly with `make max`.
+#[ignore = "slow fuzzing campaign; run with `make max`"]
 #[test]
 fn max_challenges_reach_the_highest_value() {
     let dir = PathBuf::from("fixtures/max-challenges");

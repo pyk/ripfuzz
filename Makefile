@@ -46,6 +46,11 @@ test-live: # Run tests against live network
 	@echo "Running tests"
 	@cargo test live
 
+.PHONY: max
+max: # Run max challenge tests
+	@echo "Running max challenges"
+	@cargo test --quiet --test max_challenges -- --ignored
+
 # Catch-all target to handle extra arguments passed to make
 %:
 	@
