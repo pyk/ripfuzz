@@ -123,7 +123,11 @@ pub fn run(args: Args) -> Result<Best> {
         trace_context = trace_context.with_label(address, label);
     }
 
-    // 7. Deploy the harness contract.
+    // 7. Create the shared coverage map so the deployment and setup calls
+    //    below seed the baseline the fuzzers measure new edges against.
+    let coverage = SharedCoverage::new();
+
+    // 8. Deploy the harness contract.
     let deployment = chain.deploy(&max_harness)?;
     if !deployment.result.success {
         let trace_file = dump_execution_trace(&root, &trace_context, &deployment.trace)?;
@@ -136,9 +140,10 @@ pub fn run(args: Args) -> Result<Best> {
     let address = deployment
         .address
         .context("deployment succeeded but created_address is missing")?;
+    coverage.merge(&deployment.coverage);
     info!(harness = %max_harness.id(), address = %address, "harness deployed");
 
-    // 8. Run the setup function if the harness defines one.
+    // 9. Run the setup function if the harness defines one.
     // checkrs: allow(nested_if_let)
     if let Some(setup) = max_harness.setup() {
         let setup_input =
@@ -149,10 +154,11 @@ pub fn run(args: Args) -> Result<Best> {
             error!("execution trace: {}", trace_file.display());
             bail!("harness contract `{}` setup failed", max_harness.id().name);
         }
+        coverage.merge(&setup_output.coverage);
         info!(harness = %max_harness.id(), address = %address, "setup executed");
     }
 
-    // 9. Measure the initial value reported by the harness.
+    // 10. Measure the initial value reported by the harness.
     //
     //    The call runs on a traced chain clone because `Chain::call`
     //    returns no execution trace.
@@ -186,7 +192,7 @@ pub fn run(args: Args) -> Result<Best> {
         "initial value measured"
     );
 
-    // 10. Load the persisted corpus so mutations start from known sequences.
+    // 11. Load the persisted corpus so mutations start from known sequences.
     let corpus_path = corpus_path(&root, &args.corpus_dir, &args.harness)?;
     let corpus = Corpus::new();
     let loaded = corpus.load(&corpus_path, &max_harness.handlers())?;
@@ -196,12 +202,11 @@ pub fn run(args: Args) -> Result<Best> {
         "corpus loaded"
     );
 
-    // 11. Replay the loaded corpus so the fuzzers start from the coverage
+    // 12. Replay the loaded corpus so the fuzzers start from the coverage
     //     the sequences bring and from values re-measured on the current
     //     harness. Entries that no longer execute cleanly are dropped.
     let seed = jiff::Timestamp::now().as_nanosecond() as u64;
     let deployer = chain.deployer();
-    let coverage = SharedCoverage::new();
     let (corpus, replayed) = CorpusReplayer::new()
         .with_chain(chain.clone())
         .with_target(address)
@@ -211,7 +216,7 @@ pub fn run(args: Args) -> Result<Best> {
         .replay(corpus)?;
     info!(entries = replayed, "corpus replayed");
 
-    // 12. Fuzz for the highest value within the stop conditions.
+    // 13. Fuzz for the highest value within the stop conditions.
     let fuzzer = Fuzzer::new()
         .with_chain(chain.clone())
         .with_target(address)
@@ -238,7 +243,7 @@ pub fn run(args: Args) -> Result<Best> {
         }
     };
 
-    // 13. Shrink the best sequence while preserving its value, and keep the
+    // 14. Shrink the best sequence while preserving its value, and keep the
     //     minimal sequence in the corpus so the next campaign starts from
     //     the shortest sequence that reaches the best value.
     //
@@ -280,7 +285,7 @@ pub fn run(args: Args) -> Result<Best> {
         corpus.add(shrunk, best.value(), new_edges, final_chain.clone());
     }
 
-    // 14. Save the corpus for the next campaign.
+    // 15. Save the corpus for the next campaign.
     corpus.save(&corpus_path)?;
     info!(
         entries = corpus.len(),
@@ -288,7 +293,7 @@ pub fn run(args: Args) -> Result<Best> {
         "corpus saved"
     );
 
-    // 15. Run the summary function if the harness defines one.
+    // 16. Run the summary function if the harness defines one.
     //
     //     The call runs on a traced clone of the final campaign state so
     //     the console and the saved trace show the profit breakdown after
