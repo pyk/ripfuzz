@@ -15,7 +15,9 @@ use crate::evm::{
     Chain, ChainConfig, ForkDBConfig, SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
 };
 use crate::harness::HarnessId;
-use crate::max::{Best, Corpus, Fuzzer, FuzzerConfig, MaxHarness, Shrinker, ShrinkerConfig, Value};
+use crate::max::{
+    Best, Corpus, CorpusReplayer, Fuzzer, FuzzerConfig, MaxHarness, Shrinker, ShrinkerConfig, Value,
+};
 use crate::solc::Solc;
 
 /// Maximize a harness value.
@@ -193,9 +195,22 @@ pub fn run(args: Args) -> Result<Best> {
         "corpus loaded"
     );
 
-    // 11. Fuzz for the highest value within the stop conditions.
+    // 11. Replay the loaded corpus so the fuzzers start from the coverage
+    //     the sequences bring and from values re-measured on the current
+    //     harness. Entries that no longer execute cleanly are dropped.
     let seed = jiff::Timestamp::now().as_nanosecond() as u64;
     let deployer = chain.deployer();
+    let coverage = SharedCoverage::new();
+    let (corpus, replayed) = CorpusReplayer::new()
+        .with_chain(chain.clone())
+        .with_target(address)
+        .with_deployer(deployer)
+        .with_value_calldata(value_calldata.clone())
+        .with_coverage(coverage.clone())
+        .replay(corpus)?;
+    info!(entries = replayed, "corpus replayed");
+
+    // 12. Fuzz for the highest value within the stop conditions.
     let fuzzer_config = FuzzerConfig::new()
         .chain(chain.clone())
         .target(address)
@@ -203,7 +218,7 @@ pub fn run(args: Args) -> Result<Best> {
         .value_calldata(value_calldata.clone())
         .handlers(max_harness.handlers())
         .corpus(corpus.clone())
-        .coverage(SharedCoverage::new())
+        .coverage(coverage)
         .initial_value(initial_value)
         .threads(args.threads)
         .max_runs(args.max_runs)
@@ -231,7 +246,7 @@ pub fn run(args: Args) -> Result<Best> {
         }
     };
 
-    // 12. Shrink the best sequence while preserving its value.
+    // 13. Shrink the best sequence while preserving its value.
     if !best.sequence().is_empty() {
         let shrinker_config = ShrinkerConfig::new()
             .chain(chain)

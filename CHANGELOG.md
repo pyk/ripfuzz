@@ -83,10 +83,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   conservative batch rate limit that keeps default campaigns under
   public-provider quotas
 - `ripfuzz max` persists the corpus as JSON and loads it at startup, so a new
-  campaign starts mutating from the previous run's sequences; entries store
-  each call as its handler signature plus full calldata and are re-resolved
-  against the harness ABI on load, with unresolvable entries skipped; the file
-  is `{root}/.ripfuzz/corpus/{source-file}/{contract}/corpus.json` (or
+  campaign starts mutating from the previous run's sequences; loaded sequences
+  are replayed against the current harness to seed the shared coverage map and
+  re-measure entry values, and entries whose value call no longer succeeds are
+  dropped; entries store each call as its handler signature plus full calldata
+  and are re-resolved against the harness ABI on load, with unresolvable
+  entries skipped; the file is
+  `{root}/.ripfuzz/corpus/{source-file}/{contract}/corpus.json` (or
   `--corpus-dir`), replacing the write-only `corpus.log` dump
 
 ### Fixed

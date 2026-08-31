@@ -18,11 +18,14 @@ use std::sync::{Arc, Mutex};
 
 use alloy_dyn_abi::{DynSolValue, JsonAbiExt};
 use alloy_json_abi::Function;
+use alloy_primitives::Address;
 use anyhow::{Context, Result, ensure};
 use fastrand::Rng;
+use revm::primitives::Bytes;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use crate::evm::{Chain, SharedCoverage, Transaction};
 use crate::max::{Call, Sequence, Value};
 
 /// Maximum number of entries kept in the corpus.
@@ -284,6 +287,120 @@ fn decode_call(call: &CallJson, handlers: &[Function]) -> Result<Call> {
         .abi_decode_input(&data[4..])
         .with_context(|| format!("call `{}` calldata does not decode", call.signature))?;
     Ok(Call::new(function.clone(), DynSolValue::Tuple(args)))
+}
+
+/// Replayer of a loaded corpus against the current harness.
+///
+/// Mirrors the fuzzer's execution: each sequence runs on a clean chain clone
+/// followed by the value call. Execution coverage merges into the shared map
+/// the fuzzers will use, and each entry's edge count is recomputed against
+/// the map so eviction stays comparable with campaign entries. Entries whose
+/// value call no longer succeeds are dropped.
+#[derive(Clone, Debug, Default)]
+pub struct CorpusReplayer {
+    chain: Option<Chain>,
+    target: Option<Address>,
+    deployer: Option<Address>,
+    value_calldata: Option<Bytes>,
+    coverage: Option<SharedCoverage>,
+}
+
+impl CorpusReplayer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_chain(mut self, chain: Chain) -> Self {
+        self.chain = Some(chain);
+        self
+    }
+
+    pub fn with_target(mut self, target: Address) -> Self {
+        self.target = Some(target);
+        self
+    }
+
+    pub fn with_deployer(mut self, deployer: Address) -> Self {
+        self.deployer = Some(deployer);
+        self
+    }
+
+    pub fn with_value_calldata(mut self, calldata: Bytes) -> Self {
+        self.value_calldata = Some(calldata);
+        self
+    }
+
+    pub fn with_coverage(mut self, coverage: SharedCoverage) -> Self {
+        self.coverage = Some(coverage);
+        self
+    }
+
+    /// Replay every entry and return a rebuilt corpus with the number of
+    /// entries that still execute cleanly.
+    ///
+    /// Execution coverage merges into the shared map the fuzzers will use,
+    /// and each entry's edge count is recomputed against the map so eviction
+    /// stays comparable with campaign entries. Entries whose value call no
+    /// longer succeeds are dropped.
+    pub fn replay(self, corpus: Corpus) -> Result<(Corpus, usize)> {
+        // 1. Require the execution context.
+        let chain = self
+            .chain
+            .context("chain not set, call CorpusReplayer::new().with_chain(..)")?;
+        let target = self
+            .target
+            .context("target not set, call CorpusReplayer::new().with_target(..)")?;
+        let deployer = self
+            .deployer
+            .context("deployer not set, call CorpusReplayer::new().with_deployer(..)")?;
+        let value_calldata = self.value_calldata.context(
+            "value calldata not set, call CorpusReplayer::new().with_value_calldata(..)",
+        )?;
+        let coverage = self
+            .coverage
+            .context("coverage not set, call CorpusReplayer::new().with_coverage(..)")?;
+
+        // 2. Replay every entry, mirroring the fuzzer's execution.
+        let value_tx = Transaction::new(target).calldata(value_calldata);
+        let replayed = Corpus::new();
+        for entry in corpus.entries() {
+            // 2a. Execute the sequence on a clean chain clone.
+            // checkrs: allow(clone_in_loops)
+            let mut chain = chain.clone();
+            let transactions = entry.sequence.transactions(target, deployer);
+            let mut exec = chain.exec(&transactions)?;
+
+            // 2b. Merge execution coverage into the shared map.
+            let execution_coverage = exec
+                .coverage
+                .take()
+                .context("execution coverage expected")?;
+            let update = coverage.merge(&execution_coverage);
+            let new_edges =
+                (update.new_edges + update.new_depths + update.new_reverts + update.new_jump_edges)
+                    as u64;
+
+            // 2c. Measure the value after the sequence, dropping entries
+            //     whose value call no longer succeeds.
+            let output = chain.exec(std::slice::from_ref(&value_tx))?;
+            let result = output
+                .results
+                .first()
+                .context("value call result missing")?;
+            if !result.success {
+                warn!(
+                    calls = entry.sequence.len(),
+                    sequence = %entry.sequence,
+                    "dropping corpus entry whose value call reverted"
+                );
+                continue;
+            }
+            let value = Value::decode(result)?;
+            replayed.add(entry.sequence, value, new_edges);
+        }
+        let count = replayed.len();
+        Ok((replayed, count))
+    }
 }
 
 impl Default for Corpus {
