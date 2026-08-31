@@ -30,8 +30,8 @@ pub struct Args {
     pub config: PathBuf,
 
     /// Project root directory.
-    #[arg(long, value_name = "PATH")]
-    pub root: Option<PathBuf>,
+    #[arg(long, default_value = ".", value_name = "PATH")]
+    pub root: PathBuf,
 
     /// Number of threads to utilize.
     #[arg(long, default_value_t = 1, value_name = "THREADS")]
@@ -84,7 +84,7 @@ pub fn run(args: Args) -> Result<Best> {
     };
 
     // 2. Load configuration relative to the project root.
-    let root = args.root.clone().unwrap_or_else(|| PathBuf::from("."));
+    let root = args.root;
     let config = Config::new().with_root(&root).load(&args.config)?;
 
     // 3. Compile the harness via Solc relative to the project root.

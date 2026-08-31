@@ -30,7 +30,7 @@ fn args(harness: &str) -> Args {
     Args {
         harness: harness.parse().unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
-        root: None,
+        root: PathBuf::from("."),
         threads: 2,
         max_runs: 256,
         max_calls: 8,

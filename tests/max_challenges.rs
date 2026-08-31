@@ -87,7 +87,7 @@ fn max_challenges_reach_the_highest_value() {
         let args = Args {
             harness: harness.parse().unwrap(),
             config: PathBuf::from("./ripfuzz.toml"),
-            root: None,
+            root: PathBuf::from("."),
             threads,
             max_runs,
             max_calls: MAX_CALLS,
