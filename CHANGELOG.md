@@ -20,6 +20,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz max` runs the optional harness `summary` function on the final
+  campaign state after saving the corpus, prints its log output to the console,
+  and saves the full execution trace under `.ripfuzz/traces` for offline
+  analysis
 - `ripfuzz max --log-level` controls log verbosity (default `info`); `debug`
   traces each pending call's handler, success, gas, and revert data, which is
   how the yscrvUSD campaign was debugged

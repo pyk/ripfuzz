@@ -241,6 +241,10 @@ pub fn run(args: Args) -> Result<Best> {
     // 13. Shrink the best sequence while preserving its value, and keep the
     //     minimal sequence in the corpus so the next campaign starts from
     //     the shortest sequence that reaches the best value.
+    //
+    //     `final_chain` carries the state after the best sequence so the
+    //     summary below reports on the campaign outcome.
+    let mut final_chain = chain.clone();
     if !best.sequence().is_empty() {
         let shrunk = Shrinker::new()
             .with_chain(chain.clone())
@@ -271,10 +275,9 @@ pub fn run(args: Args) -> Result<Best> {
 
         // Re-execute the shrunk sequence so the corpus entry carries the
         // state after it and the next campaign can expand from it.
-        let mut shrunk_chain = chain;
         let transactions = shrunk.transactions(address, deployer);
-        shrunk_chain.exec(&transactions)?;
-        corpus.add(shrunk, best.value(), new_edges, shrunk_chain);
+        final_chain.exec(&transactions)?;
+        corpus.add(shrunk, best.value(), new_edges, final_chain.clone());
     }
 
     // 14. Save the corpus for the next campaign.
@@ -283,6 +286,38 @@ pub fn run(args: Args) -> Result<Best> {
         entries = corpus.len(),
         path = %corpus_path.display(),
         "corpus saved"
+    );
+
+    // 15. Run the summary function if the harness defines one.
+    //
+    //     The call runs on a traced clone of the final campaign state so
+    //     the console and the saved trace show the profit breakdown after
+    //     the best sequence. A failing summary must not discard the best
+    //     sequence, so it only warns.
+    let Some(summary) = max_harness.summary() else {
+        return Ok(best);
+    };
+    let mut summary_chain = final_chain.clone();
+    summary_chain.set_trace(true);
+    let summary_calldata = Bytes::from(summary.selector().as_slice().to_vec());
+    let summary_tx = Transaction::new(address).calldata(summary_calldata);
+    let summary_output = summary_chain.exec(std::slice::from_ref(&summary_tx))?;
+    let summary_result = summary_output
+        .results
+        .first()
+        .context("summary call result missing")?;
+    if !summary_result.success {
+        warn!(harness = %max_harness.id(), "summary call failed");
+    }
+    // 2. Show the summary logs in the console.
+    let trace = summary_output.trace.context("summary call trace missing")?;
+    info!("\n{}", trace.display_logs_with(&trace_context));
+
+    let trace_file = dump_execution_trace(&root, &trace_context, &trace)?;
+    info!(
+        harness = %max_harness.id(),
+        path = %trace_file.display(),
+        "execution trace saved"
     );
 
     Ok(best)
