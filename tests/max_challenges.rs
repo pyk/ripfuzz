@@ -82,7 +82,7 @@ fn max_challenges_reach_the_highest_value() {
         let corpus_file = corpus_dir
             .join(format!("{stem}.sol"))
             .join(contract)
-            .join("corpus.log");
+            .join("corpus.json");
         let best = run(args).unwrap_or_else(|err| {
             panic!(
                 "challenge {stem} failed: {err:#} (corpus {})",

@@ -53,7 +53,8 @@ pub struct Args {
     #[arg(long, value_name = "VALUE", value_parser = parse_u256)]
     pub target_value: Option<U256>,
 
-    /// Directory to dump the corpus at the end of the campaign.
+    /// Directory to load and save the corpus (defaults to
+    /// `{root}/.ripfuzz/corpus`).
     #[arg(long, value_name = "PATH")]
     pub corpus_dir: Option<PathBuf>,
 
@@ -182,10 +183,19 @@ pub fn run(args: Args) -> Result<Best> {
         "initial value measured"
     );
 
-    // 10. Fuzz for the highest value within the stop conditions.
+    // 10. Load the persisted corpus so mutations start from known sequences.
+    let corpus_path = corpus_path(&root, &args.corpus_dir, &args.harness)?;
+    let corpus = Corpus::new();
+    let loaded = corpus.load(&corpus_path, &max_harness.handlers())?;
+    info!(
+        entries = loaded,
+        path = %corpus_path.display(),
+        "corpus loaded"
+    );
+
+    // 11. Fuzz for the highest value within the stop conditions.
     let seed = jiff::Timestamp::now().as_nanosecond() as u64;
     let deployer = chain.deployer();
-    let corpus = Corpus::new();
     let fuzzer_config = FuzzerConfig::new()
         .chain(chain.clone())
         .target(address)
@@ -202,22 +212,26 @@ pub fn run(args: Args) -> Result<Best> {
         .target_value(args.target_value.map(Value::new))
         .seed(seed);
     let fuzzer = Fuzzer::new(fuzzer_config);
-    let corpus_file = corpus_dump_path(&root, &args.corpus_dir, &args.harness)?;
     let best = match fuzzer.run() {
         Ok(best) => {
-            dump_corpus(&corpus, &corpus_file)?;
+            corpus.save(&corpus_path)?;
+            info!(
+                entries = corpus.len(),
+                path = %corpus_path.display(),
+                "corpus saved"
+            );
             best
         }
         Err(err) => {
-            // Best-effort dump so the corpus survives a failed campaign.
-            if let Err(dump_err) = dump_corpus(&corpus, &corpus_file) {
-                warn!(error = %dump_err, "corpus dump failed");
+            // Best-effort save so the corpus survives a failed campaign.
+            if let Err(save_err) = corpus.save(&corpus_path) {
+                warn!(error = %save_err, "corpus save failed");
             }
             return Err(err);
         }
     };
 
-    // 11. Shrink the best sequence while preserving its value.
+    // 12. Shrink the best sequence while preserving its value.
     if !best.sequence().is_empty() {
         let shrinker_config = ShrinkerConfig::new()
             .chain(chain)
@@ -242,13 +256,13 @@ pub fn run(args: Args) -> Result<Best> {
     Ok(best)
 }
 
-/// Resolve the corpus dump file path for a harness.
+/// Resolve the corpus file path for a harness.
 ///
-/// The dump defaults to `{root}/.ripfuzz/corpus` and is namespaced by the
+/// The corpus defaults to `{root}/.ripfuzz/corpus` and is namespaced by the
 /// harness source file and contract name, mirroring the compilation output
 /// layout, so targets sharing a corpus directory never overwrite each
-/// other's dumps.
-fn corpus_dump_path(
+/// other's `corpus.json`.
+fn corpus_path(
     root: impl AsRef<Path>,
     corpus_dir: &Option<PathBuf>,
     harness: &HarnessId,
@@ -258,41 +272,12 @@ fn corpus_dump_path(
         .clone()
         .unwrap_or_else(|| root.as_ref().join(".ripfuzz").join("corpus"));
 
-    // 2. Namespace the dump by the source file and contract name.
+    // 2. Namespace the file by the source file and contract name.
     let file_name = harness
         .path
         .file_name()
         .context("harness path has no file name")?;
-    Ok(base.join(file_name).join(&harness.name).join("corpus.log"))
-}
-
-/// Dump the corpus of interesting sequences and return the written path.
-///
-/// Each entry is one line with its value, new coverage, call count, and
-/// sequence, in corpus order so the file also reflects the eviction
-/// history.
-fn dump_corpus(corpus: &Corpus, path: impl AsRef<Path>) -> Result<()> {
-    let path = path.as_ref();
-    // 1. Render one line per entry.
-    let mut dump = String::new();
-    for entry in corpus.entries() {
-        dump.push_str(&format!(
-            "value={} edges={} calls={} sequence={}\n",
-            entry.value,
-            entry.new_edges,
-            entry.sequence.len(),
-            entry.sequence
-        ));
-    }
-
-    // 2. Write the dump under its namespaced directory.
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    fs::write(path, &dump).with_context(|| format!("failed to write {}", path.display()))?;
-    info!(entries = corpus.len(), path = %path.display(), "corpus dumped");
-    Ok(())
+    Ok(base.join(file_name).join(&harness.name).join("corpus.json"))
 }
 
 /// Dump an execution trace and return its absolute path.

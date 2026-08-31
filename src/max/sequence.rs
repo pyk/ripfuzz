@@ -26,6 +26,11 @@ use crate::max::Call;
 pub struct Sequence(Vec<Call>);
 
 impl Sequence {
+    /// Create a sequence from its calls.
+    pub fn new(calls: Vec<Call>) -> Self {
+        Self(calls)
+    }
+
     /// Create an empty sequence.
     pub fn empty() -> Self {
         Self(Vec::new())
@@ -48,6 +53,11 @@ impl Sequence {
             calls.push(Call::random(rng, function)?);
         }
         Ok(Self(calls))
+    }
+
+    /// The calls in the sequence.
+    pub fn calls(&self) -> &[Call] {
+        &self.0
     }
 
     /// The number of calls in the sequence.

@@ -12,14 +12,49 @@
 //! // let base = corpus.random(&mut rng);
 //! ```
 
+use std::fs;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use alloy_dyn_abi::{DynSolValue, JsonAbiExt};
+use alloy_json_abi::Function;
+use anyhow::{Context, Result, ensure};
 use fastrand::Rng;
+use serde::{Deserialize, Serialize};
+use tracing::warn;
 
-use crate::max::{Sequence, Value};
+use crate::max::{Call, Sequence, Value};
 
 /// Maximum number of entries kept in the corpus.
 const MAX_ENTRIES: usize = 256;
+
+/// Schema version of the persisted corpus JSON.
+const CORPUS_VERSION: u32 = 1;
+
+/// The persisted corpus JSON document.
+#[derive(Debug, Serialize, Deserialize)]
+struct CorpusJson {
+    version: u32,
+    entries: Vec<EntryJson>,
+}
+
+/// One persisted corpus entry.
+#[derive(Debug, Serialize, Deserialize)]
+struct EntryJson {
+    /// The measured value as a decimal string.
+    value: String,
+    /// The new coverage the sequence brought when it was added.
+    new_edges: u64,
+    /// The calls of the sequence in execution order.
+    calls: Vec<CallJson>,
+}
+
+/// One persisted call: signature plus full calldata.
+#[derive(Debug, Serialize, Deserialize)]
+struct CallJson {
+    signature: String,
+    calldata: String,
+}
 
 /// An interesting sequence with its metadata.
 #[derive(Debug, Clone)]
@@ -125,6 +160,130 @@ impl Corpus {
             new_edges,
         });
     }
+
+    /// Load persisted entries into the corpus, resolving each call against
+    /// the handler functions.
+    ///
+    /// A missing file yields an empty load. Entries whose calls cannot be
+    /// resolved against the handlers (unknown signature, selector mismatch,
+    /// or undecodable arguments) are skipped with a warning so a corpus from
+    /// a different harness version never fails the campaign.
+    pub fn load(&self, path: impl AsRef<Path>, handlers: &[Function]) -> Result<usize> {
+        // 1. Read the persisted document, treating a missing file as empty.
+        let path = path.as_ref();
+        let data = match fs::read(path) {
+            Ok(data) => data,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(err) => Err(err).with_context(|| format!("failed to read {}", path.display()))?,
+        };
+
+        // 2. Parse the document and check the schema version.
+        let document: CorpusJson = serde_json::from_slice(&data)
+            .with_context(|| format!("failed to parse {}", path.display()))?;
+        ensure!(
+            document.version == CORPUS_VERSION,
+            "unsupported corpus version {} in {}",
+            document.version,
+            path.display()
+        );
+
+        // 3. Rebuild every entry, skipping ones that no longer resolve.
+        let mut loaded = 0usize;
+        for (index, entry) in document.entries.iter().enumerate() {
+            let mut calls = Vec::with_capacity(entry.calls.len());
+            for call in &entry.calls {
+                match decode_call(call, handlers) {
+                    Ok(call) => calls.push(call),
+                    Err(err) => {
+                        warn!(
+                            entry = index,
+                            error = %err,
+                            "skipping corpus entry whose call does not resolve"
+                        );
+                        calls.clear();
+                        break;
+                    }
+                }
+            }
+            if calls.is_empty() {
+                continue;
+            }
+            let value = entry
+                .value
+                .parse::<alloy_primitives::U256>()
+                .with_context(|| {
+                    format!("entry {index} in {} has an invalid value", path.display())
+                })?;
+            self.add(Sequence::new(calls), Value::new(value), entry.new_edges);
+            loaded += 1;
+        }
+        Ok(loaded)
+    }
+
+    /// Save the corpus entries as a JSON document, replacing the file.
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
+        // 1. Render one JSON entry per corpus entry.
+        let document = CorpusJson {
+            version: CORPUS_VERSION,
+            entries: self
+                .entries()
+                .iter()
+                .map(|entry| EntryJson {
+                    value: entry.value.get().to_string(),
+                    new_edges: entry.new_edges,
+                    calls: entry
+                        .sequence
+                        .calls()
+                        .iter()
+                        .map(|call| CallJson {
+                            signature: call.signature(),
+                            calldata: format!("0x{}", hex::encode(call.calldata())),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        };
+
+        // 2. Write the document under its namespaced directory.
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        let json = serde_json::to_string_pretty(&document).context("failed to serialize corpus")?;
+        fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))?;
+        Ok(())
+    }
+}
+
+/// Rebuild one persisted call by resolving its signature against the handlers
+/// and ABI-decoding its calldata.
+fn decode_call(call: &CallJson, handlers: &[Function]) -> Result<Call> {
+    // 1. Resolve the handler function by signature.
+    let function = handlers
+        .iter()
+        .find(|handler| handler.signature() == call.signature)
+        .with_context(|| format!("unknown handler signature `{}`", call.signature))?;
+
+    // 2. Decode the calldata and check it targets the same selector.
+    let data = hex::decode(call.calldata.trim_start_matches("0x"))
+        .with_context(|| format!("call `{}` has invalid calldata", call.signature))?;
+    ensure!(
+        data.len() >= 4,
+        "call `{}` calldata is shorter than a selector",
+        call.signature
+    );
+    ensure!(
+        data[..4] == *function.selector().as_slice(),
+        "call `{}` calldata selector does not match",
+        call.signature
+    );
+
+    // 3. Rebuild the call from the decoded arguments.
+    let args = function
+        .abi_decode_input(&data[4..])
+        .with_context(|| format!("call `{}` calldata does not decode", call.signature))?;
+    Ok(Call::new(function.clone(), DynSolValue::Tuple(args)))
 }
 
 impl Default for Corpus {
@@ -135,6 +294,9 @@ impl Default for Corpus {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use alloy_dyn_abi::DynSolValue;
     use alloy_json_abi::Function;
     use alloy_primitives::U256;
     use fastrand::Rng;
@@ -195,5 +357,76 @@ mod tests {
         // A sequence with more new edges replaces the weakest entry.
         corpus.add(random_sequence(), Value::new(U256::from(9)), 10);
         assert_eq!(corpus.len(), 256);
+    }
+
+    /// A unique temp path per test run so parallel tests never collide.
+    fn temp_corpus_path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "ripfuzz-corpus-test-{}-{}.json",
+            std::process::id(),
+            fastrand::u64(..)
+        ))
+    }
+
+    /// Saving and loading must round-trip entries: the reloaded corpus holds
+    /// the same value, edge count, and per-call calldata.
+    #[test]
+    fn save_then_load_round_trips_entries() {
+        let function = Function::parse("set(uint256)").unwrap();
+        let call = Call::new(
+            function,
+            DynSolValue::Tuple(vec![DynSolValue::Uint(U256::from(7), 256)]),
+        );
+        let handlers = vec![Function::parse("set(uint256)").unwrap()];
+
+        let corpus = Corpus::new();
+        corpus.add(Sequence::new(vec![call]), Value::new(U256::from(42)), 5);
+
+        let path = temp_corpus_path();
+        corpus.save(&path).unwrap();
+
+        let reloaded = Corpus::new();
+        let loaded = reloaded.load(&path, &handlers).unwrap();
+        fs::remove_file(&path).unwrap();
+
+        assert_eq!(loaded, 1);
+        let entries = reloaded.entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].value, Value::new(U256::from(42)));
+        assert_eq!(entries[0].new_edges, 5);
+        assert_eq!(entries[0].sequence.calls().len(), 1);
+        assert_eq!(entries[0].sequence.calls()[0].signature(), "set(uint256)");
+        assert_eq!(
+            entries[0].sequence.calls()[0].calldata(),
+            corpus.entries()[0].sequence.calls()[0].calldata()
+        );
+    }
+
+    /// Entries whose calls no longer resolve against the handlers must be
+    /// skipped so a corpus from a different harness never fails a campaign.
+    #[test]
+    fn load_skips_entries_with_unknown_signatures() {
+        let handlers = vec![Function::parse("set(uint256)").unwrap()];
+
+        let corpus = Corpus::new();
+        corpus.add(random_sequence(), Value::new(U256::from(1)), 3);
+        let path = temp_corpus_path();
+        corpus.save(&path).unwrap();
+
+        let reloaded = Corpus::new();
+        let loaded = reloaded.load(&path, &handlers).unwrap();
+        fs::remove_file(&path).unwrap();
+
+        assert_eq!(loaded, 0);
+        assert!(reloaded.is_empty());
+    }
+
+    /// A missing corpus file is an empty corpus, not an error.
+    #[test]
+    fn load_without_a_file_returns_zero() {
+        let path = temp_corpus_path();
+        let loaded = Corpus::new().load(&path, &[]).unwrap();
+
+        assert_eq!(loaded, 0);
     }
 }
