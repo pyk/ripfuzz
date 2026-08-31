@@ -21,7 +21,7 @@ use crate::solc::Solc;
 /// Maximize a harness value.
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Harness to maximize.
+    /// Path to harness to run.
     #[arg(value_name = "HARNESS")]
     pub harness: HarnessId,
 
@@ -33,7 +33,7 @@ pub struct Args {
     #[arg(long, value_name = "PATH")]
     pub root: Option<PathBuf>,
 
-    /// Number of fuzzers.
+    /// Number of threads to utilize.
     #[arg(long, default_value_t = 1, value_name = "THREADS")]
     pub threads: usize,
 
@@ -53,13 +53,7 @@ pub struct Args {
     #[arg(long, value_name = "VALUE", value_parser = parse_u256)]
     pub target_value: Option<U256>,
 
-    /// Directory to dump the corpus of interesting sequences at the end of
-    /// the campaign.
-    ///
-    /// Defaults to `{root}/.ripfuzz/corpus`, namespaced by the harness source
-    /// file and contract name. The dump lists one entry per line with its
-    /// value, new coverage, length, and sequence, so a surprising campaign
-    /// can be analyzed offline.
+    /// Directory to dump the corpus at the end of the campaign.
     #[arg(long, value_name = "PATH")]
     pub corpus_dir: Option<PathBuf>,
 
