@@ -33,6 +33,8 @@ const CHALLENGES: &[(&str, &str, &str)] = &[
     ("GatedWithNoise", "GatedWithNoise", "medium"),
     ("Combo", "Combo", "hard"),
     ("ComboWithNoise", "ComboWithNoise", "hard"),
+    ("Vault", "Vault", "hard"),
+    ("VaultWithNoise", "VaultWithNoise", "hard"),
 ];
 
 fn budget(level: &str) -> (usize, u64) {
@@ -50,6 +52,7 @@ fn expected_value(stem: &str) -> U256 {
         // The noise harness must reach the same value as the plain one.
         "Accumulate" | "AccumulateWithNoise" => U256::MAX,
         "Gated" | "GatedWithNoise" => U256::MAX,
+        "Vault" | "VaultWithNoise" => U256::MAX,
         // The total starts at 1 and doubles once per call, so a full
         // `MAX_CALLS` sequence reaches `2 ** MAX_CALLS`.
         "Double" | "DoubleWithNoise" => U256::from(2).pow(U256::from(MAX_CALLS)),

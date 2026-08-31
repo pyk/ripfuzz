@@ -199,9 +199,9 @@ impl Fuzzer {
         // 2. Seed the shared state with the initial value and stop signals.
         //
         //    The replayed corpus may already hold a higher value than the
-        //    initial one, e.g. when a previous campaign found the exploit:
-        //    seed the best from that entry so reruns exploit from its
-        //    snapshot instead of rediscovering it.
+        //    initial one, e.g. when a previous campaign found a high value,
+        //    seed the best from that entry so reruns reuse its snapshot
+        //    instead of rediscovering it.
         let start = Instant::now();
         let deadline = execution.timeout.map(|timeout| start + timeout);
         let shared = Shared::new(
@@ -392,7 +392,7 @@ impl Shared {
         self.lock_best().value()
     }
 
-    /// Clone the current best sequence for exploitation.
+    /// Clone the current best sequence for reuse.
     ///
     /// Returns the sequence with the state after executing it, so a worker
     /// can extend the best state directly. Falls back to `None` while no
@@ -453,7 +453,7 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
 
         // 1. Pick the snapshot to extend.
         //
-        //    The choice balances exploration and exploitation:
+        //    The choice balances broad search and use of best findings
         //
         //    - an eighth of the runs execute a fresh random sequence from the
         //      initial state for broad exploration

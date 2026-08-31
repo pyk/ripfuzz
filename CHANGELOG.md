@@ -54,6 +54,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - `ripfuzz max --quiet` (`-q`) suppresses terminal logs by writing the
   subscriber to a null sink, so harnesses forking in tests cannot leak output;
   the deployed address still prints to stdout
+- `Vault` and `VaultWithNoise` max challenges cover the approve, deposit, and
+  redeem pattern with 28 handlers and fork-free simplified accounting, catching
+  future regressions
 
 ### Changed
 
