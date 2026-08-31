@@ -53,10 +53,9 @@ pub struct Args {
     #[arg(long, value_name = "VALUE", value_parser = parse_u256)]
     pub target_value: Option<U256>,
 
-    /// Directory to load and save the corpus (defaults to
-    /// `{root}/.ripfuzz/corpus`).
-    #[arg(long, value_name = "PATH")]
-    pub corpus_dir: Option<PathBuf>,
+    /// Directory to load and save the corpus.
+    #[arg(long, default_value = ".ripfuzz/corpus", value_name = "PATH")]
+    pub corpus_dir: PathBuf,
 
     /// Suppress terminal log output.
     #[arg(short = 'q', long)]
@@ -281,19 +280,22 @@ pub fn run(args: Args) -> Result<Best> {
 
 /// Resolve the corpus file path for a harness.
 ///
-/// The corpus defaults to `{root}/.ripfuzz/corpus` and is namespaced by the
-/// harness source file and contract name, mirroring the compilation output
-/// layout, so targets sharing a corpus directory never overwrite each
-/// other's `corpus.json`.
+/// Relative corpus directories resolve against the project root, mirroring
+/// the solc out dir. The file is namespaced by the harness source file and
+/// contract name, mirroring the compilation output layout, so targets
+/// sharing a corpus directory never overwrite each other's `corpus.json`.
 fn corpus_path(
     root: impl AsRef<Path>,
-    corpus_dir: &Option<PathBuf>,
+    corpus_dir: impl AsRef<Path>,
     harness: &HarnessId,
 ) -> Result<PathBuf> {
-    // 1. Resolve the corpus base directory relative to the project root.
-    let base = corpus_dir
-        .clone()
-        .unwrap_or_else(|| root.as_ref().join(".ripfuzz").join("corpus"));
+    // 1. Resolve the corpus directory relative to the project root.
+    let corpus_dir = corpus_dir.as_ref();
+    let base = if corpus_dir.is_absolute() {
+        corpus_dir.to_path_buf()
+    } else {
+        root.as_ref().join(corpus_dir)
+    };
 
     // 2. Namespace the file by the source file and contract name.
     let file_name = harness

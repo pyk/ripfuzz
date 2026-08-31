@@ -1,9 +1,10 @@
 //! `ripfuzz max` compiles the harness via solc and deploys it on a sandbox
-//! chain, printing the deployed address on success.
+//! chain, logging the deployed address on success.
 //!
 //! The fixtures under `fixtures/max-harness-deployment` are sources of the
 //! project rooted at the current directory, and compilation artifacts are
-//! shared under `./.ripfuzz/out` namespaced by the harness source path.
+//! shared under `./.ripfuzz/out` namespaced by the harness source path. Each
+//! test runs against a fresh temp corpus directory.
 
 use std::fs;
 use std::path::PathBuf;
@@ -21,6 +22,11 @@ const SETUP: &str = "fixtures/max-harness-deployment/HarnessWithSetup.sol:Harnes
 const WRONG_NAME: &str = "fixtures/max-harness-deployment/HarnessWithIncrement.sol:DoesNotExist";
 
 fn args(harness: &str) -> Args {
+    let corpus_dir = std::env::temp_dir().join(format!(
+        "ripfuzz-max-deployment-{}-{}",
+        std::process::id(),
+        fastrand::u64(..)
+    ));
     Args {
         harness: harness.parse().unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
@@ -30,7 +36,7 @@ fn args(harness: &str) -> Args {
         max_calls: 8,
         timeout: None,
         target_value: None,
-        corpus_dir: None,
+        corpus_dir,
         quiet: true,
     }
 }

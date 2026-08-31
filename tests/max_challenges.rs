@@ -93,7 +93,7 @@ fn max_challenges_reach_the_highest_value() {
             max_calls: MAX_CALLS,
             timeout: Some(120),
             target_value: None,
-            corpus_dir: Some(corpus_dir.clone()),
+            corpus_dir: corpus_dir.clone(),
             quiet: true,
         };
         let corpus_file = corpus_dir
