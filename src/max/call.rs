@@ -37,7 +37,7 @@ const BOUNDARY_PROBABILITY: u32 = 8;
 const BOUNDARY_COUNT: usize = 6;
 
 /// A single harness call with generated arguments.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Call {
     function: Function,
     args: DynSolValue,

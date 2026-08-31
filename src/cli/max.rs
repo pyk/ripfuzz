@@ -225,15 +225,7 @@ pub fn run(args: Args) -> Result<Best> {
         .with_target_value(args.target_value.map(Value::new))
         .with_seed(seed);
     let best = match fuzzer.run() {
-        Ok(best) => {
-            corpus.save(&corpus_path)?;
-            info!(
-                entries = corpus.len(),
-                path = %corpus_path.display(),
-                "corpus saved"
-            );
-            best
-        }
+        Ok(best) => best,
         Err(err) => {
             // Best-effort save so the corpus survives a failed campaign.
             if let Err(save_err) = corpus.save(&corpus_path) {
@@ -243,7 +235,9 @@ pub fn run(args: Args) -> Result<Best> {
         }
     };
 
-    // 13. Shrink the best sequence while preserving its value.
+    // 13. Shrink the best sequence while preserving its value, and keep the
+    //     minimal sequence in the corpus so the next campaign starts from
+    //     the shortest sequence that reaches the best value.
     if !best.sequence().is_empty() {
         let shrunk = Shrinker::new()
             .with_chain(chain)
@@ -261,7 +255,26 @@ pub fn run(args: Args) -> Result<Best> {
             sequence = %shrunk,
             "shrunk best sequence"
         );
+
+        // The shrunk sequence brings no new coverage of its own, so it
+        // inherits the edge count of the best sequence it was shrunk from,
+        // keeping it competitive during eviction.
+        let new_edges = corpus
+            .entries()
+            .iter()
+            .find(|entry| entry.sequence == *best.sequence())
+            .map(|entry| entry.new_edges)
+            .unwrap_or(0);
+        corpus.add(shrunk, best.value(), new_edges);
     }
+
+    // 14. Save the corpus for the next campaign.
+    corpus.save(&corpus_path)?;
+    info!(
+        entries = corpus.len(),
+        path = %corpus_path.display(),
+        "corpus saved"
+    );
 
     Ok(best)
 }

@@ -22,7 +22,7 @@ use crate::evm::Transaction;
 use crate::max::Call;
 
 /// A sequence of harness calls executed in order.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Sequence(Vec<Call>);
 
 impl Sequence {
