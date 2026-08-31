@@ -38,6 +38,7 @@ fn args(harness: &str) -> Args {
         target_value: None,
         corpus_dir,
         quiet: true,
+        log_level: tracing::Level::INFO,
     }
 }
 

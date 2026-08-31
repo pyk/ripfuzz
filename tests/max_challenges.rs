@@ -95,6 +95,7 @@ fn max_challenges_reach_the_highest_value() {
             target_value: None,
             corpus_dir: corpus_dir.clone(),
             quiet: true,
+            log_level: tracing::Level::INFO,
         };
         let corpus_file = corpus_dir
             .join(format!("{stem}.sol"))

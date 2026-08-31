@@ -60,6 +60,10 @@ pub struct Args {
     /// Suppress terminal log output.
     #[arg(short = 'q', long)]
     pub quiet: bool,
+
+    /// Log verbosity level.
+    #[arg(long, default_value = "info", value_name = "LEVEL")]
+    pub log_level: tracing::Level,
 }
 
 /// Parse a `uint256` CLI value in decimal or `0x`-prefixed hex.
@@ -75,7 +79,7 @@ pub fn run(args: Args) -> Result<Best> {
     //    subscriber installed by an earlier caller (e.g. a test binary)
     //    cannot leak events into the terminal.
     let builder = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(args.log_level)
         .with_target(false);
     let _ = if args.quiet {
         builder.with_writer(std::io::sink).try_init()
@@ -239,7 +243,7 @@ pub fn run(args: Args) -> Result<Best> {
     //     the shortest sequence that reaches the best value.
     if !best.sequence().is_empty() {
         let shrunk = Shrinker::new()
-            .with_chain(chain)
+            .with_chain(chain.clone())
             .with_target(address)
             .with_deployer(deployer)
             .with_value_calldata(value_calldata)
@@ -264,7 +268,13 @@ pub fn run(args: Args) -> Result<Best> {
             .find(|entry| entry.sequence == *best.sequence())
             .map(|entry| entry.new_edges)
             .unwrap_or(0);
-        corpus.add(shrunk, best.value(), new_edges);
+
+        // Re-execute the shrunk sequence so the corpus entry carries the
+        // state after it and the next campaign can expand from it.
+        let mut shrunk_chain = chain;
+        let transactions = shrunk.transactions(address, deployer);
+        shrunk_chain.exec(&transactions)?;
+        corpus.add(shrunk, best.value(), new_edges, shrunk_chain);
     }
 
     // 14. Save the corpus for the next campaign.

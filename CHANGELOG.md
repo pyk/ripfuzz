@@ -8,8 +8,21 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- `ripfuzz max` discovery extends memoized snapshots with one fresh call per
+  step instead of re-executing mutated sequences from genesis, and keeps
+  value-improving states in the corpus even without new coverage, so stateful
+  chains such as approve, deposit, redeem build up one reliable step at a time;
+  the corpus always keeps the best-value entry and seeds the next campaign from
+  the highest-value replayed state; fixes the 2025-07-yscrvUSD challenge
+  failing to reach its 0.18 ETH profit within the budget
+
 ### Added
 
+- `ripfuzz max --log-level` controls log verbosity (default `info`); `debug`
+  traces each pending call's handler, success, gas, and revert data, which is
+  how the yscrvUSD campaign was debugged
 - `ripfuzz max` measures the initial value by calling the harness `value`
   function after deployment and setup, and logs it as the campaign baseline
   (profit is measured against it during maximization); a reverting `value` call

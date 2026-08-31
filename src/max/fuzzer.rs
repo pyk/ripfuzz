@@ -26,10 +26,10 @@ use alloy_json_abi::Function;
 use alloy_primitives::Address;
 use anyhow::{Context, Result};
 use revm::primitives::Bytes;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::evm::{Chain, SharedCoverage, Transaction};
-use crate::max::{Best, Corpus, Sequence, Value};
+use crate::max::{Best, Call, Corpus, Sequence, Value};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
@@ -186,10 +186,19 @@ impl Fuzzer {
         };
 
         // 2. Seed the shared state with the initial value and stop signals.
+        //
+        //    The replayed corpus may already hold a higher value than the
+        //    initial one, e.g. when a previous campaign found the exploit:
+        //    seed the best from that entry so reruns exploit from its
+        //    snapshot instead of rediscovering it.
         let start = Instant::now();
         let deadline = execution.timeout.map(|timeout| start + timeout);
         let shared = Shared::new(
-            Best::new(Sequence::empty(), execution.initial_value),
+            execution
+                .corpus
+                .best_entry()
+                .map(|(sequence, value, chain)| Best::with_chain(sequence, value, chain))
+                .unwrap_or_else(|| Best::new(Sequence::empty(), execution.initial_value)),
             execution.target_value,
             deadline,
         );
@@ -345,8 +354,8 @@ impl Shared {
     /// Record the sequence when its value is strictly higher, returning
     /// whether it replaced the current best. Stops fuzzing when the target
     /// value is reached.
-    fn consider(&self, sequence: Sequence, value: Value) -> bool {
-        let improved = self.lock_best().consider(sequence, value);
+    fn consider(&self, sequence: Sequence, value: Value, chain: Chain) -> bool {
+        let improved = self.lock_best().consider(sequence, value, chain);
         let target_reached = match self.target_value {
             Some(target) => value >= target,
             None => false,
@@ -374,13 +383,16 @@ impl Shared {
 
     /// Clone the current best sequence for exploitation.
     ///
-    /// Returns `None` while no sequence has improved the initial value.
-    fn best_sequence(&self) -> Option<Sequence> {
+    /// Returns the sequence with the state after executing it, so a worker
+    /// can extend the best state directly. Falls back to `None` while no
+    /// sequence has improved the initial value or the snapshot is missing.
+    fn best_base(&self) -> Option<(Sequence, Chain)> {
         let best = self.lock_best();
+        let chain = best.chain()?;
         if best.sequence().is_empty() {
             None
         } else {
-            Some(best.sequence().clone())
+            Some((best.sequence().clone(), chain.clone()))
         }
     }
 
@@ -403,39 +415,83 @@ impl Shared {
     }
 }
 
-/// Execute random sequences until the thread budget is exhausted or a stop
-/// condition fires.
+/// Extend memoized snapshots with fresh calls until the thread budget is
+/// exhausted or a stop condition fires.
+///
+/// The corpus is a prefix tree over states: each entry memoizes the chain
+/// state after its sequence, and a candidate extends one snapshot with a
+/// single fresh call. Interesting results (new coverage or a higher value)
+/// become new snapshots. This mirrors snapshot-based fuzzing: intermediate
+/// states such as an approved token or a funded vault position survive as
+/// corpus entries, so a dependent call only has to be sampled once from the
+/// right state instead of the whole chain landing in one random sequence.
 fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -> Result<()> {
     let mut rng = fastrand::Rng::with_seed(execution.seed.wrapping_add(thread_id as u64));
     let value_tx = Transaction::new(execution.target).calldata(execution.value_calldata.clone());
+    let mut best_known = execution.initial_value;
     for _ in 0..runs {
         if shared.stopped() || shared.timed_out() {
             break;
         }
         shared.record_run();
 
-        // 1. Generate the next sequence. A quarter of the runs are fresh
-        //    random sequences for broad exploration. The rest mutate a base
-        //    sequence, split evenly between the current best and a corpus
-        //    entry: the best is the most promising prefix, so extending it
-        //    keeps the climb alive even when the corpus churns under new
-        //    coverage from decoy handlers.
-        let sequence = if rng.usize(..4) == 0 {
-            Sequence::random(&mut rng, &execution.handlers, execution.max_calls)?
+        // 1. Pick the snapshot to extend. An eighth of the runs execute a
+        //    fresh random sequence from the initial state for broad
+        //    exploration. The rest extend a memoized snapshot, split evenly
+        //    between the current best and a corpus entry weighted by
+        //    coverage gain: the best is the most promising prefix, so
+        //    extending it keeps the climb alive even when the corpus churns
+        //    under new coverage from decoy handlers.
+        let fresh = rng.usize(..8) == 0;
+        // checkrs: allow(clone_in_loops) the initial snapshot seeds every run
+        let initial = execution.chain.clone();
+        let (base_sequence, base_chain) = if fresh {
+            let sequence = Sequence::random(&mut rng, &execution.handlers, execution.max_calls)?;
+            (sequence, initial)
+        } else if rng.usize(..2) == 0 {
+            shared.best_base().unwrap_or_else(|| {
+                (
+                    Sequence::empty(),
+                    // checkrs: allow(clone_in_loops)
+                    initial,
+                )
+            })
         } else {
-            let base = if rng.usize(..2) == 0 {
-                shared.best_sequence().unwrap_or_default()
-            } else {
-                execution.corpus.random(&mut rng).unwrap_or_default()
-            };
-            let other = execution.corpus.random(&mut rng).unwrap_or_default();
-            base.mutate(&mut rng, &execution.handlers, &other, execution.max_calls)?
+            execution.corpus.random_base(&mut rng).unwrap_or_else(|| {
+                (
+                    Sequence::empty(),
+                    // checkrs: allow(clone_in_loops)
+                    initial,
+                )
+            })
         };
 
-        // 2. Execute the sequence on a clean chain clone.
+        // 2. Build the candidate sequence and its first unexecuted calls.
+        //    Fresh runs replay their whole sequence; snapshot extensions
+        //    execute only the new call on the memoized state.
+        let function = &execution.handlers[rng.usize(..execution.handlers.len())];
+        let call = Call::random(&mut rng, function)?;
+        let mut calls = base_sequence.calls().to_vec();
+        if fresh || calls.len() < execution.max_calls {
+            calls.push(call);
+        } else {
+            let last = calls.len() - 1;
+            calls[last] = call;
+        }
+        let sequence = Sequence::new(calls);
+        let pending = if fresh {
+            sequence.calls()
+        } else {
+            &sequence.calls()[base_sequence.calls().len()..]
+        };
+
+        // 2a. Execute the pending calls on a chain clone of the snapshot.
         // checkrs: allow(clone_in_loops)
-        let mut chain = execution.chain.clone();
-        let transactions = sequence.transactions(execution.target, execution.deployer);
+        let mut chain = base_chain.clone();
+        let transactions: Vec<Transaction> = pending
+            .iter()
+            .map(|call| call.transaction(execution.target, execution.deployer))
+            .collect();
         let mut exec = chain.exec(&transactions)?;
 
         // 3. Merge execution coverage into the shared map.
@@ -444,6 +500,22 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
             .take()
             .context("execution coverage expected")?;
         let update = execution.coverage.merge(&coverage);
+
+        // 6a. Trace pending-call outcomes so campaign debugging can follow
+        //     which handler steps succeed on memoized snapshots.
+        for (call, result) in pending.iter().zip(exec.results.iter()) {
+            debug!(
+                thread = thread_id,
+                call = %call.signature(),
+                success = result.success,
+                gas = result.gas_used,
+                revert = ?result
+                    .output
+                    .as_ref()
+                    .map(alloy_primitives::hex::encode),
+                "pending call executed"
+            );
+        }
 
         // 4. Measure the value after the sequence.
         let output = chain.exec(std::slice::from_ref(&value_tx))?;
@@ -458,7 +530,7 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
 
         // 5. Record the sequence when it improves the best value.
         // checkrs: allow(clone_in_loops)
-        let improved = shared.consider(sequence.clone(), value);
+        let improved = shared.consider(sequence.clone(), value, chain.clone());
         if improved {
             info!(
                 thread = thread_id,
@@ -469,12 +541,20 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
             );
         }
 
-        // 6. Keep the sequence when it found new coverage or a new best value.
-        if update.is_interesting() || improved {
+        // 6. Keep the snapshot when it found new coverage or beats the best
+        //    value seen so far, including a value below the global best but
+        //    above this worker's previous mark. Value-only additions give the
+        //    mutator access to the argument combinations behind every value
+        //    climb, not just coverage-new ones.
+        let beats_local = value > best_known;
+        if beats_local {
+            best_known = value;
+        }
+        if update.is_interesting() || improved || beats_local {
             let new_edges =
                 (update.new_edges + update.new_depths + update.new_reverts + update.new_jump_edges)
                     as u64;
-            execution.corpus.add(sequence, value, new_edges);
+            execution.corpus.add(sequence, value, new_edges, chain);
         }
     }
     Ok(())

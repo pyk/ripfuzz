@@ -61,10 +61,7 @@ impl Call {
                 .with_context(|| format!("failed to resolve type `{}`", input.ty))?;
             inputs.push(random_value(rng, &ty)?);
         }
-        Ok(Self {
-            function: function.clone(),
-            args: DynSolValue::Tuple(inputs),
-        })
+        Ok(Self::new(function.clone(), DynSolValue::Tuple(inputs)))
     }
 
     /// The human-readable signature of the called function.

@@ -8,8 +8,8 @@
 //! use ripfuzz::max::Corpus;
 //!
 //! // let corpus = Corpus::new();
-//! // corpus.add(sequence, value, new_edges);
-//! // let base = corpus.random(&mut rng);
+//! // corpus.add(sequence, value, new_edges, chain);
+//! // let (base, base_chain) = corpus.random_base(&mut rng);
 //! ```
 
 use std::fs;
@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use alloy_dyn_abi::{DynSolValue, JsonAbiExt};
 use alloy_json_abi::Function;
-use alloy_primitives::Address;
+use alloy_primitives::{Address, U256};
 use anyhow::{Context, Result, ensure};
 use fastrand::Rng;
 use revm::primitives::Bytes;
@@ -60,11 +60,17 @@ struct CallJson {
 }
 
 /// An interesting sequence with its metadata.
+///
+/// The chain is the state after executing the sequence: the snapshot the
+/// fuzzer extends with fresh calls instead of re-executing the sequence from
+/// the initial state. Loaded entries carry no chain until the replay fills
+/// it in, and the chain is never persisted.
 #[derive(Debug, Clone)]
 struct Entry {
     sequence: Sequence,
     value: Value,
     new_edges: u64,
+    chain: Option<Chain>,
 }
 
 /// A read-only snapshot of a corpus entry for reporting and debugging.
@@ -127,26 +133,114 @@ impl Corpus {
         entries
     }
 
-    /// A random sequence from the corpus.
-    pub fn random(&self, rng: &mut Rng) -> Option<Sequence> {
+    /// A random snapshot base from the corpus.
+    ///
+    /// Entries are sampled proportional to their coverage gain: a sequence
+    /// that unlocked a new code path (e.g. the first successful deposit) is
+    /// a far better mutation base than the hundreds of one-edge entries
+    /// around it, so exploitation should concentrate there instead of
+    /// diluting it uniformly across the corpus.
+    ///
+    /// Returns the sequence with the state after executing it. Entries not
+    /// yet replayed carry no snapshot and are skipped.
+    pub fn random_base(&self, rng: &mut Rng) -> Option<(Sequence, Chain)> {
         let entries = self.lock();
-        if entries.is_empty() {
+        let total: u64 = entries
+            .iter()
+            .filter(|entry| entry.chain.is_some())
+            .map(|entry| entry.new_edges.saturating_add(1))
+            .sum();
+        if total == 0 {
             return None;
         }
-        let index = rng.usize(..entries.len());
-        Some(entries[index].sequence.clone())
+        let mut pick = rng.u64(..total);
+        for entry in entries.iter() {
+            let Some(chain) = entry.chain.as_ref() else {
+                continue;
+            };
+            let weight = entry.new_edges.saturating_add(1);
+            if pick < weight {
+                let sequence =
+                    // checkrs: allow(clone_in_loops) the base must own its state
+                    entry.sequence.clone();
+                let chain =
+                    // checkrs: allow(clone_in_loops) the base must own its state
+                    chain.clone();
+                return Some((sequence, chain));
+            }
+            pick -= weight;
+        }
+        let last = entries.iter().rev().find(|entry| entry.chain.is_some())?;
+        let chain = last.chain.clone()?;
+        Some((last.sequence.clone(), chain))
     }
 
-    /// Add an interesting sequence.
+    /// The entry with the highest value, with its snapshot.
     ///
-    /// When the corpus is full, the entry that brought the fewest new edges
-    /// is replaced, and only when the new sequence brings at least as many.
-    pub fn add(&self, sequence: Sequence, value: Value, new_edges: u64) {
+    /// Returns `None` for an empty corpus or one whose entries have not been
+    /// replayed yet.
+    pub fn best_entry(&self) -> Option<(Sequence, Value, Chain)> {
+        let entries = self.lock();
+        entries
+            .iter()
+            .filter(|entry| entry.chain.is_some())
+            .filter_map(|entry| {
+                let chain = entry.chain.clone()?;
+                Some((entry.sequence.clone(), entry.value, chain))
+            })
+            .max_by_key(|(_, value, _)| *value)
+    }
+
+    /// Add an interesting sequence with the state after executing it.
+    ///
+    /// An improving sequence always joins, even when the corpus is full: the
+    /// highest-value state is the primary expansion base and losing it stalls
+    /// the value climb. It then replaces the weakest entry below the current
+    /// best. Otherwise, when the corpus is full, the entry that brought the
+    /// fewest new edges is replaced, and only when the new sequence brings
+    /// at least as many.
+    pub fn add(&self, sequence: Sequence, value: Value, new_edges: u64, chain: Chain) {
+        self.add_with_chain(sequence, value, new_edges, Some(chain));
+    }
+
+    /// Add an entry whose snapshot may be missing, e.g. one freshly loaded
+    /// from disk that the replay has not rebuilt yet.
+    fn add_with_chain(
+        &self,
+        sequence: Sequence,
+        value: Value,
+        new_edges: u64,
+        chain: Option<Chain>,
+    ) {
         let mut entries = self.lock();
-        if entries.len() >= MAX_ENTRIES {
+        if entries.len() < MAX_ENTRIES {
+            entries.push(Entry {
+                sequence,
+                value,
+                new_edges,
+                chain,
+            });
+            return;
+        }
+        let best_value = entries
+            .iter()
+            .map(|entry| entry.value)
+            .max()
+            .unwrap_or_else(|| Value::new(U256::ZERO));
+        if value > best_value {
             let weakest = entries
                 .iter()
                 .enumerate()
+                .filter(|(_, entry)| entry.value < best_value)
+                .min_by_key(|(_, entry)| (entry.new_edges, entry.value))
+                .map(|(index, _)| index)
+                .unwrap_or(entries.len() - 1);
+            entries.remove(weakest);
+        } else {
+            let weakest = entries
+                .iter()
+                .enumerate()
+                .filter(|(_, entry)| entry.value < best_value)
                 .min_by_key(|(_, entry)| (entry.new_edges, entry.value))
                 .map(|(index, _)| index);
             let Some(weakest) = weakest else {
@@ -161,6 +255,7 @@ impl Corpus {
             sequence,
             value,
             new_edges,
+            chain,
         });
     }
 
@@ -217,7 +312,12 @@ impl Corpus {
                 .with_context(|| {
                     format!("entry {index} in {} has an invalid value", path.display())
                 })?;
-            self.add(Sequence::new(calls), Value::new(value), entry.new_edges);
+            self.add_with_chain(
+                Sequence::new(calls),
+                Value::new(value),
+                entry.new_edges,
+                None,
+            );
             loaded += 1;
         }
         Ok(loaded)
@@ -396,7 +496,7 @@ impl CorpusReplayer {
                 continue;
             }
             let value = Value::decode(result)?;
-            replayed.add(entry.sequence, value, new_edges);
+            replayed.add(entry.sequence, value, new_edges, chain);
         }
         let count = replayed.len();
         Ok((replayed, count))
@@ -419,6 +519,7 @@ mod tests {
     use fastrand::Rng;
 
     use super::*;
+    use crate::evm::ChainConfig;
     use crate::max::Sequence;
 
     fn random_sequence() -> Sequence {
@@ -429,29 +530,88 @@ mod tests {
         Sequence::random(&mut Rng::new(), &handlers, 3).unwrap()
     }
 
-    #[test]
-    fn random_on_empty_corpus_is_none() {
-        let corpus = Corpus::new();
-        assert!(corpus.is_empty());
-        assert!(corpus.random(&mut Rng::new()).is_none());
+    fn test_chain() -> Chain {
+        Chain::empty(ChainConfig::default())
     }
 
     #[test]
-    fn add_and_random_return_entries() {
+    fn random_base_on_empty_corpus_is_none() {
         let corpus = Corpus::new();
-        corpus.add(random_sequence(), Value::new(U256::from(1)), 3);
-        corpus.add(random_sequence(), Value::new(U256::from(2)), 5);
+        assert!(corpus.is_empty());
+        assert!(corpus.random_base(&mut Rng::new()).is_none());
+    }
+
+    #[test]
+    fn add_and_random_base_return_entries() {
+        let corpus = Corpus::new();
+        corpus.add(
+            random_sequence(),
+            Value::new(U256::from(1)),
+            3,
+            test_chain(),
+        );
+        corpus.add(
+            random_sequence(),
+            Value::new(U256::from(2)),
+            5,
+            test_chain(),
+        );
 
         assert_eq!(corpus.len(), 2);
-        let random = corpus.random(&mut Rng::new()).unwrap();
+        let (random, _) = corpus.random_base(&mut Rng::new()).unwrap();
         assert!(!random.is_empty());
+    }
+
+    #[test]
+    fn random_favors_entries_with_more_coverage_gain() {
+        // One high-gain entry among many one-edge entries: weighted sampling
+        // must pick the high-gain entry for the bulk of the draws.
+        let mut rng = Rng::with_seed(42);
+        let corpus = Corpus::new();
+        let high_gain = random_sequence();
+        corpus.add(
+            high_gain.clone(),
+            Value::new(U256::from(1)),
+            10_000,
+            test_chain(),
+        );
+        for _ in 0..99 {
+            corpus.add(
+                random_sequence(),
+                Value::new(U256::from(1)),
+                0,
+                test_chain(),
+            );
+        }
+
+        let mut high_gain_picks = 0;
+        for _ in 0..1_000 {
+            let (random, _) = corpus.random_base(&mut rng).unwrap();
+            if random == high_gain {
+                high_gain_picks += 1;
+            }
+        }
+        assert!(
+            high_gain_picks > 500,
+            "high-gain entry picked {high_gain_picks}/1000 times, expected the bulk"
+        );
     }
 
     #[test]
     fn entries_snapshot_lists_all_entries_in_order() {
         let corpus = Corpus::new();
-        corpus.add(random_sequence(), Value::new(U256::from(1)), 3);
-        corpus.add(random_sequence(), Value::new(U256::from(2)), 5);
+        corpus.add(
+            random_sequence(),
+            Value::new(U256::from(1)),
+            3,
+            test_chain(),
+        );
+        corpus.add(
+            random_sequence(),
+            Value::new(U256::from(2)),
+            5,
+            test_chain(),
+        );
 
         let entries = corpus.entries();
         assert_eq!(entries.len(), 2);
@@ -465,15 +625,68 @@ mod tests {
     fn full_corpus_replaces_the_weakest_entry() {
         let corpus = Corpus::new();
         for _ in 0..256 {
-            corpus.add(random_sequence(), Value::new(U256::from(1)), 5);
+            corpus.add(
+                random_sequence(),
+                Value::new(U256::from(1)),
+                5,
+                test_chain(),
+            );
         }
         // A sequence with fewer new edges than the weakest entry is rejected.
-        corpus.add(random_sequence(), Value::new(U256::from(9)), 4);
+        corpus.add(
+            random_sequence(),
+            Value::new(U256::from(1)),
+            4,
+            test_chain(),
+        );
         assert_eq!(corpus.len(), 256);
 
         // A sequence with more new edges replaces the weakest entry.
-        corpus.add(random_sequence(), Value::new(U256::from(9)), 10);
+        corpus.add(
+            random_sequence(),
+            Value::new(U256::from(1)),
+            10,
+            test_chain(),
+        );
         assert_eq!(corpus.len(), 256);
+    }
+
+    #[test]
+    fn improving_sequence_joins_even_when_the_corpus_is_full() {
+        let corpus = Corpus::new();
+        for _ in 0..256 {
+            corpus.add(
+                random_sequence(),
+                Value::new(U256::from(1)),
+                5,
+                test_chain(),
+            );
+        }
+
+        // The new best-value sequence always joins, evicting the weakest
+        // entry below the previous best.
+        corpus.add(
+            random_sequence(),
+            Value::new(U256::from(9)),
+            0,
+            test_chain(),
+        );
+        assert_eq!(corpus.len(), 256);
+
+        // Later low-edge entries must never evict the best-value entry.
+        for _ in 0..256 {
+            corpus.add(
+                random_sequence(),
+                Value::new(U256::from(1)),
+                1_000_000,
+                test_chain(),
+            );
+        }
+        let best = corpus
+            .entries()
+            .into_iter()
+            .find(|entry| entry.value == Value::new(U256::from(9)));
+        assert!(best.is_some(), "best-value entry was evicted");
     }
 
     /// A unique temp path per test run so parallel tests never collide.
@@ -497,7 +710,12 @@ mod tests {
         let handlers = vec![Function::parse("set(uint256)").unwrap()];
 
         let corpus = Corpus::new();
-        corpus.add(Sequence::new(vec![call]), Value::new(U256::from(42)), 5);
+        corpus.add(
+            Sequence::new(vec![call]),
+            Value::new(U256::from(42)),
+            5,
+            test_chain(),
+        );
 
         let path = temp_corpus_path();
         corpus.save(&path).unwrap();
@@ -526,7 +744,12 @@ mod tests {
         let handlers = vec![Function::parse("set(uint256)").unwrap()];
 
         let corpus = Corpus::new();
-        corpus.add(random_sequence(), Value::new(U256::from(1)), 3);
+        corpus.add(
+            random_sequence(),
+            Value::new(U256::from(1)),
+            3,
+            test_chain(),
+        );
         let path = temp_corpus_path();
         corpus.save(&path).unwrap();
 
