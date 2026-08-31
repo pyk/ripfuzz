@@ -12,7 +12,7 @@ use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::evm::{
-    Chain, ChainConfig, SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
+    Chain, ChainConfig, ForkDBConfig, SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
 };
 use crate::harness::HarnessId;
 use crate::max::{Best, Corpus, Fuzzer, FuzzerConfig, MaxHarness, Shrinker, ShrinkerConfig, Value};
@@ -94,7 +94,16 @@ pub fn run(args: Args) -> Result<Best> {
     let max_harness = MaxHarness::try_from(&solc_output)?;
 
     // 5. Create the test chain the harness will be deployed to.
-    let chain_config = ChainConfig::new(&root).coverage(true);
+    //
+    //    Forks share the on-disk RPC cache with other commands, and a
+    //    conservative batch rate limit keeps default campaigns under
+    //    public-provider quotas.
+    let fork_defaults = ForkDBConfig::new("")
+        .cache_dir(root.join(".ripfuzz").join("cache"))
+        .rate_limit(Some(10));
+    let chain_config = ChainConfig::new(&root)
+        .with_fork_defaults(fork_defaults)
+        .coverage(true);
     let mut chain = Chain::new(chain_config)?;
 
     // 6. Label the trace context from the compilation output and the chain.
