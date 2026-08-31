@@ -13,7 +13,7 @@
 //! ```rust
 //! use ripfuzz::max::Shrinker;
 //!
-//! // let shrinker = Shrinker::new(ShrinkerConfig::new().chain(chain));
+//! // let shrinker = Shrinker::new().with_chain(chain);
 //! // let shrunk = shrinker.shrink(&best_sequence)?;
 //! ```
 
@@ -22,7 +22,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use alloy_primitives::{Address, U256};
+use alloy_primitives::Address;
 use anyhow::{Context, Result};
 use revm::primitives::Bytes;
 use tracing::{error, info};
@@ -36,109 +36,80 @@ const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
 /// Interval between finished checks while waiting for the shrinkers.
 const PROGRESS_TICK: Duration = Duration::from_millis(100);
 
-/// Shrinker configuration, configured via a fluent builder API.
-#[derive(Clone, Debug)]
-pub struct ShrinkerConfig {
-    chain: Chain,
-    target: Address,
-    deployer: Address,
-    value_calldata: Bytes,
-    target_value: Value,
-    seed: u64,
-    threads: usize,
-    max_runs: u64,
-    timeout: Option<Duration>,
+/// Parallel shrinker for the best sequence.
+///
+/// The type carries its inputs as optional fields set via `with_*` builders;
+/// `shrink` resolves them and errors on the missing ones.
+#[derive(Clone, Debug, Default)]
+pub struct Shrinker {
+    chain: Option<Chain>,
+    target: Option<Address>,
+    deployer: Option<Address>,
+    value_calldata: Option<Bytes>,
+    target_value: Option<Value>,
+    seed: Option<u64>,
+    threads: Option<usize>,
+    max_runs: Option<u64>,
+    timeout: Option<Option<Duration>>,
 }
 
-impl ShrinkerConfig {
-    /// Create a new empty config.
+impl Shrinker {
     pub fn new() -> Self {
-        Self {
-            chain: Chain::default(),
-            target: Address::ZERO,
-            deployer: Address::ZERO,
-            value_calldata: Bytes::new(),
-            target_value: Value::new(U256::ZERO),
-            seed: 0,
-            threads: 1,
-            max_runs: 0,
-            timeout: None,
-        }
+        Self::default()
     }
 
     /// Set the chain snapshot every shrinker clones from.
-    pub fn chain(mut self, value: Chain) -> Self {
-        self.chain = value;
+    pub fn with_chain(mut self, chain: Chain) -> Self {
+        self.chain = Some(chain);
         self
     }
 
     /// Set the deployed harness address.
-    pub fn target(mut self, value: Address) -> Self {
-        self.target = value;
+    pub fn with_target(mut self, target: Address) -> Self {
+        self.target = Some(target);
         self
     }
 
     /// Set the account address used to send calls.
-    pub fn deployer(mut self, value: Address) -> Self {
-        self.deployer = value;
+    pub fn with_deployer(mut self, deployer: Address) -> Self {
+        self.deployer = Some(deployer);
         self
     }
 
     /// Set the calldata that reads the harness value.
-    pub fn value_calldata(mut self, value: Bytes) -> Self {
-        self.value_calldata = value;
+    pub fn with_value_calldata(mut self, calldata: Bytes) -> Self {
+        self.value_calldata = Some(calldata);
         self
     }
 
     /// Set the value the shrunk sequence must still reach.
-    pub fn target_value(mut self, value: Value) -> Self {
-        self.target_value = value;
+    pub fn with_target_value(mut self, target_value: Value) -> Self {
+        self.target_value = Some(target_value);
         self
     }
 
     /// Set the RNG seed.
-    pub fn seed(mut self, value: u64) -> Self {
-        self.seed = value;
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
         self
     }
 
     /// Set the number of shrinkers.
-    pub fn threads(mut self, value: usize) -> Self {
-        self.threads = value;
+    pub fn with_threads(mut self, threads: usize) -> Self {
+        self.threads = Some(threads);
         self
     }
 
     /// Set the maximum number of validation executions across all shrinkers.
-    pub fn max_runs(mut self, value: u64) -> Self {
-        self.max_runs = value;
+    pub fn with_max_runs(mut self, max_runs: u64) -> Self {
+        self.max_runs = Some(max_runs);
         self
     }
 
     /// Set the timeout after which shrinking stops.
-    pub fn timeout(mut self, value: Option<Duration>) -> Self {
-        self.timeout = value;
+    pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.timeout = Some(timeout);
         self
-    }
-}
-
-impl Default for ShrinkerConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Parallel shrinker for the best sequence.
-///
-/// Created via [`ShrinkerConfig`] and run via [`Shrinker::shrink`].
-#[derive(Debug)]
-pub struct Shrinker {
-    config: ShrinkerConfig,
-}
-
-impl Shrinker {
-    /// Create a new shrinker from the given config.
-    pub fn new(config: ShrinkerConfig) -> Self {
-        Self { config }
     }
 
     /// Shrink the sequence while its final value stays at or above the
@@ -148,31 +119,55 @@ impl Shrinker {
         if sequence.len() <= 1 {
             return Ok(sequence.clone());
         }
+
+        // 2. Require the execution context.
+        let execution = Execution {
+            chain: self
+                .chain
+                .context("chain not set, call Shrinker::new().with_chain(..)")?,
+            target: self
+                .target
+                .context("target not set, call Shrinker::new().with_target(..)")?,
+            deployer: self
+                .deployer
+                .context("deployer not set, call Shrinker::new().with_deployer(..)")?,
+            value_calldata: self
+                .value_calldata
+                .context("value calldata not set, call Shrinker::new().with_value_calldata(..)")?,
+            target_value: self
+                .target_value
+                .context("target value not set, call Shrinker::new().with_target_value(..)")?,
+            seed: self.seed.unwrap_or(0),
+            threads: self.threads.unwrap_or(1),
+            max_runs: self.max_runs.unwrap_or(0),
+            timeout: self.timeout.unwrap_or_default(),
+        };
+
         let start = Instant::now();
-        let deadline = self.config.timeout.map(|timeout| start + timeout);
-        let shared = SharedShrink::new(sequence.clone(), deadline, self.config.max_runs);
+        let deadline = execution.timeout.map(|timeout| start + timeout);
+        let shared = SharedShrink::new(sequence.clone(), deadline, execution.max_runs);
         info!(
             calls = sequence.len(),
-            threads = self.config.threads,
-            runs = self.config.max_runs,
-            target = %self.config.target_value,
+            threads = execution.threads,
+            runs = execution.max_runs,
+            target = %execution.target_value,
             "shrinking started"
         );
 
-        // 2. Spawn shrinkers over the shared current best.
-        let mut handles = Vec::with_capacity(self.config.threads);
-        for thread_id in 0..self.config.threads {
+        // 3. Spawn shrinkers over the shared current best.
+        let mut handles = Vec::with_capacity(execution.threads);
+        for thread_id in 0..execution.threads {
             // checkrs: allow(clone_in_loops)
-            let config = self.config.clone();
+            let execution = execution.clone();
             // checkrs: allow(clone_in_loops)
             let shared = shared.clone();
             handles.push((
                 thread_id,
-                std::thread::spawn(move || shrink_worker(&config, &shared, thread_id)),
+                std::thread::spawn(move || shrink_worker(&execution, &shared, thread_id)),
             ));
         }
 
-        // 3. Log progress while the shrinkers run.
+        // 4. Log progress while the shrinkers run.
         let mut last_progress = Instant::now();
         while handles.iter().any(|(_, handle)| !handle.is_finished()) {
             std::thread::sleep(PROGRESS_TICK);
@@ -190,7 +185,7 @@ impl Shrinker {
             }
         }
 
-        // 4. Join the shrinkers and propagate failures.
+        // 5. Join the shrinkers and propagate failures.
         let mut failures: Vec<anyhow::Error> = Vec::new();
         for (thread_id, handle) in handles {
             match handle.join() {
@@ -211,7 +206,7 @@ impl Shrinker {
             return Err(first).with_context(|| format!("{count} shrinker(s) failed"));
         }
 
-        // 5. Report the shortest sequence found.
+        // 6. Report the shortest sequence found.
         let shrunk = shared.current();
         info!(
             calls = shrunk.len(),
@@ -221,6 +216,21 @@ impl Shrinker {
         );
         Ok(shrunk)
     }
+}
+
+/// Resolved shrinker inputs for one run, an internal context that keeps the
+/// worker signature compact.
+#[derive(Clone, Debug)]
+struct Execution {
+    chain: Chain,
+    target: Address,
+    deployer: Address,
+    value_calldata: Bytes,
+    target_value: Value,
+    seed: u64,
+    threads: usize,
+    max_runs: u64,
+    timeout: Option<Duration>,
 }
 
 /// State shared across shrinkers.
@@ -299,9 +309,9 @@ impl SharedShrink {
 
 /// Delete random chunks from the current best until the budget is exhausted
 /// or the sequence is fully shrunk.
-fn shrink_worker(config: &ShrinkerConfig, shared: &SharedShrink, thread_id: usize) -> Result<()> {
-    let mut rng = fastrand::Rng::with_seed(config.seed.wrapping_add(thread_id as u64));
-    let value_tx = Transaction::new(config.target).calldata(config.value_calldata.clone());
+fn shrink_worker(execution: &Execution, shared: &SharedShrink, thread_id: usize) -> Result<()> {
+    let mut rng = fastrand::Rng::with_seed(execution.seed.wrapping_add(thread_id as u64));
+    let value_tx = Transaction::new(execution.target).calldata(execution.value_calldata.clone());
     loop {
         if shared.exhausted() || shared.timed_out() {
             break;
@@ -326,8 +336,8 @@ fn shrink_worker(config: &ShrinkerConfig, shared: &SharedShrink, thread_id: usiz
 
         // 2. Validate the candidate on a clean chain clone.
         // checkrs: allow(clone_in_loops)
-        let mut chain = config.chain.clone();
-        let transactions = candidate.transactions(config.target, config.deployer);
+        let mut chain = execution.chain.clone();
+        let transactions = candidate.transactions(execution.target, execution.deployer);
         chain.exec(&transactions)?;
 
         // 3. Measure the value after the candidate.
@@ -342,7 +352,7 @@ fn shrink_worker(config: &ShrinkerConfig, shared: &SharedShrink, thread_id: usiz
         let value = Value::decode(result)?;
 
         // 4. Accept the candidate when the target value is preserved.
-        if value >= config.target_value {
+        if value >= execution.target_value {
             // checkrs: allow(clone_in_loops)
             if shared.update(candidate.clone()) {
                 info!(calls = candidate.len(), "shrunk sequence");

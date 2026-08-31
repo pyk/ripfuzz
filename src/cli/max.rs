@@ -15,9 +15,7 @@ use crate::evm::{
     Chain, ChainConfig, ForkDBConfig, SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
 };
 use crate::harness::HarnessId;
-use crate::max::{
-    Best, Corpus, CorpusReplayer, Fuzzer, MaxHarness, Shrinker, ShrinkerConfig, Value,
-};
+use crate::max::{Best, Corpus, CorpusReplayer, Fuzzer, MaxHarness, Shrinker, Value};
 use crate::solc::Solc;
 
 /// Maximize a harness value.
@@ -247,18 +245,17 @@ pub fn run(args: Args) -> Result<Best> {
 
     // 13. Shrink the best sequence while preserving its value.
     if !best.sequence().is_empty() {
-        let shrinker_config = ShrinkerConfig::new()
-            .chain(chain)
-            .target(address)
-            .deployer(deployer)
-            .value_calldata(value_calldata)
-            .target_value(best.value())
-            .threads(args.threads)
-            .max_runs(args.max_runs)
-            .timeout(args.timeout.map(Duration::from_secs))
-            .seed(seed);
-        let shrinker = Shrinker::new(shrinker_config);
-        let shrunk = shrinker.shrink(best.sequence())?;
+        let shrunk = Shrinker::new()
+            .with_chain(chain)
+            .with_target(address)
+            .with_deployer(deployer)
+            .with_value_calldata(value_calldata)
+            .with_target_value(best.value())
+            .with_threads(args.threads)
+            .with_max_runs(args.max_runs)
+            .with_timeout(args.timeout.map(Duration::from_secs))
+            .with_seed(seed)
+            .shrink(best.sequence())?;
         info!(
             calls = shrunk.len(),
             sequence = %shrunk,
@@ -266,7 +263,6 @@ pub fn run(args: Args) -> Result<Best> {
         );
     }
 
-    println!("{address}");
     Ok(best)
 }
 

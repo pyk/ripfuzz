@@ -6,7 +6,7 @@ pub use corpus::{Corpus, CorpusReplayer, EntrySnapshot};
 pub use fuzzer::Fuzzer;
 pub use harness::MaxHarness;
 pub use sequence::Sequence;
-pub use shrinker::{Shrinker, ShrinkerConfig};
+pub use shrinker::Shrinker;
 pub use value::Value;
 
 pub mod best;
