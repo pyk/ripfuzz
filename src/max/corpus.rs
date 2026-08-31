@@ -4,12 +4,19 @@
 //! Fuzzers draw from it to generate mutations instead of only random
 //! sequences, which keeps the search exploring useful state transitions.
 //!
-//! ```rust
-//! use ripfuzz::max::Corpus;
+//! ```rust,no_run
+//! use ripfuzz::max::{Corpus, Sequence, Value};
+//! use ripfuzz::{Chain, ChainConfig};
+//! use alloy_primitives::U256;
+//! use fastrand::Rng;
 //!
-//! // let corpus = Corpus::new();
-//! // corpus.add(sequence, value, new_edges, chain);
-//! // let (base, base_chain) = corpus.random_base(&mut rng);
+//! let corpus = Corpus::new();
+//! let mut rng = Rng::new();
+//! let chain = Chain::empty(ChainConfig::default());
+//! let sequence = Sequence::empty();
+//! let value = Value::new(U256::from(1));
+//! corpus.add(sequence, value, 1, chain.clone());
+//! let base = corpus.random_base(&mut rng);
 //! ```
 
 use std::fs;
@@ -135,30 +142,43 @@ impl Corpus {
 
     /// A random snapshot base from the corpus.
     ///
-    /// Entries are sampled proportional to their coverage gain: a sequence
-    /// that unlocked a new code path (e.g. the first successful deposit) is
-    /// a far better mutation base than the hundreds of one-edge entries
-    /// around it, so exploitation should concentrate there instead of
-    /// diluting it uniformly across the corpus.
+    /// Entries are sampled proportional to their coverage gain and value.
+    ///
+    /// A sequence that unlocked a new code path (e.g. the first successful
+    /// deposit) is a far better mutation base than the hundreds of one-edge
+    /// entries around it, so sampling should favor it instead of diluting
+    /// uniformly across the corpus.
     ///
     /// Returns the sequence with the state after executing it. Entries not
     /// yet replayed carry no snapshot and are skipped.
     pub fn random_base(&self, rng: &mut Rng) -> Option<(Sequence, Chain)> {
+        // 1. Compute the total weight of all replayed entries.
         let entries = self.lock();
         let total: u64 = entries
             .iter()
             .filter(|entry| entry.chain.is_some())
-            .map(|entry| entry.new_edges.saturating_add(1))
+            .map(|entry| {
+                let value_weight = (entry.value.get().bit_len() as u64).saturating_add(1);
+                entry
+                    .new_edges
+                    .saturating_add(1)
+                    .saturating_add(value_weight)
+            })
             .sum();
         if total == 0 {
             return None;
         }
+        // 2. Pick a weighted random entry.
         let mut pick = rng.u64(..total);
         for entry in entries.iter() {
             let Some(chain) = entry.chain.as_ref() else {
                 continue;
             };
-            let weight = entry.new_edges.saturating_add(1);
+            let value_weight = (entry.value.get().bit_len() as u64).saturating_add(1);
+            let weight = entry
+                .new_edges
+                .saturating_add(1)
+                .saturating_add(value_weight);
             if pick < weight {
                 let sequence =
                     // checkrs: allow(clone_in_loops) the base must own its state
@@ -170,6 +190,7 @@ impl Corpus {
             }
             pick -= weight;
         }
+        // 3. Fall back to the last replayed entry for rounding errors.
         let last = entries.iter().rev().find(|entry| entry.chain.is_some())?;
         let chain = last.chain.clone()?;
         Some((last.sequence.clone(), chain))
@@ -193,12 +214,16 @@ impl Corpus {
 
     /// Add an interesting sequence with the state after executing it.
     ///
-    /// An improving sequence always joins, even when the corpus is full: the
-    /// highest-value state is the primary expansion base and losing it stalls
-    /// the value climb. It then replaces the weakest entry below the current
-    /// best. Otherwise, when the corpus is full, the entry that brought the
-    /// fewest new edges is replaced, and only when the new sequence brings
-    /// at least as many.
+    /// The corpus keeps interesting sequences with different rules depending
+    /// on whether they improve the best value.
+    ///
+    /// - An improving sequence always joins, even when the corpus is full.
+    ///   The highest-value state is the primary expansion base and losing it
+    ///   stalls the value climb. It then replaces the weakest entry below the
+    ///   current best.
+    /// - Otherwise, when the corpus is full, the entry that brought the
+    ///   fewest new edges is replaced, and only when the new sequence brings
+    ///   at least as many.
     pub fn add(&self, sequence: Sequence, value: Value, new_edges: u64, chain: Chain) {
         self.add_with_chain(sequence, value, new_edges, Some(chain));
     }
@@ -213,6 +238,7 @@ impl Corpus {
         chain: Option<Chain>,
     ) {
         let mut entries = self.lock();
+        // 1. Fast path when the corpus is not full.
         if entries.len() < MAX_ENTRIES {
             entries.push(Entry {
                 sequence,
@@ -222,12 +248,16 @@ impl Corpus {
             });
             return;
         }
+        // 2. Find the best value currently in the corpus.
         let best_value = entries
             .iter()
             .map(|entry| entry.value)
             .max()
             .unwrap_or_else(|| Value::new(U256::ZERO));
+        // 3. Evict an entry to make room.
         if value > best_value {
+            // 3a. An improving sequence always joins and replaces the
+            //     weakest entry below the current best.
             let weakest = entries
                 .iter()
                 .enumerate()
@@ -237,6 +267,8 @@ impl Corpus {
                 .unwrap_or(entries.len() - 1);
             entries.remove(weakest);
         } else {
+            // 3b. Otherwise the weakest entry is only replaced when the new
+            //     sequence brings more new edges.
             let weakest = entries
                 .iter()
                 .enumerate()
@@ -251,6 +283,7 @@ impl Corpus {
             }
             entries.remove(weakest);
         }
+        // 4. Insert the new entry.
         entries.push(Entry {
             sequence,
             value,
