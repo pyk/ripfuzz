@@ -1,11 +1,15 @@
 //! The `fixtures/max-challenges` harnesses must reach their highest value
 //! within the budget granted to their difficulty level.
 //!
-//! The fixtures under `fixtures/max-challenges` are sources of the project
-//! rooted at the current directory, and compilation artifacts are shared
-//! under `./.ripfuzz/out` namespaced by the harness source path. The corpus
-//! of each challenge is dumped under `./.ripfuzz/corpus-test`, so a failed
-//! challenge can be analyzed offline.
+//! ## Layout
+//!
+//! - The fixtures under `fixtures/max-challenges` are sources of the project
+//!   rooted at the current directory.
+//! - Compilation artifacts are shared under `./.ripfuzz/out`, namespaced by
+//!   the harness source path.
+//! - Each challenge corpus lives in a fresh temp directory, so every run
+//!   starts from an empty corpus.
+//! - The failing message points at the corpus file for offline analysis.
 
 use std::path::PathBuf;
 
@@ -16,8 +20,10 @@ const MAX_CALLS: usize = 32;
 
 /// The challenge fixtures as `(stem, contract, level)` triples.
 ///
-/// `NoiseBase` is an abstract helper inherited by `AccumulateWithNoise`, so
-/// it is not a challenge of its own.
+/// Each `*WithNoise` variant inherits the abstract `NoiseBase` helper, so
+/// the fuzzer must reach the same value as its plain counterpart while
+/// `NoiseBase` handlers revert or mutate unrelated state. `NoiseBase`
+/// itself is not a challenge of its own.
 const CHALLENGES: &[(&str, &str, &str)] = &[
     ("Accumulate", "Accumulate", "easy"),
     ("AccumulateWithNoise", "AccumulateWithNoise", "easy"),
@@ -54,19 +60,30 @@ fn expected_value(stem: &str) -> U256 {
     }
 }
 
+/// A fresh temp corpus directory so every run starts from an empty corpus.
+fn temp_corpus_dir() -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "ripfuzz-max-challenges-{}-{}",
+        std::process::id(),
+        fastrand::u64(..)
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 /// Every challenge harness must reach its highest value within its budget.
 /// Slow: ignored by default and run explicitly with `make max`.
 #[ignore = "slow fuzzing campaign; run with `make max`"]
 #[test]
 fn max_challenges_reach_the_highest_value() {
     let dir = PathBuf::from("fixtures/max-challenges");
+    let corpus_dir = temp_corpus_dir();
     for &(stem, contract, level) in CHALLENGES {
         let path = dir.join(format!("{stem}.sol"));
         let (threads, max_runs) = budget(level);
         let expected = expected_value(stem);
 
         let harness = format!("{}:{}", path.display(), contract);
-        let corpus_dir = PathBuf::from(".ripfuzz/corpus-test");
         let args = Args {
             harness: harness.parse().unwrap(),
             config: PathBuf::from("./ripfuzz.toml"),
@@ -98,4 +115,6 @@ fn max_challenges_reach_the_highest_value() {
             corpus_file.display()
         );
     }
+
+    let _ = std::fs::remove_dir_all(&corpus_dir);
 }
