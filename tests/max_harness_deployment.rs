@@ -31,6 +31,7 @@ fn args(harness: &str) -> Args {
         timeout: None,
         target_value: None,
         corpus_dir: None,
+        quiet: true,
     }
 }
 

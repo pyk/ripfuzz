@@ -62,6 +62,10 @@ pub struct Args {
     /// can be analyzed offline.
     #[arg(long, value_name = "PATH")]
     pub corpus_dir: Option<PathBuf>,
+
+    /// Suppress terminal log output.
+    #[arg(short = 'q', long)]
+    pub quiet: bool,
 }
 
 /// Parse a `uint256` CLI value in decimal or `0x`-prefixed hex.
@@ -71,11 +75,19 @@ fn parse_u256(value: &str) -> Result<U256, String> {
 
 /// Run the `max` command and return the best sequence found.
 pub fn run(args: Args) -> Result<Best> {
-    // 1. Initialize tracing subscriber.
-    let _ = tracing_subscriber::fmt()
+    // 1. Initialize the tracing subscriber.
+    //
+    //    Quiet mode writes to a null sink instead of skipping init, so a
+    //    subscriber installed by an earlier caller (e.g. a test binary)
+    //    cannot leak events into the terminal.
+    let builder = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
-        .with_target(false)
-        .try_init();
+        .with_target(false);
+    let _ = if args.quiet {
+        builder.with_writer(std::io::sink).try_init()
+    } else {
+        builder.try_init()
+    };
 
     // 2. Load configuration relative to the project root.
     let root = args.root.clone().unwrap_or_else(|| PathBuf::from("."));

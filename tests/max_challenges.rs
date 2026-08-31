@@ -75,6 +75,7 @@ fn max_challenges_reach_the_highest_value() {
             timeout: Some(120),
             target_value: None,
             corpus_dir: Some(corpus_dir.clone()),
+            quiet: true,
         };
         let corpus_file = corpus_dir
             .join(format!("{stem}.sol"))
