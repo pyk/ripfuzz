@@ -16,7 +16,7 @@ use crate::evm::{
 };
 use crate::harness::HarnessId;
 use crate::max::{
-    Best, Corpus, CorpusReplayer, Fuzzer, FuzzerConfig, MaxHarness, Shrinker, ShrinkerConfig, Value,
+    Best, Corpus, CorpusReplayer, Fuzzer, MaxHarness, Shrinker, ShrinkerConfig, Value,
 };
 use crate::solc::Solc;
 
@@ -211,22 +211,21 @@ pub fn run(args: Args) -> Result<Best> {
     info!(entries = replayed, "corpus replayed");
 
     // 12. Fuzz for the highest value within the stop conditions.
-    let fuzzer_config = FuzzerConfig::new()
-        .chain(chain.clone())
-        .target(address)
-        .deployer(deployer)
-        .value_calldata(value_calldata.clone())
-        .handlers(max_harness.handlers())
-        .corpus(corpus.clone())
-        .coverage(coverage)
-        .initial_value(initial_value)
-        .threads(args.threads)
-        .max_runs(args.max_runs)
-        .max_calls(args.max_calls)
-        .timeout(args.timeout.map(Duration::from_secs))
-        .target_value(args.target_value.map(Value::new))
-        .seed(seed);
-    let fuzzer = Fuzzer::new(fuzzer_config);
+    let fuzzer = Fuzzer::new()
+        .with_chain(chain.clone())
+        .with_target(address)
+        .with_deployer(deployer)
+        .with_value_calldata(value_calldata.clone())
+        .with_handlers(max_harness.handlers())
+        .with_corpus(corpus.clone())
+        .with_coverage(coverage)
+        .with_initial_value(initial_value)
+        .with_threads(args.threads)
+        .with_max_runs(args.max_runs)
+        .with_max_calls(args.max_calls)
+        .with_timeout(args.timeout.map(Duration::from_secs))
+        .with_target_value(args.target_value.map(Value::new))
+        .with_seed(seed);
     let best = match fuzzer.run() {
         Ok(best) => {
             corpus.save(&corpus_path)?;

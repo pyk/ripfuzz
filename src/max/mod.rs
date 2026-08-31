@@ -3,7 +3,7 @@
 pub use best::Best;
 pub use call::Call;
 pub use corpus::{Corpus, CorpusReplayer, EntrySnapshot};
-pub use fuzzer::{Fuzzer, FuzzerConfig};
+pub use fuzzer::Fuzzer;
 pub use harness::MaxHarness;
 pub use sequence::Sequence;
 pub use shrinker::{Shrinker, ShrinkerConfig};

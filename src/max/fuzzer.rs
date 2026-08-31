@@ -13,7 +13,7 @@
 //! ```rust
 //! use ripfuzz::max::Fuzzer;
 //!
-//! // let fuzzer = Fuzzer::new(FuzzerConfig::new().chain(chain));
+//! // let fuzzer = Fuzzer::new().with_chain(chain);
 //! // let best = fuzzer.run()?;
 //! ```
 
@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use alloy_json_abi::Function;
-use alloy_primitives::{Address, U256};
+use alloy_primitives::Address;
 use anyhow::{Context, Result};
 use revm::primitives::Bytes;
 use tracing::{error, info, warn};
@@ -37,164 +37,165 @@ const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
 /// Interval between finished checks while waiting for the fuzzers.
 const PROGRESS_TICK: Duration = Duration::from_millis(100);
 
-/// Fuzzer configuration, configured via a fluent builder API.
-#[derive(Clone, Debug)]
-pub struct FuzzerConfig {
-    chain: Chain,
-    target: Address,
-    deployer: Address,
-    value_calldata: Bytes,
-    handlers: Vec<Function>,
-    corpus: Corpus,
-    coverage: SharedCoverage,
-    initial_value: Value,
-    seed: u64,
-    threads: usize,
-    max_runs: u64,
-    max_calls: usize,
+/// Per-thread fuzzer that discovers high-value sequences.
+/// Discovery-phase fuzzer that finds high-value sequences.
+///
+/// The type carries its inputs as optional fields set via `with_*` builders;
+/// `run` resolves them and errors on the missing ones.
+#[derive(Clone, Debug, Default)]
+pub struct Fuzzer {
+    chain: Option<Chain>,
+    target: Option<Address>,
+    deployer: Option<Address>,
+    value_calldata: Option<Bytes>,
+    handlers: Option<Vec<Function>>,
+    corpus: Option<Corpus>,
+    coverage: Option<SharedCoverage>,
+    initial_value: Option<Value>,
+    seed: Option<u64>,
+    threads: Option<usize>,
+    max_runs: Option<u64>,
+    max_calls: Option<usize>,
     timeout: Option<Duration>,
     target_value: Option<Value>,
 }
 
-impl FuzzerConfig {
-    /// Create a new empty config.
+impl Fuzzer {
     pub fn new() -> Self {
-        Self {
-            chain: Chain::default(),
-            target: Address::ZERO,
-            deployer: Address::ZERO,
-            value_calldata: Bytes::new(),
-            handlers: Vec::new(),
-            corpus: Corpus::new(),
-            coverage: SharedCoverage::new(),
-            initial_value: Value::new(U256::ZERO),
-            seed: 0,
-            threads: 1,
-            max_runs: 0,
-            max_calls: 8,
-            timeout: None,
-            target_value: None,
-        }
+        Self::default()
     }
 
     /// Set the chain snapshot every fuzzer clones from.
-    pub fn chain(mut self, value: Chain) -> Self {
-        self.chain = value;
+    pub fn with_chain(mut self, chain: Chain) -> Self {
+        self.chain = Some(chain);
         self
     }
 
     /// Set the deployed harness address.
-    pub fn target(mut self, value: Address) -> Self {
-        self.target = value;
+    pub fn with_target(mut self, target: Address) -> Self {
+        self.target = Some(target);
         self
     }
 
     /// Set the account address used to send calls.
-    pub fn deployer(mut self, value: Address) -> Self {
-        self.deployer = value;
+    pub fn with_deployer(mut self, deployer: Address) -> Self {
+        self.deployer = Some(deployer);
         self
     }
 
     /// Set the calldata that reads the harness value.
-    pub fn value_calldata(mut self, value: Bytes) -> Self {
-        self.value_calldata = value;
+    pub fn with_value_calldata(mut self, calldata: Bytes) -> Self {
+        self.value_calldata = Some(calldata);
         self
     }
 
     /// Set the fuzzable handler functions.
-    pub fn handlers(mut self, value: Vec<Function>) -> Self {
-        self.handlers = value;
+    pub fn with_handlers(mut self, handlers: Vec<Function>) -> Self {
+        self.handlers = Some(handlers);
         self
     }
 
     /// Set the shared corpus of interesting sequences.
-    pub fn corpus(mut self, value: Corpus) -> Self {
-        self.corpus = value;
+    pub fn with_corpus(mut self, corpus: Corpus) -> Self {
+        self.corpus = Some(corpus);
         self
     }
 
     /// Set the shared coverage map.
-    pub fn coverage(mut self, value: SharedCoverage) -> Self {
-        self.coverage = value;
+    pub fn with_coverage(mut self, coverage: SharedCoverage) -> Self {
+        self.coverage = Some(coverage);
         self
     }
 
     /// Set the value measured right after setup.
-    pub fn initial_value(mut self, value: Value) -> Self {
-        self.initial_value = value;
+    pub fn with_initial_value(mut self, initial_value: Value) -> Self {
+        self.initial_value = Some(initial_value);
         self
     }
 
     /// Set the RNG seed.
-    pub fn seed(mut self, value: u64) -> Self {
-        self.seed = value;
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
         self
     }
 
     /// Set the number of fuzzers.
-    pub fn threads(mut self, value: usize) -> Self {
-        self.threads = value;
+    pub fn with_threads(mut self, threads: usize) -> Self {
+        self.threads = Some(threads);
         self
     }
 
     /// Set the maximum number of sequences to run across all threads.
-    pub fn max_runs(mut self, value: u64) -> Self {
-        self.max_runs = value;
+    pub fn with_max_runs(mut self, max_runs: u64) -> Self {
+        self.max_runs = Some(max_runs);
         self
     }
 
     /// Set the maximum number of handler calls per sequence.
-    pub fn max_calls(mut self, value: usize) -> Self {
-        self.max_calls = value;
+    pub fn with_max_calls(mut self, max_calls: usize) -> Self {
+        self.max_calls = Some(max_calls);
         self
     }
 
     /// Set the timeout after which fuzzing stops.
-    pub fn timeout(mut self, value: Option<Duration>) -> Self {
-        self.timeout = value;
+    pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
+        self.timeout = timeout;
         self
     }
 
     /// Set the value at which fuzzing stops early.
-    pub fn target_value(mut self, value: Option<Value>) -> Self {
-        self.target_value = value;
+    pub fn with_target_value(mut self, target_value: Option<Value>) -> Self {
+        self.target_value = target_value;
         self
-    }
-}
-
-impl Default for FuzzerConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Per-thread fuzzer that discovers high-value sequences.
-///
-/// Created via [`FuzzerConfig`] and run via [`Fuzzer::run`].
-#[derive(Debug)]
-pub struct Fuzzer {
-    config: FuzzerConfig,
-}
-
-impl Fuzzer {
-    /// Create a new fuzzer from the given config.
-    pub fn new(config: FuzzerConfig) -> Self {
-        Self { config }
     }
 
     /// Run fuzzing and return the best sequence found.
     pub fn run(self) -> Result<Best> {
-        // 1. Seed the shared state with the initial value and stop signals.
+        // 1. Require the execution context.
+        let execution = Execution {
+            chain: self
+                .chain
+                .context("chain not set, call Fuzzer::new().with_chain(..)")?,
+            target: self
+                .target
+                .context("target not set, call Fuzzer::new().with_target(..)")?,
+            deployer: self
+                .deployer
+                .context("deployer not set, call Fuzzer::new().with_deployer(..)")?,
+            value_calldata: self
+                .value_calldata
+                .context("value calldata not set, call Fuzzer::new().with_value_calldata(..)")?,
+            handlers: self
+                .handlers
+                .context("handlers not set, call Fuzzer::new().with_handlers(..)")?,
+            corpus: self
+                .corpus
+                .context("corpus not set, call Fuzzer::new().with_corpus(..)")?,
+            coverage: self
+                .coverage
+                .context("coverage not set, call Fuzzer::new().with_coverage(..)")?,
+            initial_value: self
+                .initial_value
+                .context("initial value not set, call Fuzzer::new().with_initial_value(..)")?,
+            seed: self.seed.unwrap_or(0),
+            threads: self.threads.unwrap_or(1),
+            max_runs: self.max_runs.unwrap_or(0),
+            max_calls: self.max_calls.unwrap_or(8),
+            timeout: self.timeout,
+            target_value: self.target_value,
+        };
+
+        // 2. Seed the shared state with the initial value and stop signals.
         let start = Instant::now();
-        let deadline = self.config.timeout.map(|timeout| start + timeout);
+        let deadline = execution.timeout.map(|timeout| start + timeout);
         let shared = Shared::new(
-            Best::new(Sequence::empty(), self.config.initial_value),
-            self.config.target_value,
+            Best::new(Sequence::empty(), execution.initial_value),
+            execution.target_value,
             deadline,
         );
 
-        // 2. Skip fuzzing when the target value is already met.
-        if let Some(target) = self.config.target_value
+        // 3. Skip fuzzing when the target value is already met.
+        if let Some(target) = execution.target_value
             && shared.best_value() >= target
         {
             info!(
@@ -205,32 +206,31 @@ impl Fuzzer {
             return Ok(shared.into_best());
         }
 
-        // 3. Skip fuzzing when the harness has no handler functions.
-        if self.config.handlers.is_empty() {
+        // 4. Skip fuzzing when the harness has no handler functions.
+        if execution.handlers.is_empty() {
             warn!("no handler functions to fuzz, skipping fuzzing");
             return Ok(shared.into_best());
         }
 
         info!(
-            threads = self.config.threads,
-            runs = self.config.max_runs,
-            max_calls = self.config.max_calls,
-            timeout = ?self.config.timeout,
+            threads = execution.threads,
+            runs = execution.max_runs,
+            max_calls = execution.max_calls,
+            timeout = ?execution.timeout,
             "fuzzing started"
         );
 
         // 4. Spawn fuzzers with split run budgets.
-        // 4. Spawn fuzzers with split run budgets.
-        let budgets = split_runs(self.config.max_runs, self.config.threads);
+        let budgets = split_runs(execution.max_runs, execution.threads);
         let mut handles = Vec::with_capacity(budgets.len());
         for (thread_id, budget) in budgets.into_iter().enumerate() {
             // checkrs: allow(clone_in_loops)
-            let config = self.config.clone();
+            let execution = execution.clone();
             // checkrs: allow(clone_in_loops)
             let shared = shared.clone();
             handles.push((
                 thread_id,
-                std::thread::spawn(move || worker(&config, &shared, thread_id, budget)),
+                std::thread::spawn(move || worker(&execution, &shared, thread_id, budget)),
             ));
         }
 
@@ -245,8 +245,8 @@ impl Fuzzer {
                 info!(
                     runs = shared.runs(),
                     best = %shared.best_value(),
-                    corpus = self.config.corpus.len(),
-                    edges = self.config.coverage.edge_count(),
+                    corpus = execution.corpus.len(),
+                    edges = execution.coverage.edge_count(),
                     elapsed = start.elapsed().as_secs(),
                     "fuzzing progress"
                 );
@@ -290,6 +290,26 @@ impl Fuzzer {
         }
         Ok(best)
     }
+}
+
+/// Resolved fuzzer inputs for one run, an internal context that keeps the
+/// worker signature from exploding into per-field parameters.
+#[derive(Clone, Debug)]
+struct Execution {
+    chain: Chain,
+    target: Address,
+    deployer: Address,
+    value_calldata: Bytes,
+    handlers: Vec<Function>,
+    corpus: Corpus,
+    coverage: SharedCoverage,
+    initial_value: Value,
+    seed: u64,
+    threads: usize,
+    max_runs: u64,
+    max_calls: usize,
+    timeout: Option<Duration>,
+    target_value: Option<Value>,
 }
 
 /// State shared across fuzzers.
@@ -385,9 +405,9 @@ impl Shared {
 
 /// Execute random sequences until the thread budget is exhausted or a stop
 /// condition fires.
-fn worker(config: &FuzzerConfig, shared: &Shared, thread_id: usize, runs: u64) -> Result<()> {
-    let mut rng = fastrand::Rng::with_seed(config.seed.wrapping_add(thread_id as u64));
-    let value_tx = Transaction::new(config.target).calldata(config.value_calldata.clone());
+fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -> Result<()> {
+    let mut rng = fastrand::Rng::with_seed(execution.seed.wrapping_add(thread_id as u64));
+    let value_tx = Transaction::new(execution.target).calldata(execution.value_calldata.clone());
     for _ in 0..runs {
         if shared.stopped() || shared.timed_out() {
             break;
@@ -401,21 +421,21 @@ fn worker(config: &FuzzerConfig, shared: &Shared, thread_id: usize, runs: u64) -
         //    keeps the climb alive even when the corpus churns under new
         //    coverage from decoy handlers.
         let sequence = if rng.usize(..4) == 0 {
-            Sequence::random(&mut rng, &config.handlers, config.max_calls)?
+            Sequence::random(&mut rng, &execution.handlers, execution.max_calls)?
         } else {
             let base = if rng.usize(..2) == 0 {
                 shared.best_sequence().unwrap_or_default()
             } else {
-                config.corpus.random(&mut rng).unwrap_or_default()
+                execution.corpus.random(&mut rng).unwrap_or_default()
             };
-            let other = config.corpus.random(&mut rng).unwrap_or_default();
-            base.mutate(&mut rng, &config.handlers, &other, config.max_calls)?
+            let other = execution.corpus.random(&mut rng).unwrap_or_default();
+            base.mutate(&mut rng, &execution.handlers, &other, execution.max_calls)?
         };
 
         // 2. Execute the sequence on a clean chain clone.
         // checkrs: allow(clone_in_loops)
-        let mut chain = config.chain.clone();
-        let transactions = sequence.transactions(config.target, config.deployer);
+        let mut chain = execution.chain.clone();
+        let transactions = sequence.transactions(execution.target, execution.deployer);
         let mut exec = chain.exec(&transactions)?;
 
         // 3. Merge execution coverage into the shared map.
@@ -423,7 +443,7 @@ fn worker(config: &FuzzerConfig, shared: &Shared, thread_id: usize, runs: u64) -
             .coverage
             .take()
             .context("execution coverage expected")?;
-        let update = config.coverage.merge(&coverage);
+        let update = execution.coverage.merge(&coverage);
 
         // 4. Measure the value after the sequence.
         let output = chain.exec(std::slice::from_ref(&value_tx))?;
@@ -454,7 +474,7 @@ fn worker(config: &FuzzerConfig, shared: &Shared, thread_id: usize, runs: u64) -
             let new_edges =
                 (update.new_edges + update.new_depths + update.new_reverts + update.new_jump_edges)
                     as u64;
-            config.corpus.add(sequence, value, new_edges);
+            execution.corpus.add(sequence, value, new_edges);
         }
     }
     Ok(())
