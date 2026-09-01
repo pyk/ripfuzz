@@ -10,6 +10,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.9.5] - 2026-09-02
+
+### Added
+
 - `ripfuzz test <harness>` finds broken invariants. It compiles a harness
   through solc, deploys it on a sandbox chain, fuzzes handler sequences, checks
   `invariant_*` functions after every call on a throwaway clone, shrinks each
@@ -375,7 +383,8 @@ Initial public release
   `SharedCorpus`, `CorpusReplayer`, and `CoverageReporter` types for
   programmatic use
 
-[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.4...HEAD
+[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.5...HEAD
+[0.9.5]: https://github.com/pyk/ripfuzz/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/pyk/ripfuzz/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/pyk/ripfuzz/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/pyk/ripfuzz/compare/v0.9.1...v0.9.2
