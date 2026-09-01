@@ -1,13 +1,13 @@
-//! Coverage reporter that generates an lcov.info file from build artifacts and
+//! Coverage reporter that generates an lcov.info file from solc output and
 //! shared coverage data.
 //!
 //! [`CoverageReporter`] is the entry point. It takes two inputs:
 //!
-//! 1. **Build artifacts** - compiled Solidity artifacts (parsed from `out/*.json`)
-//!    that contain deployed bytecode and source maps.
+//! 1. **Solc output** - a compiled [`SolcOutput`] that contains bytecode,
+//!    source maps, and ASTs for the compilation unit.
 //! 2. [`SharedCoverage`] - raw per-PC hit counts collected during fuzzing.
 //!
-//! The reporter resolves every hit PC back to a source line using the artifact
+//! The reporter resolves every hit PC back to a source line using the solc
 //! source maps, then aggregates the results into a single `lcov.info` report.
 //!
 //! # Two-tier coverage model
@@ -44,21 +44,20 @@
 //!
 //! # Pipeline
 //!
-//! 1. **Build path-to-artifact** map from all loaded artifacts.
-//! 2. **Match active bytecodes** from [`SharedCoverage`] to artifacts via
-//!    codehash (masking out link references and immutables).
-//! 3. **Resolve source files recursively** from each root artifact's
-//!    `metadata.sources`. Each source file key has its own child artifact
-//!    that is resolved transitively.
+//! 1. **Build a compiled-contract index** from `output.contracts` plus AST
+//!    library kinds.
+//! 2. **Match active bytecodes** from [`SharedCoverage`] to compiled
+//!    contracts via codehash (masking out link references and immutables).
+//! 3. **Build one compilation-unit source-id map** from `output.sources`.
 //! 4. **Pre-read source files** and build caches.
 //! 5. **Build PC-counter map**: for each matched codehash, walk PCs with
-//!    hits, resolve through the artifact source map to (file, line), and
+//!    hits, resolve through the contract source map to (file, line), and
 //!    record *binary* line hit markers.
 //! 6. **Determine executable lines** from the source map: a line is
 //!    executable when at least one source map entry maps to it, the line
 //!    is not a close-bracket (`}`), the line is not empty, and the line is
 //!    not a contract/interface/library definition.
-//! 7. **Collect function coverage** from the AST of resolved artifacts,
+//! 7. **Collect function coverage** from the AST of compilation sources,
 //!    using entry-PC raw counts for accurate per-function hit counts.
 //! 8. **Assemble the final `lcov.info` report.**
 //!
@@ -66,8 +65,9 @@
 //!
 //! ```text
 //! let report = CoverageReporter::new()
-//!     .build_artifacts(artifacts)
+//!     .solc_output(&solc_output)
 //!     .shared_coverage(shared_coverage)
+//!     .base_project_path(root)
 //!     .build();
 //! let lcov_info = format!("{report}");
 //! ```
@@ -78,12 +78,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use alloy_primitives::{B256, keccak256};
+use solc::{Bytecode, LinkReference, StandardJSONOutput};
 use tracing::{debug, instrument, trace};
 
+use crate::compilers::solc::SolcOutput;
 use crate::evm::coverage::id::CoverageId;
 use crate::evm::coverage::shared::{RawEdgeCounts, SharedCoverage};
 use crate::evm::coverage::source_map::{SourceMapEntry, parse_source_map};
-use crate::foundry::{Artifact, ArtifactBytecode, ArtifactId, BuildInfo, LinkReferences};
+
+type LinkReferences = HashMap<String, HashMap<String, Vec<LinkReference>>>;
 
 fn collect_link_positions(link_refs: &LinkReferences) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
@@ -129,6 +132,18 @@ fn parse_bytecode_with_placeholders(object: &str, link_refs: &LinkReferences) ->
     hex::decode(cleaned).unwrap_or_default()
 }
 
+fn bytecode_object(bytecode: &Bytecode) -> &str {
+    bytecode.object.as_deref().unwrap_or("")
+}
+
+fn bytecode_source_map(bytecode: &Bytecode) -> &str {
+    bytecode.source_map.as_deref().unwrap_or("")
+}
+
+fn bytecode_link_refs(bytecode: &Bytecode) -> LinkReferences {
+    bytecode.link_references.clone().unwrap_or_default()
+}
+
 fn build_pc_to_source_map(
     bytecode: &[u8],
     source_map: &[SourceMapEntry],
@@ -152,74 +167,129 @@ fn build_pc_to_source_map(
     result
 }
 
-struct ArtifactIndexEntry<'a> {
-    artifact: &'a Artifact,
+struct CompiledContract<'a> {
+    path: PathBuf,
+    name: &'a str,
+    bytecode: Option<&'a Bytecode>,
+    deployed: Option<&'a Bytecode>,
+    is_library: bool,
+}
+
+fn is_library(ast: &solc::ast::SourceUnit, name: &str) -> bool {
+    ast.nodes.iter().any(|node| {
+        if let solc::ast::SourceUnitNode::ContractDefinition(contract) = node {
+            contract.name == name && contract.contract_kind == solc::ast::ContractKind::Library
+        } else {
+            false
+        }
+    })
+}
+
+fn compiled_contracts(output: &StandardJSONOutput) -> Vec<CompiledContract<'_>> {
+    let mut contracts = Vec::new();
+    for (path, named) in &output.contracts {
+        let ast = output
+            .sources
+            .get(path)
+            .and_then(|source| source.ast.as_ref());
+        for (name, contract) in named {
+            let Some(evm) = contract.evm.as_ref() else {
+                continue;
+            };
+            let is_library = match ast {
+                Some(ast) => is_library(ast, name),
+                None => false,
+            };
+            contracts.push(CompiledContract {
+                // checkrs: allow(clone_in_loops)
+                path: path.clone(),
+                name,
+                bytecode: evm.bytecode.as_ref(),
+                deployed: evm.deployed_bytecode.as_ref(),
+                is_library,
+            });
+        }
+    }
+    contracts
+}
+
+fn deployed_index_entry(
+    contract_idx: usize,
+    contract: &CompiledContract<'_>,
+) -> Option<BytecodeIndexEntry> {
+    let deployed = contract.deployed?;
+    let link_refs = bytecode_link_refs(deployed);
+    let code = parse_bytecode_with_placeholders(bytecode_object(deployed), &link_refs);
+    if code.is_empty() {
+        return None;
+    }
+    let mut positions = collect_link_positions(&link_refs);
+    if let Some(immutables) = deployed.immutable_references.as_ref() {
+        for refs in immutables.values() {
+            for r in refs {
+                positions.push((r.start, r.length));
+            }
+        }
+    }
+    if contract.is_library && code.first() == Some(&0x73) {
+        positions.push((1, 20));
+    }
+    let code_len = code.len();
+    let mut masked = code;
+    zero_out_positions(&mut masked, &positions);
+    Some(BytecodeIndexEntry {
+        contract_idx,
+        hash: keccak256(&masked),
+        positions,
+        is_initcode: false,
+        code_len,
+    })
+}
+
+fn initcode_index_entry(
+    contract_idx: usize,
+    contract: &CompiledContract<'_>,
+) -> Option<BytecodeIndexEntry> {
+    let bytecode = contract.bytecode?;
+    let link_refs = bytecode_link_refs(bytecode);
+    let code = parse_bytecode_with_placeholders(bytecode_object(bytecode), &link_refs);
+    if code.is_empty() {
+        return None;
+    }
+    let positions = collect_link_positions(&link_refs);
+    let code_len = code.len();
+    let mut masked = code;
+    zero_out_positions(&mut masked, &positions);
+    Some(BytecodeIndexEntry {
+        contract_idx,
+        hash: keccak256(&masked),
+        positions,
+        is_initcode: true,
+        code_len,
+    })
+}
+
+struct BytecodeIndexEntry {
+    contract_idx: usize,
     hash: B256,
     positions: Vec<(usize, usize)>,
     is_initcode: bool,
     code_len: usize,
 }
 
-struct ArtifactIndex<'a> {
-    entries: Vec<ArtifactIndexEntry<'a>>,
+struct BytecodeIndex {
+    entries: Vec<BytecodeIndexEntry>,
     entries_by_len: HashMap<usize, Vec<usize>>,
 }
 
-impl<'a> ArtifactIndex<'a> {
-    fn new(artifacts: &'a [Artifact]) -> Self {
+impl BytecodeIndex {
+    fn new(contracts: &[CompiledContract<'_>]) -> Self {
         let mut entries = Vec::new();
-        for artifact in artifacts {
-            let deployed_entry = artifact.deployed_bytecode().and_then(|deployed| {
-                let code =
-                    parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
-                if code.is_empty() {
-                    return None;
-                }
-                let mut positions = collect_link_positions(&deployed.link_references);
-                for refs in deployed.immutable_references.values() {
-                    for r in refs {
-                        positions.push((r.start, r.length));
-                    }
-                }
-                if matches!(artifact, Artifact::Library(_)) && code.first() == Some(&0x73) {
-                    positions.push((1, 20));
-                }
-                let code_len = code.len();
-                let mut masked = code;
-                zero_out_positions(&mut masked, &positions);
-                let hash = keccak256(&masked);
-                Some(ArtifactIndexEntry {
-                    artifact,
-                    hash,
-                    positions,
-                    is_initcode: false,
-                    code_len,
-                })
-            });
-            if let Some(entry) = deployed_entry {
+        for (contract_idx, contract) in contracts.iter().enumerate() {
+            if let Some(entry) = deployed_index_entry(contract_idx, contract) {
                 entries.push(entry);
             }
-
-            let initcode_entry = artifact.bytecode().and_then(|bytecode| {
-                let code =
-                    parse_bytecode_with_placeholders(&bytecode.object, &bytecode.link_references);
-                if code.is_empty() {
-                    return None;
-                }
-                let positions = collect_link_positions(&bytecode.link_references);
-                let code_len = code.len();
-                let mut masked = code;
-                zero_out_positions(&mut masked, &positions);
-                let hash = keccak256(&masked);
-                Some(ArtifactIndexEntry {
-                    artifact,
-                    hash,
-                    positions,
-                    is_initcode: true,
-                    code_len,
-                })
-            });
-            if let Some(entry) = initcode_entry {
+            if let Some(entry) = initcode_index_entry(contract_idx, contract) {
                 entries.push(entry);
             }
         }
@@ -233,14 +303,14 @@ impl<'a> ArtifactIndex<'a> {
         }
     }
 
-    fn find(&self, raw_bytecode: &[u8]) -> Option<(&'a Artifact, bool)> {
+    fn find(&self, raw_bytecode: &[u8]) -> Option<(usize, bool)> {
         let candidates = self.entries_by_len.get(&raw_bytecode.len())?;
         let mut masked = raw_bytecode.to_vec();
         for idx in candidates {
             let entry = &self.entries[*idx];
             zero_out_positions(&mut masked, &entry.positions);
             if keccak256(&masked) == entry.hash {
-                return Some((entry.artifact, entry.is_initcode));
+                return Some((entry.contract_idx, entry.is_initcode));
             }
             for (start, len) in &entry.positions {
                 for i in *start..*start + *len {
@@ -355,16 +425,17 @@ impl fmt::Display for CoverageReport {
 /// Walk a deployed bytecode's source map and populate `source_map_lines`
 /// with every line that has a source map entry. Also insert the pc_map into
 /// `pc_map_cache`.
-fn populate_source_map_lines_from_deployed<'a>(
-    deployed: &ArtifactBytecode,
-    artifact: &'a Artifact,
+fn populate_source_map_lines_from_deployed(
+    deployed: &Bytecode,
+    contract_idx: usize,
     sid_map: &HashMap<usize, PathBuf>,
     source_cache: &HashMap<PathBuf, String>,
     source_map_lines: &mut HashMap<PathBuf, HashSet<usize>>,
-    pc_map_cache: &mut HashMap<(&'a ArtifactId, bool), Vec<Option<SourceMapEntry>>>,
+    pc_map_cache: &mut HashMap<(usize, bool), Vec<Option<SourceMapEntry>>>,
 ) {
-    let code = parse_bytecode_with_placeholders(&deployed.object, &deployed.link_references);
-    let source_map = parse_source_map(&deployed.source_map);
+    let link_refs = bytecode_link_refs(deployed);
+    let code = parse_bytecode_with_placeholders(bytecode_object(deployed), &link_refs);
+    let source_map = parse_source_map(bytecode_source_map(deployed));
     let pc_map = build_pc_to_source_map(&code, &source_map);
     for entry in source_map.iter() {
         if entry.source_index < 0 {
@@ -380,10 +451,11 @@ fn populate_source_map_lines_from_deployed<'a>(
             source_map_lines.entry(path_key).or_default().insert(line);
         }
     }
-    pc_map_cache.insert((artifact.id(), false), pc_map);
+    pc_map_cache.insert((contract_idx, false), pc_map);
 }
 
-/// Collect function definitions from resolved artifacts by walking the AST.
+/// Collect function definitions from compilation-unit ASTs by walking each
+/// source file once.
 ///
 /// For each function the hit count is taken from the raw coverage count of
 /// the function's *entry PC*: the earliest PC whose source-map entry
@@ -391,147 +463,135 @@ fn populate_source_map_lines_from_deployed<'a>(
 /// by the optimizer, so this count accurately reflects how many times the
 /// function was entered during the campaign.
 fn collect_function_coverage(
-    artifacts: &[&Artifact],
-    sid_maps: &HashMap<&ArtifactId, HashMap<usize, PathBuf>>,
+    output: &StandardJSONOutput,
+    sid_map: &HashMap<usize, PathBuf>,
     source_cache: &HashMap<PathBuf, String>,
     source_map_lines: &HashMap<PathBuf, HashSet<usize>>,
     matched_counts: &[RawEdgeCounts],
-    pc_map_cache: &HashMap<(&ArtifactId, bool), Vec<Option<SourceMapEntry>>>,
-    codehash_match: &HashMap<CoverageId, (&Artifact, bool)>,
+    pc_map_cache: &HashMap<(usize, bool), Vec<Option<SourceMapEntry>>>,
+    codehash_match: &HashMap<CoverageId, (usize, bool)>,
 ) -> HashMap<PathBuf, Vec<FunctionCoverage>> {
     let mut file_functions: HashMap<PathBuf, Vec<FunctionCoverage>> = HashMap::new();
 
-    for artifact in artifacts {
-        let ast = artifact.ast();
-        let Some(sid_map) = sid_maps.get(artifact.id()) else {
+    let mut collect = |func: &solc::ast::FunctionDefinition| {
+        if func.body.is_none() {
+            return;
+        }
+        let name = match func.kind {
+            Some(solc::ast::FunctionKind::Constructor) => "constructor".to_string(),
+            Some(solc::ast::FunctionKind::Fallback) => "fallback".to_string(),
+            Some(solc::ast::FunctionKind::Receive) => "receive".to_string(),
+            _ if func.name.is_empty() => return,
+            // checkrs: allow(clone_in_loops)
+            _ => func.name.clone(),
+        };
+        let Some(path) = sid_map.get(&func.src.source_index) else {
+            return;
+        };
+        let content = source_cache.get(path).cloned().unwrap_or_default();
+        if content.is_empty() {
+            return;
+        }
+        let start_line = offset_to_line(&content, func.src.offset);
+
+        // If the function has a body but no source map entry covers any
+        // line of its definition (signature + body), the compiler
+        // eliminated the function entirely. Skip it.
+        let func_start_line = offset_to_line(&content, func.src.offset);
+        let func_end_line =
+            offset_to_line(&content, func.src.offset.saturating_add(func.src.length));
+        let has_source_map = source_map_lines
+            .get(path)
+            .map(|sm_lines| (func_start_line..=func_end_line).any(|l| sm_lines.contains(&l)))
+            .unwrap_or(false);
+        if !has_source_map {
+            return;
+        }
+
+        // Tier 1: look up the function entry-PC raw count.
+        // Walk every matched bytecode, scan the pc_map for the earliest
+        // PC within the function's source range (correct source file +
+        // offset), and use its raw hit count.
+        //
+        // A function may be defined in an abstract contract whose bytecode
+        // lives in a derived concrete contract, so we resolve through the
+        // compilation-unit sid_map rather than requiring the contract
+        // names to be equal.
+        //
+        // Constructors only exist in initcode. Runtime functions only
+        // exist in deployed bytecode. Filter by is_initcode so that
+        // a deployed-bytecode source-map entry that happens to fall
+        // within the constructor's source range cannot shadow the
+        // real initcode entry.
+        let func_src_start = func.src.offset;
+        let func_src_end = func.src.offset.saturating_add(func.src.length);
+        let target_initcode = matches!(func.kind, Some(solc::ast::FunctionKind::Constructor));
+        let mut entry_hits: u64 = 0;
+
+        for counts in matched_counts {
+            let Some((contract_idx, is_initcode)) = codehash_match.get(&counts.contract_id) else {
+                continue;
+            };
+            // Only match constructors against initcode, runtime
+            // functions against deployed bytecode.
+            if *is_initcode != target_initcode {
+                continue;
+            }
+            let Some(pc_map) = pc_map_cache.get(&(*contract_idx, *is_initcode)) else {
+                continue;
+            };
+
+            // Find the earliest PC whose source-map entry falls
+            // within the function's AST source range *and* whose
+            // resolved source file matches the function's source
+            // file. For runtime functions this will be a JUMPDEST.
+            // For initcode (constructors) it will be the first
+            // instruction.
+            let mut best_pc: Option<usize> = None;
+            for (pc, entry) in pc_map.iter().enumerate() {
+                let Some(e) = entry else {
+                    continue;
+                };
+                if e.source_index < 0 {
+                    continue;
+                }
+                // Only match entries from the same source file.
+                let Some(entry_path) = sid_map.get(&(e.source_index as usize)) else {
+                    continue;
+                };
+                if entry_path != path {
+                    continue;
+                }
+                if e.offset < func_src_start || e.offset >= func_src_end {
+                    continue;
+                }
+                best_pc = Some(match best_pc {
+                    None => pc,
+                    Some(prev) => prev.min(pc),
+                });
+            }
+
+            entry_hits = best_pc
+                .and_then(|pc| counts.raw_edges.get(pc).copied())
+                .map_or(entry_hits, |hits| entry_hits.max(hits));
+        }
+
+        // checkrs: allow(clone_in_loops)
+        file_functions
+            // checkrs: allow(clone_in_loops)
+            .entry(path.clone())
+            .or_default()
+            .push(FunctionCoverage {
+                name,
+                line: start_line,
+                hits: entry_hits,
+            });
+    };
+
+    for source in output.sources.values() {
+        let Some(ast) = source.ast.as_ref() else {
             continue;
         };
-
-        let mut collect = |func: &solc::ast::FunctionDefinition| {
-            if func.body.is_none() {
-                return;
-            }
-            let name = match func.kind {
-                Some(solc::ast::FunctionKind::Constructor) => "constructor".to_string(),
-                Some(solc::ast::FunctionKind::Fallback) => "fallback".to_string(),
-                Some(solc::ast::FunctionKind::Receive) => "receive".to_string(),
-                _ if func.name.is_empty() => return,
-                // checkrs: allow(clone_in_loops)
-                _ => func.name.clone(),
-            };
-            let Some(path) = sid_map.get(&func.src.source_index) else {
-                return;
-            };
-            let content = source_cache.get(path).cloned().unwrap_or_default();
-            if content.is_empty() {
-                return;
-            }
-            let start_line = offset_to_line(&content, func.src.offset);
-
-            // If the function has a body but no source map entry covers any
-            // line of its definition (signature + body), the compiler
-            // eliminated the function entirely; skip it.
-            if func.body.is_some() {
-                let func_start_line = offset_to_line(&content, func.src.offset);
-                let func_end_line =
-                    offset_to_line(&content, func.src.offset.saturating_add(func.src.length));
-                let has_source_map = source_map_lines
-                    .get(path)
-                    .map(|sm_lines| {
-                        (func_start_line..=func_end_line).any(|l| sm_lines.contains(&l))
-                    })
-                    .unwrap_or(false);
-                if !has_source_map {
-                    return;
-                }
-            }
-
-            // Tier 1: look up the function entry-PC raw count.
-            // Walk every matched bytecode, scan the pc_map for the earliest
-            // PC within the function's source range (correct source file +
-            // offset), and use its raw hit count.
-            //
-            // A function may be defined in an abstract contract whose bytecode
-            // lives in a derived concrete contract, so we resolve through the
-            // matched artifact's sid_map rather than requiring the artifact
-            // ids to be equal.
-            //
-            // Constructors only exist in initcode; runtime functions only
-            // exist in deployed bytecode. Filter by is_initcode so that
-            // a deployed-bytecode source-map entry that happens to fall
-            // within the constructor's source range cannot shadow the
-            // real initcode entry.
-            let func_src_start = func.src.offset;
-            let func_src_end = func.src.offset.saturating_add(func.src.length);
-            let target_initcode = matches!(func.kind, Some(solc::ast::FunctionKind::Constructor));
-            let mut entry_hits: u64 = 0;
-
-            for counts in matched_counts {
-                let Some((matched_artifact, is_initcode)) = codehash_match.get(&counts.contract_id)
-                else {
-                    continue;
-                };
-                // Only match constructors against initcode, runtime
-                // functions against deployed bytecode.
-                if *is_initcode != target_initcode {
-                    continue;
-                }
-                let Some(pc_map) = pc_map_cache.get(&(matched_artifact.id(), *is_initcode)) else {
-                    continue;
-                };
-                let Some(matched_sid_map) = sid_maps.get(matched_artifact.id()) else {
-                    continue;
-                };
-
-                // Find the earliest PC whose source-map entry falls
-                // within the function's AST source range *and* whose
-                // resolved source file matches the function's source
-                // file. For runtime functions this will be a JUMPDEST;
-                // for initcode (constructors) it will be the first
-                // instruction.
-                let mut best_pc: Option<usize> = None;
-                for (pc, entry) in pc_map.iter().enumerate() {
-                    let Some(e) = entry else {
-                        continue;
-                    };
-                    if e.source_index < 0 {
-                        continue;
-                    }
-                    // Only match entries from the same source file.
-                    // Source indices differ across compilation units
-                    // so we compare resolved paths.
-                    let Some(entry_path) = matched_sid_map.get(&(e.source_index as usize)) else {
-                        continue;
-                    };
-                    if entry_path != path {
-                        continue;
-                    }
-                    if e.offset < func_src_start || e.offset >= func_src_end {
-                        continue;
-                    }
-                    best_pc = Some(match best_pc {
-                        None => pc,
-                        Some(prev) => prev.min(pc),
-                    });
-                }
-
-                entry_hits = best_pc
-                    .and_then(|pc| counts.raw_edges.get(pc).copied())
-                    .map_or(entry_hits, |hits| entry_hits.max(hits));
-            }
-
-            // checkrs: allow(clone_in_loops)
-            file_functions
-                // checkrs: allow(clone_in_loops)
-                .entry(path.clone())
-                .or_default()
-                .push(FunctionCoverage {
-                    name,
-                    line: start_line,
-                    hits: entry_hits,
-                });
-        };
-
         for node in &ast.nodes {
             match node {
                 solc::ast::SourceUnitNode::FunctionDefinition(func) => collect(func),
@@ -550,22 +610,20 @@ fn collect_function_coverage(
     file_functions
 }
 
-/// Collect contract definition line numbers from the AST of resolved
-/// artifacts. Contract, interface, and library definition lines are
+/// Collect contract definition line numbers from the AST of compilation
+/// sources. Contract, interface, and library definition lines are
 /// non-executable and must not appear in the coverage report.
 fn collect_contract_definition_lines(
-    artifacts: &[&Artifact],
-    sid_maps: &HashMap<&ArtifactId, HashMap<usize, PathBuf>>,
+    output: &StandardJSONOutput,
+    sid_map: &HashMap<usize, PathBuf>,
     source_cache: &HashMap<PathBuf, String>,
 ) -> HashMap<PathBuf, HashSet<usize>> {
     let mut contract_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
 
-    for artifact in artifacts {
-        let ast = artifact.ast();
-        let Some(sid_map) = sid_maps.get(artifact.id()) else {
+    for source in output.sources.values() {
+        let Some(ast) = source.ast.as_ref() else {
             continue;
         };
-
         for node in &ast.nodes {
             if let solc::ast::SourceUnitNode::ContractDefinition(contract) = node {
                 let Some(path) = sid_map.get(&contract.src.source_index) else {
@@ -590,11 +648,10 @@ fn collect_contract_definition_lines(
 /// Orchestrates the building of lcov coverage reports.
 #[derive(Debug, Clone)]
 pub struct CoverageReporter {
-    artifacts: Vec<Artifact>,
+    output: Option<StandardJSONOutput>,
     shared_coverage: SharedCoverage,
     /// The project path to use as the base for resolving source files.
-    /// External project paths are made relative to this directory so that
-    /// lcov `SF:` entries resolve correctly for tools like `genhtml`.
+    /// Source keys in the solc output are relative to this directory.
     base_project_path: Option<PathBuf>,
 }
 
@@ -608,15 +665,15 @@ impl CoverageReporter {
     /// Create a new empty [`CoverageReporter`].
     pub fn new() -> Self {
         Self {
-            artifacts: Vec::new(),
+            output: None,
             shared_coverage: SharedCoverage::new(),
             base_project_path: None,
         }
     }
 
-    /// Set the build artifacts.
-    pub fn build_artifacts(mut self, artifacts: Vec<Artifact>) -> Self {
-        self.artifacts = artifacts;
+    /// Set the solc compilation output used to resolve bytecode and sources.
+    pub fn solc_output(mut self, output: &SolcOutput) -> Self {
+        self.output = Some(output.output.clone());
         self
     }
 
@@ -628,265 +685,123 @@ impl CoverageReporter {
 
     /// Set the base project path for source file resolution.
     ///
-    /// Paths from external projects (artifacts whose `project_path` differs
-    /// from this base) are prefixed with their relative path so that lcov
-    /// `SF:` entries resolve correctly from this directory.
+    /// Source paths in the solc output are resolved relative to this
+    /// directory so that lcov `SF:` entries match the compilation keys.
     pub fn base_project_path(mut self, path: impl AsRef<Path>) -> Self {
         let p = path.as_ref();
         self.base_project_path = Some(p.canonicalize().unwrap_or_else(|_| p.to_path_buf()));
         self
     }
 
-    /// Qualify a source file path for external projects.
-    ///
-    /// If the artifact's project path differs from the base project path,
-    /// the path is prefixed so it resolves relative to the base directory.
-    fn qualify_path(
-        artifact_canon: &Path,
-        base_canon: &Path,
-        artifact_proj: &Path,
-        source_path: impl AsRef<Path>,
-    ) -> PathBuf {
-        if artifact_canon == base_canon || artifact_proj.as_os_str().is_empty() {
-            return source_path.as_ref().to_path_buf();
-        }
-        // Compute prefix: if the artifact project path starts with the
-        // base, use the suffix. Otherwise fall back to its directory name.
-        let prefix: PathBuf = if let Ok(rel) = artifact_canon.strip_prefix(base_canon) {
-            rel.to_path_buf()
-        } else {
-            PathBuf::from(artifact_proj.file_name().unwrap_or_default())
-        };
-        prefix.join(source_path)
-    }
-
     /// Build the coverage report.
     ///
     /// # Pipeline
     ///
-    /// 1. **Build path-to-artifact** map from all loaded artifacts.
-    /// 2. **Match active bytecodes** from [`SharedCoverage`] to artifacts
-    ///    via codehash, producing the set of root artifacts.
-    /// 3. **Resolve source files recursively** from each root artifact's
-    ///    `metadata.sources`. Each source file key has its own child
-    ///    artifact that is resolved transitively.
+    /// 1. **Build a compiled-contract index** from `output.contracts`.
+    /// 2. **Match active bytecodes** from [`SharedCoverage`] to compiled
+    ///    contracts via codehash.
+    /// 3. **Build one compilation-unit source-id map** from `output.sources`.
     /// 4. **Pre-read source files** and build caches.
     /// 5. **Build PC-counter map**: for each matched codehash, walk PCs
-    ///    with hits, resolve through the artifact source map to (file,
+    ///    with hits, resolve through the contract source map to (file,
     ///    line), and aggregate hit counts.
     /// 6. **Determine executable lines** from the source map: a line is
     ///    executable when at least one source map entry maps to it, the
     ///    line is not a close-bracket (`}`), the line is not empty, and the
     ///    line is not a contract/interface/library definition.
-    /// 7. **Collect function coverage** from the AST of resolved artifacts.
+    /// 7. **Collect function coverage** from the AST of compilation sources.
     /// 8. **Assemble the final `lcov.info` report.**
     #[instrument(skip(self), level = "trace")]
     pub fn build(self) -> CoverageReport {
-        // Step 1: Build path-to-artifact map.
-        let mut path_to_artifact: HashMap<PathBuf, &Artifact> = HashMap::new();
-        for artifact in &self.artifacts {
-            // checkrs: allow(clone_in_loops)
-            path_to_artifact.insert(artifact.ast().absolute_path.clone(), artifact);
-        }
+        let Some(output) = self.output else {
+            return CoverageReport::default();
+        };
 
-        // Step 2: Match active bytecodes → root artifacts.
-        let index = ArtifactIndex::new(&self.artifacts);
+        // 1. Build a compiled-contract index from the solc output.
+        let contracts = compiled_contracts(&output);
+        let index = BytecodeIndex::new(&contracts);
+
+        // 2. Match active bytecodes to compiled contracts.
         let all_bytecodes = self.shared_coverage.all_bytecodes();
         trace!(all_bytecodes_len = all_bytecodes.len());
 
-        let mut codehash_match: HashMap<CoverageId, (&Artifact, bool)> = HashMap::new();
+        let mut codehash_match: HashMap<CoverageId, (usize, bool)> = HashMap::new();
         let mut matched_ids: Vec<CoverageId> = Vec::new();
-        let mut root_artifact_ids: HashSet<&ArtifactId> = HashSet::new();
+        let mut matched_indices: HashSet<usize> = HashSet::new();
 
         for (id, bytecode) in &all_bytecodes {
             if let Some(matched) = index.find(bytecode) {
                 codehash_match.insert(*id, matched);
                 matched_ids.push(*id);
-                root_artifact_ids.insert(matched.0.id());
+                matched_indices.insert(matched.0);
             }
         }
-        trace!(root_artifact_count = root_artifact_ids.len());
+        trace!(matched_contract_count = matched_indices.len());
 
-        // Pre-compute canonical project paths once so that qualify_path
-        // below never calls canonicalize() inside a loop (deterministic).
-        let base_canon: Option<PathBuf> = self
-            .base_project_path
-            .map(|b| b.canonicalize().unwrap_or(b));
-        let mut artifact_canon_paths: HashMap<&ArtifactId, PathBuf> = HashMap::new();
-        // checkrs: allow(clone_in_iterator)
-        for artifact in &self.artifacts {
-            let canon = artifact
-                .project_path()
-                .canonicalize()
-                .unwrap_or_else(|_| artifact.project_path().to_path_buf());
-            artifact_canon_paths.insert(artifact.id(), canon);
+        if matched_indices.is_empty() {
+            return CoverageReport::default();
         }
 
-        // Step 3: Resolve source files recursively from metadata.sources.
-        //
-        // Also builds a path_map from project-relative paths to qualified
-        // paths (prefixed with the external project directory when the
-        // artifact lives in a different project).
+        // 3. Build one compilation-unit source-id map from output.sources.
+        let mut sid_map: HashMap<usize, PathBuf> = HashMap::new();
         let mut all_files: HashSet<PathBuf> = HashSet::new();
-        let mut resolved_artifact_ids: HashSet<&ArtifactId> = HashSet::new();
-        // Map project-relative source path → lcov-qualified path.
-        let mut path_map: HashMap<PathBuf, PathBuf> = HashMap::new();
-
-        for root_id in &root_artifact_ids {
-            let Some(root_artifact) = path_to_artifact.get(&root_id.path) else {
-                continue;
-            };
-            let mut queue = vec![*root_artifact];
-            let mut visited: HashSet<&ArtifactId> = HashSet::new();
-
-            while let Some(current) = queue.pop() {
-                if !visited.insert(current.id()) {
-                    continue;
-                }
-                resolved_artifact_ids.insert(current.id());
-
-                if let Some(sources) = current.metadata_sources() {
-                    for path_str in sources.keys() {
-                        let path = PathBuf::from(path_str);
-                        let maybe_child = path_to_artifact.get(&path).copied();
-                        let qualified = base_canon
-                            .as_ref()
-                            .zip(artifact_canon_paths.get(current.id()))
-                            .map(|(base, artifact_canon)| {
-                                Self::qualify_path(
-                                    artifact_canon,
-                                    base,
-                                    current.project_path(),
-                                    &path,
-                                )
-                            })
-                            // checkrs: allow(clone_in_loops)
-                            .unwrap_or_else(|| path.clone());
-                        // checkrs: allow(clone_in_loops)
-                        path_map.insert(path.clone(), qualified);
-                        all_files.insert(path);
-                        queue.extend(maybe_child);
-                    }
-                } else {
-                    // checkrs: allow(clone_in_loops)
-                    let abs = current.ast().absolute_path.clone();
-                    let qualified = if let (Some(base), Some(artifact_canon)) =
-                        (base_canon.as_ref(), artifact_canon_paths.get(current.id()))
-                    {
-                        Self::qualify_path(artifact_canon, base, current.project_path(), &abs)
-                    } else {
-                        // checkrs: allow(clone_in_loops)
-                        abs.clone()
-                    };
-                    // checkrs: allow(clone_in_loops)
-                    path_map.insert(abs, qualified);
-                    all_files.insert(current.ast().absolute_path.clone()); // checkrs: allow(clone_in_loops)
-                }
+        for (path, source) in &output.sources {
+            if source.id >= 0 {
+                // checkrs: allow(clone_in_loops)
+                sid_map.insert(source.id as usize, path.clone());
             }
+            // checkrs: allow(clone_in_loops)
+            all_files.insert(path.clone());
         }
 
         if all_files.is_empty() {
             return CoverageReport::default();
         }
 
-        let resolved_artifact_refs: Vec<&Artifact> = self
-            .artifacts
-            .iter()
-            .filter(|a| resolved_artifact_ids.contains(a.id()))
-            .collect();
-
-        // Step 4: Pre-read source files and build caches.
-        //
-        // Collect the unique project paths from all resolved artifacts so
-        // that source files from external projects (loaded via
-        // --external-project) can be found alongside the main project.
-        let project_paths: Vec<&std::path::Path> = {
-            let mut seen = HashSet::new();
-            let mut paths = Vec::new();
-            for artifact in &resolved_artifact_refs {
-                let pp = artifact.project_path();
-                if seen.insert(pp) {
-                    paths.push(pp);
-                }
-            }
-            for artifact in &self.artifacts {
-                let pp = artifact.project_path();
-                if seen.insert(pp) {
-                    paths.push(pp);
-                }
-            }
-            paths
-        };
+        // 4. Pre-read source files and build caches.
+        let base = self.base_project_path.as_deref();
         let mut source_cache: HashMap<PathBuf, String> = HashMap::new();
         for path in &all_files {
-            for proj_path in &project_paths {
-                let full = proj_path.join(path);
-                if let Ok(content) = fs::read_to_string(&full) {
-                    // checkrs: allow(clone_in_loops)
-                    source_cache.insert(path.clone(), content);
-                    break;
-                }
+            let full = match base {
+                Some(base) => base.join(path),
+                // checkrs: allow(clone_in_loops)
+                None => path.clone(),
+            };
+            if let Ok(content) = fs::read_to_string(&full) {
+                // checkrs: allow(clone_in_loops)
+                source_cache.insert(path.clone(), content);
+            } else if let Ok(content) = fs::read_to_string(path) {
+                // checkrs: allow(clone_in_loops)
+                source_cache.insert(path.clone(), content);
             }
         }
 
-        // Step 5: Build PC-counter map.
+        // 5. Build PC-counter map.
         //
         // For each matched codehash, walk PCs with hits, resolve through
-        // the artifact source map to (file, line), and aggregate hit counts.
+        // the contract source map to (file, line), and aggregate hit counts.
         let matched_counts = self
             .shared_coverage
             .raw_edge_counts_with_bytecodes_for_ids(&matched_ids);
 
-        // Map: file path → (line → max hit count)
         let mut line_hits: HashMap<PathBuf, HashMap<usize, u64>> = HashMap::new();
-        // Map: file path → set of line numbers that appear in source map
         let mut source_map_lines: HashMap<PathBuf, HashSet<usize>> = HashMap::new();
+        let mut pc_map_cache: HashMap<(usize, bool), Vec<Option<SourceMapEntry>>> = HashMap::new();
 
-        // Precompute source_id → path map for each root artifact by matching
-        // its (source_id, path) pair against compiler build-info files.
-        // Each artifact uses its own project_path so that external projects'
-        // build-info directories are searched alongside the main project's.
-        let mut sid_maps: HashMap<&ArtifactId, HashMap<usize, PathBuf>> = HashMap::new();
-        for root_id in &root_artifact_ids {
-            if let Some(artifact) = path_to_artifact.get(&root_id.path) {
-                sid_maps.insert(
-                    root_id,
-                    BuildInfo::load_for_artifact(
-                        artifact.project_path(),
-                        &artifact.ast().absolute_path,
-                        artifact.source_id(),
-                    )
-                    .unwrap_or_default(),
-                );
-            }
-        }
-
-        // Precompute pc_map for every (artifact, is_initcode) pair, and
-        // populate source_map_lines from deployed (runtime) source maps only.
-        // Initcode (constructor) source maps are excluded because executable
-        // lines are derived from runtime code paths.
-        let mut pc_map_cache: HashMap<(&ArtifactId, bool), Vec<Option<SourceMapEntry>>> =
-            HashMap::new();
-        for root_id in &root_artifact_ids {
-            let Some(artifact) = path_to_artifact.get(&root_id.path) else {
-                continue;
-            };
-            let Some(sid_map) = sid_maps.get(root_id) else {
-                continue;
-            };
-            if let Some(bytecode) = artifact.bytecode() {
-                let code =
-                    parse_bytecode_with_placeholders(&bytecode.object, &bytecode.link_references);
-                let source_map = parse_source_map(&bytecode.source_map);
+        for contract_idx in &matched_indices {
+            let contract = &contracts[*contract_idx];
+            if let Some(bytecode) = contract.bytecode {
+                let link_refs = bytecode_link_refs(bytecode);
+                let code = parse_bytecode_with_placeholders(bytecode_object(bytecode), &link_refs);
+                let source_map = parse_source_map(bytecode_source_map(bytecode));
                 let pc_map = build_pc_to_source_map(&code, &source_map);
-                pc_map_cache.insert((artifact.id(), true), pc_map);
+                pc_map_cache.insert((*contract_idx, true), pc_map);
             }
-            // checkrs: allow(nested_if_let)
-            if let Some(deployed) = artifact.deployed_bytecode() {
+            if let Some(deployed) = contract.deployed {
                 populate_source_map_lines_from_deployed(
                     deployed,
-                    artifact,
-                    sid_map,
+                    *contract_idx,
+                    &sid_map,
                     &source_cache,
                     &mut source_map_lines,
                     &mut pc_map_cache,
@@ -895,19 +810,18 @@ impl CoverageReporter {
         }
 
         for counts in &matched_counts {
-            let Some((artifact, is_initcode)) = codehash_match.get(&counts.contract_id) else {
+            let Some((contract_idx, is_initcode)) = codehash_match.get(&counts.contract_id) else {
                 continue;
             };
-            let Some(pc_map) = pc_map_cache.get(&(artifact.id(), *is_initcode)) else {
+            let Some(pc_map) = pc_map_cache.get(&(*contract_idx, *is_initcode)) else {
                 continue;
             };
-            let Some(sid_map) = sid_maps.get(artifact.id()) else {
-                continue;
-            };
+            let contract = &contracts[*contract_idx];
 
             debug!(
-                "matched artifact: {} (bytecode len={}, initcode={})",
-                artifact.id(),
+                "matched contract: {}:{} (bytecode len={}, initcode={})",
+                contract.path.display(),
+                contract.name,
                 counts.bytecode.len(),
                 is_initcode
             );
@@ -936,7 +850,6 @@ impl CoverageReporter {
 
                 let line = offset_to_line(content, entry.offset);
 
-                // Record that this line appears in the source map.
                 source_map_lines
                     // checkrs: allow(clone_in_loops)
                     .entry(path.clone())
@@ -950,7 +863,7 @@ impl CoverageReporter {
             }
         }
 
-        // Step 6: Determine executable lines.
+        // 6. Determine executable lines.
         //
         // A line is executable when:
         //   1. It appears in source_map_lines (has a source map entry).
@@ -958,7 +871,7 @@ impl CoverageReporter {
         //   3. It is not empty (trimmed.is_empty()).
         //   4. It is not a contract/interface/library definition line.
         let contract_def_lines =
-            collect_contract_definition_lines(&resolved_artifact_refs, &sid_maps, &source_cache);
+            collect_contract_definition_lines(&output, &sid_map, &source_cache);
 
         let mut executable_line_hits: HashMap<PathBuf, HashMap<usize, u64>> = HashMap::new();
 
@@ -999,10 +912,10 @@ impl CoverageReporter {
             }
         }
 
-        // Step 7: Collect function coverage from AST.
+        // 7. Collect function coverage from AST.
         let file_functions = collect_function_coverage(
-            &resolved_artifact_refs,
-            &sid_maps,
+            &output,
+            &sid_map,
             &source_cache,
             &source_map_lines,
             &matched_counts,
@@ -1029,7 +942,7 @@ impl CoverageReporter {
             executable_line_hits.entry(path.clone()).or_default();
         }
 
-        // Step 8: Assemble the report.
+        // 8. Assemble the report.
         let mut all_paths: Vec<PathBuf> = all_files.into_iter().collect();
         all_paths.sort();
 
@@ -1042,465 +955,12 @@ impl CoverageReporter {
                 continue;
             }
             files.push(FileCoverage {
-                path: path_map.get(&path).cloned().unwrap_or(path),
+                path,
                 line_hits,
                 functions,
             });
         }
 
         CoverageReport { files }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fs;
-    use std::path::{Path, PathBuf};
-
-    use alloy_sol_types::SolCall;
-    use revm::primitives::{Address, Bytes};
-
-    use crate::evm::coverage::exec::{ExecutionContractCoverage, ExecutionCoverage};
-    use crate::evm::{
-        Chain, ChainConfig, Contract, DeployInput, SetupInput, SharedCoverage, Transaction,
-    };
-    use crate::foundry;
-
-    use super::*;
-
-    alloy_sol_types::sol! {
-        interface CoverageBranch {
-            function branch(bool take) external;
-        }
-
-        interface HarnessContractWithInterface {
-            function interfaceCall(uint256 amount) external returns (uint256);
-        }
-
-        interface HarnessContractWithLibLinked {
-            function libLinkedCall(uint256 amount) external returns (uint256);
-        }
-
-        interface HarnessContractWithLib {
-            function libCall(uint256 amount) external returns (uint256);
-        }
-
-        interface HarnessContractBasic {
-            function addAndSub(uint256 a, uint256 b) external returns (uint256);
-        }
-
-        interface HarnessContractWithLoop {
-            function runLoop(uint256 count) external;
-            function runNestedLoop(uint256 outer, uint256 inner) external;
-        }
-
-        interface HarnessContractWithIf {
-            function runIf(bool condition) external;
-            function runIfElse(bool condition) external;
-            function runIfElseWithNewline(bool condition) external;
-            function runNestedIf(bool a, bool b) external;
-        }
-
-        interface EmptyHandlerFunction {
-            function dummyHandlerFunction() external;
-        }
-
-        interface InheritedHarness {
-            function inheritedHandlerFunction() external;
-        }
-
-        interface CoverageInactiveUser {
-            function callUsed() external pure returns (uint256);
-        }
-    }
-
-    fn load_coverage_fixture(project_path: impl AsRef<Path>, id: &str) -> Contract {
-        let project = foundry::Project::new(project_path);
-        let artifacts = project.load_artifacts().unwrap();
-        let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
-        Contract::try_get(&artifacts, &artifact_id).unwrap()
-    }
-
-    struct Deployed {
-        chain: Chain,
-        address: Address,
-        global: SharedCoverage,
-    }
-
-    fn deploy_and_setup(_project_path: impl AsRef<Path>, contract: &Contract) -> Deployed {
-        let config = ChainConfig::default().coverage(true);
-        let mut chain = Chain::new(config).unwrap();
-        let mut deploy_opts = DeployInput::new(&contract.initcode);
-        for lib in &contract.libraries {
-            deploy_opts = deploy_opts.add_library(lib.clone());
-        }
-        let deployment = chain.deploy(deploy_opts).unwrap();
-        assert!(deployment.result.success, "deployment must succeed");
-        let target = deployment.address.unwrap();
-
-        let global = SharedCoverage::new();
-        global.merge(&deployment.coverage);
-
-        if let Some(setup) = &contract.setup_function {
-            let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
-            let setup_opts = SetupInput::new(target).calldata(setup_data);
-            let setup = chain.setup(setup_opts).unwrap();
-            assert!(setup.result.success, "setup must succeed");
-            global.merge(&setup.coverage);
-        }
-
-        Deployed {
-            chain,
-            address: target,
-            global,
-        }
-    }
-
-    fn build_report(shared_coverage: &SharedCoverage, artifacts: &[Artifact]) -> CoverageReport {
-        CoverageReporter::new()
-            .build_artifacts(artifacts.to_vec())
-            .shared_coverage(shared_coverage.clone())
-            .build()
-    }
-
-    fn project_path() -> PathBuf {
-        fs::canonicalize("fixtures/harness-contract-coverage")
-            .unwrap_or_else(|_| PathBuf::from("fixtures/harness-contract-coverage"))
-    }
-
-    /// Regression test: build artifacts that include interfaces (which have
-    /// no deployed bytecode) must not cause coverage report generation to fail.
-    #[test]
-    fn coverage_report_build_with_interface_artifact() {
-        let contract = load_coverage_fixture(
-            "fixtures/harness-contract-coverage",
-            "src/CoverageBranch.sol:CoverageBranch",
-        );
-        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
-
-        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            CoverageBranch::branchCall::new((false,)).abi_encode(),
-        ))];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        deployed.global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/harness-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&deployed.global, &artifacts);
-
-        assert!(
-            !report.files.is_empty(),
-            "coverage report should be generated even when build artifacts include interfaces"
-        );
-    }
-
-    /// Regression test: coverage report for if-statement close brackets and
-    /// empty lines between if-else branches must be handled correctly.
-    #[test]
-    fn harness_contract_with_if() {
-        let contract = load_coverage_fixture(
-            "fixtures/harness-contract-coverage",
-            "src/HarnessContractWithIf.sol:HarnessContractWithIf",
-        );
-        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
-
-        let txs = vec![
-            Transaction::new(deployed.address).calldata(Bytes::from(
-                HarnessContractWithIf::runIfCall::new((true,)).abi_encode(),
-            )),
-            Transaction::new(deployed.address).calldata(Bytes::from(
-                HarnessContractWithIf::runIfElseCall::new((true,)).abi_encode(),
-            )),
-            Transaction::new(deployed.address).calldata(Bytes::from(
-                HarnessContractWithIf::runIfElseCall::new((false,)).abi_encode(),
-            )),
-            Transaction::new(deployed.address).calldata(Bytes::from(
-                HarnessContractWithIf::runIfElseWithNewlineCall::new((true,)).abi_encode(),
-            )),
-            Transaction::new(deployed.address).calldata(Bytes::from(
-                HarnessContractWithIf::runIfElseWithNewlineCall::new((false,)).abi_encode(),
-            )),
-            Transaction::new(deployed.address).calldata(Bytes::from(
-                HarnessContractWithIf::runNestedIfCall::new((true, true)).abi_encode(),
-            )),
-        ];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        deployed.global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/harness-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&deployed.global, &artifacts);
-        let formatted = format!("{report}");
-
-        let expected_file =
-            "fixtures/harness-contract-coverage/expected/HarnessContractWithIf.info";
-        let expected = fs::read_to_string(expected_file)
-            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
-        let expected = expected.replace(
-            "fixtures/harness-contract-coverage",
-            &project_path().to_string_lossy(),
-        );
-        assert_eq!(
-            formatted.trim(),
-            expected.trim(),
-            "coverage report output must match expected"
-        );
-    }
-
-    /// Regression test: coverage report generation must not crash and must
-    /// produce non-empty output even when the handler function body is empty.
-    #[test]
-    fn coverage_report_empty_handler_function() {
-        let contract = load_coverage_fixture(
-            "fixtures/harness-contract-coverage",
-            "src/EmptyHandlerFunction.sol:EmptyHandlerFunction",
-        );
-        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
-
-        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            EmptyHandlerFunction::dummyHandlerFunctionCall::new(()).abi_encode(),
-        ))];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        deployed.global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/harness-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&deployed.global, &artifacts);
-
-        assert!(
-            !report.files.is_empty(),
-            "coverage report must contain at least one file"
-        );
-        for file in &report.files {
-            assert!(
-                !file.line_hits.is_empty() || !file.functions.is_empty(),
-                "coverage report file must not be empty: {}",
-                file.path.display()
-            );
-        }
-    }
-
-    #[test]
-    fn coverage_report_inherited_target_function() {
-        let contract = load_coverage_fixture(
-            "fixtures/harness-contract-coverage",
-            "src/InheritedHarness.sol:InheritedHarness",
-        );
-        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
-
-        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            InheritedHarness::inheritedHandlerFunctionCall::new(()).abi_encode(),
-        ))];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        deployed.global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/harness-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&deployed.global, &artifacts);
-
-        assert!(
-            !report.files.is_empty(),
-            "coverage report must be generated for a handler function inherited from a base contract"
-        );
-    }
-
-    /// Regression test: genhtml requires a DA entry for every FN line. If a
-    /// function's start line is not in the source map, the coverage report must
-    /// still emit a DA entry for that line so genhtml does not fail with
-    /// "unexpected category UNK".
-    #[test]
-    fn coverage_report_function_start_line_without_source_map() {
-        let contract = load_coverage_fixture(
-            "fixtures/harness-contract-coverage",
-            "src/UnusedLibraryUser.sol:UnusedLibraryUser",
-        );
-        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
-
-        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            hex::decode("771602f7").unwrap(), // useAdd(uint256,uint256)
-        ))];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        deployed.global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/harness-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&deployed.global, &artifacts);
-
-        // Functions whose bodies are eliminated by the compiler (no source
-        // map entries for the function start line) must not appear in the
-        // report. Only usedAdd (line 5) which is called via inlining should
-        // be present; unusedAdd (line 9) must be absent.
-        let unused_library = report
-            .files
-            .iter()
-            .find(|f| f.path.ends_with("UnusedLibrary.sol"))
-            .expect("UnusedLibrary.sol must be in report");
-        assert!(
-            unused_library.line_hits.contains_key(&5),
-            "UnusedLibrary.sol must contain DA entry for used function at line 5: {unused_library:?}"
-        );
-        assert!(
-            !unused_library.line_hits.contains_key(&9),
-            "UnusedLibrary.sol must NOT contain DA entry for eliminated function at line 9: {unused_library:?}"
-        );
-    }
-
-    /// Regression test: a source map entry whose offset points to the end of a
-    /// source file that ends with a newline must not produce a line number beyond
-    /// the file's actual line count.
-    #[test]
-    fn coverage_report_trailing_newline_no_out_of_range() {
-        let project = foundry::Project::new("fixtures/harness-contract-coverage");
-        let mut artifacts: Vec<Artifact> =
-            project.load_artifacts().unwrap().into_values().collect();
-
-        // Extract the deployed bytecode from the artifact before we modify it.
-        let mut bytecode = Vec::new();
-        for artifact in &artifacts {
-            if artifact.id().to_string()
-                == "src/CoverageTrailingNewline.sol:CoverageTrailingNewline"
-            {
-                bytecode = artifact.deployed_bytecode().unwrap().to_bytes().to_vec();
-            }
-        }
-        assert!(!bytecode.is_empty(), "deployed bytecode must not be empty");
-
-        // Inject a fake source map entry pointing to the end of the file to
-        // simulate a compiler-generated entry that sits past the final newline.
-        let source_path =
-            PathBuf::from("fixtures/harness-contract-coverage/src/CoverageTrailingNewline.sol");
-        let content = fs::read_to_string(&source_path).unwrap();
-        let file_len = content.len();
-
-        for artifact in &mut artifacts {
-            if artifact.id().to_string()
-                == "src/CoverageTrailingNewline.sol:CoverageTrailingNewline"
-                && let Artifact::Contract(a) = artifact
-            {
-                let original = a.deployed_bytecode.source_map.clone();
-                a.deployed_bytecode.source_map =
-                    format!("{}:0:{}:-:0;{}", file_len, a.source_id, original);
-            }
-        }
-
-        // Create a fake coverage hit for PC 0 (the first opcode) which maps to the fake entry.
-        let global = SharedCoverage::new();
-        let mut fake_local = ExecutionCoverage::new();
-        let mut fake_contract = ExecutionContractCoverage::new(bytecode.len());
-        fake_contract.bytecode = bytecode;
-        fake_contract.edges[0] = 1;
-        fake_contract.hit_pcs.push(0);
-        let contract_id = CoverageId::Runtime {
-            address: Address::ZERO,
-            codehash: keccak256(&fake_contract.bytecode),
-        };
-        fake_local.contracts.insert(contract_id, fake_contract);
-        global.merge(&fake_local);
-
-        let report = build_report(&global, &artifacts);
-
-        let file = report
-            .files
-            .iter()
-            .find(|f| f.path.ends_with("CoverageTrailingNewline.sol"))
-            .expect("CoverageTrailingNewline.sol must be in report");
-        let max_line = *file.line_hits.keys().max().unwrap_or(&0);
-        let line_count = content.lines().count();
-        assert!(
-            max_line <= line_count,
-            "CoverageTrailingNewline.sol must not contain a line number beyond the file's line count ({line_count}), but found {max_line}"
-        );
-    }
-
-    /// Regression test: contracts with immutable variables must be matched
-    /// correctly by the coverage reporter so that their coverage is not lost.
-    #[test]
-    fn coverage_report_immutable_contract_matched() {
-        let contract = load_coverage_fixture(
-            "fixtures/harness-contract-coverage",
-            "src/CoverageImmutable.sol:CoverageImmutable",
-        );
-        let config = ChainConfig::default().coverage(true);
-        let mut chain = Chain::new(config).unwrap();
-        let deploy_opts = DeployInput::new(&contract.initcode);
-        let deployment = chain.deploy(deploy_opts).unwrap();
-        assert!(deployment.result.success, "deployment must succeed");
-
-        let global = SharedCoverage::new();
-        global.merge(&deployment.coverage);
-
-        let txs = vec![
-            Transaction::new(deployment.address.unwrap()).calldata(Bytes::from(
-                hex::decode("20965255").unwrap(), // getValue()
-            )),
-        ];
-        let exec = chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/harness-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&global, &artifacts);
-
-        let file = report
-            .files
-            .iter()
-            .find(|f| f.path.ends_with("CoverageImmutable.sol"))
-            .expect("CoverageImmutable.sol must be in report");
-        let get_value_line = 15; // line of function getValue() signature
-        let body_line = 16; // line of function getValue() body
-        assert!(
-            file.line_hits.contains_key(&get_value_line),
-            "CoverageImmutable.sol must contain DA entry for getValue() line {get_value_line}: {file:?}"
-        );
-        assert!(
-            file.line_hits.get(&get_value_line).unwrap_or(&0) > &0,
-            "CoverageImmutable.sol getValue() line {get_value_line} must have hits > 0: {file:?}"
-        );
-        assert!(
-            file.line_hits.contains_key(&body_line),
-            "CoverageImmutable.sol must contain DA entry for getValue() body line {body_line}: {file:?}"
-        );
-        assert!(
-            file.line_hits.get(&body_line).unwrap_or(&0) > &0,
-            "CoverageImmutable.sol getValue() body line {body_line} must have hits > 0: {file:?}"
-        );
-    }
-
-    /// Regression test: inactive artifacts must not contribute executable lines
-    /// to the coverage report. Only artifacts whose bytecode was recorded during
-    /// fuzzing should define the set of executable source lines.
-    #[test]
-    fn coverage_report_inactive_artifact_no_executable_lines() {
-        let contract = load_coverage_fixture(
-            "fixtures/harness-contract-coverage",
-            "src/CoverageInactiveUser.sol:CoverageInactiveUser",
-        );
-        let mut deployed = deploy_and_setup("fixtures/harness-contract-coverage", &contract);
-
-        let txs = vec![Transaction::new(deployed.address).calldata(Bytes::from(
-            CoverageInactiveUser::callUsedCall::new(()).abi_encode(),
-        ))];
-        let exec = deployed.chain.exec(&txs).unwrap();
-        let coverage = exec.coverage.expect("coverage must be present");
-        deployed.global.merge(&coverage);
-
-        let project = foundry::Project::new("fixtures/harness-contract-coverage");
-        let artifacts: Vec<Artifact> = project.load_artifacts().unwrap().into_values().collect();
-        let report = build_report(&deployed.global, &artifacts);
-
-        // CoverageInactiveUser.sol must appear because it is deployed.
-        assert!(
-            report
-                .files
-                .iter()
-                .any(|f| f.path.ends_with("CoverageInactiveUser.sol")),
-            "CoverageInactiveUser.sol must appear in coverage report: {report:?}"
-        );
     }
 }

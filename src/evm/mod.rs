@@ -20,8 +20,8 @@ pub use chain::{
 pub use cheatcode::CheatcodeConfig;
 pub use contract::Contract;
 pub use coverage::{
-    CoverageId, CoverageReport, CoverageReporter, CoverageUpdate, ExecutionContractCoverage,
-    ExecutionCoverage, SharedCoverage,
+    CoverageId, CoverageReport, CoverageReporter, CoverageUpdate, CoverageWriter,
+    ExecutionContractCoverage, ExecutionCoverage, SharedCoverage,
 };
 pub use forkdb::ForkDBConfig;
 pub use forkdb::MockTransport;

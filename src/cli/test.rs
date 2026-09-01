@@ -11,8 +11,8 @@ use tracing::{error, info, warn};
 use crate::compilers::solc::Solc;
 use crate::config::Config;
 use crate::evm::{
-    Chain, ChainConfig, ExecutionTraceWriter, ForkDBConfig, SetupInput, SharedCoverage,
-    TraceContext, Transaction,
+    Chain, ChainConfig, CoverageReporter, CoverageWriter, ExecutionTraceWriter, ForkDBConfig,
+    SetupInput, SharedCoverage, TraceContext, Transaction,
 };
 use crate::harness::HarnessId;
 use crate::logger::Logger;
@@ -199,7 +199,7 @@ pub fn run(args: Args) -> Result<Vec<BrokenInvariant>> {
         .with_handlers(test_harness.handlers().to_vec())
         .with_invariants(test_harness.invariants().to_vec())
         .with_corpus(corpus.clone())
-        .with_coverage(coverage)
+        .with_coverage(coverage.clone())
         .with_broken_invariants(shared_broken_invariants)
         .with_threads(args.threads)
         .with_max_runs(args.max_runs)
@@ -277,6 +277,18 @@ pub fn run(args: Args) -> Result<Vec<BrokenInvariant>> {
             trace_file.display()
         );
     }
+
+    // 17. Write the campaign coverage report.
+    let report = CoverageReporter::new()
+        .solc_output(&solc_output)
+        .shared_coverage(coverage)
+        .base_project_path(&root)
+        .build();
+    let coverage_file = CoverageWriter::new(&root).write(&report)?;
+    info!(
+        "coverage report saved to {}",
+        strip_dot_prefix(coverage_file.display().to_string())
+    );
 
     Ok(broken_invariants)
 }

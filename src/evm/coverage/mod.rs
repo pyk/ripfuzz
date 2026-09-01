@@ -5,6 +5,7 @@ pub use id::CoverageId;
 pub use inspector::Inspector;
 pub use reporter::{CoverageReport, CoverageReporter};
 pub use shared::{CoverageUpdate, SharedCoverage};
+pub use writer::CoverageWriter;
 
 mod edge;
 mod exec;
@@ -13,3 +14,4 @@ mod inspector;
 mod reporter;
 mod shared;
 mod source_map;
+mod writer;

@@ -2,14 +2,14 @@
 
 pub use evm::{
     CallFrame, CallFrameKind, Chain, ChainConfig, CheatcodeConfig, Contract, CoverageId,
-    CoverageReport, CoverageReporter, CoverageUpdate, DEFAULT_DEPLOYER, DeployInput,
-    DeployLibraryInput, DeployLibraryOutput, DeployOutput, Evmole, ExecOutput,
+    CoverageReport, CoverageReporter, CoverageUpdate, CoverageWriter, DEFAULT_DEPLOYER,
+    DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput, Evmole, ExecOutput,
     ExecutionContractCoverage, ExecutionCoverage, ExecutionTraceWriter, ForkDBConfig,
     MockTransport, RpcStats, SetupInput, SetupOutput, SharedCoverage, StorageChange,
     StorageChangeInfo, StorageType, Trace, TraceContext, TraceDisplay, Transaction,
     TransactionResult,
 };
-pub use foundry::{Artifact, ArtifactId, BuildOptions, Project};
+pub use foundry::{Artifact, ArtifactId, BuildInfo, BuildOptions, Project};
 pub use tester::{
     BrokenInvariant, BrokenInvariantReporter, Corpus as TestCorpus, Fuzzer as TestFuzzer,
     Shrinker as TestShrinker, TestHarness,

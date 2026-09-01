@@ -12,8 +12,8 @@ use tracing::{error, info, warn};
 use crate::compilers::solc::Solc;
 use crate::config::Config;
 use crate::evm::{
-    Chain, ChainConfig, ExecutionTraceWriter, ForkDBConfig, SetupInput, SharedCoverage,
-    TraceContext, Transaction,
+    Chain, ChainConfig, CoverageReporter, CoverageWriter, ExecutionTraceWriter, ForkDBConfig,
+    SetupInput, SharedCoverage, TraceContext, Transaction,
 };
 use crate::harness::HarnessId;
 use crate::logger::Logger;
@@ -229,7 +229,7 @@ pub fn run(args: Args) -> Result<Best> {
         .with_value_calldata(value_calldata.clone())
         .with_handlers(max_harness.handlers())
         .with_corpus(corpus.clone())
-        .with_coverage(coverage)
+        .with_coverage(coverage.clone())
         .with_initial_value(initial_value)
         .with_threads(args.threads)
         .with_max_runs(args.max_runs)
@@ -296,11 +296,23 @@ pub fn run(args: Args) -> Result<Best> {
     };
     info!("corpus saved: {entries} to {}", corpus_path.display());
 
-    // 16. Run the summary function if the harness defines one.
+    // 16. Write the campaign coverage report.
+    let report = CoverageReporter::new()
+        .solc_output(&solc_output)
+        .shared_coverage(coverage)
+        .base_project_path(&root)
+        .build();
+    let coverage_file = CoverageWriter::new(&root).write(&report)?;
+    info!(
+        "coverage report saved to {}",
+        strip_dot_prefix(coverage_file.display().to_string())
+    );
+
+    // 17. Run the summary function if the harness defines one.
     //
     //     The call runs on a traced clone of the base chain with the best
     //     sequence replayed so the console and the saved trace show the full
-    //     re-run that leads to the profit breakdown after the best sequence
+    //     re-run that leads to the profit breakdown after the best sequence.
     //     A failing summary must not discard the best sequence, so it only
     //     warns.
     let Some(summary) = max_harness.summary() else {
@@ -308,7 +320,7 @@ pub fn run(args: Args) -> Result<Best> {
     };
     let summary_calldata = Bytes::from(summary.selector().as_slice().to_vec());
     let summary_tx = Transaction::new(address).calldata(summary_calldata);
-    // 16a. Build the traced re-run with the best sequence followed by summary.
+    // 17a. Build the traced re-run with the best sequence followed by summary.
     let mut summary_chain = chain.clone();
     summary_chain.set_trace(true);
     let mut summary_txs = Vec::new();
@@ -324,7 +336,7 @@ pub fn run(args: Args) -> Result<Best> {
     if !summary_result.success {
         warn!("summary call failed for {}", max_harness.id());
     }
-    // 16b. Show the summary logs in the console.
+    // 17b. Show the summary logs in the console.
     let trace = summary_output.trace.context("summary call trace missing")?;
     info!("\n{}", trace.display_logs_with(&trace_context));
 

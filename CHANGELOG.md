@@ -10,6 +10,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz test` and `ripfuzz max` write an `lcov.info` coverage report under
+  `.ripfuzz/coverage` at the end of each campaign, using the compiled solc
+  output and the shared coverage collected during fuzzing
+
 - Tester challenges under `fixtures/tester/challenges`: the easy
   `GatedByLiterals` harness gates one failed assertion behind every literal
   kind (`bool`, `uint256`, `uint128`, `int256`, `int8`, `bytes32`, `bytes1`,
@@ -17,12 +21,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   `tests/tester/challenges.rs` asserts the literals are extracted from the
   compiled harness and that the campaign finds all gated assertions within the
   easy budget (run with `make tester-challenges`)
+
 - Tester campaigns seed argument generation with the harness literals: the
   corpus extracts literals from the solc output via the new `Corpus::new()`
   builder (`with_root`, `with_dir`, `with_harness`, `with_handlers`,
   `with_solc_output`), and calls draw from the extracted pools for `uint`,
   `int`, fixed bytes, `address`, `bytes`, and `string` arguments, so gates
   behind constant comparisons are reachable
+
 - `ripfuzz test <harness>` runs a test harness campaign that finds failed
   assertions: it compiles the harness via solc (default contract name from the
   file stem, or `path/File.sol:Name` to pick one), deploys it on a sandbox
@@ -31,15 +37,18 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   emitted on the way to each failure, and saves execution traces under
   `.ripfuzz/traces`; validation rejects a constructor, `setup`, `summary`, or
   `invariant_*` with arguments or `payable`
+
 - `ripfuzz test` checks `invariant_*` functions after every handler call on a
   throwaway state clone, so invariant state changes are never committed and
   invariants never consume `--max-calls`; findings are deduplicated by
   panicking function and revert output, and only `assert` panics count, so
   `require` and custom-error reverts stay plain control flow
+
 - `ripfuzz test` runs coverage-guided evolutionary fuzzing over a standalone
   corpus (`TestHarness`, `Fuzzer`, `Corpus`, `Shrinker` under `src/tester`),
   with `--threads`, `--max-runs`, `--max-calls`, `--timeout`, `--max-failures`,
   and `--corpus-dir` flags mirroring `ripfuzz max`
+
 - `ripfuzz exec <script>` runs a Solidity script contract: it compiles the
   script (default contract name from the file stem, or `path/File.sol:Name` to
   pick one), deploys it on a sandbox chain, runs the optional `setup` function,
@@ -47,17 +56,21 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   console, and saves the execution trace under `.ripfuzz/traces`; validation
   rejects an `exec`/`setup` with arguments or `payable`, and a constructor with
   arguments or `payable`
+
 - `ripfuzz max` runs the optional harness `summary` function on the final
   campaign state after saving the corpus, prints its log output to the console,
   and saves the full execution trace under `.ripfuzz/traces` for offline
   analysis
+
 - `ripfuzz max --log-level` controls log verbosity (default `info`); `debug`
   traces each pending call's handler, success, gas, and revert data, which is
   how the yscrvUSD campaign was debugged
+
 - `ripfuzz max` measures the initial value by calling the harness `value`
   function after deployment and setup, and logs it as the campaign baseline
   (profit is measured against it during maximization); a reverting `value` call
   fails with a dumped execution trace, mirroring deployment and setup
+
 - `ripfuzz max` runs coverage-guided evolutionary fuzzing after the initial
   value is measured: fuzzers draw from a shared corpus of interesting sequences
   (new coverage or a new best value), mutate them via insert, delete, replace,
@@ -66,34 +79,43 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   total number of sequences, `--max-calls` bounds the sequence length,
   `--timeout` and `--target-value` stop fuzzing early, and progress is logged
   every 3 seconds
+
 - `ripfuzz max` shrinks the best sequence in parallel: shrinkers delete random
   chunks of calls and accept a candidate only when a clean-state replay keeps
   the final value at or above the best value found, so the reported sequence is
   the shortest one found within the budget
+
 - `ripfuzz init` writes a starter `ripfuzz.toml` with `solc = "0.8.36"` in the
   current directory and refuses to overwrite an existing file
+
 - `MaxHarness` validates a compiled `Harness` against the max harness rules (a
   `view`/`pure` `value` function returning `uint256`, no `invariant_*`
   functions, optional `setup` and `summary` functions) and resolves those
   functions for later steps; `ripfuzz max` rejects invalid harnesses before
   deployment
+
 - `ripfuzz max --root <path>` resolves the config file, harness path, and
   output directory relative to the given project root instead of the current
   working directory
+
 - Solc compilation resolves imports through `{root}/remappings.txt`, so
   harnesses importing dependencies via remappings (e.g. `ripfuzz/Harness.sol`)
   compile
+
 - `ripfuzz max --corpus-dir <path>` dumps the corpus of interesting sequences
   when the campaign finishes (and best-effort when it fails), one line per
   entry with its value, new coverage, call count, and sequence; the dump
   defaults to `{root}/.ripfuzz/corpus/{source-file}/{contract}/corpus.log`, so
   a surprising campaign can be analyzed offline
+
 - `ripfuzz max --quiet` (`-q`) suppresses terminal logs by writing the
   subscriber to a null sink, so harnesses forking in tests cannot leak output;
   the deployed address still prints to stdout
+
 - `Vault` and `VaultWithNoise` max challenges cover the approve, deposit, and
   redeem pattern with 28 handlers and fork-free simplified accounting, catching
   future regressions
+
 - `ExecutionTraceWriter` under `src/evm/trace/writer.rs`: the shared type that
   renders an execution trace through its trace context and saves it as
   `{root}/.ripfuzz/traces/{unix-timestamp}-{id}.log`; `ripfuzz exec`,
@@ -114,6 +136,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- `CoverageReporter` now builds reports from solc `StandardJSON` output instead
+  of Foundry artifacts: `CoverageReporter::new().solc_output(&solc_output)`
+  indexes bytecode, source maps, and ASTs from the compilation unit, and
+  `CoverageWriter` writes `{root}/.ripfuzz/coverage/lcov.info`
 - Renamed `src/exec` to `src/executor` (`ripfuzz::executor::Script`) and moved
   exec fixtures and tests under `fixtures/executor/` and `tests/executor/`. The
   CLI command is still `ripfuzz exec`

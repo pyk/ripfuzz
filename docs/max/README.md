@@ -147,7 +147,7 @@ What to look at:
 - **Corpus**: the shrunk best item is written to the corpus so the next run
   replays it immediately.
 - **Coverage report**: `lcov.info` with line and function hits for the whole
-  campaign.
+  campaign, written to `.ripfuzz/coverage` at the end of the run.
 
 If the value function reverts until some state is set (for example
 `require(value != 0)`), that is fine. Reverted scores are `0`, so the fuzzer
