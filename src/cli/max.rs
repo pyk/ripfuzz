@@ -17,7 +17,7 @@ use crate::evm::{
 };
 use crate::harness::HarnessId;
 use crate::logger::Logger;
-use crate::max::{Best, Corpus, CorpusReplayer, Fuzzer, MaxHarness, Sequence, Shrinker, Value};
+use crate::maxer::{Best, Corpus, CorpusReplayer, Fuzzer, MaxHarness, Sequence, Shrinker, Value};
 
 /// Find maximum value.
 #[derive(Debug, Parser)]

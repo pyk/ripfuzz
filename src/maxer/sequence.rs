@@ -5,7 +5,7 @@
 //!
 //! ```rust
 //! use alloy_json_abi::Function;
-//! use ripfuzz::max::Sequence;
+//! use ripfuzz::maxer::Sequence;
 //!
 //! // let handlers: Vec<Function> = max_harness.handlers()...;
 //! // let sequence = Sequence::random(&mut rng, &handlers, 8)?;
@@ -19,7 +19,7 @@ use alloy_primitives::Address;
 use anyhow::{Result, ensure};
 
 use crate::evm::Transaction;
-use crate::max::Call;
+use crate::maxer::Call;
 
 /// A sequence of harness calls executed in order.
 #[derive(Debug, Clone, Default, PartialEq)]

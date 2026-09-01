@@ -11,7 +11,7 @@
 //! - the best value reaches the target value
 //!
 //! ```rust,no_run
-//! use ripfuzz::max::{Corpus, Fuzzer, Sequence, Value};
+//! use ripfuzz::maxer::{Corpus, Fuzzer, Sequence, Value};
 //! use ripfuzz::{Chain, ChainConfig, SharedCoverage};
 //! use alloy_primitives::U256;
 //!
@@ -40,7 +40,7 @@ use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
 use crate::evm::{Chain, SharedCoverage, Transaction};
-use crate::max::{Best, Call, Corpus, Sequence, Value};
+use crate::maxer::{Best, Call, Corpus, Sequence, Value};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);

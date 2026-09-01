@@ -21,7 +21,7 @@ pub mod config;
 pub mod executor;
 pub mod harness;
 pub mod logger;
-pub mod max;
+pub mod maxer;
 pub mod tester;
 
 mod evm;

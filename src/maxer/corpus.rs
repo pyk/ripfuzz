@@ -5,7 +5,7 @@
 //! sequences, which keeps the search exploring useful state transitions.
 //!
 //! ```rust,no_run
-//! use ripfuzz::max::{Corpus, Sequence, Value};
+//! use ripfuzz::maxer::{Corpus, Sequence, Value};
 //! use ripfuzz::{Chain, ChainConfig};
 //! use alloy_primitives::U256;
 //! use fastrand::Rng;
@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::evm::{Chain, SharedCoverage, Transaction};
-use crate::max::{Call, Sequence, Value};
+use crate::maxer::{Call, Sequence, Value};
 
 /// Maximum number of entries kept in the corpus.
 const MAX_ENTRIES: usize = 256;
@@ -553,7 +553,7 @@ mod tests {
 
     use super::*;
     use crate::evm::ChainConfig;
-    use crate::max::Sequence;
+    use crate::maxer::Sequence;
 
     fn random_sequence() -> Sequence {
         let handlers = [

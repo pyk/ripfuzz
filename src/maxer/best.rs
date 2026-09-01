@@ -4,14 +4,14 @@
 //! empty sequence and the initial harness value.
 //!
 //! ```rust
-//! use ripfuzz::max::{Best, Sequence, Value};
+//! use ripfuzz::maxer::{Best, Sequence, Value};
 //!
 //! // let mut best = Best::new(Sequence::empty(), initial_value);
 //! // if best.consider(sequence, value, chain) { /* new maximum */ }
 //! ```
 
 use crate::evm::Chain;
-use crate::max::{Sequence, Value};
+use crate::maxer::{Sequence, Value};
 
 /// The highest-value sequence found by the fuzzer, with the state after
 /// executing it so the fuzzer can extend the best state directly.

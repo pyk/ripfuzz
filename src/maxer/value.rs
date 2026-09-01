@@ -4,7 +4,7 @@
 //! decoded from a transaction result.
 //!
 //! ```rust
-//! use ripfuzz::max::Value;
+//! use ripfuzz::maxer::Value;
 //!
 //! // let result = chain.call(caller, address, U256::ZERO, calldata)?;
 //! // let initial_value = Value::decode(&result)?;

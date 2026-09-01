@@ -136,6 +136,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Renamed `src/max` to `src/maxer` (`ripfuzz::maxer`). The CLI command is still
+  `ripfuzz max`
 - `CoverageReporter` now builds reports from solc `StandardJSON` output instead
   of Foundry artifacts: `CoverageReporter::new().solc_output(&solc_output)`
   indexes bytecode, source maps, and ASTs from the compilation unit, and
@@ -154,7 +156,7 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   `ripfuzz test` to find broken invariants and `ripfuzz max` to maximize
   `value()`. Harnesses compile through `solc` from `ripfuzz.toml`, not Foundry
   `forge build`. Test and max campaigns keep their own corpora under
-  `src/tester` and `src/max`
+  `src/tester` and `src/maxer`
 - Removed the `rvm.getCode` cheatcode and the compiled-contract seed on
   `CheatcodeConfig`. Coverage fixtures that deployed via `getCode` now use
   `new Counter()`

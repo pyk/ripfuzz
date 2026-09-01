@@ -3,7 +3,7 @@ use std::path::Path;
 
 use ripfuzz::compilers::solc::{Solc, SolcOutput};
 use ripfuzz::config::Config;
-use ripfuzz::max::MaxHarness;
+use ripfuzz::maxer::MaxHarness;
 use solc::abi::Item;
 
 const VERSION: &str = "0.8.36";

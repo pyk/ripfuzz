@@ -4,7 +4,7 @@
 use revm::primitives::Bytes;
 
 use ripfuzz::compilers::solc::{Solc, SolcOutput};
-use ripfuzz::max::MaxHarness;
+use ripfuzz::maxer::MaxHarness;
 use ripfuzz::{DeployInput, TraceContext};
 
 const VERSION: &str = "0.8.36";

@@ -13,7 +13,7 @@
 //! - MAY have a `summary` function
 //!
 //! ```rust
-//! use ripfuzz::max::MaxHarness;
+//! use ripfuzz::maxer::MaxHarness;
 //!
 //! // let solc_output = solc.compile()?;
 //! // let max_harness = MaxHarness::try_from(&solc_output)?;

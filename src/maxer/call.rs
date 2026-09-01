@@ -5,7 +5,7 @@
 //!
 //! ```rust
 //! use alloy_json_abi::Function;
-//! use ripfuzz::max::Call;
+//! use ripfuzz::maxer::Call;
 //!
 //! // let function = Function::parse("deposit(uint256)")?;
 //! // let call = Call::random(&mut rng, &function)?;

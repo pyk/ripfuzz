@@ -11,7 +11,7 @@
 //! - the final value never drops below the target value
 //!
 //! ```rust
-//! use ripfuzz::max::Shrinker;
+//! use ripfuzz::maxer::Shrinker;
 //!
 //! // let shrinker = Shrinker::new().with_chain(chain);
 //! // let shrunk = shrinker.shrink(&best_sequence)?;
@@ -28,7 +28,7 @@ use revm::primitives::Bytes;
 use tracing::{error, info};
 
 use crate::evm::{Chain, Transaction};
-use crate::max::{Sequence, Value};
+use crate::maxer::{Sequence, Value};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
