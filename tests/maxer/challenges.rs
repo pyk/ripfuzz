@@ -14,6 +14,7 @@
 use std::path::PathBuf;
 
 use alloy_primitives::U256;
+use ripfuzz::cli::default_threads;
 use ripfuzz::cli::max::{Args, run};
 
 const MAX_CALLS: usize = 32;
@@ -39,11 +40,11 @@ const CHALLENGES: &[(&str, &str, &str)] = &[
     ("VaultWithNoise", "VaultWithNoise", "hard"),
 ];
 
-fn budget(level: &str) -> (usize, u64) {
+fn budget(level: &str) -> u64 {
     match level {
-        "easy" => (4, 4096),
-        "medium" => (4, 8192),
-        "hard" => (4, 16384),
+        "easy" => 4096,
+        "medium" => 8192,
+        "hard" => 16384,
         other => panic!("unknown difficulty level: {other}"),
     }
 }
@@ -88,7 +89,7 @@ fn max_challenges_reach_the_highest_value() {
     let corpus_dir = temp_corpus_dir();
     for &(stem, contract, level) in CHALLENGES {
         let path = dir.join(format!("{stem}.sol"));
-        let (threads, max_runs) = budget(level);
+        let max_runs = budget(level);
         let expected = expected_value(stem);
 
         let harness = format!("{}:{}", path.display(), contract);
@@ -96,7 +97,7 @@ fn max_challenges_reach_the_highest_value() {
             harness: harness.parse().unwrap(),
             config: PathBuf::from("./ripfuzz.toml"),
             root: PathBuf::from("."),
-            threads,
+            threads: default_threads(),
             max_runs,
             max_calls: MAX_CALLS,
             timeout: Some(120),

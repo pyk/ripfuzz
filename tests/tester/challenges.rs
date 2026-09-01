@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use alloy_primitives::U256;
+use ripfuzz::cli::default_threads;
 use ripfuzz::cli::test::{Args, run};
 use ripfuzz::compilers::solc::Solc;
 use ripfuzz::tester::LiteralExtractor;
@@ -132,7 +133,7 @@ fn gated_by_literals_finds_every_assertion() {
         harness: HARNESS.parse().unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
         root: PathBuf::from("."),
-        threads: 4,
+        threads: default_threads(),
         max_runs: 10000,
         max_calls: 8,
         timeout: Some(120),

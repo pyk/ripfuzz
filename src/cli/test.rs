@@ -37,7 +37,7 @@ pub struct Args {
     pub root: PathBuf,
 
     /// Number of threads to utilize.
-    #[arg(long, default_value_t = 1, value_name = "THREADS")]
+    #[arg(long, default_value_t = crate::cli::default_threads(), value_name = "THREADS")]
     pub threads: usize,
 
     /// Maximum number of sequences to run across all threads.

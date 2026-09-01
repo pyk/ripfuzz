@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
+use ripfuzz::cli::default_threads;
 use ripfuzz::cli::test::{Args, run};
 
 const HARNESS: &str = "fixtures/tester/challenges/GatedByLiterals.sol:GatedByLiterals";
@@ -13,7 +14,7 @@ fn args(corpus_dir: &Path) -> Args {
         harness: HARNESS.parse().unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
         root: PathBuf::from("."),
-        threads: 4,
+        threads: default_threads(),
         max_runs: 10000,
         max_calls: 8,
         timeout: Some(120),

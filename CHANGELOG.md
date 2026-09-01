@@ -12,6 +12,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- `ripfuzz test` and `ripfuzz max` now default `--threads` to the available CPU
+  cores of the machine instead of a single thread.
+
 ### Fixed
 
 ## [0.9.5] - 2026-09-02

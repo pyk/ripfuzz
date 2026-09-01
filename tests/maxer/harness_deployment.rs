@@ -9,6 +9,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use ripfuzz::cli::default_threads;
 use ripfuzz::cli::max::{Args, run};
 
 const HARNESS: &str =
@@ -31,7 +32,7 @@ fn args(harness: &str) -> Args {
         harness: harness.parse().unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
         root: PathBuf::from("."),
-        threads: 2,
+        threads: default_threads(),
         max_runs: 256,
         max_calls: 8,
         timeout: None,

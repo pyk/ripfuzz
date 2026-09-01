@@ -6,6 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use alloy_primitives::U256;
+use ripfuzz::cli::default_threads;
 use ripfuzz::cli::max::{Args, run};
 
 /// The summary call must appear in a saved trace after the campaign.
@@ -18,7 +19,7 @@ fn max_runs_summary_and_saves_its_trace() {
             .unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
         root: PathBuf::from("."),
-        threads: 1,
+        threads: default_threads(),
         max_runs: 64,
         max_calls: 8,
         timeout: Some(60),
