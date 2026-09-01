@@ -156,6 +156,7 @@ What to look at:
   console shows the logs emitted on the way to the failure.
 - **Trace files**: one per finding under `.ripfuzz/traces`, plus the optional
   `summary` run when no broken invariant was found.
+- **Log file**: full campaign log under `.ripfuzz/logs`.
 - **Corpus**: interesting sequences persist between campaigns, so the next run
   starts from known paths instead of rediscovering them.
 

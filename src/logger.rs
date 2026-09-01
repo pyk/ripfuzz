@@ -1,18 +1,30 @@
 //! Logging setup for the Ripfuzz CLI.
 //!
-//! Installs a default-format stderr layer and, unless disabled, a file layer.
-//! Terminal lines stay compact: they omit `request`, print `url` as the origin
-//! only, and shorten long `error` values. The campaign log file keeps every
-//! field.
+//! [`Logger`] installs a compact stderr layer and a log file. Terminal
+//! timestamps use local `HH:MM:SS.mmm`. Terminal lines omit `request`, print
+//! `url` as the origin only, and shorten long `error` values. The log file
+//! keeps every field.
+//!
+//! By default the log file is `{root}/.ripfuzz/logs/{unix-timestamp}-{id}.log`,
+//! matching execution-trace naming.
+//!
+//! ```rust,no_run
+//! use ripfuzz::logger::Logger;
+//!
+//! Logger::new(std::path::Path::new("."))
+//!     .with_level(tracing::Level::INFO)
+//!     .init()
+//!     .unwrap();
+//! ```
 
 use std::fmt;
 use std::fs;
 use std::fs::File;
 use std::io::IsTerminal;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tracing::field::Field;
 use tracing::field::Visit;
 use tracing_subscriber::field::RecordFields;
@@ -112,73 +124,149 @@ impl Visit for ConsoleVisitor<'_> {
     }
 }
 
-/// Format the current local time as `HH:MM:SS` for terminal log lines.
+/// Format the current local time as `HH:MM:SS.mmm` for terminal log lines.
 ///
-/// The full date stays available in the campaign log file, so the terminal
-/// only needs the wall-clock time. `FormatTime` is implemented for function
-/// pointers, so `simple_time` can be passed directly to `with_timer`.
-fn simple_time(w: &mut Writer<'_>) -> std::fmt::Result {
+/// The full date stays available in the log file, so the terminal only needs
+/// the wall-clock time. `FormatTime` is implemented for function pointers, so
+/// `simple_time` can be passed directly to `with_timer`.
+fn simple_time(w: &mut Writer<'_>) -> fmt::Result {
     let now = jiff::Zoned::now();
-    match jiff::fmt::strtime::format("%H:%M:%S", &now) {
-        Ok(time) => w.write_str(&time),
-        Err(_) => Err(std::fmt::Error),
-    }
+    write!(
+        w,
+        "{:02}:{:02}:{:02}.{:03}",
+        now.hour(),
+        now.minute(),
+        now.second(),
+        now.millisecond()
+    )
 }
 
-/// Initialize the global tracing subscriber.
-///
-/// Terminal output is written to stderr unless `quiet` is set. When
-/// `disable_log` is false, a formatted log file is also written at `log_file`.
-pub fn init(disable_log: bool, quiet: bool, log_file: &Path, level: tracing::Level) -> Result<()> {
-    if disable_log {
-        return Ok(());
+/// Short unique id for a log file name, matching execution-trace ids.
+fn log_id() -> String {
+    let uuid: String = uuid::Uuid::new_v4().into();
+    uuid.split('-').next().unwrap_or_default().to_owned()
+}
+
+/// Installs compact stderr logging and a timestamped log file under the
+/// project root.
+#[derive(Debug)]
+pub struct Logger {
+    root: PathBuf,
+    quiet: bool,
+    level: tracing::Level,
+    log_file: Option<PathBuf>,
+    disabled: bool,
+}
+
+impl Logger {
+    /// Create a logger that writes under `{root}/.ripfuzz/logs`.
+    pub fn new(root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            quiet: false,
+            level: tracing::Level::INFO,
+            log_file: None,
+            disabled: false,
+        }
     }
 
-    if let Some(parent) = log_file.parent() {
-        let _ = fs::create_dir_all(parent);
+    /// Suppress terminal log output.
+    pub fn with_quiet(mut self, quiet: bool) -> Self {
+        self.quiet = quiet;
+        self
     }
 
-    let file = File::create(log_file)?;
+    /// Set the log verbosity level.
+    pub fn with_level(mut self, level: tracing::Level) -> Self {
+        self.level = level;
+        self
+    }
 
-    let filter = match level {
-        tracing::Level::ERROR => EnvFilter::new("ripfuzz=error"),
-        tracing::Level::WARN => EnvFilter::new("ripfuzz=warn,revm=error"),
-        tracing::Level::INFO => EnvFilter::new("ripfuzz=info,revm=error"),
-        tracing::Level::DEBUG => EnvFilter::new("ripfuzz=debug,revm=warn"),
-        tracing::Level::TRACE => EnvFilter::new("trace"),
-    };
+    /// Write the log file to an explicit path instead of `.ripfuzz/logs`.
+    pub fn with_log_file(mut self, path: impl AsRef<Path>) -> Self {
+        self.log_file = Some(path.as_ref().to_path_buf());
+        self
+    }
 
-    if quiet {
+    /// Skip subscriber setup and log-file creation.
+    pub fn with_disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    /// Install the global tracing subscriber.
+    ///
+    /// Terminal output is written to stderr unless `quiet` is set. A formatted
+    /// log file is also written unless logging is disabled.
+    pub fn init(self) -> Result<()> {
+        // 1. Skip subscriber setup when logging is disabled.
+        if self.disabled {
+            return Ok(());
+        }
+
+        // 2. Resolve the log file path.
+        let log_file = match &self.log_file {
+            Some(path) => path.clone(),
+            None => {
+                let timestamp = jiff::Timestamp::now().as_second();
+                self.root
+                    .join(".ripfuzz")
+                    .join("logs")
+                    .join(format!("{timestamp}-{}.log", log_id()))
+            }
+        };
+
+        // 3. Create the log file and its parent directories.
+        if let Some(parent) = log_file.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let file = File::create(&log_file)
+            .with_context(|| format!("failed to write {}", log_file.display()))?;
+
+        // 4. Build the log-level filter.
+        let filter = match self.level {
+            tracing::Level::ERROR => EnvFilter::new("ripfuzz=error"),
+            tracing::Level::WARN => EnvFilter::new("ripfuzz=warn,revm=error"),
+            tracing::Level::INFO => EnvFilter::new("ripfuzz=info,revm=error"),
+            tracing::Level::DEBUG => EnvFilter::new("ripfuzz=debug,revm=warn"),
+            tracing::Level::TRACE => EnvFilter::new("trace"),
+        };
+
+        // 5. Install the subscriber.
+        // 5a. Quiet: file only, so `--quiet` and tests cannot leak to the
+        //     terminal.
+        if self.quiet {
+            let file_layer = tracing_fmt::layer()
+                .with_ansi(false)
+                .with_writer(Mutex::new(file))
+                .with_span_events(FmtSpan::CLOSE);
+            let _ = tracing_subscriber::registry()
+                .with(file_layer.with_filter(filter))
+                .try_init();
+            return Ok(());
+        }
+
+        // 5b. Default: compact stderr plus the full file.
+        //     Cast to a fn pointer: `FormatTime` covers
+        //     `fn(&mut Writer<'_>) -> fmt::Result`, not the zero-sized fn item
+        //     type.
+        let stderr_layer = tracing_fmt::layer()
+            .with_timer(simple_time as fn(&mut Writer<'_>) -> fmt::Result)
+            .with_target(false)
+            .with_ansi(std::io::stderr().is_terminal())
+            .fmt_fields(ConsoleFields)
+            .with_writer(std::io::stderr);
         let file_layer = tracing_fmt::layer()
             .with_ansi(false)
             .with_writer(Mutex::new(file))
             .with_span_events(FmtSpan::CLOSE);
-        tracing_subscriber::registry()
+        let _ = tracing_subscriber::registry()
+            .with(stderr_layer.with_filter(filter.clone()))
             .with(file_layer.with_filter(filter))
-            .try_init()?;
-        return Ok(());
+            .try_init();
+
+        Ok(())
     }
-
-    // Terminal format: simple time, level, and message (module target hidden).
-    // Cast to a fn pointer: `FormatTime` covers `fn(&mut Writer<'_>) -> fmt::Result`,
-    // not the zero-sized fn item type.
-    let stderr_layer = tracing_fmt::layer()
-        .with_timer(simple_time as fn(&mut Writer<'_>) -> std::fmt::Result)
-        .with_target(false)
-        .with_ansi(std::io::stderr().is_terminal())
-        .fmt_fields(ConsoleFields)
-        .with_writer(std::io::stderr);
-    let file_layer = tracing_fmt::layer()
-        .with_ansi(false)
-        .with_writer(Mutex::new(file))
-        .with_span_events(FmtSpan::CLOSE);
-
-    tracing_subscriber::registry()
-        .with(stderr_layer.with_filter(filter.clone()))
-        .with(file_layer.with_filter(filter))
-        .try_init()?;
-
-    Ok(())
 }
 
 #[cfg(test)]

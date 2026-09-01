@@ -19,7 +19,7 @@ use crate::evm::{
 };
 use crate::formatter;
 use crate::foundry::{Artifact, ArtifactId, BuildOptions, Project};
-use crate::logger;
+use crate::logger::Logger;
 
 /// Returns the ripfuzz data directory for the given project path.
 fn ripfuzz_dir(project_path: impl AsRef<Path>) -> PathBuf {
@@ -145,7 +145,12 @@ impl CampaignSession {
             .join("campaigns")
             .join(&campaign_id)
             .join("fuzz.log");
-        logger::init(args.disable_log, args.quiet, &log_file, args.log_level)?;
+        Logger::new(&project_path)
+            .with_quiet(args.quiet)
+            .with_level(args.log_level)
+            .with_log_file(&log_file)
+            .with_disabled(args.disable_log)
+            .init()?;
 
         debug!(?project_path, "resolved project path");
 

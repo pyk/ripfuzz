@@ -16,6 +16,7 @@ use crate::evm::{
     TraceContext, Transaction,
 };
 use crate::harness::HarnessId;
+use crate::logger::Logger;
 use crate::max::{Best, Corpus, CorpusReplayer, Fuzzer, MaxHarness, Sequence, Shrinker, Value};
 
 /// Find maximum value.
@@ -73,19 +74,13 @@ fn parse_u256(value: &str) -> Result<U256, String> {
 
 /// Run the `max` command and return the best sequence found.
 pub fn run(args: Args) -> Result<Best> {
-    // 1. Initialize the tracing subscriber.
-    //
-    //    Quiet mode writes to a null sink instead of skipping init, so a
+    // 1. Initialize logging. Quiet mode writes the file layer only, so a
     //    subscriber installed by an earlier caller (e.g. a test binary)
     //    cannot leak events into the terminal.
-    let builder = tracing_subscriber::fmt()
-        .with_max_level(args.log_level)
-        .with_target(false);
-    let _ = if args.quiet {
-        builder.with_writer(std::io::sink).try_init()
-    } else {
-        builder.try_init()
-    };
+    Logger::new(&args.root)
+        .with_quiet(args.quiet)
+        .with_level(args.log_level)
+        .init()?;
 
     // 2. Load configuration relative to the project root.
     let root = args.root;

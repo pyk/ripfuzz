@@ -114,6 +114,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Terminal log timestamps use local `HH:MM:SS.mmm` (`21:24:42.575`) instead of
+  RFC 3339 UTC, keeping the level and message
+- `ripfuzz test`, `ripfuzz max`, and `ripfuzz exec` initialize logging through
+  `Logger` and write `.ripfuzz/logs/{unix-timestamp}-{id}.log`, matching
+  execution-trace naming
 - Campaign logs fold values into the message instead of appending `key=value`
   fields, so lines read as natural language (`using existing solc 0.8.36`,
   `new broken invariant GATED-BYTES32`,
