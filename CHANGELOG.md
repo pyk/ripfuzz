@@ -10,6 +10,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- Tester campaigns seed argument generation with the harness literals: the
+  corpus extracts literals from the solc output via the new `Corpus::new()`
+  builder (`with_root`, `with_dir`, `with_harness`, `with_handlers`,
+  `with_solc_output`), and calls draw from the extracted pools for `uint`,
+  `int`, fixed bytes, `address`, `bytes`, and `string` arguments, so gates
+  behind constant comparisons are reachable
 - `ripfuzz test <harness>` runs a test harness campaign that finds failed
   assertions: it compiles the harness via solc (default contract name from the
   file stem, or `path/File.sol:Name` to pick one), deploys it on a sandbox

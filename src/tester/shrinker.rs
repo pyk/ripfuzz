@@ -30,8 +30,7 @@ use revm::primitives::Bytes;
 use tracing::{error, info};
 
 use crate::evm::{Chain, Transaction};
-use crate::max::Sequence;
-use crate::tester::Finding;
+use crate::tester::{Finding, Sequence};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);

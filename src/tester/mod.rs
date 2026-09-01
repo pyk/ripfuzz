@@ -26,7 +26,7 @@
 //! // let findings = Shrinker::new().shrink(&output.findings)?;
 //! ```
 
-pub use corpus::{Corpus, EntrySnapshot, Replayer};
+pub use corpus::{Call, Corpus, EntrySnapshot, LiteralExtractor, Replayer, Sequence};
 pub use finding::{Finding, SharedFindings};
 pub use fuzzer::{Fuzzer, Output};
 pub use harness::TestHarness;

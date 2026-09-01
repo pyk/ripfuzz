@@ -157,12 +157,18 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
     }
 
     // 10. Load the persisted corpus so mutations start from known sequences.
-    let corpus_path = corpus_path(&root, &args.corpus_dir, &args.harness)?;
-    let corpus = Corpus::new();
-    let loaded = corpus.load(&corpus_path, test_harness.handlers())?;
+    //     The compilation output feeds literal extraction for argument
+    //     generation.
+    let corpus = Corpus::new()
+        .with_root(&root)
+        .with_dir(&args.corpus_dir)
+        .with_harness(&args.harness)
+        .with_handlers(test_harness.handlers().to_vec())
+        .with_solc_output(&solc_output);
+    let loaded = corpus.load()?;
     info!(
         entries = loaded,
-        path = %corpus_path.display(),
+        path = %corpus.path()?.display(),
         "corpus loaded"
     );
 
@@ -199,7 +205,7 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
         Ok(output) => output,
         Err(err) => {
             // Best-effort save so the corpus survives a failed campaign.
-            if let Err(save_err) = corpus.save(&corpus_path) {
+            if let Err(save_err) = corpus.save() {
                 warn!(error = %save_err, "corpus save failed");
             }
             return Err(err);
@@ -221,10 +227,10 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
     }
 
     // 14. Save the corpus for the next campaign.
-    corpus.save(&corpus_path)?;
+    corpus.save()?;
     info!(
         entries = corpus.len(),
-        path = %corpus_path.display(),
+        path = %corpus.path()?.display(),
         "corpus saved"
     );
 
@@ -315,33 +321,6 @@ fn report_finding(
     let trace_file = dump_execution_trace(root, trace_context, &trace)?;
     info!(path = %trace_file.display(), "execution trace saved");
     Ok(())
-}
-
-/// Resolve the corpus file path for a harness.
-///
-/// Relative corpus directories resolve against the project root, mirroring
-/// the solc out dir. The file is namespaced by the harness source file and
-/// contract name, mirroring the compilation output layout, so targets
-/// sharing a corpus directory never overwrite each other's `corpus.json`.
-fn corpus_path(
-    root: impl AsRef<Path>,
-    corpus_dir: impl AsRef<Path>,
-    harness: &HarnessId,
-) -> Result<PathBuf> {
-    // 1. Resolve the corpus directory relative to the project root.
-    let corpus_dir = corpus_dir.as_ref();
-    let base = if corpus_dir.is_absolute() {
-        corpus_dir.to_path_buf()
-    } else {
-        root.as_ref().join(corpus_dir)
-    };
-
-    // 2. Namespace the file by the source file and contract name.
-    let file_name = harness
-        .path
-        .file_name()
-        .context("harness path has no file name")?;
-    Ok(base.join(file_name).join(&harness.name).join("corpus.json"))
 }
 
 /// Dump an execution trace and return its absolute path.

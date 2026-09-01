@@ -17,8 +17,7 @@
 //! - the requested number of distinct findings is collected
 //!
 //! ```rust,no_run
-//! use ripfuzz::max::Sequence;
-//! use ripfuzz::tester::{Corpus, Fuzzer, SharedFindings};
+//! use ripfuzz::tester::{Corpus, Fuzzer, Sequence, SharedFindings};
 //! use ripfuzz::{Chain, ChainConfig, SharedCoverage};
 //!
 //! # let chain = Chain::empty(ChainConfig::default());
@@ -48,8 +47,7 @@ use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
 use crate::evm::{Chain, CoverageUpdate, SharedCoverage, Transaction};
-use crate::max::{Call, Sequence};
-use crate::tester::{Corpus, Finding, SharedFindings};
+use crate::tester::{Call, Corpus, Finding, Sequence, SharedFindings};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
@@ -407,7 +405,12 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
         // checkrs: allow(clone_in_loops) the initial snapshot seeds every run
         let initial = execution.chain.clone();
         let (sequence, pending, base_chain) = if fresh {
-            let sequence = Sequence::random(&mut rng, &execution.handlers, execution.max_calls)?;
+            let sequence = Sequence::random(
+                &mut rng,
+                &execution.handlers,
+                execution.max_calls,
+                execution.corpus.literals(),
+            )?;
             let pending = sequence.calls().to_vec();
             (sequence, pending, initial)
         } else {
@@ -420,7 +423,7 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
                         //     and re-execute the whole sequence from the initial
                         //     state.
                         let function = &execution.handlers[rng.usize(..execution.handlers.len())];
-                        let call = Call::random(&mut rng, function)?;
+                        let call = Call::random(&mut rng, function, execution.corpus.literals())?;
                         let mut calls = base_sequence.calls().to_vec();
                         let pos = rng.usize(..calls.len());
                         calls[pos] = call;
@@ -429,7 +432,7 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
                         (sequence, pending, initial)
                     } else {
                         let function = &execution.handlers[rng.usize(..execution.handlers.len())];
-                        let call = Call::random(&mut rng, function)?;
+                        let call = Call::random(&mut rng, function, execution.corpus.literals())?;
                         let mut calls = base_sequence.calls().to_vec();
                         calls.push(call);
                         let sequence = Sequence::new(calls);
@@ -438,8 +441,12 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
                     }
                 }
                 None => {
-                    let sequence =
-                        Sequence::random(&mut rng, &execution.handlers, execution.max_calls)?;
+                    let sequence = Sequence::random(
+                        &mut rng,
+                        &execution.handlers,
+                        execution.max_calls,
+                        execution.corpus.literals(),
+                    )?;
                     let pending = sequence.calls().to_vec();
                     (sequence, pending, initial)
                 }

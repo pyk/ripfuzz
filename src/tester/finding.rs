@@ -7,8 +7,7 @@
 //!
 //! ```rust
 //! use alloy_json_abi::Function;
-//! use ripfuzz::max::Sequence;
-//! use ripfuzz::tester::Finding;
+//! use ripfuzz::tester::{Finding, Sequence};
 //!
 //! // let function = Function::parse("invariant_total()")?;
 //! // let finding = Finding::new(sequence, function, revert_output);
@@ -22,7 +21,7 @@ use alloy_sol_types::{Panic, PanicKind, Revert, SolError};
 use parking_lot::Mutex;
 use revm::primitives::Bytes;
 
-use crate::max::Sequence;
+use crate::tester::Sequence;
 
 /// One failed assertion: the handler calls that reached it, the function
 /// whose `assert` panicked, and the revert output.

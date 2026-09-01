@@ -5,9 +5,12 @@
 //! random sequences, which keeps the search exploring paths around existing
 //! assertions.
 //!
+//! The corpus also owns the literal extraction for the campaign: the
+//! compilation output set via [`Corpus::with_solc_output`] feeds the
+//! [`LiteralExtractor`] that seeds argument generation.
+//!
 //! ```rust,no_run
-//! use ripfuzz::max::Sequence;
-//! use ripfuzz::tester::Corpus;
+//! use ripfuzz::tester::{Corpus, Sequence};
 //! use ripfuzz::{Chain, ChainConfig};
 //! use fastrand::Rng;
 //!
@@ -20,8 +23,12 @@
 //! ```
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+pub use call::Call;
+pub use literal::LiteralExtractor;
+pub use sequence::Sequence;
 
 use alloy_dyn_abi::{DynSolValue, JsonAbiExt};
 use alloy_json_abi::Function;
@@ -31,8 +38,14 @@ use fastrand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use crate::compilers::solc::SolcOutput;
 use crate::evm::{Chain, SharedCoverage};
-use crate::max::{Call, Sequence};
+use crate::harness::HarnessId;
+
+mod call;
+mod literal;
+mod rvg;
+mod sequence;
 
 /// Maximum number of entries kept in the corpus.
 const MAX_ENTRIES: usize = 256;
@@ -91,6 +104,11 @@ pub struct EntrySnapshot {
 #[derive(Debug, Clone)]
 pub struct Corpus {
     inner: Arc<Mutex<Vec<Entry>>>,
+    root: Option<PathBuf>,
+    dir: Option<PathBuf>,
+    harness: Option<HarnessId>,
+    handlers: Vec<Function>,
+    literals: LiteralExtractor,
 }
 
 impl Corpus {
@@ -98,7 +116,85 @@ impl Corpus {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(Vec::new())),
+            root: None,
+            dir: None,
+            harness: None,
+            handlers: Vec::new(),
+            literals: LiteralExtractor::new(),
         }
+    }
+
+    /// Set the project root directory.
+    pub fn with_root(mut self, root: impl AsRef<Path>) -> Self {
+        self.root = Some(root.as_ref().to_path_buf());
+        self
+    }
+
+    /// Set the corpus directory to load and save entries in.
+    pub fn with_dir(mut self, dir: impl AsRef<Path>) -> Self {
+        self.dir = Some(dir.as_ref().to_path_buf());
+        self
+    }
+
+    /// Set the harness the corpus entries belong to.
+    pub fn with_harness(mut self, harness: &HarnessId) -> Self {
+        self.harness = Some(harness.clone());
+        self
+    }
+
+    /// Set the handler functions loaded entries are validated against.
+    pub fn with_handlers(mut self, handlers: Vec<Function>) -> Self {
+        self.handlers = handlers;
+        self
+    }
+
+    /// Set the compilation output and extract its literals for argument
+    /// generation.
+    pub fn with_solc_output(mut self, output: &SolcOutput) -> Self {
+        self.literals = LiteralExtractor::from_output(&output.output);
+        self
+    }
+
+    /// The literals extracted from the harness compilation output.
+    pub fn literals(&self) -> &LiteralExtractor {
+        &self.literals
+    }
+
+    /// The path of the persisted corpus file.
+    ///
+    /// Relative corpus directories resolve against the project root,
+    /// mirroring the solc out dir. The file is namespaced by the harness
+    /// source file and contract name, mirroring the compilation output
+    /// layout, so targets sharing a corpus directory never overwrite each
+    /// other's `corpus.json`.
+    pub fn path(&self) -> Result<PathBuf> {
+        // 1. Require the corpus location.
+        let root = self
+            .root
+            .as_ref()
+            .context("root not set, call Corpus::new().with_root(..)")?;
+        let dir = self
+            .dir
+            .as_ref()
+            .context("dir not set, call Corpus::new().with_dir(..)")?;
+        let harness = self
+            .harness
+            .as_ref()
+            .context("harness not set, call Corpus::new().with_harness(..)")?;
+
+        // 2. Resolve the corpus directory relative to the project root.
+        let base = if dir.is_absolute() {
+            dir.clone()
+        } else {
+            root.join(dir)
+        };
+
+        // 3. Namespace the file by the harness source file and contract name.
+        let file_name = harness
+            .path
+            .file_name()
+            .context("harness path has no file name")?;
+        Ok(base.join(file_name).join(&harness.name).join("corpus.json"))
     }
 
     /// Lock the entries, recovering from poisoning.
@@ -184,33 +280,29 @@ impl Corpus {
         self.add_with_chain(sequence, new_edges, Some(chain));
     }
 
-    /// Add an entry whose snapshot may be missing, e.g. one freshly loaded
-    /// from disk that the replay has not rebuilt yet.
+    /// Add a sequence without a chain snapshot.
     fn add_with_chain(&self, sequence: Sequence, new_edges: u64, chain: Option<Chain>) {
         let mut entries = self.lock();
-        // 1. Fast path when the corpus is not full.
-        if entries.len() < MAX_ENTRIES {
-            entries.push(Entry {
-                sequence,
-                new_edges,
-                chain,
-            });
+        if entries.len() >= MAX_ENTRIES {
+            // Evict the weakest entry, and only when the new sequence brings
+            // at least as much coverage.
+            let weakest = entries
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, entry)| entry.new_edges)
+                .map(|(index, entry)| (index, entry.new_edges));
+            if let Some((index, weakest_edges)) = weakest
+                && new_edges >= weakest_edges
+            {
+                entries.remove(index);
+                entries.push(Entry {
+                    sequence,
+                    new_edges,
+                    chain,
+                });
+            }
             return;
         }
-        // 2. Evict the weakest entry only when the new sequence brings at
-        //    least as many new edges.
-        let weakest = entries
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, entry)| entry.new_edges)
-            .map(|(index, _)| index);
-        let Some(weakest) = weakest else {
-            return;
-        };
-        if new_edges <= entries[weakest].new_edges {
-            return;
-        }
-        entries.remove(weakest);
         entries.push(Entry {
             sequence,
             new_edges,
@@ -218,66 +310,65 @@ impl Corpus {
         });
     }
 
-    /// Load persisted entries into the corpus, resolving each call against
-    /// the handler functions.
+    /// Load the persisted entries from the configured corpus file.
     ///
-    /// A missing file yields an empty load. Entries whose calls cannot be
-    /// resolved against the handlers (unknown signature, selector mismatch,
-    /// or undecodable arguments) are skipped with a warning so a corpus from
-    /// a different harness version never fails the campaign.
-    pub fn load(&self, path: impl AsRef<Path>, handlers: &[Function]) -> Result<usize> {
-        // 1. Read the persisted document, treating a missing file as empty.
-        let path = path.as_ref();
-        let data = match fs::read(path) {
-            Ok(data) => data,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
-            Err(err) => Err(err).with_context(|| format!("failed to read {}", path.display()))?,
-        };
-
-        // 2. Parse the document and check the schema version.
-        let document: CorpusJson = serde_json::from_slice(&data)
+    /// A missing file is an empty corpus, not an error. Entries whose calls
+    /// no longer resolve against the handler functions are skipped, so a
+    /// corpus from a different harness never fails a campaign.
+    pub fn load(&self) -> Result<usize> {
+        // 1. Read the persisted corpus when the file exists.
+        let path = self.path()?;
+        if !path.exists() {
+            return Ok(0);
+        }
+        let content = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let json: CorpusJson = serde_json::from_str(&content)
             .with_context(|| format!("failed to parse {}", path.display()))?;
-        ensure!(
-            document.version == CORPUS_VERSION,
-            "unsupported corpus version {} in {}",
-            document.version,
-            path.display()
-        );
+        if json.version != CORPUS_VERSION {
+            warn!(
+                version = json.version,
+                path = %path.display(),
+                "unsupported corpus version, starting from an empty corpus"
+            );
+            return Ok(0);
+        }
 
-        // 3. Rebuild every entry, skipping ones that no longer resolve.
+        // 2. Decode entries, skipping calls with unknown signatures.
         let mut loaded = 0usize;
-        for (index, entry) in document.entries.iter().enumerate() {
+        let mut entries = Vec::new();
+        for entry in json.entries {
             let mut calls = Vec::with_capacity(entry.calls.len());
             for call in &entry.calls {
-                match decode_call(call, handlers) {
+                match decode_call(call, &self.handlers) {
                     Ok(call) => calls.push(call),
                     Err(err) => {
-                        warn!(
-                            entry = index,
-                            error = %err,
-                            "skipping corpus entry whose call does not resolve"
-                        );
-                        calls.clear();
+                        warn!(error = %err, "skipping corpus call");
                         break;
                     }
                 }
             }
-            if calls.is_empty() {
+            if calls.len() != entry.calls.len() {
                 continue;
             }
-            self.add_with_chain(Sequence::new(calls), entry.new_edges, None);
+            entries.push(Entry {
+                sequence: Sequence::new(calls),
+                new_edges: entry.new_edges,
+                chain: None,
+            });
             loaded += 1;
         }
+        *self.lock() = entries;
         Ok(loaded)
     }
 
-    /// Save the corpus entries as a JSON document, replacing the file.
-    pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
-        // 1. Render one JSON entry per corpus entry.
-        let document = CorpusJson {
+    /// Save the corpus to the configured corpus file.
+    pub fn save(&self) -> Result<()> {
+        // 1. Serialize the entries.
+        let json = CorpusJson {
             version: CORPUS_VERSION,
             entries: self
-                .entries()
+                .lock()
                 .iter()
                 .map(|entry| EntryJson {
                     new_edges: entry.new_edges,
@@ -294,14 +385,17 @@ impl Corpus {
                 .collect(),
         };
 
-        // 2. Write the document under its namespaced directory.
-        let path = path.as_ref();
+        // 2. Write the file, creating parent directories as needed.
+        let path = self.path()?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
-        let json = serde_json::to_vec_pretty(&document).context("failed to serialize corpus")?;
-        fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))?;
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&json).context("failed to serialize corpus")?,
+        )
+        .with_context(|| format!("failed to write {}", path.display()))?;
         Ok(())
     }
 }
@@ -397,8 +491,13 @@ impl Replayer {
             .context("coverage not set, call Replayer::new().with_coverage(..)")?;
 
         // 2. Replay every entry, mirroring the fuzzer's execution.
-        let replayed = Corpus::new();
-        for entry in corpus.entries() {
+        //
+        //    The entries are replaced in the corpus they came from, so its
+        //    configuration (path resolution, handlers, literals) survives
+        //    into the campaign.
+        let entries = corpus.entries();
+        *corpus.lock() = Vec::new();
+        for entry in entries {
             // 2a. Execute the sequence on a clean chain clone.
             // checkrs: allow(clone_in_loops)
             let mut chain = chain.clone();
@@ -414,10 +513,10 @@ impl Replayer {
             let new_edges =
                 (update.new_edges + update.new_depths + update.new_reverts + update.new_jump_edges)
                     as u64;
-            replayed.add(entry.sequence, new_edges, chain);
+            corpus.add(entry.sequence, new_edges, chain);
         }
-        let count = replayed.len();
-        Ok((replayed, count))
+        let count = corpus.len();
+        Ok((corpus, count))
     }
 }
 
@@ -433,16 +532,34 @@ mod tests {
     use super::*;
     use crate::evm::ChainConfig;
 
+    fn harness_id() -> HarnessId {
+        HarnessId {
+            path: PathBuf::from("Harness.sol"),
+            name: "Harness".to_owned(),
+        }
+    }
+
     fn random_sequence() -> Sequence {
         let handlers = [
             Function::parse("a()").unwrap(),
             Function::parse("b()").unwrap(),
         ];
-        Sequence::random(&mut Rng::new(), &handlers, 3).unwrap()
+        Sequence::random(&mut Rng::new(), &handlers, 3, &LiteralExtractor::new()).unwrap()
     }
 
     fn test_chain() -> Chain {
         Chain::empty(ChainConfig::default())
+    }
+
+    /// A fresh temp root per test run so parallel tests never collide.
+    fn temp_root() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "ripfuzz-tester-corpus-{}-{}",
+            std::process::id(),
+            fastrand::u64(..)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
     }
 
     #[test]
@@ -508,15 +625,6 @@ mod tests {
         );
     }
 
-    /// A unique temp path per test run so parallel tests never collide.
-    fn temp_corpus_path() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "ripfuzz-test-corpus-{}-{}.json",
-            std::process::id(),
-            fastrand::u64(..)
-        ))
-    }
-
     /// Saving and loading must round-trip entries: the reloaded corpus holds
     /// the same edge count and per-call calldata.
     #[test]
@@ -528,15 +636,21 @@ mod tests {
         );
         let handlers = vec![function];
 
-        let corpus = Corpus::new();
+        let root = temp_root();
+        let corpus = Corpus::new()
+            .with_root(&root)
+            .with_dir(".")
+            .with_harness(&harness_id())
+            .with_handlers(handlers.clone());
         corpus.add(Sequence::new(vec![call]), 5, test_chain());
+        corpus.save().unwrap();
 
-        let path = temp_corpus_path();
-        corpus.save(&path).unwrap();
-
-        let reloaded = Corpus::new();
-        let loaded = reloaded.load(&path, &handlers).unwrap();
-        fs::remove_file(&path).unwrap();
+        let reloaded = Corpus::new()
+            .with_root(&root)
+            .with_dir(".")
+            .with_harness(&harness_id())
+            .with_handlers(handlers);
+        let loaded = reloaded.load().unwrap();
 
         assert_eq!(loaded, 1);
         let entries = reloaded.entries();
@@ -556,14 +670,21 @@ mod tests {
     fn load_skips_entries_with_unknown_signatures() {
         let handlers = vec![Function::parse("set(uint256)").unwrap()];
 
-        let corpus = Corpus::new();
+        let root = temp_root();
+        let corpus = Corpus::new()
+            .with_root(&root)
+            .with_dir(".")
+            .with_harness(&harness_id())
+            .with_handlers(vec![]);
         corpus.add(random_sequence(), 3, test_chain());
-        let path = temp_corpus_path();
-        corpus.save(&path).unwrap();
+        corpus.save().unwrap();
 
-        let reloaded = Corpus::new();
-        let loaded = reloaded.load(&path, &handlers).unwrap();
-        fs::remove_file(&path).unwrap();
+        let reloaded = Corpus::new()
+            .with_root(&root)
+            .with_dir(".")
+            .with_harness(&harness_id())
+            .with_handlers(handlers);
+        let loaded = reloaded.load().unwrap();
 
         assert_eq!(loaded, 0);
         assert!(reloaded.is_empty());
@@ -572,8 +693,13 @@ mod tests {
     /// A missing corpus file is an empty corpus, not an error.
     #[test]
     fn load_without_a_file_returns_zero() {
-        let path = temp_corpus_path();
-        let loaded = Corpus::new().load(&path, &[]).unwrap();
+        let root = temp_root();
+        let corpus = Corpus::new()
+            .with_root(&root)
+            .with_dir(".")
+            .with_harness(&harness_id())
+            .with_handlers(vec![]);
+        let loaded = corpus.load().unwrap();
 
         assert_eq!(loaded, 0);
     }
