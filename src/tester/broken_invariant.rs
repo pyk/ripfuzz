@@ -124,15 +124,33 @@ impl SharedBrokenInvariants {
     }
 
     /// Add a broken invariant when its id is new, returning whether it was
-    /// added.
+    /// added as a distinct id.
+    ///
+    /// A later sequence with the same id replaces the stored one when it is
+    /// strictly shorter, so the campaign keeps the best reproduction found
+    /// during fuzzing. Replacement does not count as a new id.
     pub fn try_add(&self, broken: &BrokenInvariant) -> bool {
         let mut inner = self.lock();
+
+        // 1. Replace a known id when the candidate is strictly shorter.
+        if let Some(existing) = inner
+            .broken_invariants
+            .iter_mut()
+            .find(|item| item.id() == broken.id())
+        {
+            if broken.sequence().len() < existing.sequence().len() {
+                *existing = broken.clone();
+            }
+            return false;
+        }
+
+        // 2. Reject a new id when the collection is full.
         if inner.broken_invariants.len() >= self.max {
             return false;
         }
-        if !inner.keys.insert(broken.key()) {
-            return false;
-        }
+
+        // 3. Insert the new id.
+        inner.keys.insert(broken.key());
         inner.broken_invariants.push(broken.clone());
         true
     }
@@ -285,7 +303,22 @@ impl BrokenInvariantReporter {
 
 #[cfg(test)]
 mod tests {
+    use alloy_dyn_abi::DynSolValue;
+    use alloy_json_abi::Function;
+
     use super::*;
+    use crate::tester::Call;
+
+    fn call(name: &str) -> Call {
+        Call::new(Function::parse(name).unwrap(), DynSolValue::Tuple(vec![]))
+    }
+
+    fn broken_with_calls(id: &str, names: &[&str]) -> BrokenInvariant {
+        BrokenInvariant::new()
+            .with_calls(Sequence::new(names.iter().map(|name| call(name)).collect()))
+            .with_id(id)
+            .with_description("desc")
+    }
 
     fn broken_with_id(id: &str) -> BrokenInvariant {
         BrokenInvariant::new()
@@ -321,6 +354,30 @@ mod tests {
         assert!(broken_invariants.try_add(&first));
         assert!(!broken_invariants.try_add(&same));
         assert_eq!(broken_invariants.len(), 1);
+    }
+
+    #[test]
+    fn try_add_replaces_a_longer_sequence_with_the_same_id() {
+        let broken_invariants = SharedBrokenInvariants::new(8);
+        let long = broken_with_calls("ID-001", &["a()", "b()", "c()"]);
+        let short = broken_with_calls("ID-001", &["c()"]);
+
+        assert!(broken_invariants.try_add(&long));
+        assert!(!broken_invariants.try_add(&short));
+        assert_eq!(broken_invariants.len(), 1);
+        assert_eq!(broken_invariants.all()[0].sequence().len(), 1);
+    }
+
+    #[test]
+    fn try_add_keeps_the_shorter_sequence_when_a_longer_duplicate_arrives() {
+        let broken_invariants = SharedBrokenInvariants::new(8);
+        let short = broken_with_calls("ID-001", &["c()"]);
+        let long = broken_with_calls("ID-001", &["a()", "b()", "c()"]);
+
+        assert!(broken_invariants.try_add(&short));
+        assert!(!broken_invariants.try_add(&long));
+        assert_eq!(broken_invariants.len(), 1);
+        assert_eq!(broken_invariants.all()[0].sequence().len(), 1);
     }
 
     #[test]

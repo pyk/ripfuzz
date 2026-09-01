@@ -134,6 +134,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- Tester campaigns keep the shortest reproducing sequence for each broken
+  invariant id: a later hit with the same id replaces the stored sequence when
+  it is strictly shorter, so dictionary-sized increments that need two calls no
+  longer block a later one-call reproduction from being the shrunk result
 - Tester campaigns no longer grow the corpus by re-adding sequences that only
   rediscover already-known broken invariants: a sequence joins the corpus when
   it brings new coverage, not when `rvm.bail` fires on a path the campaign has
