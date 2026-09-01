@@ -196,10 +196,7 @@ fn setup_eth_polygon_forks(transport: &MockTransport) {
 }
 
 fn deploy_harness(transport: MockTransport) -> (Chain, Address) {
-    let initcode = load_initcode(
-        "fixtures/harness-contract-with-cheatcodes",
-        "ForkHarness.sol:ForkHarness",
-    );
+    let initcode = load_initcode("fixtures/evm/cheatcodes", "ForkHarness.sol:ForkHarness");
 
     let config = ChainConfig::default()
         .with_transport(Arc::new(transport))

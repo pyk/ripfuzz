@@ -86,10 +86,7 @@ mod tests {
 
     /// Deploy ForkHarness on an empty chain with the given transport.
     fn deploy_harness(transport: MockTransport) -> (Chain, Address) {
-        let initcode = load_initcode(
-            "fixtures/harness-contract-with-cheatcodes",
-            "ForkHarness.sol:ForkHarness",
-        );
+        let initcode = load_initcode("fixtures/evm/cheatcodes", "ForkHarness.sol:ForkHarness");
         let config = ChainConfig::default()
             .with_transport(Arc::new(transport))
             .with_fork_defaults(ForkDBConfig::new(""));

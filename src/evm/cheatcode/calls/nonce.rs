@@ -90,7 +90,7 @@ mod tests {
     const BASELINE: U256 = U256::from_limbs([42, 0, 0, 0]);
 
     fn load_initcode(id: &str) -> String {
-        compile_fixture("fixtures/harness-contract-with-cheatcodes", id)
+        compile_fixture("fixtures/evm/cheatcodes", id)
             .initcode()
             .unwrap()
             .to_owned()

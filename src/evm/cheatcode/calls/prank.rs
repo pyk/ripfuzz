@@ -184,7 +184,7 @@ mod tests {
     const ACTOR_1: Address = address!("0x2000000000000000000000000000000000000002");
 
     fn load_initcode(id: &str) -> String {
-        compile_fixture("fixtures/harness-contract-with-cheatcodes", id)
+        compile_fixture("fixtures/evm/cheatcodes", id)
             .initcode()
             .unwrap()
             .to_owned()

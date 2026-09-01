@@ -79,7 +79,7 @@ mod tests {
     const ADDR_MAX: Address = address!("0x80C0dbf239224071c59dD8970ab9d542E3414aB2");
 
     fn load_initcode(id: &str) -> String {
-        compile_fixture("fixtures/harness-contract-with-cheatcodes", id)
+        compile_fixture("fixtures/evm/cheatcodes", id)
             .initcode()
             .unwrap()
             .to_owned()

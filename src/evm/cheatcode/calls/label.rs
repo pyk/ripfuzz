@@ -67,7 +67,7 @@ mod tests {
     const ADMIN_LABEL: &str = "admin";
 
     fn load_initcode(id: &str) -> String {
-        compile_fixture("fixtures/harness-contract-with-cheatcodes", id)
+        compile_fixture("fixtures/evm/cheatcodes", id)
             .initcode()
             .unwrap()
             .to_owned()

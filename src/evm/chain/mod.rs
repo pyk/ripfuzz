@@ -536,10 +536,7 @@ mod tests {
     }
 
     fn deploy_and_setup_warp(config: ChainConfig) -> (Chain, Address) {
-        let initcode = load_initcode(
-            "fixtures/harness-contract-with-cheatcodes",
-            "WarpHarness.sol:WarpHarness",
-        );
+        let initcode = load_initcode("fixtures/evm/cheatcodes", "WarpHarness.sol:WarpHarness");
         let mut chain = Chain::new(config).unwrap();
         let deployment = chain.deploy(DeployInput::new(&initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");

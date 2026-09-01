@@ -111,7 +111,7 @@ mod tests {
     const TARGET_ADDR: Address = address!("0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF");
 
     fn load_initcode(id: &str) -> String {
-        compile_fixture("fixtures/harness-contract-with-cheatcodes", id)
+        compile_fixture("fixtures/evm/cheatcodes", id)
             .initcode()
             .unwrap()
             .to_owned()

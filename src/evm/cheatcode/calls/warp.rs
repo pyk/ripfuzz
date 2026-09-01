@@ -57,7 +57,7 @@ mod tests {
     const EXPECTED: U256 = U256::from_limbs([1_234_567_890, 0, 0, 0]);
 
     fn load_initcode(id: &str) -> String {
-        compile_fixture("fixtures/harness-contract-with-cheatcodes", id)
+        compile_fixture("fixtures/evm/cheatcodes", id)
             .initcode()
             .unwrap()
             .to_owned()
