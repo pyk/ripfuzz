@@ -1,10 +1,7 @@
 //! User-facing configuration for the cheatcode inspector.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-use revm::primitives::Bytes;
 
 use crate::evm::forkdb::{ForkDBConfig, Transport};
 
@@ -15,9 +12,6 @@ pub struct CheatcodeConfig {
     pub ffi: bool,
     /// Foundry project root used by `vm.ffi` to resolve relative paths.
     pub project_root: PathBuf,
-    /// Compiled contract initcode keyed by artifact id and short name,
-    /// populated by `vm.getCode`.
-    pub compiled_contracts: HashMap<String, Bytes>,
     /// Default RPC settings for `vm.fork`.
     pub fork_defaults: ForkDBConfig,
     /// Optional transport override for tests.
@@ -30,7 +24,6 @@ impl CheatcodeConfig {
         Self {
             ffi: false,
             project_root: project_root.as_ref().to_path_buf(),
-            compiled_contracts: HashMap::new(),
             fork_defaults: ForkDBConfig::new(""),
             transport: None,
         }
@@ -45,15 +38,6 @@ impl CheatcodeConfig {
     /// Set the project root.
     pub fn with_project_root(mut self, path: impl AsRef<Path>) -> Self {
         self.project_root = path.as_ref().to_path_buf();
-        self
-    }
-
-    /// Seed compiled contract initcode keyed by artifact id and short name.
-    ///
-    /// Required for `vm.getCode` to resolve contract names; otherwise
-    /// `vm.getCode` calls will revert.
-    pub fn with_compiled_contracts(mut self, contracts: HashMap<String, Bytes>) -> Self {
-        self.compiled_contracts = contracts;
         self
     }
 
@@ -81,7 +65,6 @@ impl Default for CheatcodeConfig {
         Self {
             ffi: false,
             project_root: PathBuf::new(),
-            compiled_contracts: HashMap::new(),
             fork_defaults: ForkDBConfig::new(""),
             transport: None,
         }

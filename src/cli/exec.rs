@@ -13,7 +13,7 @@ use crate::evm::{
     Chain, ChainConfig, ExecutionTraceWriter, ForkDBConfig, SetupInput, Trace, TraceContext,
     Transaction,
 };
-use crate::exec::Script;
+use crate::executor::Script;
 use crate::harness::HarnessId;
 use crate::logger::Logger;
 

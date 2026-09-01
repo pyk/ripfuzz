@@ -21,7 +21,6 @@ pub mod etch;
 pub mod fee;
 pub mod ffi;
 pub mod fork;
-pub mod get_code;
 pub mod get_env;
 pub mod label;
 pub mod nonce;
@@ -77,8 +76,7 @@ sol! {
         function parseBytes(string s) external returns (bytes memory);
         function parseBytes32(string s) external returns (bytes32);
 
-        // Code / wallet / ffi
-        function getCode(string name) external returns (bytes memory);
+        // Wallet / ffi
         function addr(uint256 sk) external returns (address);
         function sign(uint256 sk, bytes32 digest) external returns (uint8 v, bytes32 r, bytes32 s);
         function ffi(string[] args) external returns (bytes memory);
@@ -157,8 +155,7 @@ where
         VmCalls::parseBytes(c) => parse::parse_bytes(&c.s),
         VmCalls::parseBytes32(c) => parse::parse_bytes32(&c.s),
 
-        // Code / wallet / ffi
-        VmCalls::getCode(c) => get_code::handle(&c.name, state),
+        // Wallet / ffi
         VmCalls::addr(c) => addr::handle(c.sk),
         VmCalls::sign(c) => sign::handle(c.sk, c.digest.into()),
         VmCalls::ffi(c) => ffi::handle(c.args, state),

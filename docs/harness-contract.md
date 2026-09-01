@@ -1,7 +1,7 @@
 # Harness Contract Reference
 
 This document is the reference for writing a Solidity contract that
-`ripfuzz run` can fuzz.
+`ripfuzz test` or `ripfuzz max` can fuzz.
 
 ## Overview
 
@@ -17,10 +17,9 @@ functions**:
    after shrinking in the traced re-run, so it can log a final summary that
    shows up in the trace
 
-Declaring a `max_*` function automatically puts the harness in max mode;
-otherwise ripfuzz runs in invariant mode. The two modes are mutually exclusive:
-max mode supports exactly one `max_*` function and rejects harnesses that also
-declare `invariant_*` functions.
+Use `ripfuzz test` to find broken invariants and `ripfuzz max` to maximize
+`value()`. The two commands are mutually exclusive: a max harness must define
+`value()` and must not declare `invariant_*` functions.
 
 ## Using ripfuzz-std
 
@@ -125,7 +124,6 @@ contract CounterHarness is Harness {
 | Prank       | `prank`, `startPrank`, `stopPrank`                                                             |
 | Label       | `label`, `getLabel`                                                                            |
 | Conversion  | `toString`, `parseUint`, `parseInt`, `parseBool`, `parseAddress`, `parseBytes`, `parseBytes32` |
-| Bytecode    | `getCode`                                                                                      |
 | Wallet      | `addr`, `sign`                                                                                 |
 | FFI         | `ffi`                                                                                          |
 | Environment | `getEnv`                                                                                       |
@@ -348,14 +346,14 @@ function invariant_TotalWithinLimit() external {
 
 ## Max Functions
 
-Max functions turn a harness value into a maxxing objective. They must:
+The `value()` function turns a harness quantity into a max objective. It must:
 
-- start with the prefix `max_`
+- be named `value`
 - take no arguments
 - return a single `uint256`
 - be `pure` or `view`
 
-Declaring a `max_*` function puts the harness in max mode automatically:
+Run it with `ripfuzz max`:
 
 ```solidity
 contract ProfitHarness {
@@ -370,21 +368,20 @@ contract ProfitHarness {
         debt = amount;
     }
 
-    function max_profit() external view returns (uint256) {
+    function value() external view returns (uint256) {
         return assets > debt ? assets - debt : 0;
     }
 }
 ```
 
 ```bash
-ripfuzz run ProfitHarness
+ripfuzz max path/to/ProfitHarness.sol
 ```
 
-Max mode supports exactly one `max_*` function per harness and cannot be
-combined with `invariant_*` functions; ripfuzz fails with a clear error if
-either rule is violated. It calls the max function after each handler call and
-keeps the highest value plus the shortest handler prefix that produced it.
-After the campaign it shrinks the best sequence while preserving its value,
+A max harness cannot declare `invariant_*` functions. Ripfuzz fails with a
+clear error if that rule is violated. It calls `value()` after each handler
+call and keeps the highest value plus the shortest handler prefix that produced
+it. After the campaign it shrinks the best sequence while preserving its value,
 reports the maximum value with the call sequence, and writes the result to the
 corpus.
 

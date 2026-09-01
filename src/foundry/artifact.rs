@@ -56,7 +56,7 @@ impl ArtifactId {
                 matches.sort_by_key(|a| a.to_string());
                 let mut msg = format!("There are multiple '{}' contract.\n\nSelect one:\n", target);
                 for id in matches {
-                    msg.push_str(&format!("\nripfuzz run {}", id));
+                    msg.push_str(&format!("\nripfuzz test {}", id));
                 }
                 bail!(msg);
             }
@@ -844,11 +844,10 @@ mod tests {
     fn resolve_ambiguous_name_lists_options() {
         let artifacts = sample_artifacts();
         let err = ArtifactId::resolve("Dup", &artifacts).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("There are multiple 'Dup' contract"));
-        assert!(msg.contains("Select one:"));
-        assert!(msg.contains("ripfuzz run src/dup/A.sol:Dup"));
-        assert!(msg.contains("ripfuzz run src/dup/B.sol:Dup"));
+        assert_eq!(
+            err.to_string(),
+            "There are multiple 'Dup' contract.\n\nSelect one:\n\nripfuzz test src/dup/A.sol:Dup\nripfuzz test src/dup/B.sol:Dup"
+        );
     }
 
     #[test]

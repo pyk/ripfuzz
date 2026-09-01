@@ -19,13 +19,27 @@ pub fn handle<CTX: ContextTr + ContextSetters<Block = BlockEnv> + CfgMut>(
 
 #[cfg(test)]
 mod tests {
+
     use alloy_primitives::Address;
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
-    use crate::evm::Contract;
+    use crate::compilers::solc::{Solc, SolcOutput};
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
-    use crate::foundry;
+    use crate::harness::HarnessId;
+
+    fn compile_fixture(root: &str, target: &str) -> SolcOutput {
+        let id = HarnessId::try_from(target).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        Solc::new()
+            .with_version("0.8.36")
+            .with_root(root)
+            .with_target(&id.path)
+            .with_name(&id.name)
+            .with_out(tmp.path().join("out"))
+            .compile()
+            .unwrap()
+    }
 
     alloy_sol_types::sol! {
         interface ChainIdHarness {
@@ -37,17 +51,17 @@ mod tests {
         }
     }
 
-    fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/harness-contract-with-cheatcodes");
-        let artifacts = project.load_artifacts().unwrap();
-        let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
-        Contract::try_get(&artifacts, &artifact_id).unwrap()
+    fn load_initcode(id: &str) -> String {
+        compile_fixture("fixtures/harness-contract-with-cheatcodes", id)
+            .initcode()
+            .unwrap()
+            .to_owned()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/ChainIdHarness.sol:ChainIdHarness");
+        let initcode = load_initcode("ChainIdHarness.sol:ChainIdHarness");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 

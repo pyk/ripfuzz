@@ -15,7 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
-use solc::{EvmVersion, StandardJSONOutput};
+use solc::{ContractOutput, EvmVersion, StandardJSONOutput};
 use tracing::info;
 
 pub use exec::SolcExecutor;
@@ -43,6 +43,45 @@ pub struct SolcOutput {
     pub id: HarnessId,
     /// Raw solc standard JSON output for the whole compilation unit.
     pub output: StandardJSONOutput,
+}
+
+impl SolcOutput {
+    /// The compiled target contract.
+    pub fn contract(&self) -> Result<&ContractOutput> {
+        let contracts = self.output.contracts.get(&self.id.path).with_context(|| {
+            format!(
+                "harness source `{}` not found in compilation output",
+                self.id.path.display()
+            )
+        })?;
+        contracts.get(&self.id.name).with_context(|| {
+            let mut names: Vec<String> = contracts.keys().map(|name| name.to_owned()).collect();
+            names.sort();
+            format!(
+                "contract `{}` not found in `{}`, available contracts: {}",
+                self.id.name,
+                self.id.path.display(),
+                names.join(", ")
+            )
+        })
+    }
+
+    /// Hex-encoded initcode of the target contract.
+    pub fn initcode(&self) -> Result<&str> {
+        let initcode = self
+            .contract()?
+            .evm
+            .as_ref()
+            .and_then(|evm| evm.bytecode.as_ref())
+            .and_then(|bytecode| bytecode.object.as_ref())
+            .context("harness initcode missing from compilation output")?;
+        ensure!(
+            !initcode.is_empty(),
+            "harness contract `{}` has empty initcode",
+            self.id
+        );
+        Ok(initcode)
+    }
 }
 
 /// Solidity compiler builder.

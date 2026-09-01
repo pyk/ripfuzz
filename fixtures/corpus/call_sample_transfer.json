@@ -1,8 +1,0 @@
-{
-  "sig": "transfer(address,uint256)",
-  "args": [
-    "0xabababababababababababababababababababab",
-    "42"
-  ],
-  "caller": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
-}

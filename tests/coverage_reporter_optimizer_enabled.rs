@@ -1,6 +1,5 @@
 //! Coverage reporter integration tests for the optimizer-enabled fixture.
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -55,23 +54,8 @@ struct Deployed {
     global: SharedCoverage,
 }
 
-fn deploy_and_setup(project_path: impl AsRef<Path>, contract: &Contract) -> Deployed {
-    let mut config = ChainConfig::default().coverage(true);
-    let project = Project::new(project_path);
-    let artifacts = project.load_artifacts().unwrap();
-    let mut compiled_contracts = HashMap::new();
-    for (id, artifact) in &artifacts {
-        let initcode: Bytes = match artifact {
-            Artifact::Contract(c) => c.bytecode.object.parse().unwrap_or_default(),
-            Artifact::Library(c) => c.bytecode.object.parse().unwrap_or_default(),
-            _ => continue,
-        };
-        if initcode.is_empty() {
-            continue;
-        }
-        compiled_contracts.insert(id.into(), initcode);
-    }
-    config = config.with_compiled_contracts(compiled_contracts);
+fn deploy_and_setup(_project_path: impl AsRef<Path>, contract: &Contract) -> Deployed {
+    let config = ChainConfig::default().coverage(true);
     let mut chain = Chain::new(config).unwrap();
     let mut deploy_opts = DeployInput::new(&contract.initcode);
     for lib in &contract.libraries {

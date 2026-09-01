@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use revm::primitives::{Address, Bytes, U256};
+use revm::primitives::{Address, U256};
 
 use crate::evm::cheatcode::CheatcodeConfig;
 use crate::evm::forkdb::{ForkDBConfig, SharedLocalAddressRegistry, Transport};
@@ -22,7 +22,6 @@ pub struct ExecutionState {
     pub block: BlockCheatState,
     pub prank: PrankCheatState,
     pub labels: HashMap<Address, String>,
-    pub compiled_contracts: HashMap<String, Bytes>,
     pub project_root: PathBuf,
     pub ffi_enabled: bool,
     /// Default RPC settings used by `vm.fork` when no per-call config is given.
@@ -41,7 +40,6 @@ impl Default for ExecutionState {
             block: BlockCheatState::default(),
             prank: PrankCheatState::default(),
             labels: HashMap::new(),
-            compiled_contracts: HashMap::new(),
             project_root: PathBuf::new(),
             ffi_enabled: false,
             fork_defaults: ForkDBConfig::new(""),
@@ -58,7 +56,6 @@ impl ExecutionState {
         Self {
             project_root: config.project_root.clone(),
             ffi_enabled: config.ffi,
-            compiled_contracts: config.compiled_contracts.clone(),
             fork_defaults: config.fork_defaults.clone(),
             transport: config.transport.clone(),
             local_registry: SharedLocalAddressRegistry::new(),

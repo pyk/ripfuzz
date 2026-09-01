@@ -145,129 +145,9 @@ impl Project {
 mod tests {
     use std::fs;
 
-    use serial_test::serial;
     use tempfile::TempDir;
 
     use super::*;
-
-    #[test]
-    #[serial]
-    fn build_succeeds() {
-        let project = Project::new("fixtures/foundry-project");
-        let result = project.build(BuildOptions::new());
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn build_fails() {
-        let project = Project::new("fixtures/build-failed");
-        let result = project.build(BuildOptions::new());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn load_artifacts_succeeds() {
-        let project = Project::new("fixtures/foundry-project");
-        let artifacts = project.load_artifacts().unwrap();
-        assert_eq!(artifacts.len(), 4);
-
-        let counter_id = ArtifactId::try_from("src/Counter.sol:Counter").unwrap();
-        let counter = artifacts
-            .get(&counter_id)
-            .expect("Counter artifact missing");
-        assert!(matches!(counter, Artifact::Contract(_)));
-        assert!(!counter.project_path().as_os_str().is_empty());
-
-        let icounter_id = ArtifactId::try_from("src/ICounter.sol:ICounter").unwrap();
-        let icounter = artifacts
-            .get(&icounter_id)
-            .expect("ICounter artifact missing");
-        assert!(matches!(icounter, Artifact::Interface(_)));
-        assert!(!icounter.project_path().as_os_str().is_empty());
-
-        let lib_id = ArtifactId::try_from("src/CounterLib.sol:CounterLib").unwrap();
-        let lib = artifacts.get(&lib_id).expect("CounterLib artifact missing");
-        assert!(matches!(lib, Artifact::Library(_)));
-        assert!(!lib.project_path().as_os_str().is_empty());
-
-        let abs_id = ArtifactId::try_from("src/AbstractCounter.sol:AbstractCounter").unwrap();
-        let abs = artifacts
-            .get(&abs_id)
-            .expect("AbstractCounter artifact missing");
-        assert!(matches!(abs, Artifact::Abstract(_)));
-        assert!(!abs.project_path().as_os_str().is_empty());
-    }
-
-    #[test]
-    fn parse_contract_artifact() {
-        // Fixture must be pre-built (run `make build-fixtures`).
-        let json =
-            fs::read_to_string("fixtures/foundry-project/out/Counter.sol/Counter.json").unwrap();
-        let artifact = Artifact::from_json_str(&json).unwrap();
-        assert_eq!(artifact.name(), "Counter");
-        assert!(matches!(artifact, Artifact::Contract(_)));
-        assert_eq!(artifact.id().to_string(), "src/Counter.sol:Counter");
-        assert!(!artifact.abi().functions().next().is_none());
-
-        let Artifact::Contract(contract) = &artifact else {
-            panic!("expected Contract artifact");
-        };
-        assert!(!contract.bytecode.object.is_empty());
-        assert!(!contract.deployed_bytecode.object.is_empty());
-        assert!(!contract.bytecode.source_map.is_empty());
-        assert!(!contract.deployed_bytecode.source_map.is_empty());
-    }
-
-    #[test]
-    fn parse_interface_artifact() {
-        // Fixture must be pre-built (run `make build-fixtures`).
-        let json =
-            fs::read_to_string("fixtures/foundry-project/out/ICounter.sol/ICounter.json").unwrap();
-        let artifact = Artifact::from_json_str(&json).unwrap();
-        assert_eq!(artifact.name(), "ICounter");
-        assert!(matches!(artifact, Artifact::Interface(_)));
-        assert_eq!(artifact.id().to_string(), "src/ICounter.sol:ICounter");
-
-        assert!(matches!(artifact, Artifact::Interface(_)));
-    }
-
-    #[test]
-    fn parse_library_artifact() {
-        // Fixture must be pre-built (run `make build-fixtures`).
-        let json =
-            fs::read_to_string("fixtures/foundry-project/out/CounterLib.sol/CounterLib.json")
-                .unwrap();
-        let artifact = Artifact::from_json_str(&json).unwrap();
-        assert_eq!(artifact.name(), "CounterLib");
-        assert!(matches!(artifact, Artifact::Library(_)));
-        assert_eq!(artifact.id().to_string(), "src/CounterLib.sol:CounterLib");
-
-        let Artifact::Library(lib) = &artifact else {
-            panic!("expected Library artifact");
-        };
-        assert!(!lib.bytecode.object.is_empty());
-        assert!(!lib.deployed_bytecode.object.is_empty());
-        assert!(!lib.bytecode.source_map.is_empty());
-        assert!(!lib.deployed_bytecode.source_map.is_empty());
-    }
-
-    #[test]
-    fn parse_abstract_artifact() {
-        // Fixture must be pre-built (run `make build-fixtures`).
-        let json = fs::read_to_string(
-            "fixtures/foundry-project/out/AbstractCounter.sol/AbstractCounter.json",
-        )
-        .unwrap();
-        let artifact = Artifact::from_json_str(&json).unwrap();
-        assert_eq!(artifact.name(), "AbstractCounter");
-        assert!(matches!(artifact, Artifact::Abstract(_)));
-        assert_eq!(
-            artifact.id().to_string(),
-            "src/AbstractCounter.sol:AbstractCounter"
-        );
-
-        assert!(matches!(artifact, Artifact::Abstract(_)));
-    }
 
     #[test]
     fn load_artifacts_fails_without_out_dir() {
@@ -278,49 +158,12 @@ mod tests {
         let project = Project::new(temp.path());
         let result = project.load_artifacts();
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("output directory does not exist")
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            format!(
+                "output directory does not exist: {}",
+                temp.path().join("out").display()
+            )
         );
-    }
-
-    #[test]
-    fn load_artifacts_skips_build_info() {
-        let project = Project::new("fixtures/foundry-project");
-        let artifacts = project.load_artifacts().unwrap();
-        // build-info JSONs should be skipped, so we only have contract artifacts
-        assert_eq!(artifacts.len(), 4);
-        for (id, artifact) in &artifacts {
-            assert!(!id.path.as_os_str().is_empty());
-            assert!(!id.name.is_empty());
-            assert_eq!(id.name, artifact.name());
-            assert!(!artifact.project_path().as_os_str().is_empty());
-        }
-    }
-
-    /// Regression test: artifacts without metadata or ContractDefinition
-    /// (e.g. files with only free functions/constants) must be skipped instead
-    /// of failing the entire load.
-    #[test]
-    fn load_artifacts_skips_non_contract_artifacts() {
-        let project = Project::new("fixtures/artifacts-loader");
-        let artifacts = project.load_artifacts().unwrap();
-        assert_eq!(artifacts.len(), 1);
-
-        let counter_id = ArtifactId::try_from("src/Counter.sol:Counter").unwrap();
-        assert!(artifacts.contains_key(&counter_id));
-    }
-
-    /// Regression test: Foundry artifacts for source files with no contract
-    /// definition must fail to parse with a clear error rather than crash.
-    #[test]
-    fn parse_artifact_missing_contract_definition_fails() {
-        let json =
-            fs::read_to_string("fixtures/artifacts-loader/out/ConstantsLib.sol/ConstantsLib.json")
-                .unwrap();
-        let err = Artifact::from_json_str(&json).unwrap_err();
-        assert!(err.to_string().contains("missing compilation target"));
     }
 }

@@ -1,10 +1,7 @@
 //! Configuration for [`Chain`](super::Chain) execution behavior.
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-
-use revm::primitives::Bytes;
 
 use crate::evm::cheatcode::CheatcodeConfig;
 use crate::evm::forkdb::{ForkDBConfig, Transport};
@@ -36,13 +33,6 @@ impl ChainConfig {
     /// Enable or disable coverage collection.
     pub fn coverage(mut self, enabled: bool) -> Self {
         self.coverage = enabled;
-        self
-    }
-
-    /// Seed compiled contract initcode so `vm.getCode` can resolve artifact
-    /// names. Optional; if omitted, `vm.getCode` calls will revert.
-    pub fn with_compiled_contracts(mut self, contracts: HashMap<String, Bytes>) -> Self {
-        self.cheatcode = self.cheatcode.with_compiled_contracts(contracts);
         self
     }
 

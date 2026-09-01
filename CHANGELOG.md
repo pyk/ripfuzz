@@ -114,6 +114,33 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Renamed `src/exec` to `src/executor` (`ripfuzz::executor::Script`) and moved
+  exec fixtures and tests under `fixtures/executor/` and `tests/executor/`. The
+  CLI command is still `ripfuzz exec`
+- Moved fork-mode cheatcode, contract-deployment, remote-address, and trace
+  fixtures under `fixtures/evm/`, and the `fork_mode_*` integration tests under
+  `tests/evm/`
+- Moved `fixtures/trace-context` and `fixtures/trace-inspector` under
+  `fixtures/evm/`
+- Moved max fixtures and tests under `fixtures/maxer/` and `tests/maxer/`
+- Removed the legacy `ripfuzz run` command and the invariant/maxxing campaign
+  stack (`src/campaigns`, `src/fuzzers`, `src/shrinkers`, `src/corpus`). Use
+  `ripfuzz test` to find broken invariants and `ripfuzz max` to maximize
+  `value()`. Harnesses compile through `solc` from `ripfuzz.toml`, not Foundry
+  `forge build`. Test and max campaigns keep their own corpora under
+  `src/tester` and `src/max`
+- Removed the `rvm.getCode` cheatcode and the compiled-contract seed on
+  `CheatcodeConfig`. Coverage fixtures that deployed via `getCode` now use
+  `new Counter()`
+- Tests compile fixtures through `Solc` instead of Foundry
+  `Project::load_artifacts`, and traces use that compilation output only.
+  Removed unused Foundry fixtures (`fixtures/aave-v3-*`,
+  `fixtures/artifacts-loader`, `fixtures/build-failed`,
+  `fixtures/foundry-project`, `fixtures/basic-harness`,
+  `fixtures/external-coverage-adder`, `fixtures/harness-contract-deployment`,
+  `fixtures/harness-contract-validation`, `fixtures/multi-project-coverage`,
+  `fixtures/cheatcodes`, `fixtures/coverage-reporter-optimizer-disabled`,
+  `fixtures/forks`) and the tests that loaded them
 - Terminal log timestamps use local `HH:MM:SS.mmm` (`21:24:42.575`) instead of
   RFC 3339 UTC, keeping the level and message
 - `ripfuzz test`, `ripfuzz max`, and `ripfuzz exec` initialize logging through

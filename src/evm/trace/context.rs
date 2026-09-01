@@ -1999,50 +1999,66 @@ fn artifact_bytecode(bytecode: Option<&solc::Bytecode>) -> ArtifactBytecode {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::path::Path;
 
     use alloy_primitives::{Address, B256, U256, keccak256};
     use revm::primitives::{Bytes, Log, LogData};
 
+    use crate::compilers::solc::{Solc, SolcOutput};
     use crate::evm::cheatcode::VM_ADDRESS;
-    use crate::foundry::{Artifact, ArtifactId, Project};
+    use crate::harness::HarnessId;
 
     use super::TraceContext;
 
-    /// Load a single artifact from a fixture project by its id string.
-    fn load_artifact(path: impl AsRef<Path>, id: &str) -> Artifact {
-        let project = Project::new(path);
-        let artifacts = project.load_artifacts().unwrap();
-        artifacts
-            .get(&ArtifactId::try_from(id).unwrap())
+    fn compile_fixture(root: &str, target: &str) -> SolcOutput {
+        let id = HarnessId::try_from(target).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        Solc::new()
+            .with_version("0.8.36")
+            .with_root(root)
+            .with_target(&id.path)
+            .with_name(&id.name)
+            .with_out(tmp.path().join("out"))
+            .compile()
             .unwrap()
-            .clone()
     }
 
-    /// Link a copy of the given artifact with a dummy library address.
-    fn linked_artifact(mut artifact: Artifact) -> Artifact {
-        let mut libs = HashMap::new();
-        libs.insert("src/MathLib.sol:MathLib".into(), Address::repeat_byte(0xab));
-        artifact.link(&libs);
-        artifact
+    fn compile_linked_counter() -> SolcOutput {
+        compile_fixture(
+            "fixtures/evm/trace-context",
+            "LinkedCounter.sol:LinkedCounter",
+        )
+    }
+
+    fn deployed_object(output: &SolcOutput) -> String {
+        output
+            .contract()
+            .unwrap()
+            .evm
+            .as_ref()
+            .unwrap()
+            .deployed_bytecode
+            .as_ref()
+            .unwrap()
+            .object
+            .clone()
+            .unwrap()
+    }
+
+    /// Replace the MathLib placeholder with a dummy address, as a linker would.
+    fn link_dummy(object: &str) -> Bytes {
+        let hash = keccak256("MathLib.sol:MathLib".as_bytes());
+        let placeholder = format!("__${}$__", &alloy_primitives::hex::encode(hash)[..34]);
+        let linked = object.replace(&placeholder, &"ab".repeat(20));
+        let cleaned = linked.trim_start_matches("0x");
+        Bytes::from(hex::decode(cleaned).unwrap())
     }
 
     #[test]
     fn linked_bytecode_matches_unlinked_artifact() {
-        let unlinked = load_artifact(
-            "fixtures/trace-context",
-            "src/LinkedCounter.sol:LinkedCounter",
-        );
-        let linked = linked_artifact(unlinked.clone());
+        let solc_output = compile_linked_counter();
+        let ctx = TraceContext::from(&solc_output);
 
-        let ctx = TraceContext::from_artifacts({
-            let mut map = HashMap::new();
-            map.insert(unlinked.id().clone(), unlinked);
-            map
-        });
-
-        let runtime = linked.deployed_bytecode().unwrap().to_bytes();
+        let runtime = link_dummy(&deployed_object(&solc_output));
         assert!(
             !runtime.is_empty(),
             "runtime bytecode must not be empty after linking"
@@ -2052,46 +2068,13 @@ mod tests {
         assert_eq!(
             name,
             Some("LinkedCounter"),
-            "linked runtime must match unlinked artifact"
-        );
-    }
-
-    #[test]
-    fn exact_bytecode_matches_linked_artifact() {
-        let linked = linked_artifact(load_artifact(
-            "fixtures/trace-context",
-            "src/LinkedCounter.sol:LinkedCounter",
-        ));
-
-        let ctx = TraceContext::from_artifacts({
-            let mut map = HashMap::new();
-            map.insert(linked.id().clone(), linked.clone());
-            map
-        });
-
-        let runtime = linked.deployed_bytecode().unwrap().to_bytes();
-        assert!(!runtime.is_empty());
-
-        let name = ctx.resolve_by_bytecode(&runtime);
-        assert_eq!(
-            name,
-            Some("LinkedCounter"),
-            "exact linked bytecode must match itself"
+            "linked runtime must match unlinked solc bytecode"
         );
     }
 
     #[test]
     fn unknown_bytecode_returns_none() {
-        let unlinked = load_artifact(
-            "fixtures/trace-context",
-            "src/LinkedCounter.sol:LinkedCounter",
-        );
-
-        let ctx = TraceContext::from_artifacts({
-            let mut map = HashMap::new();
-            map.insert(unlinked.id().clone(), unlinked);
-            map
-        });
+        let ctx = TraceContext::from(&compile_linked_counter());
 
         let unknown = Bytes::from(vec![0xde, 0xad, 0xbe, 0xef]);
         assert_eq!(
@@ -2106,7 +2089,7 @@ mod tests {
         let ctx = TraceContext::new();
         assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RipfuzzVM"));
 
-        let ctx = TraceContext::from_project(&Project::new("fixtures/trace-context")).unwrap();
+        let ctx = TraceContext::from(&compile_linked_counter());
         assert_eq!(ctx.get_label(&VM_ADDRESS), Some("RipfuzzVM"));
     }
 

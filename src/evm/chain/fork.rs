@@ -5,21 +5,36 @@
 
 #[cfg(test)]
 mod tests {
+
     use std::sync::Arc;
 
     use alloy_primitives::{Address, B256, U256};
     use alloy_sol_types::SolCall;
     use revm::DatabaseRef;
+    use revm::bytecode::opcode::{MSTORE, PUSH1, RETURN};
     use revm::primitives::Bytes;
     use revm::primitives::hardfork::SpecId;
     use serde_json::json;
 
+    use crate::compilers::solc::{Solc, SolcOutput};
     use crate::evm::ChainConfig;
-    use crate::evm::Contract;
     use crate::evm::chain::{Chain, DEFAULT_DEPLOYER, DeployInput, SetupInput, Transaction};
     use crate::evm::cheatcode::VM_ADDRESS;
     use crate::evm::forkdb::{ForkDBConfig, MockTransport};
-    use crate::foundry::{ArtifactId, Project};
+    use crate::harness::HarnessId;
+
+    fn compile_fixture(root: &str, target: &str) -> SolcOutput {
+        let id = HarnessId::try_from(target).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        Solc::new()
+            .with_version("0.8.36")
+            .with_root(root)
+            .with_target(&id.path)
+            .with_name(&id.name)
+            .with_out(tmp.path().join("out"))
+            .compile()
+            .unwrap()
+    }
 
     alloy_sol_types::sol! {
         interface ForkHarness {
@@ -55,21 +70,31 @@ mod tests {
         );
     }
 
-    fn load_fork_harness() -> Contract {
-        let project = Project::new("fixtures/harness-contract-with-cheatcodes");
-        let artifacts = project.load_artifacts().unwrap();
-        let artifact_id = ArtifactId::try_from("src/ForkHarness.sol:ForkHarness").unwrap();
-        Contract::try_get(&artifacts, &artifact_id).unwrap()
+    fn load_initcode(root: &str, id: &str) -> String {
+        compile_fixture(root, id).initcode().unwrap().to_owned()
+    }
+
+    /// Initcode that returns 1 byte of STOP so the account has runtime code.
+    fn empty_contract_initcode() -> String {
+        format!(
+            "0x{}",
+            hex::encode([
+                PUSH1, 0x01, PUSH1, 0x00, MSTORE, PUSH1, 0x01, PUSH1, 0x00, RETURN
+            ])
+        )
     }
 
     /// Deploy ForkHarness on an empty chain with the given transport.
     fn deploy_harness(transport: MockTransport) -> (Chain, Address) {
-        let contract = load_fork_harness();
+        let initcode = load_initcode(
+            "fixtures/harness-contract-with-cheatcodes",
+            "ForkHarness.sol:ForkHarness",
+        );
         let config = ChainConfig::default()
             .with_transport(Arc::new(transport))
             .with_fork_defaults(ForkDBConfig::new(""));
         let mut chain = Chain::new(config).unwrap();
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
         let setup = chain.setup(SetupInput::new(target)).unwrap();
@@ -498,14 +523,9 @@ mod tests {
             "rvm.fork must set block gas limit to u64::MAX"
         );
 
-        // Load a simple contract from the fixture project and deploy after fork.
-        let project = Project::new("fixtures/harness-contract-deployment");
-        let artifacts = project.load_artifacts().unwrap();
-        let artifact_id =
-            ArtifactId::try_from("test/EmptyChainNoSetup.sol:EmptyChainNoSetup").unwrap();
-        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
-
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        // Deploy a tiny contract after fork to prove max-gas deployment works.
+        let initcode = empty_contract_initcode();
+        let deployment = chain.deploy(DeployInput::new(&initcode)).unwrap();
         assert!(
             deployment.result.success,
             "deployment must succeed after rvm.fork even when the real block has a limited gas limit"
@@ -550,32 +570,15 @@ mod tests {
         );
 
         // --- Deploy: verify deployment sets chain_id on the TxEnv ---
-        let project = Project::new("fixtures/harness-contract-deployment");
-        let artifacts = project.load_artifacts().unwrap();
-        let artifact_id =
-            ArtifactId::try_from("test/EmptyChainNoSetup.sol:EmptyChainNoSetup").unwrap();
-        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
-
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let initcode = empty_contract_initcode();
+        let deployment = chain.deploy(DeployInput::new(&initcode)).unwrap();
         assert!(
             deployment.result.success,
             "deployment must succeed after rvm.fork with non-mainnet chain_id (8453)"
         );
 
         // --- Setup: verify setup sets chain_id on the TxEnv ---
-        let setup_artifact_id =
-            ArtifactId::try_from("test/EmptyChainCheatcodeInSetup.sol:EmptyChainCheatcodeInSetup")
-                .unwrap();
-        let setup_contract = Contract::try_get(&artifacts, &setup_artifact_id).unwrap();
-        let setup_deployment = chain
-            .deploy(DeployInput::new(&setup_contract.initcode))
-            .unwrap();
-        assert!(
-            setup_deployment.result.success,
-            "deployment of setup fixture must succeed"
-        );
-        let setup_target = setup_deployment.address.unwrap();
-        let setup = chain.setup(SetupInput::new(setup_target)).unwrap();
+        let setup = chain.setup(SetupInput::new(target)).unwrap();
         assert!(
             setup.result.success,
             "setup must succeed after rvm.fork with non-mainnet chain_id (8453)"

@@ -245,10 +245,10 @@ mod tests {
 
     use alloy_primitives::U256;
 
-    use crate::evm::Contract;
-    use crate::evm::chain::{Chain, ChainConfig, DeployInput};
+    use crate::compilers::solc::{Solc, SolcOutput};
+    use crate::evm::chain::{Chain, ChainConfig, DeployInput, DeployLibraryInput};
     use crate::evm::trace::{CallFrameKind, TraceContext};
-    use crate::foundry::{ArtifactId, Project};
+    use crate::harness::HarnessId;
 
     struct TestCase {
         artifact_id: &'static str,
@@ -257,88 +257,112 @@ mod tests {
         with_abi: bool,
     }
 
-    fn load_fixture(artifact_id: &str) -> Contract {
-        let project = Project::new("fixtures/trace-inspector");
-        let artifacts = project.load_artifacts().unwrap();
-        let id = ArtifactId::try_from(artifact_id).unwrap();
-        Contract::try_get(&artifacts, &id).unwrap()
+    fn compile_fixture(target: &str) -> SolcOutput {
+        compile_root("fixtures/evm/trace-inspector", target)
+    }
+
+    fn compile_root(root: &str, target: &str) -> SolcOutput {
+        let id = HarnessId::try_from(target).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        Solc::new()
+            .with_version("0.8.36")
+            .with_root(root)
+            .with_target(&id.path)
+            .with_name(&id.name)
+            .with_out(tmp.path().join("out"))
+            .compile()
+            .unwrap()
+    }
+
+    fn library_initcode(output: &SolcOutput, source: &str, name: &str) -> String {
+        output
+            .output
+            .contracts
+            .get(std::path::Path::new(source))
+            .and_then(|contracts| contracts.get(name))
+            .and_then(|contract| contract.evm.as_ref())
+            .and_then(|evm| evm.bytecode.as_ref())
+            .and_then(|bytecode| bytecode.object.clone())
+            .unwrap_or_else(|| panic!("library `{source}:{name}` initcode must be present"))
     }
 
     #[test]
     fn constructor_revert_traces() {
         let cases = [
             TestCase {
-                artifact_id: "src/BasicConstructorRevert.sol:BasicConstructorRevert",
+                artifact_id: "BasicConstructorRevert.sol:BasicConstructorRevert",
                 label: "BasicConstructorRevert",
-                expected_file: "fixtures/trace-inspector/expected/BasicConstructorRevert.txt",
+                expected_file: "fixtures/evm/trace-inspector/expected/BasicConstructorRevert.txt",
                 with_abi: false,
             },
             TestCase {
-                artifact_id: "src/BasicConstructorCustomErrorRevert.sol:BasicConstructorCustomErrorRevert",
+                artifact_id: "BasicConstructorCustomErrorRevert.sol:BasicConstructorCustomErrorRevert",
                 label: "BasicConstructorCustomErrorRevert",
-                expected_file: "fixtures/trace-inspector/expected/BasicConstructorCustomErrorRevert.txt",
+                expected_file: "fixtures/evm/trace-inspector/expected/BasicConstructorCustomErrorRevert.txt",
                 with_abi: true,
             },
             TestCase {
-                artifact_id: "src/BasicConstructorAssertionFailed.sol:BasicConstructorAssertionFailed",
+                artifact_id: "BasicConstructorAssertionFailed.sol:BasicConstructorAssertionFailed",
                 label: "BasicConstructorAssertionFailed",
-                expected_file: "fixtures/trace-inspector/expected/BasicConstructorAssertionFailed.txt",
+                expected_file: "fixtures/evm/trace-inspector/expected/BasicConstructorAssertionFailed.txt",
                 with_abi: true,
             },
             TestCase {
-                artifact_id: "src/PanicArithmeticOverflow.sol:PanicArithmeticOverflow",
+                artifact_id: "PanicArithmeticOverflow.sol:PanicArithmeticOverflow",
                 label: "PanicArithmeticOverflow",
-                expected_file: "fixtures/trace-inspector/expected/PanicArithmeticOverflow.txt",
+                expected_file: "fixtures/evm/trace-inspector/expected/PanicArithmeticOverflow.txt",
                 with_abi: true,
             },
             TestCase {
-                artifact_id: "src/PanicDivisionByZero.sol:PanicDivisionByZero",
+                artifact_id: "PanicDivisionByZero.sol:PanicDivisionByZero",
                 label: "PanicDivisionByZero",
-                expected_file: "fixtures/trace-inspector/expected/PanicDivisionByZero.txt",
+                expected_file: "fixtures/evm/trace-inspector/expected/PanicDivisionByZero.txt",
                 with_abi: true,
             },
             TestCase {
-                artifact_id: "src/PanicArrayOutOfBounds.sol:PanicArrayOutOfBounds",
+                artifact_id: "PanicArrayOutOfBounds.sol:PanicArrayOutOfBounds",
                 label: "PanicArrayOutOfBounds",
-                expected_file: "fixtures/trace-inspector/expected/PanicArrayOutOfBounds.txt",
+                expected_file: "fixtures/evm/trace-inspector/expected/PanicArrayOutOfBounds.txt",
                 with_abi: true,
             },
             TestCase {
-                artifact_id: "src/PanicEnumConversionError.sol:PanicEnumConversionError",
+                artifact_id: "PanicEnumConversionError.sol:PanicEnumConversionError",
                 label: "PanicEnumConversionError",
-                expected_file: "fixtures/trace-inspector/expected/PanicEnumConversionError.txt",
+                expected_file: "fixtures/evm/trace-inspector/expected/PanicEnumConversionError.txt",
                 with_abi: true,
             },
             TestCase {
-                artifact_id: "src/PanicEmptyArrayPop.sol:PanicEmptyArrayPop",
+                artifact_id: "PanicEmptyArrayPop.sol:PanicEmptyArrayPop",
                 label: "PanicEmptyArrayPop",
-                expected_file: "fixtures/trace-inspector/expected/PanicEmptyArrayPop.txt",
+                expected_file: "fixtures/evm/trace-inspector/expected/PanicEmptyArrayPop.txt",
                 with_abi: true,
             },
             TestCase {
-                artifact_id: "src/PanicInvalidInternalFunction.sol:PanicInvalidInternalFunction",
+                artifact_id: "PanicInvalidInternalFunction.sol:PanicInvalidInternalFunction",
                 label: "PanicInvalidInternalFunction",
-                expected_file: "fixtures/trace-inspector/expected/PanicInvalidInternalFunction.txt",
+                expected_file: "fixtures/evm/trace-inspector/expected/PanicInvalidInternalFunction.txt",
                 with_abi: true,
             },
             TestCase {
-                artifact_id: "src/PanicResourceError.sol:PanicResourceError",
+                artifact_id: "PanicResourceError.sol:PanicResourceError",
                 label: "PanicResourceError",
-                expected_file: "fixtures/trace-inspector/expected/PanicResourceError.txt",
+                expected_file: "fixtures/evm/trace-inspector/expected/PanicResourceError.txt",
                 with_abi: true,
             },
             TestCase {
-                artifact_id: "src/CustomErrorWithArgsRevert.sol:CustomErrorWithArgsRevert",
+                artifact_id: "CustomErrorWithArgsRevert.sol:CustomErrorWithArgsRevert",
                 label: "CustomErrorWithArgsRevert",
-                expected_file: "fixtures/trace-inspector/expected/CustomErrorWithArgsRevert.txt",
+                expected_file: "fixtures/evm/trace-inspector/expected/CustomErrorWithArgsRevert.txt",
                 with_abi: true,
             },
         ];
 
         for case in &cases {
-            let contract = load_fixture(case.artifact_id);
+            let solc_output = compile_fixture(case.artifact_id);
             let mut chain = Chain::empty(ChainConfig::default().trace(true));
-            let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+            let deployment = chain
+                .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+                .unwrap();
             assert!(
                 !deployment.result.success,
                 "{}: deployment must fail",
@@ -352,10 +376,12 @@ mod tests {
             );
 
             let deploy_address = deployment.trace.roots[0].address.unwrap();
-            let mut ctx = TraceContext::new().with_label(deploy_address, case.label);
-            if case.with_abi {
-                ctx = ctx.with_abi(contract.abi);
-            }
+            let mut ctx = if case.with_abi {
+                TraceContext::from(&solc_output)
+            } else {
+                TraceContext::new()
+            };
+            ctx = ctx.with_label(deploy_address, case.label);
 
             let formatted = format!("{}", deployment.trace.display_with(&ctx));
             let expected = fs::read_to_string(case.expected_file).unwrap_or_else(|_| {
@@ -375,18 +401,20 @@ mod tests {
 
     #[test]
     fn constructor_complex_revert_trace() {
-        let outer =
-            load_fixture("src/BasicConstructorComplexRevert.sol:BasicConstructorComplexRevert");
+        let solc_output =
+            compile_fixture("BasicConstructorComplexRevert.sol:BasicConstructorComplexRevert");
 
-        let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from(&solc_output);
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let mut deploy_opts =
-            DeployInput::new(&outer.initcode).value(alloy_primitives::U256::from(10000));
-        for lib in &outer.libraries {
-            deploy_opts = deploy_opts.add_library(lib.clone());
-        }
+        let library =
+            library_initcode(&solc_output, "BasicConstructorComplexRevert.sol", "MathLib");
+        let deploy_opts = DeployInput::new(solc_output.initcode().unwrap())
+            .value(alloy_primitives::U256::from(10000))
+            .add_library(DeployLibraryInput::new(
+                "BasicConstructorComplexRevert.sol:MathLib",
+                &library,
+            ));
         let deployment = chain.deploy(deploy_opts).unwrap();
         assert!(!deployment.result.success, "deployment must fail");
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
@@ -394,11 +422,11 @@ mod tests {
         let root = &deployment.trace.roots[0];
         let deploy_address = root.address.unwrap();
 
-        ctx = ctx.with_label(deploy_address, outer.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected = fs::read_to_string(
-            "fixtures/trace-inspector/expected/BasicConstructorComplexRevert.txt",
+            "fixtures/evm/trace-inspector/expected/BasicConstructorComplexRevert.txt",
         )
         .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}",));
         assert_eq!(
@@ -410,24 +438,25 @@ mod tests {
 
     #[test]
     fn storage_types_trace() {
-        let outer = load_fixture("src/StorageTypes.sol:StorageTypesRevert");
+        let solc_output = compile_fixture("StorageTypes.sol:StorageTypesRevert");
 
-        let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from(&solc_output);
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&outer.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(!deployment.result.success, "deployment must fail");
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
 
         let root = &deployment.trace.roots[0];
         let deploy_address = root.address.unwrap();
 
-        ctx = ctx.with_label(deploy_address, outer.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected =
-            fs::read_to_string("fixtures/trace-inspector/expected/StorageTypesRevert.txt")
+            fs::read_to_string("fixtures/evm/trace-inspector/expected/StorageTypesRevert.txt")
                 .unwrap_or_else(
                     |_| panic!("expected file not found. actual output:\n{formatted}",),
                 );
@@ -440,26 +469,27 @@ mod tests {
 
     #[test]
     fn label_trace() {
-        let contract = load_fixture("src/LabelTrace.sol:LabelTrace");
+        let solc_output = compile_fixture("LabelTrace.sol:LabelTrace");
 
-        let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from(&solc_output);
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(!deployment.result.success, "deployment must fail");
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
 
         let root = &deployment.trace.roots[0];
         let deploy_address = root.address.unwrap();
 
-        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
         for (addr, label) in chain.labels() {
             ctx = ctx.with_label(*addr, label.clone());
         }
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
-        let expected = fs::read_to_string("fixtures/trace-inspector/expected/LabelTrace.txt")
+        let expected = fs::read_to_string("fixtures/evm/trace-inspector/expected/LabelTrace.txt")
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}",));
         assert_eq!(
             formatted.trim(),
@@ -470,23 +500,24 @@ mod tests {
 
     #[test]
     fn emit_events_trace() {
-        let contract = load_fixture("src/EmitEvents.sol:EmitEvents");
+        let solc_output = compile_fixture("EmitEvents.sol:EmitEvents");
 
-        let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from(&solc_output);
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
 
         let root = &deployment.trace.roots[0];
         let deploy_address = root.address.unwrap();
 
-        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
-        let expected = fs::read_to_string("fixtures/trace-inspector/expected/EmitEvents.txt")
+        let expected = fs::read_to_string("fixtures/evm/trace-inspector/expected/EmitEvents.txt")
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}",));
         assert_eq!(
             formatted.trim(),
@@ -501,23 +532,25 @@ mod tests {
     /// fallback is the only way these logs can be named.
     #[test]
     fn common_events_fallback_trace() {
-        let contract = load_fixture("src/CommonEventsFallback.sol:CommonEventsFallback");
+        let solc_output = compile_fixture("CommonEventsFallback.sol:CommonEventsFallback");
 
         let mut ctx = TraceContext::new();
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
 
         let root = &deployment.trace.roots[0];
         let deploy_address = root.address.unwrap();
 
-        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected =
-            fs::read_to_string("fixtures/trace-inspector/expected/CommonEventsFallback.txt")
+            fs::read_to_string("fixtures/evm/trace-inspector/expected/CommonEventsFallback.txt")
                 .unwrap_or_else(
                     |_| panic!("expected file not found. actual output:\n{formatted}",),
                 );
@@ -530,23 +563,24 @@ mod tests {
 
     #[test]
     fn log_events_trace() {
-        let contract = load_fixture("src/LogEvents.sol:LogEvents");
+        let solc_output = compile_fixture("LogEvents.sol:LogEvents");
 
-        let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from(&solc_output);
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
 
         let root = &deployment.trace.roots[0];
         let deploy_address = root.address.unwrap();
 
-        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
-        let expected = fs::read_to_string("fixtures/trace-inspector/expected/LogEvents.txt")
+        let expected = fs::read_to_string("fixtures/evm/trace-inspector/expected/LogEvents.txt")
             .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}",));
         assert_eq!(
             formatted.trim(),
@@ -559,10 +593,12 @@ mod tests {
     /// discarded when the call or create frame fails.
     #[test]
     fn storage_changes_not_cleared_on_revert() {
-        let contract = load_fixture("src/StorageChangeRevert.sol:StorageChangeRevert");
+        let solc_output = compile_fixture("StorageChangeRevert.sol:StorageChangeRevert");
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(
             !deployment.result.success,
             "deployment must fail when constructor reverts"
@@ -589,10 +625,12 @@ mod tests {
     /// because the first field is never touched.
     #[test]
     fn struct_mapping_slot_decoded() {
-        let contract = load_fixture("src/StructMappingSlot.sol:StructMappingSlot");
+        let solc_output = compile_fixture("StructMappingSlot.sol:StructMappingSlot");
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(
             !deployment.result.success,
             "deployment must fail when constructor reverts"
@@ -612,10 +650,9 @@ mod tests {
         let change = &root.storage_changes[0];
         assert_eq!(change.new_value, U256::from(42), "new value must be 42");
 
-        let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from(&solc_output);
         let deploy_address = root.address.unwrap();
-        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         assert!(
@@ -629,10 +666,12 @@ mod tests {
     /// beyond the struct field's base slot.
     #[test]
     fn array_in_struct_mapping_slot_decoded() {
-        let contract = load_fixture("src/ArrayInStructMapping.sol:ArrayInStructMapping");
+        let solc_output = compile_fixture("ArrayInStructMapping.sol:ArrayInStructMapping");
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(
             !deployment.result.success,
             "deployment must fail when constructor reverts"
@@ -652,10 +691,9 @@ mod tests {
         let change = &root.storage_changes[0];
         assert_eq!(change.new_value, U256::from(42), "new value must be 42");
 
-        let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from(&solc_output);
         let deploy_address = root.address.unwrap();
-        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         assert!(
@@ -669,10 +707,12 @@ mod tests {
     /// (e.g. `entries[0].data.b`) instead of raw keccak hashes.
     #[test]
     fn array_of_nested_struct_trace() {
-        let contract = load_fixture("src/ArrayOfNestedStruct.sol:ArrayOfNestedStruct");
+        let solc_output = compile_fixture("ArrayOfNestedStruct.sol:ArrayOfNestedStruct");
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(
             !deployment.result.success,
             "deployment must fail when constructor reverts"
@@ -680,14 +720,13 @@ mod tests {
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
 
         let root = &deployment.trace.roots[0];
-        let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from(&solc_output);
         let deploy_address = root.address.unwrap();
-        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected =
-            fs::read_to_string("fixtures/trace-inspector/expected/ArrayOfNestedStruct.txt")
+            fs::read_to_string("fixtures/evm/trace-inspector/expected/ArrayOfNestedStruct.txt")
                 .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         assert_eq!(
             formatted.trim(),
@@ -698,24 +737,25 @@ mod tests {
 
     #[test]
     fn return_value_types_trace() {
-        let outer = load_fixture("src/ReturnValueTypesTrace.sol:ReturnValueTypesTrace");
+        let solc_output = compile_fixture("ReturnValueTypesTrace.sol:ReturnValueTypesTrace");
 
-        let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from(&solc_output);
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&outer.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(!deployment.result.success, "deployment must fail");
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
 
         let root = &deployment.trace.roots[0];
         let deploy_address = root.address.unwrap();
 
-        ctx = ctx.with_label(deploy_address, outer.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
         let expected =
-            fs::read_to_string("fixtures/trace-inspector/expected/ReturnValueTypesTrace.txt")
+            fs::read_to_string("fixtures/evm/trace-inspector/expected/ReturnValueTypesTrace.txt")
                 .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         assert_eq!(
             formatted.trim(),
@@ -728,18 +768,20 @@ mod tests {
     /// still decode argument values from runtime bytecode (evmole).
     #[test]
     fn evmole_decodes_unknown_call() {
-        let contract = load_fixture("src/BytecodeAbiCall.sol:BytecodeAbiCall");
+        let solc_output = compile_fixture("BytecodeAbiCall.sol:BytecodeAbiCall");
 
         let mut ctx = TraceContext::new();
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(!deployment.result.success, "deployment must fail");
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
 
         let root = &deployment.trace.roots[0];
         let deploy_address = root.address.unwrap();
-        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
 
         let target_addr = root
             .children
@@ -750,8 +792,9 @@ mod tests {
         ctx = ctx.with_label(target_addr, "BytecodeAbiTarget");
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
-        let expected = fs::read_to_string("fixtures/trace-inspector/expected/BytecodeAbiCall.txt")
-            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected =
+            fs::read_to_string("fixtures/evm/trace-inspector/expected/BytecodeAbiCall.txt")
+                .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         assert_eq!(
             formatted.trim(),
             expected.trim(),
@@ -763,23 +806,25 @@ mod tests {
     /// so --stop-on-revert traces are actionable (e.g. forgot rvm.fork).
     #[test]
     fn call_empty_account_trace() {
-        let contract = load_fixture("src/CallEmptyAccount.sol:CallEmptyAccount");
+        let solc_output = compile_fixture("CallEmptyAccount.sol:CallEmptyAccount");
 
-        let project = Project::new("fixtures/trace-inspector");
-        let mut ctx = TraceContext::from_project(&project).unwrap();
+        let mut ctx = TraceContext::from(&solc_output);
 
         let mut chain = Chain::empty(ChainConfig::default().trace(true));
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain
+            .deploy(DeployInput::new(solc_output.initcode().unwrap()))
+            .unwrap();
         assert!(!deployment.result.success, "deployment must fail");
         assert_eq!(deployment.trace.roots.len(), 1, "trace must have one root");
 
         let root = &deployment.trace.roots[0];
         let deploy_address = root.address.unwrap();
-        ctx = ctx.with_label(deploy_address, contract.artifact_id.name.clone());
+        ctx = ctx.with_label(deploy_address, solc_output.id.name.clone());
 
         let formatted = format!("{}", deployment.trace.display_with(&ctx));
-        let expected = fs::read_to_string("fixtures/trace-inspector/expected/CallEmptyAccount.txt")
-            .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
+        let expected =
+            fs::read_to_string("fixtures/evm/trace-inspector/expected/CallEmptyAccount.txt")
+                .unwrap_or_else(|_| panic!("expected file not found. actual output:\n{formatted}"));
         assert_eq!(
             formatted.trim(),
             expected.trim(),

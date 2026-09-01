@@ -5,5 +5,4 @@ pub use crate::config::Config;
 pub mod exec;
 pub mod init;
 pub mod max;
-pub mod run;
 pub mod test;

@@ -126,15 +126,29 @@ pub fn stop_prank(state: &mut ExecutionState) -> Option<revm::interpreter::CallO
 
 #[cfg(test)]
 mod tests {
+
     use alloy_primitives::{Address, U256, address};
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
-    use crate::evm::Contract;
+    use crate::compilers::solc::{Solc, SolcOutput};
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::prank;
     use crate::evm::cheatcode::state::ExecutionState;
-    use crate::foundry;
+    use crate::harness::HarnessId;
+
+    fn compile_fixture(root: &str, target: &str) -> SolcOutput {
+        let id = HarnessId::try_from(target).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        Solc::new()
+            .with_version("0.8.36")
+            .with_root(root)
+            .with_target(&id.path)
+            .with_name(&id.name)
+            .with_out(tmp.path().join("out"))
+            .compile()
+            .unwrap()
+    }
 
     alloy_sol_types::sol! {
         interface PrankHarness {
@@ -169,17 +183,17 @@ mod tests {
     const START_ORIGIN: Address = address!("0x6666666666666666666666666666666666666666");
     const ACTOR_1: Address = address!("0x2000000000000000000000000000000000000002");
 
-    fn load_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/harness-contract-with-cheatcodes");
-        let artifacts = project.load_artifacts().unwrap();
-        let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
-        Contract::try_get(&artifacts, &artifact_id).unwrap()
+    fn load_initcode(id: &str) -> String {
+        compile_fixture("fixtures/harness-contract-with-cheatcodes", id)
+            .initcode()
+            .unwrap()
+            .to_owned()
     }
 
     fn deploy_and_setup() -> (Chain, Address) {
-        let contract = load_fixture("src/PrankHarness.sol:PrankHarness");
+        let initcode = load_initcode("PrankHarness.sol:PrankHarness");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
@@ -190,9 +204,9 @@ mod tests {
     }
 
     fn deploy_and_setup_leak() -> (Chain, Address) {
-        let contract = load_fixture("src/PrankLeakHarness.sol:PrankLeakHarness");
+        let initcode = load_initcode("PrankLeakHarness.sol:PrankLeakHarness");
         let mut chain = Chain::new(ChainConfig::default()).unwrap();
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 

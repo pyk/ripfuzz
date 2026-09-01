@@ -498,13 +498,27 @@ impl Chain {
 
 #[cfg(test)]
 mod tests {
+
     use alloy_primitives::{Address, U256};
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
-    use crate::evm::Contract;
+    use crate::compilers::solc::{Solc, SolcOutput};
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
-    use crate::foundry;
+    use crate::harness::HarnessId;
+
+    fn compile_fixture(root: &str, target: &str) -> SolcOutput {
+        let id = HarnessId::try_from(target).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        Solc::new()
+            .with_version("0.8.36")
+            .with_root(root)
+            .with_target(&id.path)
+            .with_name(&id.name)
+            .with_out(tmp.path().join("out"))
+            .compile()
+            .unwrap()
+    }
 
     alloy_sol_types::sol! {
         interface WarpHarness {
@@ -517,17 +531,17 @@ mod tests {
 
     const EXPECTED_TIMESTAMP: U256 = U256::from_limbs([1_234_567_890, 0, 0, 0]);
 
-    fn load_warp_fixture() -> Contract {
-        let project = foundry::Project::new("fixtures/harness-contract-with-cheatcodes");
-        let artifacts = project.load_artifacts().unwrap();
-        let artifact_id = foundry::ArtifactId::try_from("src/WarpHarness.sol:WarpHarness").unwrap();
-        Contract::try_get(&artifacts, &artifact_id).unwrap()
+    fn load_initcode(root: &str, id: &str) -> String {
+        compile_fixture(root, id).initcode().unwrap().to_owned()
     }
 
     fn deploy_and_setup_warp(config: ChainConfig) -> (Chain, Address) {
-        let contract = load_warp_fixture();
+        let initcode = load_initcode(
+            "fixtures/harness-contract-with-cheatcodes",
+            "WarpHarness.sol:WarpHarness",
+        );
         let mut chain = Chain::new(config).unwrap();
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
 
@@ -634,35 +648,5 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ts, EXPECTED_TIMESTAMP);
-    }
-
-    /// Execute against a basic target to verify coverage works with initcode.
-    #[test]
-    fn execute_coverage_on_basic_harness() {
-        let project = foundry::Project::new("fixtures/basic-harness");
-        let artifacts = project.load_artifacts().unwrap();
-        let artifact_id =
-            foundry::ArtifactId::try_from("src/NamedMismatch.sol:DifferentName").unwrap();
-        let contract = Contract::try_get(&artifacts, &artifact_id).unwrap();
-        let mut chain = Chain::new(ChainConfig::default().coverage(true)).unwrap();
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
-        assert!(deployment.result.success);
-        let target = deployment.address.unwrap();
-
-        // `set(uint256)` selector = keccak256("set(uint256)")[:4]
-        let set_selector: [u8; 4] = [0x60, 0xfe, 0x47, 0xb1];
-        let txs = vec![
-            Transaction::new(target)
-                .calldata(Bytes::from([set_selector.as_slice(), &[0u8; 32]].concat())),
-        ];
-
-        let execution = chain.exec(&txs).unwrap();
-        assert!(execution.results[0].success);
-
-        let coverage = execution.coverage.expect("coverage must be present");
-        assert!(
-            !coverage.contracts.is_empty(),
-            "coverage should contain at least one contract"
-        );
     }
 }

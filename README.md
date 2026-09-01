@@ -43,9 +43,8 @@ deduplicated, and each one is shrunk and reported separately.
 - **Invariant testing**: automatically validate your invariants at both the
   function level and the protocol level, with every generated call sequence
   checked and any violation reported as a bug.
-- **Max mode**: declaring a `max_*` harness function automatically switches
-  the campaign to max mode, maximizing that value and shrinking the best
-  sequence when impact matters more than an invariant violation.
+- **Max mode**: `ripfuzz max` maximizes a harness `value()` function and
+  shrinks the best sequence when impact matters more than a broken invariant.
 - **Multi-chain fork mode**: fuzz against live on-chain state with per-fork
   isolation and harness storage shared across chains for cross-chain
   invariants.
@@ -78,29 +77,19 @@ to your Cargo bin directory.
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) (edition 2024)
-- [Foundry](https://getfoundry.sh/) v1.7.1 or newer, used to compile the
-  harness contract. For Foundry v1.8.0+, set `dynamic_test_linking = false`
-  in `foundry.toml` (dynamic linking removes `__$` placeholders and breaks
-  library linking).
 
-Ripfuzz uses Foundry to compile the harness contract. The project should be set
-up with the following in `foundry.toml` so artifacts include the AST and
-storage layout:
-
-```toml
-[profile.default]
-ast = true
-extra_output = ["storageLayout"]
-dynamic_test_linking = false # required for Foundry v1.8.0+
-```
+Ripfuzz compiles harnesses with `solc`. Run `ripfuzz init` to write a
+`ripfuzz.toml` with the compiler version, then point `ripfuzz test` or
+`ripfuzz max` at a Solidity file.
 
 ## Quick start
 
 Write a harness contract with handler functions (any `external`/`public`
-function) and invariants (functions prefixed with `invariant_`), then run:
+function), then run:
 
 ```bash
-ripfuzz run SomeHarness
+ripfuzz test path/to/Harness.sol
+ripfuzz max path/to/Harness.sol
 ```
 
 For cheatcodes, fork mode, and a full harness reference, see

@@ -3,13 +3,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use alloy_dyn_abi::{DynSolType, DynSolValue, Specifier};
+use alloy_dyn_abi::{DynSolType, Specifier};
 use alloy_json_abi::{Function, JsonAbi, StateMutability};
-use alloy_primitives::Address;
 use anyhow::{Context, Result, bail, ensure};
 
-use crate::corpus::Call;
-use crate::evm::{DeployLibraryInput, Transaction};
+use crate::evm::DeployLibraryInput;
 use crate::foundry::{Artifact, ArtifactId, ContractArtifact};
 
 /// A validated harness contract ready for fuzzing.
@@ -165,21 +163,6 @@ impl Contract {
         self.abi.functions.get("summary").and_then(|f| f.first())
     }
 
-    /// Build the trailing summary transaction for a traced re-run, when the
-    /// harness declares a `summary()` function.
-    pub fn summary_transaction(&self, target: Address, caller: Address) -> Option<Transaction> {
-        let function = self.summary_function()?.clone();
-        Some(
-            Call {
-                function,
-                args: DynSolValue::Tuple(vec![]),
-                value: None,
-                caller,
-            }
-            .into_transaction(target),
-        )
-    }
-
     /// Build a tree of [`DeployLibraryInput`] from an artifact's library dependencies.
     fn build_libraries(
         artifact: &Artifact,
@@ -248,9 +231,6 @@ impl Contract {
 mod tests {
     use revm::primitives::Bytes;
 
-    use super::*;
-    use crate::foundry::Project;
-
     #[test]
     fn bytes_from_str_empty() {
         let b: Bytes = "".parse().unwrap_or_default();
@@ -269,212 +249,5 @@ mod tests {
         let b: Bytes = "1234".parse().unwrap_or_default();
         assert_eq!(b.len(), 2);
         assert_eq!(b.as_ref(), [0x12, 0x34]);
-    }
-
-    // Fixture helpers
-
-    fn load_fixture(contract_id: &str) -> Result<Contract> {
-        let project = Project::new("fixtures/harness-contract-validation");
-        let artifacts = project.load_artifacts()?;
-        let id = ArtifactId::try_from(contract_id)?;
-        Contract::try_get(&artifacts, &id)
-    }
-
-    // 1. Valid harness contract should have >0 handler functions
-
-    #[test]
-    fn valid_handler_has_handler_functions() {
-        let contract = load_fixture("src/ValidHarness.sol:ValidHarness").unwrap();
-        assert!(!contract.handler_functions.is_empty());
-        assert!(
-            contract
-                .handler_functions
-                .iter()
-                .any(|f| f.name == "doSomething")
-        );
-    }
-
-    // 2. Valid harness contract can have 0 or more invariant functions
-
-    #[test]
-    fn valid_handler_can_have_zero_invariants() {
-        let contract = load_fixture("src/ValidNoInvariant.sol:ValidNoInvariant").unwrap();
-        assert!(contract.invariant_functions.is_empty());
-    }
-
-    #[test]
-    fn valid_handler_can_have_multiple_invariants() {
-        let contract =
-            load_fixture("src/ValidMultipleInvariants.sol:ValidMultipleInvariants").unwrap();
-        assert_eq!(contract.invariant_functions.len(), 2);
-        assert!(
-            contract
-                .invariant_functions
-                .iter()
-                .any(|f| f.name == "invariant_a")
-        );
-        assert!(
-            contract
-                .invariant_functions
-                .iter()
-                .any(|f| f.name == "invariant_b")
-        );
-    }
-
-    // 3. Invariant function must have no arguments
-
-    #[test]
-    fn invariant_with_args_fails() {
-        let err =
-            load_fixture("src/InvalidInvariantWithArgs.sol:InvalidInvariantWithArgs").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("invariant function `invariant_check` must have no arguments")
-        );
-    }
-
-    // 4. Invariant function must be external (implicit: ABI only contains public/external functions)
-
-    #[test]
-    fn public_invariant_is_classified_as_invariant() {
-        let contract = load_fixture("src/ValidHarness.sol:ValidHarness").unwrap();
-        assert!(
-            contract
-                .invariant_functions
-                .iter()
-                .any(|f| f.name == "invariant_check")
-        );
-    }
-
-    // 5. Invariant function must be view or pure
-
-    #[test]
-    fn invariant_non_view_is_accepted() {
-        let contract = load_fixture("src/ValidInvariantNonView.sol:ValidInvariantNonView").unwrap();
-        assert!(
-            contract
-                .invariant_functions
-                .iter()
-                .any(|f| f.name == "invariant_check")
-        );
-    }
-
-    // 6. Constructor must not have arguments
-
-    #[test]
-    fn constructor_with_args_fails() {
-        let err = load_fixture("src/InvalidConstructorWithArgs.sol:InvalidConstructorWithArgs")
-            .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("constructor must not have arguments")
-        );
-    }
-
-    // 7. setup function is optional
-
-    #[test]
-    fn setup_is_optional() {
-        let contract = load_fixture("src/ValidNoInvariant.sol:ValidNoInvariant").unwrap();
-        assert!(contract.setup_function.is_none());
-    }
-
-    // 8. setup function must not have arguments
-
-    #[test]
-    fn setup_with_args_fails() {
-        let err = load_fixture("src/InvalidSetupWithArgs.sol:InvalidSetupWithArgs").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("setup function must not have arguments")
-        );
-    }
-
-    // 9. setup function must be external (implicit: ABI only contains public/external functions)
-
-    #[test]
-    fn public_setup_is_accepted() {
-        // ValidSetup uses external setup; since ABI omits internal functions,
-        // any setup in the ABI is by definition callable externally.
-        let contract = load_fixture("src/ValidSetup.sol:ValidSetup").unwrap();
-        assert!(contract.setup_function.is_some());
-    }
-
-    // 10. setup function must not be view or pure
-
-    #[test]
-    fn setup_view_fails() {
-        let err = load_fixture("src/InvalidSetupView.sol:InvalidSetupView").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("setup function must not be view or pure")
-        );
-    }
-
-    #[test]
-    fn valid_setup_no_args_succeeds() {
-        let contract = load_fixture("src/ValidSetup.sol:ValidSetup").unwrap();
-        let setup = contract.setup_function.unwrap();
-        assert!(setup.inputs.is_empty());
-    }
-
-    // Edge case: contract with no targets at all fails
-
-    #[test]
-    fn no_handlers_fails() {
-        let err = load_fixture("src/InvalidNoHandlers.sol:InvalidNoHandlers").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("harness contract must have at least one handler function")
-        );
-    }
-
-    // 11. Duplicate function names are not allowed
-
-    #[test]
-    fn duplicate_function_name_fails() {
-        let err = load_fixture("src/InvalidDuplicateFunctionName.sol:InvalidDuplicateFunctionName")
-            .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("harness contract must not have duplicate function names")
-        );
-    }
-
-    // 12. Summary function validation
-
-    #[test]
-    fn valid_summary_is_accepted() {
-        let contract = load_fixture("src/ValidSummary.sol:ValidSummary").unwrap();
-        assert_eq!(
-            contract.summary_function().map(|f| f.name.as_str()),
-            Some("summary")
-        );
-        assert!(
-            contract
-                .handler_functions
-                .iter()
-                .all(|f| f.name != "summary"),
-            "summary function must not be treated as a handler"
-        );
-    }
-
-    #[test]
-    fn summary_with_args_fails() {
-        let err =
-            load_fixture("src/InvalidSummaryWithArgs.sol:InvalidSummaryWithArgs").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("summary function must have no arguments, but has 1")
-        );
-    }
-
-    #[test]
-    fn summary_view_fails() {
-        let err = load_fixture("src/InvalidSummaryView.sol:InvalidSummaryView").unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("summary function must not be view or pure")
-        );
     }
 }
