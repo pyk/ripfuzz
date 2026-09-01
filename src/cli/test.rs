@@ -17,7 +17,7 @@ use crate::evm::{
 use crate::harness::HarnessId;
 use crate::tester::{Corpus, Finding, Fuzzer, Replayer, SharedFindings, Shrinker, TestHarness};
 
-/// Find failed assertions.
+/// Find findings.
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path to harness to run.
@@ -48,7 +48,7 @@ pub struct Args {
     #[arg(long, value_name = "SECONDS")]
     pub timeout: Option<u64>,
 
-    /// Stop fuzzing after this many distinct failed assertions.
+    /// Stop fuzzing after this many distinct findings.
     #[arg(long, default_value_t = 256, value_name = "COUNT")]
     pub max_failures: usize,
 
@@ -186,7 +186,7 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
         .replay(corpus)?;
     info!("corpus loaded & replayed");
 
-    // 12. Fuzz for failed assertions within the stop conditions.
+    // 12. Fuzz for findings within the stop conditions.
     let shared_findings = SharedFindings::new(args.max_failures);
     let fuzzer = Fuzzer::new()
         .with_chain(chain.clone())
@@ -213,7 +213,7 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
         }
     };
 
-    // 13. Shrink every finding's sequence while the assertion still panics.
+    // 13. Shrink every finding's sequence while the finding still reproduces.
     let mut findings = output.findings;
     if !findings.is_empty() {
         findings = Shrinker::new()
@@ -236,11 +236,11 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
     );
 
     // 15. Re-run every finding with tracing so the console shows the logs
-    //     emitted on the way to the assertion, and the trace file captures
+    //     emitted on the way to the finding, and the trace file captures
     //     the full sequence.
     //
     //     The trigger call runs last and its state is discarded, so the
-    //     optional summary call below still reports on the pre-failure
+    //     optional summary call below still reports on the pre-finding
     //     state.
     for finding in &findings {
         report_finding(
@@ -253,7 +253,7 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
         )?;
     }
 
-    // 16. Run the summary function when no assertion failed so the campaign
+    // 16. Run the summary function when no finding was found so the campaign
     //     still reports its final state.
     if findings.is_empty()
         && let Some(summary) = test_harness.summary()
@@ -303,7 +303,7 @@ fn report_finding(
         );
     }
 
-    // 2. Execute the re-run; the trigger panic is expected and does not
+    // 2. Execute the re-run; the trigger finding is expected and does not
     //    invalidate the logs of the calls before it.
     let output = rerun_chain.exec(&transactions)?;
 

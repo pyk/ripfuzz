@@ -20,7 +20,7 @@ enum Commands {
     Run(Box<cli::run::Args>),
     /// Find maximum value.
     Max(Box<cli::max::Args>),
-    /// Find failed assertions.
+    /// Find findings.
     Test(Box<cli::test::Args>),
     /// Execute a script contract.
     Exec(Box<cli::exec::Args>),
