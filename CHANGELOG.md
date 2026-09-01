@@ -10,351 +10,54 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
-- `ripfuzz max` measures `value()` after every handler call and uses the
-  per-call deltas to guide the search: new min/max records per handler class
-  and recoveries from a dip admit prefixes into the corpus, corpus sampling
-  weights those prefixes by delta activity, and a new best keeps every prefix
-  of the winning sequence so a value-delta ladder can be extended rung by rung
+- `ripfuzz test <harness>` finds broken invariants. It compiles a harness
+  through solc, deploys it on a sandbox chain, fuzzes handler sequences, checks
+  `invariant_*` functions after every call on a throwaway clone, shrinks each
+  reproduction, and writes traces and an `lcov.info` coverage report under
+  `.ripfuzz/`. Broken invariants are `rvm.bail(Invariant)` reports,
+  deduplicated by id, and argument generation is seeded from harness literals.
 
-- Ladder max challenges under `fixtures/maxer/challenges`: `reduce` dumps the
-  wallet from 5008 to 923, `swap` is a flat rung, and `increase` recovers to
-  5035, with a `LadderWithNoise` variant that also inherits `NoiseBase`
+- `ripfuzz max <harness>` maximizes harness `value()`. Coverage-guided search
+  uses per-call value deltas, shrinks the best sequence, persists a JSON
+  corpus, and writes the same traces and coverage report as `ripfuzz test`.
+  Optional `setup` and `summary` functions run around the campaign.
 
-- `ripfuzz test` and `ripfuzz max` write an `lcov.info` coverage report under
-  `.ripfuzz/coverage` at the end of each campaign, using the compiled solc
-  output and the shared coverage collected during fuzzing
+- `ripfuzz exec <script>` compiles a Solidity script, deploys it, runs `exec()`
+  once, prints logs, and saves the execution trace.
 
-- Tester challenges under `fixtures/tester/challenges`: the easy
-  `GatedByLiterals` harness gates one failed assertion behind every literal
-  kind (`bool`, `uint256`, `uint128`, `int256`, `int8`, `bytes32`, `bytes1`,
-  `address`, `bytes`, `string`, and the `1 ether` subdenomination);
-  `tests/tester/challenges.rs` asserts the literals are extracted from the
-  compiled harness and that the campaign finds all gated assertions within the
-  easy budget (run with `make tester-challenges`)
+- `ripfuzz init` writes a starter `ripfuzz.toml` and refuses to overwrite an
+  existing file.
 
-- Tester campaigns seed argument generation with the harness literals: the
-  corpus extracts literals from the solc output via the new `Corpus::new()`
-  builder (`with_root`, `with_dir`, `with_harness`, `with_handlers`,
-  `with_solc_output`), and calls draw from the extracted pools for `uint`,
-  `int`, fixed bytes, `address`, `bytes`, and `string` arguments, so gates
-  behind constant comparisons are reachable
+### Changed
 
-- `ripfuzz test <harness>` runs a test harness campaign that finds failed
-  assertions: it compiles the harness via solc (default contract name from the
-  file stem, or `path/File.sol:Name` to pick one), deploys it on a sandbox
-  chain, runs the optional `setup` function, fuzzes for Solidity `assert`
-  panics (`Panic(0x01)`), shrinks every finding's sequence, prints the logs
-  emitted on the way to each failure, and saves execution traces under
-  `.ripfuzz/traces`; validation rejects a constructor, `setup`, `summary`, or
-  `invariant_*` with arguments or `payable`
+- Harnesses compile through solc from `ripfuzz.toml`, not Foundry
+  `forge build`. Solc settings live under `[solc]`, with `version` required.
+  The legacy flat `solc = "0.8.36"` form is rejected. Compilation resolves
+  remappings from the config and `{root}/remappings.txt`.
 
-- `ripfuzz test` checks `invariant_*` functions after every handler call on a
-  throwaway state clone, so invariant state changes are never committed and
-  invariants never consume `--max-calls`; findings are deduplicated by
-  panicking function and revert output, and only `assert` panics count, so
-  `require` and custom-error reverts stay plain control flow
+- Replaced `rvm.finding` and the `assert(false)` panic workflow with
+  `rvm.bail(Invariant)`.
 
-- `ripfuzz test` runs coverage-guided evolutionary fuzzing over a standalone
-  corpus (`TestHarness`, `Fuzzer`, `Corpus`, `Shrinker` under `src/tester`),
-  with `--threads`, `--max-runs`, `--max-calls`, `--timeout`, `--max-failures`,
-  and `--corpus-dir` flags mirroring `ripfuzz max`
+### Removed
 
-- `ripfuzz exec <script>` runs a Solidity script contract: it compiles the
-  script (default contract name from the file stem, or `path/File.sol:Name` to
-  pick one), deploys it on a sandbox chain, runs the optional `setup` function,
-  executes the mandatory `exec` function once, prints emitted logs to the
-  console, and saves the execution trace under `.ripfuzz/traces`; validation
-  rejects an `exec`/`setup` with arguments or `payable`, and a constructor with
-  arguments or `payable`
+- `ripfuzz run` and the Foundry-based campaign stack. Use `ripfuzz test` to
+  find broken invariants and `ripfuzz max` to maximize `value()`.
 
-- `ripfuzz max` runs the optional harness `summary` function on the final
-  campaign state after saving the corpus, prints its log output to the console,
-  and saves the full execution trace under `.ripfuzz/traces` for offline
-  analysis
-
-- `ripfuzz max --log-level` controls log verbosity (default `info`); `debug`
-  traces each pending call's handler, success, gas, and revert data, which is
-  how the yscrvUSD campaign was debugged
-
-- `ripfuzz max` measures the initial value by calling the harness `value`
-  function after deployment and setup, and logs it as the campaign baseline
-  (profit is measured against it during maximization); a reverting `value` call
-  fails with a dumped execution trace, mirroring deployment and setup
-
-- `ripfuzz max` runs coverage-guided evolutionary fuzzing after the initial
-  value is measured: fuzzers draw from a shared corpus of interesting sequences
-  (new coverage or a new best value), mutate them via insert, delete, replace,
-  duplicate, splice, and argument regeneration, and merge execution coverage
-  into a shared map; `--threads` sets the fuzzer count, `--max-runs` bounds the
-  total number of sequences, `--max-calls` bounds the sequence length,
-  `--timeout` and `--target-value` stop fuzzing early, and progress is logged
-  every 3 seconds
-
-- `ripfuzz max` shrinks the best sequence in parallel: shrinkers delete random
-  chunks of calls and accept a candidate only when a clean-state replay keeps
-  the final value at or above the best value found, so the reported sequence is
-  the shortest one found within the budget
-
-- `ripfuzz init` writes a starter `ripfuzz.toml` with `solc = "0.8.36"` in the
-  current directory and refuses to overwrite an existing file
-
-- `MaxHarness` validates a compiled `Harness` against the max harness rules (a
-  `view`/`pure` `value` function returning `uint256`, no `invariant_*`
-  functions, optional `setup` and `summary` functions) and resolves those
-  functions for later steps; `ripfuzz max` rejects invalid harnesses before
-  deployment
-
-- `ripfuzz max --root <path>` resolves the config file, harness path, and
-  output directory relative to the given project root instead of the current
-  working directory
-
-- Solc compilation resolves imports through `{root}/remappings.txt`, so
-  harnesses importing dependencies via remappings (e.g. `ripfuzz/Harness.sol`)
-  compile
-
-- `ripfuzz max --corpus-dir <path>` dumps the corpus of interesting sequences
-  when the campaign finishes (and best-effort when it fails), one line per
-  entry with its value, new coverage, call count, and sequence; the dump
-  defaults to `{root}/.ripfuzz/corpus/{source-file}/{contract}/corpus.log`, so
-  a surprising campaign can be analyzed offline
-
-- `ripfuzz max --quiet` (`-q`) suppresses terminal logs by writing the
-  subscriber to a null sink, so harnesses forking in tests cannot leak output;
-  the deployed address still prints to stdout
-
-- `Vault` and `VaultWithNoise` max challenges cover the approve, deposit, and
-  redeem pattern with 28 handlers and fork-free simplified accounting, catching
-  future regressions
-
-- `ExecutionTraceWriter` under `src/evm/trace/writer.rs`: the shared type that
-  renders an execution trace through its trace context and saves it as
-  `{root}/.ripfuzz/traces/{unix-timestamp}-{id}.log`; `ripfuzz exec`,
-  `ripfuzz max`, `ripfuzz test`, and the broken-invariant re-run all use it,
-  replacing the copy-pasted `dump_execution_trace` helper in each command
+- The `rvm.getCode` cheatcode.
 
 ### Fixed
 
 - Tester campaigns keep the shortest reproducing sequence for each broken
-  invariant id: a later hit with the same id replaces the stored sequence when
-  it is strictly shorter, so dictionary-sized increments that need two calls no
-  longer block a later one-call reproduction from being the shrunk result
-- Tester campaigns no longer grow the corpus by re-adding sequences that only
-  rediscover already-known broken invariants: a sequence joins the corpus when
-  it brings new coverage, not when `rvm.bail` fires on a path the campaign has
-  already executed
-- Seeded signed-integer argument generation with the extracted literals: the
-  literal branch compared pool values against `+2^(bits-1)` instead of
-  `-2^(bits-1)` (`I256::from_raw(sign_bit(bits))` is positive for every width
-  below 256), so the branch always fell through to uniform random values and
-  negative-literal gates below 256 bits were near-unreachable
+  invariant id, so a later one-call hit replaces a longer first hit.
 
-### Changed
+- Signed-integer argument generation now uses extracted negative literals, so
+  gates below 256 bits are reachable.
 
-- Removed the Foundry module and its public artifact types (`Project`,
-  `Artifact`, `ArtifactId`, `BuildInfo`, `BuildOptions`) and `Contract`. Traces
-  index solc standard JSON output via `TraceContext::from_solc_output`
-- Renamed `src/max` to `src/maxer` (`ripfuzz::maxer`). The CLI command is still
-  `ripfuzz max`
-- `CoverageReporter` now builds reports from solc `StandardJSON` output instead
-  of Foundry artifacts: `CoverageReporter::new().solc_output(&solc_output)`
-  indexes bytecode, source maps, and ASTs from the compilation unit, and
-  `CoverageWriter` writes `{root}/.ripfuzz/coverage/lcov.info`
-- Renamed `src/exec` to `src/executor` (`ripfuzz::executor::Script`) and moved
-  exec fixtures and tests under `fixtures/executor/` and `tests/executor/`. The
-  CLI command is still `ripfuzz exec`
-- Moved fork-mode cheatcode, contract-deployment, remote-address, and trace
-  fixtures under `fixtures/evm/`, and the `fork_mode_*` integration tests under
-  `tests/evm/`
-- Moved `fixtures/trace-context` and `fixtures/trace-inspector` under
-  `fixtures/evm/`
-- Moved max fixtures and tests under `fixtures/maxer/` and `tests/maxer/`
-- Removed the legacy `ripfuzz run` command and the invariant/maxxing campaign
-  stack (`src/campaigns`, `src/fuzzers`, `src/shrinkers`, `src/corpus`). Use
-  `ripfuzz test` to find broken invariants and `ripfuzz max` to maximize
-  `value()`. Harnesses compile through `solc` from `ripfuzz.toml`, not Foundry
-  `forge build`. Test and max campaigns keep their own corpora under
-  `src/tester` and `src/maxer`
-- Removed the `rvm.getCode` cheatcode and the compiled-contract seed on
-  `CheatcodeConfig`. Coverage fixtures that deployed via `getCode` now use
-  `new Counter()`
-- Tests compile fixtures through `Solc` instead of Foundry
-  `Project::load_artifacts`, and traces use that compilation output only.
-  Removed unused Foundry fixtures (`fixtures/aave-v3-*`,
-  `fixtures/artifacts-loader`, `fixtures/build-failed`,
-  `fixtures/foundry-project`, `fixtures/basic-harness`,
-  `fixtures/external-coverage-adder`, `fixtures/harness-contract-deployment`,
-  `fixtures/harness-contract-validation`, `fixtures/multi-project-coverage`,
-  `fixtures/cheatcodes`, `fixtures/coverage-reporter-optimizer-disabled`,
-  `fixtures/forks`) and the tests that loaded them
-- Terminal log timestamps use local `HH:MM:SS.mmm` (`21:24:42.575`) instead of
-  RFC 3339 UTC, keeping the level and message
-- `ripfuzz test`, `ripfuzz max`, and `ripfuzz exec` initialize logging through
-  `Logger` and write `.ripfuzz/logs/{unix-timestamp}-{id}.log`, matching
-  execution-trace naming
-- Campaign logs fold values into the message instead of appending `key=value`
-  fields, so lines read as natural language (`using existing solc 0.8.36`,
-  `new broken invariant GATED-BYTES32`,
-  `broken invariant GATED-BYTES32 minimized from 7 calls to 1`)
-- Moved the broken-invariant reporting into the `BrokenInvariantReporter` type
-  under `src/tester/broken_invariant.rs`: it re-runs a broken invariant on a
-  traced chain clone, saves the execution trace under `.ripfuzz/traces`, and
-  logs the trace path relative to the project root (`trace=.ripfuzz/traces/...`
-  instead of the absolute path)
-- Renamed the `rvm.finding` cheatcode to `rvm.bail(Invariant)` and replaced the
-  `assert(false)` panic workflow: `Invariant` carries `{ id, description }`,
-  the cheatcode records the broken invariant and reverts the call so the
-  sequence continues on the pre-call state, findings are deduplicated by `id`,
-  and the `Severity` enum and finding `title` are gone; the tester API renames
-  `Finding` to `BrokenInvariant` and `SharedFindings` to
-  `SharedBrokenInvariants` (`Fuzzer::with_findings` becomes
-  `with_broken_invariants`, and `SharedBrokenInvariants::findings` becomes
-  `all`)
-- Stored the bail-emitting call inside each broken invariant's sequence, so the
-  sequence is the full reproduction: the shrinker and the finding re-run replay
-  the stored calls with their arguments instead of re-encoding the trigger from
-  its selector alone, so handler findings with arguments now shrink correctly
-  (the EVM-level `ReportedFinding` became `BrokenInvariant`, and
-  `ExecutionState`/`ExecOutput` `findings` became `broken_invariants`)
-- Renamed the `test` command help text to `Find broken invariants`
-- Renamed the `src/test` module to `src/tester`, moved the test fixtures under
-  `fixtures/tester` (`harness-deployment`, `harness-validation`), and the
-  integration tests under `tests/tester` (`harness_deployment.rs`,
-  `harness_validation.rs`)
-- Updated the CLI description to `An extremely fast Smart contract fuzzer.` and
-  renamed the `max` command help text to `Find maximum value`
-- `ripfuzz.toml` moves the solc settings under the `[solc]` section with
-  `version` required and `out` (default `.ripfuzz/solc`), `evm_version`
-  (default `prague`), `optimizer` (default `false`), `optimizer_runs` (default
-  `200`), `via_ir` (default `false`), and `remappings` (default `[]`); the
-  legacy flat `solc = "0.8.36"` form and the top-level `out` field are rejected
-  with a config parse error instead of being silently accepted, and
-  `ripfuzz init` writes the new shape with the optimizer enabled for 200 runs
-- Configured solc remappings resolve imports next to `{root}/remappings.txt`,
-  with config entries winning when both map the same prefix
-- Upgraded solc dependency to v0.3.5, and renamed the standard JSON input
-  `viaIr` key to the `viaIR` key solc expects so `via_ir` compiles through the
-  IR-based pipeline
-- `ripfuzz max` seeds the shared coverage map with the execution coverage of
-  the harness deployment and setup calls, so fuzzers only count edges beyond
-  harness initialization as new and corpus entries are not inflated with
-  baseline edges
-- `ripfuzz max` runs the harness `setup` function after deployment and fails
-  with a dumped execution trace when it reverts
-- `Solc::compile` returns `SolcOutput` (the resolved `HarnessId` plus the raw
-  `StandardJSONOutput`) instead of `Harness`, so callers can extract the target
-  contract and build trace contexts from the same compilation result
-- `MaxHarness::try_from` accepts `&SolcOutput` and extracts the target contract
-  directly from the solc output; the generic `Harness` type in
-  `ripfuzz::harness` is removed while `HarnessId` stays for CLI parsing
-- `TraceContext` converts from a solc compilation result via
-  `From<&SolcOutput>`, building ABI, bytecode, AST, and storage layout entries
-  without a Foundry project; `ripfuzz max` dumps the failed deployment trace to
-  an absolute `.ripfuzz/traces/<unix-timestamp>-<id>.log` path and logs it
-- `ripfuzz max` now deploys the compiled harness on a sandbox chain after
-  compilation and prints the deployed address instead of the solc version
-- `HarnessId` moved from `ripfuzz::cli` to `ripfuzz::harness`, next to the
-  compiled `Harness` type it identifies
-- Solc artifacts are written under a namespace derived from the target source
-  path (e.g. `.ripfuzz/out/src/Harness.sol/out.json`), so targets sharing an
-  out directory never overwrite each other's artifacts; the combined output
-  file is renamed from `output.json` to `out.json`
-- Upgraded solc dependency to v0.3.4, which re-exports the standard JSON output
-  types (`ContractOutput`, `SourceOutput`, `Bytecode`, and friends) at the
-  crate root
-- Maxxing reports use a consistent score vocabulary: `raw_score` is the value
-  returned by a `max_*` call, `base_score` is the raw score observed after
-  `setup()`, and `best_score` is the best raw score observed so far. Log fields
-  `value=` and `baseline=` become `best_score=` and `base_score=` on the
-  progress, finished, and setup lines
-- `ripfuzz max` wires the same fork defaults as the campaign command, so
-  harness forks share the `.ripfuzz/cache` rpc cache across commands and use a
-  conservative batch rate limit that keeps default campaigns under
-  public-provider quotas
-- `ripfuzz max` persists the corpus as JSON and loads it at startup, so a new
-  campaign starts mutating from the previous run's sequences; loaded sequences
-  are replayed against the current harness to seed the shared coverage map and
-  re-measure entry values, and entries whose value call no longer succeeds are
-  dropped; the shrunk best sequence joins the corpus before saving, so the next
-  campaign starts from the shortest sequence that reaches the best value;
-  entries store each call as its handler signature plus full calldata and are
-  re-resolved against the harness ABI on load, with unresolvable entries
-  skipped; the file is
-  `{root}/.ripfuzz/corpus/{source-file}/{contract}/corpus.json` (or
-  `--corpus-dir`), replacing the write-only `corpus.log` dump
+- `ripfuzz max` generates arguments for handlers that take struct parameters,
+  including arrays and nested structs.
 
-### Fixed
-
-- `ripfuzz max` now generates arguments for handlers that take struct (tuple)
-  parameters, including arrays and nested structs, by resolving JSON-ABI
-  parameters with their components instead of parsing the bare `tuple` type
-  string, which crashed the campaign at startup on such harnesses
-
-- `ripfuzz` now loads `{cwd}/.env` at startup for every command instead of only
-  `ripfuzz run`, so harnesses using `vm.getEnv` see the same values in `run`
-  and `max`; existing environment variables still take precedence
-
-- Max fuzzers now spend half of their mutated sequences extending the current
-  best sequence instead of only corpus entries and fresh random sequences, so a
-  value that needs a long chain of calls still climbs when decoy handlers
-  dilute the corpus; previously a full corpus rejected new-best sequences that
-  brought no new coverage, so the best rung was never a mutation base and the
-  climb stalled
-
-- Max best tracking now prefers the same value with fewer calls, so mutations
-  can free call slots occupied by calls that do not affect the value and extend
-  the value further within the call limit
-
-- Corpus now uses AFL-style energy for `pick_item` (finds boost energy even for
-  existing ids via `bump_entry`, energy decays only after a mutation that adds
-  nothing) and caps at 1024 items evicting lowest-energy entries while never
-  evicting the current best, min and max
-
-- Maxxing now treats `max_*` as raw `uint256` score with baseline after
-  `setup()` and keeps prefixes that set a new raw max or min, so lossy prefixes
-  that are on the path to profit stay in the corpus
-
-- Coverage now records `CALL` targets as `new_jump_edges` via
-  `(caller_pc, callee_address)` hash, so calls to different addresses at the
-  same PC are distinct even when bytecode is shared
-
-- Coverage is now keyed by `(address, codehash)` for runtime contracts, so the
-  first `CALL` into each clone is considered interesting even when bytecode is
-  shared; initcode remains keyed by hash
-
-- Fork-mode progress and finished logs now include `rpc_hit`, `rpc_miss`, and
-  `rpc_wait`, and loading a fork cache logs `loaded fork cache` with the entry
-  count, so a stuck campaign can be diagnosed as RPC-bound vs EVM-bound
-
-- Campaign progress names the current hotspot handler (`hot`, `hot_elapsed`,
-  `hot_rpc_miss`), and finished per-function rows include wall time and RPC
-  counters, so a slow handler like an unbounded `getQuote` shows up while the
-  run is still stuck
-
-- `-q`/`--quiet` suppresses terminal logs while still writing the campaign log
-  file
-
-- Fork-mode campaigns now throttle RPC batches to a conservative default of 10
-  batches per second so default runs stay under public-provider rate quotas;
-  override per fork with `vm.fork(..., ForkConfig{rateLimit: N})` or disable
-  with `rateLimit: 0`
-
-- The RPC batch retry loop now logs a warning with the retry number, total
-  retries, backoff duration, batch size, endpoint, request payload, and error
-  as structured fields; the terminal prints a one-line form (origin-only URL,
-  no payload, short error) while the campaign log file keeps the full fields
-
-- Per-thread fuzzer `run` spans now include `fuzzer_id`, so nested logs such as
-  RPC retry warnings identify which fuzzer emitted them
-
-- Integration tests pass `--quiet` so `make test` no longer prints campaign
-  logs
-
-- Provider rate-limit (429) and 5xx JSON-RPC error objects inside batch
-  responses are now retried with capped exponential backoff instead of killing
-  the fuzzer thread immediately
-
-- Maxxing progress and finished logs now always include `value`, showing `0`
-  until a non-zero best is found
+- `ripfuzz` loads `{cwd}/.env` at startup for every command, so `vm.getEnv`
+  works in `test`, `max`, and `exec`.
 
 ## [0.9.4] - 2026-08-23
 
