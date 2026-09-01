@@ -98,6 +98,7 @@ For cheatcodes, fork mode, and a full harness reference, see
 
 ## Blog Posts
 
+- [Value deltas for the max search](https://pyk.sh/blog/2026-09-02-value-deltas-for-the-max-search)
 - [`rvm.fork` instead of `--rpc-url`](https://pyk.sh/blog/2026-08-07-vm-fork-instead-of-cli)
 - [Coverage-guided fuzzing with revm](https://pyk.sh/blog/2026-05-28-coverage-guided-fuzzing-with-revm)
 - [Replacing my revm `ForkDB` background thread with `SharedBackend`](https://pyk.sh/blog/2026-05-24-forkdb-shared-backend)
