@@ -84,6 +84,12 @@ impl Sequence {
         calls.drain(range);
         Self(calls)
     }
+
+    /// The first `len` calls, or the whole sequence when `len` is longer.
+    pub fn prefix(&self, len: usize) -> Sequence {
+        let end = len.min(self.0.len());
+        Self(self.0[..end].to_vec())
+    }
 }
 
 impl fmt::Display for Sequence {
@@ -176,5 +182,17 @@ mod tests {
 
         let without_all = sequence.without(0..3);
         assert!(without_all.is_empty());
+    }
+
+    #[test]
+    fn prefix_keeps_the_leading_calls() {
+        let sequence = Sequence(vec![call("a()"), call("b()"), call("c()")]);
+
+        let prefix = sequence.prefix(2);
+        assert_eq!(prefix.len(), 2);
+        assert_eq!(prefix.0[0].signature(), "a()");
+        assert_eq!(prefix.0[1].signature(), "b()");
+        assert_eq!(sequence.prefix(8).len(), 3);
+        assert!(sequence.prefix(0).is_empty());
     }
 }

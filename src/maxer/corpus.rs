@@ -15,7 +15,7 @@
 //! let chain = Chain::empty(ChainConfig::default());
 //! let sequence = Sequence::empty();
 //! let value = Value::new(U256::from(1));
-//! corpus.add(sequence, value, 1, chain.clone());
+//! corpus.add(sequence, value, 1, 0, chain.clone());
 //! let base = corpus.random_base(&mut rng);
 //! ```
 
@@ -77,6 +77,7 @@ struct Entry {
     sequence: Sequence,
     value: Value,
     new_edges: u64,
+    delta_activity: u64,
     chain: Option<Chain>,
 }
 
@@ -142,28 +143,25 @@ impl Corpus {
 
     /// A random snapshot base from the corpus.
     ///
-    /// Entries are sampled proportional to their coverage gain and value.
+    /// Entries are sampled proportional to their coverage gain, value, and
+    /// delta activity.
     ///
     /// A sequence that unlocked a new code path (e.g. the first successful
     /// deposit) is a far better mutation base than the hundreds of one-edge
     /// entries around it, so sampling should favor it instead of diluting
-    /// uniformly across the corpus.
+    /// uniformly across the corpus. Prefixes that moved the objective, even
+    /// with a dump, are also favored so a dip is extended more often than a
+    /// no-op.
     ///
-    /// Returns the sequence with the state after executing it. Entries not
-    /// yet replayed carry no snapshot and are skipped.
-    pub fn random_base(&self, rng: &mut Rng) -> Option<(Sequence, Chain)> {
+    /// Returns the sequence with the value and the state after executing it.
+    /// Entries not yet replayed carry no snapshot and are skipped.
+    pub fn random_base(&self, rng: &mut Rng) -> Option<(Sequence, Value, Chain)> {
         // 1. Compute the total weight of all replayed entries.
         let entries = self.lock();
         let total: u64 = entries
             .iter()
             .filter(|entry| entry.chain.is_some())
-            .map(|entry| {
-                let value_weight = (entry.value.get().bit_len() as u64).saturating_add(1);
-                entry
-                    .new_edges
-                    .saturating_add(1)
-                    .saturating_add(value_weight)
-            })
+            .map(entry_weight)
             .sum();
         if total == 0 {
             return None;
@@ -174,11 +172,7 @@ impl Corpus {
             let Some(chain) = entry.chain.as_ref() else {
                 continue;
             };
-            let value_weight = (entry.value.get().bit_len() as u64).saturating_add(1);
-            let weight = entry
-                .new_edges
-                .saturating_add(1)
-                .saturating_add(value_weight);
+            let weight = entry_weight(entry);
             if pick < weight {
                 let sequence =
                     // checkrs: allow(clone_in_loops) the base must own its state
@@ -186,14 +180,14 @@ impl Corpus {
                 let chain =
                     // checkrs: allow(clone_in_loops) the base must own its state
                     chain.clone();
-                return Some((sequence, chain));
+                return Some((sequence, entry.value, chain));
             }
             pick -= weight;
         }
         // 3. Fall back to the last replayed entry for rounding errors.
         let last = entries.iter().rev().find(|entry| entry.chain.is_some())?;
         let chain = last.chain.clone()?;
-        Some((last.sequence.clone(), chain))
+        Some((last.sequence.clone(), last.value, chain))
     }
 
     /// The entry with the highest value, with its snapshot.
@@ -224,8 +218,15 @@ impl Corpus {
     /// - Otherwise, when the corpus is full, the entry that brought the
     ///   fewest new edges is replaced, and only when the new sequence brings
     ///   at least as many.
-    pub fn add(&self, sequence: Sequence, value: Value, new_edges: u64, chain: Chain) {
-        self.add_with_chain(sequence, value, new_edges, Some(chain));
+    pub fn add(
+        &self,
+        sequence: Sequence,
+        value: Value,
+        new_edges: u64,
+        delta_activity: u64,
+        chain: Chain,
+    ) {
+        self.add_with_chain(sequence, value, new_edges, delta_activity, Some(chain));
     }
 
     /// Add an entry whose snapshot may be missing, e.g. one freshly loaded
@@ -235,6 +236,7 @@ impl Corpus {
         sequence: Sequence,
         value: Value,
         new_edges: u64,
+        delta_activity: u64,
         chain: Option<Chain>,
     ) {
         let mut entries = self.lock();
@@ -244,6 +246,7 @@ impl Corpus {
                 sequence,
                 value,
                 new_edges,
+                delta_activity,
                 chain,
             });
             return;
@@ -255,6 +258,7 @@ impl Corpus {
             .max()
             .unwrap_or_else(|| Value::new(U256::ZERO));
         // 3. Evict an entry to make room.
+        let strength = new_edges.saturating_add(delta_activity);
         if value > best_value {
             // 3a. An improving sequence always joins and replaces the
             //     weakest entry below the current best.
@@ -262,23 +266,37 @@ impl Corpus {
                 .iter()
                 .enumerate()
                 .filter(|(_, entry)| entry.value < best_value)
-                .min_by_key(|(_, entry)| (entry.new_edges, entry.value))
+                .min_by_key(|(_, entry)| {
+                    (
+                        entry.new_edges.saturating_add(entry.delta_activity),
+                        entry.value,
+                    )
+                })
                 .map(|(index, _)| index)
                 .unwrap_or(entries.len() - 1);
             entries.remove(weakest);
         } else {
             // 3b. Otherwise the weakest entry is only replaced when the new
-            //     sequence brings more new edges.
+            //     sequence is at least as strong.
             let weakest = entries
                 .iter()
                 .enumerate()
                 .filter(|(_, entry)| entry.value < best_value)
-                .min_by_key(|(_, entry)| (entry.new_edges, entry.value))
+                .min_by_key(|(_, entry)| {
+                    (
+                        entry.new_edges.saturating_add(entry.delta_activity),
+                        entry.value,
+                    )
+                })
                 .map(|(index, _)| index);
             let Some(weakest) = weakest else {
                 return;
             };
-            if new_edges <= entries[weakest].new_edges {
+            if strength
+                <= entries[weakest]
+                    .new_edges
+                    .saturating_add(entries[weakest].delta_activity)
+            {
                 return;
             }
             entries.remove(weakest);
@@ -288,6 +306,7 @@ impl Corpus {
             sequence,
             value,
             new_edges,
+            delta_activity,
             chain,
         });
     }
@@ -349,6 +368,7 @@ impl Corpus {
                 Sequence::new(calls),
                 Value::new(value),
                 entry.new_edges,
+                0,
                 None,
             );
             loaded += 1;
@@ -390,6 +410,16 @@ impl Corpus {
         fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))?;
         Ok(())
     }
+}
+
+/// Sampling weight for one replayed corpus entry.
+fn entry_weight(entry: &Entry) -> u64 {
+    let value_weight = (entry.value.get().bit_len() as u64).saturating_add(1);
+    entry
+        .new_edges
+        .saturating_add(1)
+        .saturating_add(value_weight)
+        .saturating_add(entry.delta_activity)
 }
 
 /// Rebuild one persisted call by resolving its signature against the handlers
@@ -529,7 +559,7 @@ impl CorpusReplayer {
                 continue;
             }
             let value = Value::decode(result)?;
-            replayed.add(entry.sequence, value, new_edges, chain);
+            replayed.add(entry.sequence, value, new_edges, 0, chain);
         }
         let count = replayed.len();
         Ok((replayed, count))
@@ -581,17 +611,19 @@ mod tests {
             random_sequence(),
             Value::new(U256::from(1)),
             3,
+            0,
             test_chain(),
         );
         corpus.add(
             random_sequence(),
             Value::new(U256::from(2)),
             5,
+            0,
             test_chain(),
         );
 
         assert_eq!(corpus.len(), 2);
-        let (random, _) = corpus.random_base(&mut Rng::new()).unwrap();
+        let (random, _, _) = corpus.random_base(&mut Rng::new()).unwrap();
         assert!(!random.is_empty());
     }
 
@@ -606,6 +638,7 @@ mod tests {
             high_gain.clone(),
             Value::new(U256::from(1)),
             10_000,
+            0,
             test_chain(),
         );
         for _ in 0..99 {
@@ -613,13 +646,14 @@ mod tests {
                 random_sequence(),
                 Value::new(U256::from(1)),
                 0,
+                0,
                 test_chain(),
             );
         }
 
         let mut high_gain_picks = 0;
         for _ in 0..1_000 {
-            let (random, _) = corpus.random_base(&mut rng).unwrap();
+            let (random, _, _) = corpus.random_base(&mut rng).unwrap();
             if random == high_gain {
                 high_gain_picks += 1;
             }
@@ -631,18 +665,55 @@ mod tests {
     }
 
     #[test]
+    fn random_favors_entries_with_more_delta_activity() {
+        let mut rng = Rng::with_seed(7);
+        let corpus = Corpus::new();
+        let active = random_sequence();
+        corpus.add(
+            active.clone(),
+            Value::new(U256::from(1)),
+            0,
+            10_000,
+            test_chain(),
+        );
+        for _ in 0..99 {
+            corpus.add(
+                random_sequence(),
+                Value::new(U256::from(1)),
+                0,
+                0,
+                test_chain(),
+            );
+        }
+
+        let mut active_picks = 0;
+        for _ in 0..1_000 {
+            let (random, _, _) = corpus.random_base(&mut rng).unwrap();
+            if random == active {
+                active_picks += 1;
+            }
+        }
+        assert!(
+            active_picks > 500,
+            "high-delta entry picked {active_picks}/1000 times, expected the bulk"
+        );
+    }
+
+    #[test]
     fn entries_snapshot_lists_all_entries_in_order() {
         let corpus = Corpus::new();
         corpus.add(
             random_sequence(),
             Value::new(U256::from(1)),
             3,
+            0,
             test_chain(),
         );
         corpus.add(
             random_sequence(),
             Value::new(U256::from(2)),
             5,
+            0,
             test_chain(),
         );
 
@@ -662,6 +733,7 @@ mod tests {
                 random_sequence(),
                 Value::new(U256::from(1)),
                 5,
+                0,
                 test_chain(),
             );
         }
@@ -670,6 +742,7 @@ mod tests {
             random_sequence(),
             Value::new(U256::from(1)),
             4,
+            0,
             test_chain(),
         );
         assert_eq!(corpus.len(), 256);
@@ -679,6 +752,7 @@ mod tests {
             random_sequence(),
             Value::new(U256::from(1)),
             10,
+            0,
             test_chain(),
         );
         assert_eq!(corpus.len(), 256);
@@ -692,6 +766,7 @@ mod tests {
                 random_sequence(),
                 Value::new(U256::from(1)),
                 5,
+                0,
                 test_chain(),
             );
         }
@@ -701,6 +776,7 @@ mod tests {
         corpus.add(
             random_sequence(),
             Value::new(U256::from(9)),
+            0,
             0,
             test_chain(),
         );
@@ -712,6 +788,7 @@ mod tests {
                 random_sequence(),
                 Value::new(U256::from(1)),
                 1_000_000,
+                0,
                 test_chain(),
             );
         }
@@ -747,6 +824,7 @@ mod tests {
             Sequence::new(vec![call]),
             Value::new(U256::from(42)),
             5,
+            0,
             test_chain(),
         );
 
@@ -781,6 +859,7 @@ mod tests {
             random_sequence(),
             Value::new(U256::from(1)),
             3,
+            0,
             test_chain(),
         );
         let path = temp_corpus_path();

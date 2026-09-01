@@ -14,7 +14,7 @@
 
 use alloy_dyn_abi::{DynSolType, DynSolValue, Specifier};
 use alloy_json_abi::Function;
-use alloy_primitives::{Address, FixedBytes, I256, U256};
+use alloy_primitives::{Address, FixedBytes, I256, Selector, U256};
 use anyhow::{Context, Result, bail};
 use revm::primitives::Bytes;
 
@@ -72,6 +72,11 @@ impl Call {
     /// The called function.
     pub fn function(&self) -> &Function {
         &self.function
+    }
+
+    /// The 4-byte selector of the called function.
+    pub fn selector(&self) -> Selector {
+        self.function.selector()
     }
 
     /// Encode the call as EVM calldata: selector plus encoded arguments.
@@ -284,6 +289,7 @@ mod tests {
         );
 
         assert_eq!(call.function().selector(), function.selector());
+        assert_eq!(call.selector(), function.selector());
     }
 
     #[test]

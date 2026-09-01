@@ -1,12 +1,10 @@
 # Value Deltas for the `max` Search
 
-> Status: DRAFT
+> Status: shipped
 
-`ripfuzz max` measures the `value()` oracle once, at the end of each sequence.
-This document designs the **value delta layer**: measure `value()` after every
-call inside the sequence, and use the per call deltas to guide the search. The
-layer is deliberately minimal: one view call per handler call, no new plumbing
-concepts, no harness changes.
+`ripfuzz max` measures `value()` after every handler call and uses the per-call
+deltas to guide the search. The layer is deliberately minimal: one view call
+per handler call, no new plumbing concepts, no harness changes.
 
 The DRLVaultV3 challenge is the running example. Its exploit is a ladder:
 
@@ -23,6 +21,9 @@ after reducePrice          923 ETH   delta -4085
 after swapToWETH           923 ETH   delta     0
 after increasePrice       5035 ETH   delta +4112
 ```
+
+The in-repo `Ladder` and `LadderWithNoise` challenges replay that same 5008 to
+923 to 923 to 5035 path. `make challenges` reaches 5035 on both.
 
 ## The measurement
 
@@ -64,10 +65,10 @@ Each delta is classified, and each class drives a different mechanism:
 | Signal             | Meaning                                      | Fuzzer action                                                           |
 | :----------------- | :------------------------------------------- | :---------------------------------------------------------------------- |
 | `d > 0`            | the call gained value                        | feeds the best value climb, per prefix instead of per sequence          |
-| `d < 0`            | the call spent or moved value                | never prune; candidate corpus entry on records                          |
+| `d < 0`            | the call spent or moved value                | never prune, candidate corpus entry on records                          |
 | new record `min d` | the largest drop ever seen for this class    | admit the prefix to the corpus                                          |
 | new record `max d` | the largest gain ever seen for this class    | admit the prefix to the corpus, weight up                               |
-| recovery           | the trajectory is below baseline and `d > 0` | admit the prefix; a call that climbs out of a dip is on an exploit path |
+| recovery           | the trajectory is below baseline and `d > 0` | admit the prefix, a call that climbs out of a dip is on an exploit path |
 
 A class is a `(prefix signature, final handler)` pair. The prefix signature is
 the sequence of handler selectors before the call, which is cheap to compute
@@ -95,7 +96,10 @@ let interesting = update.is_interesting()
 ```
 
 `corpus.random_base` weights entries by delta activity, so prefixes that moved
-the objective get extended more often than prefixes that did nothing.
+the objective get extended more often than prefixes that did nothing. Activity
+is zero for a flat call and otherwise scales with the magnitude bit length, so
+a large dump is drawn more often than a one-wei nudge without ranking the
+current value.
 
 When a sequence sets a new best, **all of its prefixes become corpus entries**,
 each carrying its measured value. This retroactive retention is the payoff of
@@ -103,7 +107,7 @@ measuring the full trajectory: the fuzzer learns not just which sequence won,
 but which of its prefixes built toward the win, and it keeps every one of them
 for future extension.
 
-Later, the trajectory supports a potential score for prefix ranking:
+A later potential score for prefix ranking is not shipped:
 
 ```text
 score(s) = value(s) + lambda * estimated_future_profit(s)
@@ -111,14 +115,15 @@ score(s) = value(s) + lambda * estimated_future_profit(s)
 
 with
 `(last delta, cumulative delta, min delta, max delta, distance below baseline)`
-as the feature vector. Start with hand tuned weights and a fixed lambda;
-graduate to a learned estimate only if the challenge suite demands it.
+as the feature vector. The challenge suite did not demand it. Revisit only if a
+ladder appears that activity weighting cannot keep alive.
 
 ## Known limitation: the flat rung
 
 Delta signals only see movement in the measured wallet. The DRLVaultV3 middle
 rung has `d = 0`: the vault donated 100k USDC to the pool and the attacker
 wallet is unchanged, so no delta class fires on the state the ladder needs.
+`Ladder.swap` is the same shape.
 
 The rung is not lost, because the interest check is a disjunction. Three
 admission paths apply:
@@ -152,7 +157,7 @@ scope here.
 
 - Value every delta exactly the way `value()` values the objective, so deltas
   and the oracle stay comparable
-- Never prune on negative deltas; treat zero deltas as neutral
+- Never prune on negative deltas, treat zero deltas as neutral
 - Keep one `min` and one `max` record per class, never a history
 - Keep classes cheap: selector signatures, not state contents
 - Measure on the same chain the calls ran on, so the trajectory reflects the
@@ -160,12 +165,18 @@ scope here.
 - Record novelty resets between campaigns unless the corpus file grows a
   section for it
 
-## Open questions
+## Decisions
 
-- What is the right `lambda` for the potential score, and should it decay with
-  trajectory depth?
-- Should classes be `(prefix signature, final handler)` or coarser, such as
-  final handler only? Finer classes localize records better but fragment the
-  record space
-- Should a new record retire after N runs, so an early extreme does not
-  suppress the corpus admission of later states that nearly match it?
+- **Classes are `(prefix signature, final handler)`.** Finer classes shipped
+  with the layer. The Ladder suite did not need coarser "final handler only"
+  records.
+- **No potential score.** Corpus sampling uses delta activity instead of
+  `value + lambda * future profit`. Lambda and depth decay are not open: they
+  only matter if that score is added, and the challenge suite did not demand
+  it. Revisit only if a ladder appears that activity weighting cannot keep
+  alive.
+- **Records do not retire mid-campaign.** An early extreme stays the bar for
+  the rest of the campaign. Later near-matches are not admitted by record
+  novelty, and that is intended: one `min` and one `max` per class, never a
+  history. Novelty resets between campaigns unless the corpus file grows a
+  section for it.

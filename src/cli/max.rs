@@ -284,7 +284,13 @@ pub fn run(args: Args) -> Result<Best> {
         // state after it and the next campaign can expand from it.
         let transactions = shrunk.transactions(address, deployer);
         final_chain.exec(&transactions)?;
-        corpus.add(shrunk.clone(), best.value(), new_edges, final_chain.clone());
+        corpus.add(
+            shrunk.clone(),
+            best.value(),
+            new_edges,
+            0,
+            final_chain.clone(),
+        );
         final_sequence = Some(shrunk);
     }
 

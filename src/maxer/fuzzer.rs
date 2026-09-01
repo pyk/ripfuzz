@@ -34,13 +34,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use alloy_json_abi::Function;
-use alloy_primitives::Address;
+use alloy_primitives::{Address, U256};
 use anyhow::{Context, Result};
 use revm::primitives::Bytes;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::evm::{Chain, SharedCoverage, Transaction};
-use crate::maxer::{Best, Call, Corpus, Sequence, Value};
+use crate::maxer::{Best, Call, Corpus, Delta, Records, Sequence, Value};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
@@ -194,6 +194,7 @@ impl Fuzzer {
             max_calls: self.max_calls.unwrap_or(8),
             timeout: self.timeout,
             target_value: self.target_value,
+            records: Records::new(),
         };
 
         // 2. Seed the shared state with the initial value and stop signals.
@@ -334,6 +335,7 @@ struct Execution {
     max_calls: usize,
     timeout: Option<Duration>,
     target_value: Option<Value>,
+    records: Records,
 }
 
 /// State shared across fuzzers.
@@ -401,13 +403,13 @@ impl Shared {
     /// Returns the sequence with the state after executing it, so a worker
     /// can extend the best state directly. Falls back to `None` while no
     /// sequence has improved the initial value or the snapshot is missing.
-    fn best_base(&self) -> Option<(Sequence, Chain)> {
+    fn best_base(&self) -> Option<(Sequence, Value, Chain)> {
         let best = self.lock_best();
         let chain = best.chain()?;
         if best.sequence().is_empty() {
             None
         } else {
-            Some((best.sequence().clone(), chain.clone()))
+            Some((best.sequence().clone(), best.value(), chain.clone()))
         }
     }
 
@@ -464,7 +466,7 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
         //    - the rest extend a memoized snapshot
         //    - among snapshot extensions, three quarters extend the current
         //      best and one quarter samples a corpus entry weighted by
-        //      coverage gain and value
+        //      coverage gain, value, and delta activity
         //
         //    The best is the most promising prefix, so extending it keeps the
         //    climb alive even when the corpus churns under new coverage from
@@ -472,15 +474,16 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
         let fresh = rng.usize(..8) == 0;
         // checkrs: allow(clone_in_loops) the initial snapshot seeds every run
         let initial = execution.chain.clone();
-        let (sequence, pending, base_chain) = if fresh {
+        let (base_sequence, base_value, pending, base_chain) = if fresh {
             let sequence = Sequence::random(&mut rng, &execution.handlers, execution.max_calls)?;
             let pending = sequence.calls().to_vec();
-            (sequence, pending, initial)
+            (Sequence::empty(), execution.initial_value, pending, initial)
         } else {
-            let (base_sequence, base_chain) = if rng.usize(..4) != 0 {
+            let (base_sequence, base_value, base_chain) = if rng.usize(..4) != 0 {
                 shared.best_base().unwrap_or_else(|| {
                     (
                         Sequence::empty(),
+                        execution.initial_value,
                         // checkrs: allow(clone_in_loops)
                         initial.clone(),
                     )
@@ -489,6 +492,7 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
                 execution.corpus.random_base(&mut rng).unwrap_or_else(|| {
                     (
                         Sequence::empty(),
+                        execution.initial_value,
                         // checkrs: allow(clone_in_loops)
                         initial.clone(),
                     )
@@ -496,7 +500,7 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
             };
             let base_len = base_sequence.calls().len();
             if base_len >= execution.max_calls {
-                // 2a. At the call limit the snapshot cannot be extended without
+                // 1a. At the call limit the snapshot cannot be extended without
                 //     exceeding it.
                 //
                 //     Mutate a random position and re-execute the whole
@@ -510,81 +514,156 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
                 let mut calls = base_sequence.calls().to_vec();
                 let pos = rng.usize(..calls.len());
                 calls[pos] = call;
-                let sequence = Sequence::new(calls);
-                let pending = sequence.calls().to_vec();
-                (sequence, pending, initial)
+                let pending = calls;
+                (Sequence::empty(), execution.initial_value, pending, initial)
             } else {
                 let function = &execution.handlers[rng.usize(..execution.handlers.len())];
                 let call = Call::random(&mut rng, function)?;
-                let mut calls = base_sequence.calls().to_vec();
-                calls.push(call);
-                let sequence = Sequence::new(calls);
-                let pending = sequence.calls()[base_len..].to_vec();
-                (sequence, pending, base_chain)
+                (base_sequence, base_value, vec![call], base_chain)
             }
         };
 
-        // 2a. Execute the pending calls on a chain clone of the snapshot.
+        // 2. Execute each pending call and measure value after it.
         // checkrs: allow(clone_in_loops)
         let mut chain = base_chain.clone();
-        let transactions: Vec<Transaction> = pending
-            .iter()
-            .map(|call| call.transaction(execution.target, execution.deployer))
-            .collect();
-        let mut exec = chain.exec(&transactions)?;
-
-        // 3. Merge execution coverage into the shared map.
-        let coverage = exec
-            .coverage
-            .take()
-            .context("execution coverage expected")?;
-        let update = execution.coverage.merge(&coverage);
-
-        // 4. Measure the value after the sequence.
-        let output = chain.exec(std::slice::from_ref(&value_tx))?;
-        let result = output
-            .results
-            .first()
-            .context("value call result missing")?;
-        if !result.success {
-            continue;
-        }
-        let value = Value::decode(result)?;
-
-        // 5. Record the sequence when it improves the best value.
-        // checkrs: allow(clone_in_loops)
-        let improved = shared.consider(sequence.clone(), value, chain.clone());
-        if improved {
-            info!(
-                "new best sequence on thread {thread_id}: value {value}, {} calls, {sequence}",
-                sequence.len(),
-            );
-        }
-
-        // 6. Keep the snapshot when it is interesting.
-        //
-        //    A snapshot is kept when any of the following holds:
-        //
-        //    - it found new coverage
-        //    - it beat the global best
-        //    - it beat this worker's previous mark, even when still below the
-        //      global best
-        //
-        //    The last case keeps value-only additions, so the mutator retains
-        //    access to the argument combinations behind every value climb, not
-        //    just coverage-new ones.
-        let beats_local = value > best_known;
-        if beats_local {
-            best_known = value;
-        }
-        if update.is_interesting() || improved || beats_local {
+        let mut executed = base_sequence.calls().to_vec();
+        let mut prev_value = base_value;
+        let mut prefixes = Vec::with_capacity(pending.len());
+        for call in pending {
+            let transaction = call.transaction(execution.target, execution.deployer);
+            let mut exec = chain.exec(std::slice::from_ref(&transaction))?;
+            let coverage = exec
+                .coverage
+                .take()
+                .context("execution coverage expected")?;
+            let update = execution.coverage.merge(&coverage);
             let new_edges =
                 (update.new_edges + update.new_depths + update.new_reverts + update.new_jump_edges)
                     as u64;
-            execution.corpus.add(sequence, value, new_edges, chain);
+
+            let measured = measure_value(&mut chain, &value_tx)?;
+            let value = measured.unwrap_or_else(|| Value::new(U256::ZERO));
+            let delta = Delta::between(prev_value, value);
+            let below_baseline = prev_value < execution.initial_value;
+            let prefix =
+                // checkrs: allow(clone_in_loops) the class key owns the prefix selectors
+                Sequence::new(executed.clone());
+            let observation = execution
+                .records
+                .observe(&prefix, &call, delta, below_baseline);
+            if observation.is_interesting() {
+                debug!(
+                    thread_id,
+                    prefix = %prefix,
+                    handler = %call.signature(),
+                    %delta,
+                    new_record_min = observation.new_record_min,
+                    new_record_max = observation.new_record_max,
+                    recovery = observation.recovery,
+                    "value delta signal"
+                );
+            }
+
+            executed.push(call);
+            let sequence =
+                // checkrs: allow(clone_in_loops) each prefix snapshot owns its calls
+                Sequence::new(executed.clone());
+            let beats_local = value > best_known;
+            if beats_local {
+                best_known = value;
+            }
+            let interesting =
+                update.is_interesting() || beats_local || observation.is_interesting();
+            prefixes.push(MeasuredPrefix {
+                sequence,
+                value,
+                chain: // checkrs: allow(clone_in_loops) each prefix snapshot owns its state
+                    chain.clone(),
+                new_edges,
+                delta_activity: delta.activity(),
+                interesting,
+                measured: measured.is_some(),
+            });
+            prev_value = value;
+        }
+
+        let Some(last) = prefixes.last() else {
+            continue;
+        };
+
+        // 3. Record the full sequence when it improves the best value.
+        let improved = if last.measured {
+            let improved = shared.consider(
+                // checkrs: allow(clone_in_loops) consider takes ownership of the sequence
+                last.sequence.clone(),
+                last.value,
+                // checkrs: allow(clone_in_loops) consider takes ownership of the chain
+                last.chain.clone(),
+            );
+            if improved {
+                info!(
+                    "new best sequence on thread {thread_id}: value {}, {} calls, {}",
+                    last.value,
+                    last.sequence.len(),
+                    last.sequence,
+                );
+            }
+            improved
+        } else {
+            false
+        };
+
+        // 4. Keep interesting prefixes, and every prefix of a new best.
+        //
+        //    A prefix is kept when any of the following holds:
+        //
+        //    - it found new coverage
+        //    - it beat this worker's previous mark
+        //    - it set a new min or max delta for its class, or recovered
+        //      from a dip
+        //    - the full sequence is a new global best, in which case every
+        //      prefix is retained so later runs can extend the rungs that
+        //      built the win
+        for prefix in prefixes {
+            if !prefix.measured {
+                continue;
+            }
+            if improved || prefix.interesting {
+                execution.corpus.add(
+                    prefix.sequence,
+                    prefix.value,
+                    prefix.new_edges,
+                    prefix.delta_activity,
+                    prefix.chain,
+                );
+            }
         }
     }
     Ok(())
+}
+
+/// One executed prefix with its measured value and admission signals.
+struct MeasuredPrefix {
+    sequence: Sequence,
+    value: Value,
+    chain: Chain,
+    new_edges: u64,
+    delta_activity: u64,
+    interesting: bool,
+    measured: bool,
+}
+
+/// Measure the harness value on `chain`, returning `None` when the call reverts.
+fn measure_value(chain: &mut Chain, value_tx: &Transaction) -> Result<Option<Value>> {
+    let output = chain.exec(std::slice::from_ref(value_tx))?;
+    let result = output
+        .results
+        .first()
+        .context("value call result missing")?;
+    if !result.success {
+        return Ok(None);
+    }
+    Ok(Some(Value::decode(result)?))
 }
 
 /// Split the run budget evenly across fuzzers.

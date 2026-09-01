@@ -10,6 +10,16 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz max` measures `value()` after every handler call and uses the
+  per-call deltas to guide the search: new min/max records per handler class
+  and recoveries from a dip admit prefixes into the corpus, corpus sampling
+  weights those prefixes by delta activity, and a new best keeps every prefix
+  of the winning sequence so a value-delta ladder can be extended rung by rung
+
+- Ladder max challenges under `fixtures/maxer/challenges`: `reduce` dumps the
+  wallet from 5008 to 923, `swap` is a flat rung, and `increase` recovers to
+  5035, with a `LadderWithNoise` variant that also inherits `NoiseBase`
+
 - `ripfuzz test` and `ripfuzz max` write an `lcov.info` coverage report under
   `.ripfuzz/coverage` at the end of each campaign, using the compiled solc
   output and the shared coverage collected during fuzzing

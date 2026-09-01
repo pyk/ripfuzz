@@ -33,6 +33,8 @@ const CHALLENGES: &[(&str, &str, &str)] = &[
     ("GatedWithNoise", "GatedWithNoise", "medium"),
     ("Combo", "Combo", "hard"),
     ("ComboWithNoise", "ComboWithNoise", "hard"),
+    ("Ladder", "Ladder", "hard"),
+    ("LadderWithNoise", "LadderWithNoise", "hard"),
     ("Vault", "Vault", "hard"),
     ("VaultWithNoise", "VaultWithNoise", "hard"),
 ];
@@ -59,6 +61,9 @@ fn expected_value(stem: &str) -> U256 {
         // The reward of 1000 is only paid when `open`, `grab`, and `claim`
         // run in that exact order.
         "Combo" | "ComboWithNoise" => U256::from(1000),
+        // The ladder recovers to 5035 only after `reduce`, `swap`, and
+        // `increase` run in that exact order.
+        "Ladder" | "LadderWithNoise" => U256::from(5035),
         other => panic!("challenge without an expected value: {other}"),
     }
 }
