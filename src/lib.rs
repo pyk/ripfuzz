@@ -23,6 +23,9 @@ pub use shrinkers::{
     InvariantShrinker, InvariantShrinkerConfig, InvariantShrinkerOutput, MaxxingResult,
     MaxxingShrinker, MaxxingShrinkerConfig, MaxxingShrinkerCorpus, MaxxingShrinkerOutput,
 };
+pub use test::{
+    Corpus as TestCorpus, Finding, Fuzzer as TestFuzzer, Shrinker as TestShrinker, TestHarness,
+};
 
 pub mod cli;
 pub mod config;
@@ -31,6 +34,7 @@ pub mod harness;
 pub mod logger;
 pub mod max;
 pub mod solc;
+pub mod test;
 
 mod campaigns;
 mod corpus;

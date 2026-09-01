@@ -10,6 +10,23 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz test <harness>` runs a test harness campaign that finds failed
+  assertions: it compiles the harness via solc (default contract name from the
+  file stem, or `path/File.sol:Name` to pick one), deploys it on a sandbox
+  chain, runs the optional `setup` function, fuzzes for Solidity `assert`
+  panics (`Panic(0x01)`), shrinks every finding's sequence, prints the logs
+  emitted on the way to each failure, and saves execution traces under
+  `.ripfuzz/traces`; validation rejects a constructor, `setup`, `summary`, or
+  `invariant_*` with arguments or `payable`
+- `ripfuzz test` checks `invariant_*` functions after every handler call on a
+  throwaway state clone, so invariant state changes are never committed and
+  invariants never consume `--max-calls`; findings are deduplicated by
+  panicking function and revert output, and only `assert` panics count, so
+  `require` and custom-error reverts stay plain control flow
+- `ripfuzz test` runs coverage-guided evolutionary fuzzing over a standalone
+  corpus (`TestHarness`, `Fuzzer`, `Corpus`, `Shrinker` under `src/test`), with
+  `--threads`, `--max-runs`, `--max-calls`, `--timeout`, `--max-failures`, and
+  `--corpus-dir` flags mirroring `ripfuzz max`
 - `ripfuzz exec <script>` runs a Solidity script contract: it compiles the
   script (default contract name from the file stem, or `path/File.sol:Name` to
   pick one), deploys it on a sandbox chain, runs the optional `setup` function,
