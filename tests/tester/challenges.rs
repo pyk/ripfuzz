@@ -123,8 +123,8 @@ fn temp_corpus_dir() -> PathBuf {
 
 /// Every gated invariant in the challenge harness must break within the
 /// easy budget. Slow: ignored by default and run explicitly with
-/// `make tester-challenges`.
-#[ignore = "slow fuzzing campaign; run with `make tester-challenges`"]
+/// `make challenges`.
+#[ignore = "slow fuzzing campaign; run with `make challenges`"]
 #[test]
 fn gated_by_literals_finds_every_assertion() {
     let corpus_dir = temp_corpus_dir();

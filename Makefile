@@ -38,11 +38,8 @@ test-live: # Run tests against live network
 
 .PHONY: challenges
 challenges: # Run challenge tests
-	@echo "Running challenges"
+	@echo "Running maxer challenges"
 	@cargo test --quiet --test maxer -- --ignored challenges
-
-.PHONY: tester-challenges
-tester-challenges: # Run tester challenge tests
 	@echo "Running tester challenges"
 	@cargo test --quiet --test tester -- --ignored challenges
 
