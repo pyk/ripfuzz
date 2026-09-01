@@ -134,27 +134,33 @@ impl Shrinker {
 
         // 2. Shrink each broken invariant independently with its own budget.
         let start = Instant::now();
+        let findings = match broken_invariants.len() {
+            1 => "1 broken invariant".to_string(),
+            n => format!("{n} broken invariants"),
+        };
+        let threads = match execution.threads {
+            1 => "1 thread".to_string(),
+            n => format!("{n} threads"),
+        };
         info!(
-            broken_invariants = broken_invariants.len(),
-            threads = execution.threads,
-            runs = execution.max_runs,
-            "shrinking started"
+            "shrinking started: {findings}, {threads}, {} runs",
+            execution.max_runs
         );
         let mut shrunk = Vec::with_capacity(broken_invariants.len());
         for broken in broken_invariants.iter() {
             let shrunk_broken = shrink_one(&execution, broken)?;
+            let initial = broken.sequence().len();
+            let call_word = if initial == 1 { "call" } else { "calls" };
             info!(
-                id = %shrunk_broken.id(),
-                initial_calls = broken.sequence().len(),
-                final_calls = shrunk_broken.sequence().len(),
-                "broken invariant minimized"
+                "broken invariant {} minimized from {initial} {call_word} to {}",
+                shrunk_broken.id(),
+                shrunk_broken.sequence().len(),
             );
             shrunk.push(shrunk_broken);
         }
         info!(
-            broken_invariants = shrunk.len(),
-            elapsed = start.elapsed().as_secs(),
-            "shrinking finished"
+            "shrinking finished: {findings}, {}s",
+            start.elapsed().as_secs()
         );
         Ok(shrunk)
     }
@@ -194,11 +200,11 @@ fn shrink_one(execution: &Execution, broken: &BrokenInvariant) -> Result<BrokenI
         }
         if last_progress.elapsed() >= PROGRESS_INTERVAL {
             info!(
-                id = %broken.id(),
-                attempts = shared.attempts(),
-                calls = shared.current_len(),
-                elapsed = start.elapsed().as_secs(),
-                "shrinking progress"
+                "shrinking progress for {}: {} attempts, {} calls, {}s",
+                broken.id(),
+                shared.attempts(),
+                shared.current_len(),
+                start.elapsed().as_secs(),
             );
             last_progress = Instant::now();
         }
@@ -210,11 +216,11 @@ fn shrink_one(execution: &Execution, broken: &BrokenInvariant) -> Result<BrokenI
         match handle.join() {
             Ok(Ok(())) => {}
             Ok(Err(err)) => {
-                error!(thread_id, "shrinker failed: {err:#}");
+                error!("shrinker {thread_id} failed: {err:#}");
                 failures.push(err);
             }
             Err(err) => {
-                error!(thread_id, ?err, "shrinker panicked");
+                error!("shrinker {thread_id} panicked: {err:?}");
                 failures.push(anyhow::anyhow!("shrinker {thread_id} panicked: {err:?}"));
             }
         }

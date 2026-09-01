@@ -114,6 +114,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Campaign logs fold values into the message instead of appending `key=value`
+  fields, so lines read as natural language (`using existing solc 0.8.36`,
+  `new broken invariant GATED-BYTES32`,
+  `broken invariant GATED-BYTES32 minimized from 7 calls to 1`)
 - Moved the broken-invariant reporting into the `BrokenInvariantReporter` type
   under `src/tester/broken_invariant.rs`: it re-runs a broken invariant on a
   traced chain clone, saves the execution trace under `.ripfuzz/traces`, and

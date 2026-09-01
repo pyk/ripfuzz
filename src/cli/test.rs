@@ -145,7 +145,7 @@ pub fn run(args: Args) -> Result<Vec<BrokenInvariant>> {
         .address
         .context("deployment succeeded but created_address is missing")?;
     coverage.merge(&deployment.coverage);
-    info!(address = %address, "harness deployed");
+    info!("harness deployed at {address}");
 
     // 9. Run the setup function if the harness defines one.
     // checkrs: allow(nested_if_let)
@@ -159,7 +159,7 @@ pub fn run(args: Args) -> Result<Vec<BrokenInvariant>> {
             bail!("harness contract `{}` setup failed", test_harness.id().name);
         }
         coverage.merge(&setup_output.coverage);
-        info!(harness = %test_harness.id(), address = %address, "setup executed");
+        info!("setup executed for {} at {address}", test_harness.id());
     }
 
     // 10. Load the persisted corpus so mutations start from known sequences.
@@ -172,11 +172,15 @@ pub fn run(args: Args) -> Result<Vec<BrokenInvariant>> {
         .with_handlers(test_harness.handlers().to_vec())
         .with_solc_output(&solc_output);
     info!(
-        path = %strip_dot_prefix(corpus.path()?.display().to_string()),
-        "loading corpus"
+        "loading corpus {}",
+        strip_dot_prefix(corpus.path()?.display().to_string())
     );
     let loaded = corpus.load()?;
-    info!(entries = loaded, "replaying corpus");
+    let entries = match loaded {
+        1 => "1 corpus entry".to_string(),
+        n => format!("{n} corpus entries"),
+    };
+    info!("replaying {entries}");
 
     // 11. Replay the loaded corpus so the fuzzers start from the coverage
     //     the sequences bring. Entries that no longer execute cleanly are
@@ -212,7 +216,7 @@ pub fn run(args: Args) -> Result<Vec<BrokenInvariant>> {
         Err(err) => {
             // Best-effort save so the corpus survives a failed campaign.
             if let Err(save_err) = corpus.save() {
-                warn!(error = %save_err, "corpus save failed");
+                warn!("corpus save failed: {save_err:#}");
             }
             return Err(err);
         }
@@ -235,10 +239,13 @@ pub fn run(args: Args) -> Result<Vec<BrokenInvariant>> {
 
     // 14. Save the corpus for the next campaign.
     corpus.save()?;
+    let entries = match corpus.len() {
+        1 => "1 entry".to_string(),
+        n => format!("{n} entries"),
+    };
     info!(
-        entries = corpus.len(),
-        path = %strip_dot_prefix(corpus.path()?.display().to_string()),
-        "corpus saved"
+        "corpus saved: {entries} to {}",
+        strip_dot_prefix(corpus.path()?.display().to_string())
     );
 
     // 15. Re-run every broken invariant on a traced chain clone and save its
@@ -270,9 +277,9 @@ pub fn run(args: Args) -> Result<Vec<BrokenInvariant>> {
         info!("\n{}", trace.display_logs_with(&trace_context));
         let trace_file = trace_writer.write(&trace)?;
         info!(
-            harness = %test_harness.id(),
-            path = %trace_file.display(),
-            "execution trace saved"
+            "execution trace for {} saved to {}",
+            test_harness.id(),
+            trace_file.display()
         );
     }
 

@@ -118,7 +118,7 @@ pub fn run(args: Args) -> Result<()> {
     let address = deployment
         .address
         .context("deployment succeeded but created_address is missing")?;
-    info!(script = %script.id(), address = %address, "script deployed");
+    info!("script {} deployed at {address}", script.id());
 
     // 9. Run the setup function if the script defines one.
     if let Some(setup) = script.setup() {
@@ -132,7 +132,7 @@ pub fn run(args: Args) -> Result<()> {
             &format!("script contract `{}` setup failed", script.id().name),
         )?;
         print_logs(&setup_output.trace, &trace_context);
-        info!(script = %script.id(), address = %address, "setup executed");
+        info!("setup executed for {} at {address}", script.id());
     }
 
     // 10. Execute the exec function.
@@ -157,9 +157,9 @@ pub fn run(args: Args) -> Result<()> {
     // 12. Save the execution trace.
     let trace_file = trace_writer.write(&trace)?;
     info!(
-        script = %script.id(),
-        path = %trace_file.display(),
-        "execution trace saved"
+        "execution trace for {} saved to {}",
+        script.id(),
+        trace_file.display()
     );
 
     Ok(())

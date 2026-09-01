@@ -209,13 +209,21 @@ impl Fuzzer {
             return Ok(shared.finish(&execution));
         }
 
+        let threads = match execution.threads {
+            1 => "1 thread".to_string(),
+            n => format!("{n} threads"),
+        };
+        let invariants = match execution.invariants.len() {
+            1 => "1 invariant".to_string(),
+            n => format!("{n} invariants"),
+        };
+        let timeout = match execution.timeout {
+            Some(timeout) => format!("{}s timeout", timeout.as_secs()),
+            None => "no timeout".to_string(),
+        };
         info!(
-            threads = execution.threads,
-            runs = execution.max_runs,
-            max_calls = execution.max_calls,
-            invariants = execution.invariants.len(),
-            timeout = ?execution.timeout,
-            "fuzzing started"
+            "fuzzing started: {threads}, {} runs, max {} calls, {invariants}, {timeout}",
+            execution.max_runs, execution.max_calls,
         );
 
         // 4. Spawn fuzzers with split run budgets.
@@ -240,13 +248,16 @@ impl Fuzzer {
                 break;
             }
             if last_progress.elapsed() >= PROGRESS_INTERVAL {
+                let findings = match execution.broken_invariants.len() {
+                    1 => "1 broken invariant".to_string(),
+                    n => format!("{n} broken invariants"),
+                };
                 info!(
-                    runs = shared.runs(),
-                    broken_invariants = execution.broken_invariants.len(),
-                    corpus = execution.corpus.len(),
-                    edges = execution.coverage.edge_count(),
-                    elapsed = start.elapsed().as_secs(),
-                    "fuzzing progress"
+                    "fuzzing progress: {} runs, {findings}, {} corpus, {} edges, {}s",
+                    shared.runs(),
+                    execution.corpus.len(),
+                    execution.coverage.edge_count(),
+                    start.elapsed().as_secs(),
                 );
                 last_progress = Instant::now();
             }
@@ -258,11 +269,11 @@ impl Fuzzer {
             match handle.join() {
                 Ok(Ok(())) => {}
                 Ok(Err(err)) => {
-                    error!(thread_id, "fuzzer failed: {err:#}");
+                    error!("fuzzer {thread_id} failed: {err:#}");
                     failures.push(err);
                 }
                 Err(err) => {
-                    error!(thread_id, ?err, "fuzzer panicked");
+                    error!("fuzzer {thread_id} panicked: {err:?}");
                     failures.push(anyhow::anyhow!("fuzzer {thread_id} panicked: {err:?}"));
                 }
             }
@@ -277,16 +288,19 @@ impl Fuzzer {
         let broken_invariants = execution.broken_invariants.all();
         if broken_invariants.is_empty() {
             info!(
-                runs = shared.runs(),
-                elapsed = start.elapsed().as_secs(),
-                "no broken invariants found"
+                "no broken invariants found after {} runs in {}s",
+                shared.runs(),
+                start.elapsed().as_secs(),
             );
         } else {
+            let findings = match broken_invariants.len() {
+                1 => "1 broken invariant".to_string(),
+                n => format!("{n} broken invariants"),
+            };
             info!(
-                broken_invariants = broken_invariants.len(),
-                runs = shared.runs(),
-                elapsed = start.elapsed().as_secs(),
-                "fuzzing finished"
+                "fuzzing finished: {findings}, {} runs, {}s",
+                shared.runs(),
+                start.elapsed().as_secs(),
             );
         }
         Ok(shared.finish(&execution))
@@ -508,10 +522,7 @@ fn execute_sequence(
                     .with_id(&report.id)
                     .with_description(&report.description);
                 if execution.broken_invariants.try_add(&broken) {
-                    info!(
-                        id = %broken.id(),
-                        "new broken invariant"
-                    );
+                    info!("new broken invariant {}", broken.id());
                 }
             }
         }
@@ -547,10 +558,7 @@ fn execute_sequence(
                         .with_id(&report.id)
                         .with_description(&report.description);
                     if execution.broken_invariants.try_add(&broken) {
-                        info!(
-                            id = %broken.id(),
-                            "new broken invariant"
-                        );
+                        info!("new broken invariant {}", broken.id());
                     }
                 }
             }

@@ -148,7 +148,7 @@ pub fn run(args: Args) -> Result<Best> {
         .address
         .context("deployment succeeded but created_address is missing")?;
     coverage.merge(&deployment.coverage);
-    info!(address = %address, "harness deployed");
+    info!("harness deployed at {address}");
 
     // 9. Run the setup function if the harness defines one.
     // checkrs: allow(nested_if_let)
@@ -162,7 +162,7 @@ pub fn run(args: Args) -> Result<Best> {
             bail!("harness contract `{}` setup failed", max_harness.id().name);
         }
         coverage.merge(&setup_output.coverage);
-        info!(harness = %max_harness.id(), address = %address, "setup executed");
+        info!("setup executed for {} at {address}", max_harness.id());
     }
 
     // 10. Measure the initial value reported by the harness.
@@ -194,20 +194,23 @@ pub fn run(args: Args) -> Result<Best> {
         )
     })?;
     info!(
-        harness = %max_harness.id(),
-        initial_value = %initial_value,
-        "initial value measured"
+        "initial value {initial_value} measured for {}",
+        max_harness.id()
     );
 
     // 11. Load the persisted corpus so mutations start from known sequences.
     let corpus_path = corpus_path(&root, &args.corpus_dir, &args.harness)?;
     let corpus = Corpus::new();
     info!(
-        path = %strip_dot_prefix(corpus_path.display().to_string()),
-        "loading corpus"
+        "loading corpus {}",
+        strip_dot_prefix(corpus_path.display().to_string())
     );
     let loaded = corpus.load(&corpus_path, &max_harness.handlers())?;
-    info!(entries = loaded, "replaying corpus");
+    let entries = match loaded {
+        1 => "1 corpus entry".to_string(),
+        n => format!("{n} corpus entries"),
+    };
+    info!("replaying {entries}");
 
     // 12. Replay the loaded corpus so the fuzzers start from the coverage
     //     the sequences bring and from values re-measured on the current
@@ -244,7 +247,7 @@ pub fn run(args: Args) -> Result<Best> {
         Err(err) => {
             // Best-effort save so the corpus survives a failed campaign.
             if let Err(save_err) = corpus.save(&corpus_path) {
-                warn!(error = %save_err, "corpus save failed");
+                warn!("corpus save failed: {save_err:#}");
             }
             return Err(err);
         }
@@ -270,11 +273,7 @@ pub fn run(args: Args) -> Result<Best> {
             .with_timeout(args.timeout.map(Duration::from_secs))
             .with_seed(seed)
             .shrink(best.sequence())?;
-        info!(
-            calls = shrunk.len(),
-            sequence = %shrunk,
-            "shrunk best sequence"
-        );
+        info!("shrunk best sequence to {} calls: {shrunk}", shrunk.len());
 
         // The shrunk sequence brings no new coverage of its own, so it
         // inherits the edge count of the best sequence it was shrunk from,
@@ -296,11 +295,11 @@ pub fn run(args: Args) -> Result<Best> {
 
     // 15. Save the corpus for the next campaign.
     corpus.save(&corpus_path)?;
-    info!(
-        entries = corpus.len(),
-        path = %corpus_path.display(),
-        "corpus saved"
-    );
+    let entries = match corpus.len() {
+        1 => "1 entry".to_string(),
+        n => format!("{n} entries"),
+    };
+    info!("corpus saved: {entries} to {}", corpus_path.display());
 
     // 16. Run the summary function if the harness defines one.
     //
@@ -328,7 +327,7 @@ pub fn run(args: Args) -> Result<Best> {
         .last()
         .context("summary call result missing")?;
     if !summary_result.success {
-        warn!(harness = %max_harness.id(), "summary call failed");
+        warn!("summary call failed for {}", max_harness.id());
     }
     // 16b. Show the summary logs in the console.
     let trace = summary_output.trace.context("summary call trace missing")?;
@@ -336,9 +335,9 @@ pub fn run(args: Args) -> Result<Best> {
 
     let trace_file = trace_writer.write(&trace)?;
     info!(
-        harness = %max_harness.id(),
-        path = %trace_file.display(),
-        "execution trace saved"
+        "execution trace for {} saved to {}",
+        max_harness.id(),
+        trace_file.display()
     );
 
     Ok(best)

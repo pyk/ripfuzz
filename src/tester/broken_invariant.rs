@@ -258,7 +258,11 @@ impl BrokenInvariantReporter {
             .trace
             .context("broken invariant re-run trace missing")?;
         let trace_file = self.save_trace(trace_context, &trace)?;
-        info!(id = %broken.id(), trace = %trace_file.display(), "broken invariant saved");
+        info!(
+            "broken invariant {} saved to {}",
+            broken.id(),
+            trace_file.display()
+        );
         Ok(())
     }
 

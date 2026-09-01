@@ -146,12 +146,17 @@ impl Shrinker {
         let start = Instant::now();
         let deadline = execution.timeout.map(|timeout| start + timeout);
         let shared = SharedShrink::new(sequence.clone(), deadline, execution.max_runs);
+        let threads = match execution.threads {
+            1 => "1 thread".to_string(),
+            n => format!("{n} threads"),
+        };
+        let calls = match sequence.len() {
+            1 => "1 call".to_string(),
+            n => format!("{n} calls"),
+        };
         info!(
-            calls = sequence.len(),
-            threads = execution.threads,
-            runs = execution.max_runs,
-            target = %execution.target_value,
-            "shrinking started"
+            "shrinking started: {calls}, {threads}, {} runs, target {}",
+            execution.max_runs, execution.target_value,
         );
 
         // 3. Spawn shrinkers over the shared current best.
@@ -176,10 +181,10 @@ impl Shrinker {
             }
             if last_progress.elapsed() >= PROGRESS_INTERVAL {
                 info!(
-                    attempts = shared.attempts(),
-                    calls = shared.current_len(),
-                    elapsed = start.elapsed().as_secs(),
-                    "shrinking progress"
+                    "shrinking progress: {} attempts, {} calls, {}s",
+                    shared.attempts(),
+                    shared.current_len(),
+                    start.elapsed().as_secs(),
                 );
                 last_progress = Instant::now();
             }
@@ -191,11 +196,11 @@ impl Shrinker {
             match handle.join() {
                 Ok(Ok(())) => {}
                 Ok(Err(err)) => {
-                    error!(thread_id, "shrinker failed: {err:#}");
+                    error!("shrinker {thread_id} failed: {err:#}");
                     failures.push(err);
                 }
                 Err(err) => {
-                    error!(thread_id, ?err, "shrinker panicked");
+                    error!("shrinker {thread_id} panicked: {err:?}");
                     failures.push(anyhow::anyhow!("shrinker {thread_id} panicked: {err:?}"));
                 }
             }
@@ -209,10 +214,10 @@ impl Shrinker {
         // 6. Report the shortest sequence found.
         let shrunk = shared.current();
         info!(
-            calls = shrunk.len(),
-            attempts = shared.attempts(),
-            elapsed = start.elapsed().as_secs(),
-            "shrinking finished"
+            "shrinking finished: {} calls, {} attempts, {}s",
+            shrunk.len(),
+            shared.attempts(),
+            start.elapsed().as_secs(),
         );
         Ok(shrunk)
     }
@@ -355,7 +360,7 @@ fn shrink_worker(execution: &Execution, shared: &SharedShrink, thread_id: usize)
         if value >= execution.target_value {
             // checkrs: allow(clone_in_loops)
             if shared.update(candidate.clone()) {
-                info!(calls = candidate.len(), "shrunk sequence");
+                info!("shrunk sequence to {} calls", candidate.len());
             }
         }
     }

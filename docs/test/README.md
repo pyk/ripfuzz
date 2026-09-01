@@ -132,27 +132,30 @@ deployment, or a failed `setup`.
 A run logs each phase:
 
 ```text
-harness deployed
-setup executed
-corpus loaded
-corpus replayed
-fuzzing started
-failed assertion function=invariant_total_nonzero() reason="assertion failed" ...
-shrinking finding
-shrinking finished
-corpus saved
-execution trace saved
+harness deployed at 0x...
+setup executed for ... at 0x...
+loading corpus .ripfuzz/corpus/...
+replaying 17 corpus entries
+corpus loaded & replayed
+fuzzing started: 1 thread, 10000 runs, max 8 calls, 0 invariants, no timeout
+new broken invariant GATED-BYTES32
+fuzzing finished: 11 broken invariants, 10000 runs, 0s
+shrinking started: 11 broken invariants, 1 thread, 10000 runs
+broken invariant GATED-BYTES32 minimized from 7 calls to 1
+shrinking finished: 11 broken invariants, 0s
+corpus saved: 17 entries to .ripfuzz/corpus/...
+broken invariant GATED-BYTES32 saved to .ripfuzz/traces/...
 ```
 
 What to look at:
 
-- **`failed assertion`**: the panicking function, the decoded reason, and the
-  handler sequence that produced the state. Emitted once per distinct finding.
+- **`new broken invariant`**: the `rvm.bail` id, emitted once per distinct
+  finding.
 - **Shrunk sequences**: the minimal handler calls that still reproduce each
-  panic, replayed with tracing at the end of the campaign so the console shows
-  the logs emitted on the way to the failure.
+  broken invariant, replayed with tracing at the end of the campaign so the
+  console shows the logs emitted on the way to the failure.
 - **Trace files**: one per finding under `.ripfuzz/traces`, plus the optional
-  `summary` run when no assertion failed.
+  `summary` run when no broken invariant was found.
 - **Corpus**: interesting sequences persist between campaigns, so the next run
   starts from known paths instead of rediscovering them.
 

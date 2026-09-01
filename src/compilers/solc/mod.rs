@@ -165,10 +165,7 @@ impl Solc {
         let installer = SolcInstaller::new(version);
         installer.ensure_installed()?;
 
-        info!(
-            file = %strip_dot_prefix(&target),
-            "compiling harness"
-        );
+        info!("compiling harness {}", strip_dot_prefix(&target));
 
         // 4. Resolve the transitive sources and build the solc input.
         let root = self.root.clone().unwrap_or_else(|| PathBuf::from("."));

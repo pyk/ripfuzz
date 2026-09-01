@@ -219,9 +219,8 @@ impl Fuzzer {
             && shared.best_value() >= target
         {
             info!(
-                value = %shared.best_value(),
-                target = %target,
-                "target value already met, skipping fuzzing"
+                "target value {target} already met with {}, skipping fuzzing",
+                shared.best_value(),
             );
             return Ok(shared.into_best());
         }
@@ -232,12 +231,17 @@ impl Fuzzer {
             return Ok(shared.into_best());
         }
 
+        let threads = match execution.threads {
+            1 => "1 thread".to_string(),
+            n => format!("{n} threads"),
+        };
+        let timeout = match execution.timeout {
+            Some(timeout) => format!("{}s timeout", timeout.as_secs()),
+            None => "no timeout".to_string(),
+        };
         info!(
-            threads = execution.threads,
-            runs = execution.max_runs,
-            max_calls = execution.max_calls,
-            timeout = ?execution.timeout,
-            "fuzzing started"
+            "fuzzing started: {threads}, {} runs, max {} calls, {timeout}",
+            execution.max_runs, execution.max_calls,
         );
 
         // 4. Spawn fuzzers with split run budgets.
@@ -263,12 +267,12 @@ impl Fuzzer {
             }
             if last_progress.elapsed() >= PROGRESS_INTERVAL {
                 info!(
-                    runs = shared.runs(),
-                    best = %shared.best_value(),
-                    corpus = execution.corpus.len(),
-                    edges = execution.coverage.edge_count(),
-                    elapsed = start.elapsed().as_secs(),
-                    "fuzzing progress"
+                    "fuzzing progress: {} runs, best {}, {} corpus, {} edges, {}s",
+                    shared.runs(),
+                    shared.best_value(),
+                    execution.corpus.len(),
+                    execution.coverage.edge_count(),
+                    start.elapsed().as_secs(),
                 );
                 last_progress = Instant::now();
             }
@@ -280,11 +284,11 @@ impl Fuzzer {
             match handle.join() {
                 Ok(Ok(())) => {}
                 Ok(Err(err)) => {
-                    error!(thread_id, "fuzzer failed: {err:#}");
+                    error!("fuzzer {thread_id} failed: {err:#}");
                     failures.push(err);
                 }
                 Err(err) => {
-                    error!(thread_id, ?err, "fuzzer panicked");
+                    error!("fuzzer {thread_id} panicked: {err:?}");
                     failures.push(anyhow::anyhow!("fuzzer {thread_id} panicked: {err:?}"));
                 }
             }
@@ -298,14 +302,14 @@ impl Fuzzer {
         // 7. Report the best sequence found.
         let best = shared.into_best();
         if best.sequence().is_empty() {
-            warn!(value = %best.value(), "no sequence improved the initial value");
+            warn!("no sequence improved the initial value {}", best.value());
         } else {
             info!(
-                value = %best.value(),
-                calls = best.sequence().len(),
-                sequence = %best.sequence(),
-                elapsed = start.elapsed().as_secs(),
-                "best sequence"
+                "best sequence: value {}, {} calls, {}, {}s",
+                best.value(),
+                best.sequence().len(),
+                best.sequence(),
+                start.elapsed().as_secs(),
             );
         }
         Ok(best)
@@ -552,11 +556,8 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
         let improved = shared.consider(sequence.clone(), value, chain.clone());
         if improved {
             info!(
-                thread = thread_id,
-                value = %value,
-                calls = sequence.len(),
-                sequence = %sequence,
-                "new best sequence"
+                "new best sequence on thread {thread_id}: value {value}, {} calls, {sequence}",
+                sequence.len(),
             );
         }
 

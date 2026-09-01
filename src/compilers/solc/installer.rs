@@ -32,10 +32,7 @@ impl SolcInstaller {
 
         // 1. Reuse the binary when it is already installed.
         if binary_path.is_file() {
-            info!(
-                version = %self.version,
-                "using existing solc"
-            );
+            info!("using existing solc {}", self.version);
             return Ok(());
         }
 
@@ -43,11 +40,7 @@ impl SolcInstaller {
         let platform = detect_platform()?;
         let list_url = format!("https://binaries.soliditylang.org/{platform}/list.json");
 
-        info!(
-            version = %self.version,
-            platform = %platform,
-            "downloading solc list"
-        );
+        info!("downloading solc {} list for {platform}", self.version);
 
         let mut list_resp = ureq::get(&list_url)
             .call()
@@ -73,11 +66,7 @@ impl SolcInstaller {
             build.path.display()
         );
 
-        info!(
-            version = %self.version,
-            url = %bin_url,
-            "downloading solc binary"
-        );
+        info!("downloading solc {} from {bin_url}", self.version);
 
         let mut bin_resp = ureq::get(&bin_url)
             .call()
@@ -118,11 +107,7 @@ impl SolcInstaller {
             fs::set_permissions(&binary_path, perm)?;
         }
 
-        info!(
-            version = %self.version,
-            path = %binary_path.display(),
-            "saved solc"
-        );
+        info!("saved solc {} to {}", self.version, binary_path.display());
 
         Ok(())
     }
