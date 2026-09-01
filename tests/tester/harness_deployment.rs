@@ -10,6 +10,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use ripfuzz::cli::test::{Args, run};
+use ripfuzz::tester::Severity;
 
 const HARNESS: &str =
     "fixtures/tester/harness-deployment/HarnessWithIncrement.sol:HarnessWithIncrement";
@@ -51,28 +52,31 @@ fn test_compiles_and_deploys_harness() {
     assert!(findings.is_empty(), "no assertion should fail");
 }
 
-/// An `invariant_*` function that panics for reachable state must produce a
-/// finding whose trigger and reason are captured, deduplicated to one
-/// finding for the same assertion.
+/// An `invariant_*` function that reports a finding for reachable state must
+/// produce a finding whose trigger and metadata are captured, deduplicated
+/// to one finding for the same id.
 #[test]
 fn test_finds_and_shrinks_failing_invariant() {
     let findings = run(args(FAILING_INVARIANT)).expect("test should complete the campaign");
 
-    assert_eq!(findings.len(), 1, "dedup must collapse identical panics");
+    assert_eq!(findings.len(), 1, "dedup must collapse identical ids");
     let finding = &findings[0];
     assert_eq!(
         finding.trigger().signature(),
         "invariant_total_below_limit()"
     );
-    assert_eq!(finding.reason_display(), "assertion failed");
+    assert_eq!(finding.id(), "INV-001");
+    assert_eq!(finding.severity(), Severity::High);
+    assert_eq!(finding.title(), "total below limit");
+    assert_eq!(finding.reason_display(), "total below limit");
     assert!(
         finding.sequence().len() <= 1,
         "the shrunk sequence must be at most one call for this harness"
     );
 }
 
-/// An `assert` inside a handler that panics for reachable arguments must
-/// produce a finding whose trigger is the handler.
+/// A handler that reports a finding for reachable arguments must produce a
+/// finding whose trigger is the handler.
 #[test]
 fn test_finds_failing_handler() {
     let findings = run(args(FAILING_HANDLER)).expect("test should complete the campaign");
@@ -80,7 +84,9 @@ fn test_finds_failing_handler() {
     assert!(!findings.is_empty(), "the failing handler must be found");
     let finding = &findings[0];
     assert_eq!(finding.trigger().signature(), "deposit(uint256)");
-    assert_eq!(finding.reason_display(), "assertion failed");
+    assert_eq!(finding.id(), "HAN-001");
+    assert_eq!(finding.severity(), Severity::Critical);
+    assert_eq!(finding.reason_display(), "total below 1000");
 }
 
 /// A harness whose constructor reverts must fail deployment with a clear
