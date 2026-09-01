@@ -474,7 +474,7 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
 fn execute_sequence(
     execution: &Execution,
     shared: &Shared,
-    thread_id: usize,
+    _thread_id: usize,
     sequence: &Sequence,
     pending: Vec<Call>,
     base_chain: Chain,
@@ -507,14 +507,9 @@ fn execute_sequence(
                     Finding::new_explicit(sequence_prefix, trigger, finding_meta.clone());
                 if execution.findings.try_add(&finding) {
                     info!(
-                        thread = thread_id,
-                        finding_id = %finding.id(),
+                        id = %finding.id(),
                         severity = ?finding.severity(),
-                        function = %finding.trigger().signature(),
-                        reason = %finding.reason_display(),
-                        calls = finding.sequence().len(),
-                        sequence = %finding.sequence(),
-                        "finding"
+                        "new finding"
                     );
                     found = true;
                 }
@@ -550,14 +545,9 @@ fn execute_sequence(
                         Finding::new_explicit(sequence_prefix, trigger, finding_meta.clone());
                     if execution.findings.try_add(&finding) {
                         info!(
-                            thread = thread_id,
-                            finding_id = %finding.id(),
+                            id = %finding.id(),
                             severity = ?finding.severity(),
-                            function = %finding.trigger().signature(),
-                            reason = %finding.reason_display(),
-                            calls = finding.sequence().len(),
-                            sequence = %finding.sequence(),
-                            "finding"
+                            "new finding"
                         );
                         found = true;
                     }

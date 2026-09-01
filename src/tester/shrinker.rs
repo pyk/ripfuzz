@@ -121,18 +121,36 @@ impl Shrinker {
         };
 
         // 2. Shrink each finding independently with its own budget.
+        let start = Instant::now();
+        info!(
+            findings = findings.len(),
+            threads = execution.threads,
+            runs = execution.max_runs,
+            "shrinking started"
+        );
         let mut shrunk = Vec::with_capacity(findings.len());
-        for (index, finding) in findings.iter().enumerate() {
-            let shrunk_finding = shrink_one(&execution, finding, index)?;
+        for finding in findings.iter() {
+            let shrunk_finding = shrink_one(&execution, finding)?;
+            info!(
+                id = %shrunk_finding.id(),
+                initial_calls = finding.sequence().len(),
+                final_calls = shrunk_finding.sequence().len(),
+                "finding minimized"
+            );
             shrunk.push(shrunk_finding);
         }
+        info!(
+            findings = shrunk.len(),
+            elapsed = start.elapsed().as_secs(),
+            "shrinking finished"
+        );
         Ok(shrunk)
     }
 }
 
 /// Shrink one finding's sequence to the shortest one that still reproduces
 /// the exact finding.
-fn shrink_one(execution: &Execution, finding: &Finding, index: usize) -> Result<Finding> {
+fn shrink_one(execution: &Execution, finding: &Finding) -> Result<Finding> {
     // 1. Short sequences are already minimal.
     if finding.sequence().len() <= 1 {
         return Ok(finding.clone());
@@ -141,12 +159,6 @@ fn shrink_one(execution: &Execution, finding: &Finding, index: usize) -> Result<
     let start = Instant::now();
     let deadline = execution.timeout.map(|timeout| start + timeout);
     let shared = SharedShrink::new(finding.clone(), deadline, execution.max_runs);
-    info!(
-        finding = index,
-        function = %finding.trigger().signature(),
-        calls = finding.sequence().len(),
-        "shrinking finding"
-    );
 
     // 2. Spawn shrinkers over the shared current best.
     let mut handles = Vec::with_capacity(execution.threads);
@@ -170,7 +182,7 @@ fn shrink_one(execution: &Execution, finding: &Finding, index: usize) -> Result<
         }
         if last_progress.elapsed() >= PROGRESS_INTERVAL {
             info!(
-                finding = index,
+                id = %finding.id(),
                 attempts = shared.attempts(),
                 calls = shared.current_len(),
                 elapsed = start.elapsed().as_secs(),
@@ -203,13 +215,6 @@ fn shrink_one(execution: &Execution, finding: &Finding, index: usize) -> Result<
 
     // 5. Report the shortest sequence found.
     let shrunk = shared.current();
-    info!(
-        finding = index,
-        calls = shrunk.sequence().len(),
-        attempts = shared.attempts(),
-        elapsed = start.elapsed().as_secs(),
-        "shrinking finished"
-    );
     Ok(shrunk)
 }
 
@@ -364,9 +369,7 @@ fn shrink_worker(execution: &Execution, shared: &SharedShrink, thread_id: usize)
                 current.title(),
                 current.description(),
             );
-            if shared.update(candidate_finding) {
-                info!(calls = shared.current_len(), "shrunk sequence");
-            }
+            let _ = shared.update(candidate_finding);
         }
     }
     Ok(())

@@ -231,7 +231,7 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
     corpus.save()?;
     info!(
         entries = corpus.len(),
-        path = %corpus.path()?.display(),
+        path = %strip_dot_prefix(corpus.path()?.display().to_string()),
         "corpus saved"
     );
 
@@ -307,20 +307,10 @@ fn report_finding(
     //    invalidate the logs of the calls before it.
     let output = rerun_chain.exec(&transactions)?;
 
-    // 3. Show the re-run logs in the console.
+    // 3. Save the execution trace for offline analysis.
     let trace = output.trace.context("finding re-run trace missing")?;
-    info!(
-        function = %finding.trigger().signature(),
-        reason = %finding.reason_display(),
-        calls = finding.sequence().len(),
-        sequence = %finding.sequence(),
-        "\n{}",
-        trace.display_logs_with(trace_context)
-    );
-
-    // 4. Save the execution trace for offline analysis.
     let trace_file = dump_execution_trace(root, trace_context, &trace)?;
-    info!(path = %trace_file.display(), "execution trace saved");
+    info!(id = %finding.id(), trace = %trace_file.display(), "finding saved");
     Ok(())
 }
 
