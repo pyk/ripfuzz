@@ -102,6 +102,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- Tester campaigns no longer grow the corpus by re-adding sequences that only
+  rediscover already-known broken invariants: a sequence joins the corpus when
+  it brings new coverage, not when `rvm.bail` fires on a path the campaign has
+  already executed
 - Seeded signed-integer argument generation with the extracted literals: the
   literal branch compared pool values against `+2^(bits-1)` instead of
   `-2^(bits-1)` (`I256::from_raw(sign_bit(bits))` is positive for every width

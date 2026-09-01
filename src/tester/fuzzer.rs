@@ -458,8 +458,8 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
         //    the way.
         //
         //    The chain snapshot after the last committed handler call joins
-        //    the corpus when it brought new coverage or broke an invariant, so
-        //    later runs can extend that state instead of rediscovering it.
+        //    the corpus when it brought new coverage, so later runs can extend
+        //    that state instead of rediscovering it.
         execute_sequence(execution, shared, thread_id, &sequence, pending, base_chain)?;
     }
     Ok(())
@@ -486,7 +486,6 @@ fn execute_sequence(
     let mut chain = base_chain;
     let prefix_len = sequence.calls().len() - pending.len();
     let mut new_edges = 0u64;
-    let mut found = false;
 
     for (offset, call) in pending.iter().enumerate() {
         let index = prefix_len + offset;
@@ -513,7 +512,6 @@ fn execute_sequence(
                         id = %broken.id(),
                         "new broken invariant"
                     );
-                    found = true;
                 }
             }
         }
@@ -553,20 +551,19 @@ fn execute_sequence(
                             id = %broken.id(),
                             "new broken invariant"
                         );
-                        found = true;
                     }
                 }
             }
         }
     }
 
-    // 4. Keep the sequence in the corpus when it is interesting.
+    // 4. Keep the sequence in the corpus when it brought new coverage.
     //
-    //    New coverage and broken invariants both make the final state a
-    //    promising mutation base, and a broken invariant stops the whole
-    //    campaign when the collector is full.
+    //    Broken invariants are collected separately. Re-adding a sequence
+    //    only because it rediscovered a known invariant would grow the
+    //    corpus on every campaign of a simple harness.
 
-    if new_edges > 0 || found {
+    if new_edges > 0 {
         execution.corpus.add(sequence.clone(), new_edges, chain);
     }
     if execution.broken_invariants.is_full() {

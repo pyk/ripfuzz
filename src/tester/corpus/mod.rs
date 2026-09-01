@@ -1,9 +1,8 @@
 //! Corpus of interesting sequences for assertion fuzzing.
 //!
-//! [`Corpus`] stores sequences that found new coverage or reached a failed
-//! assertion. Fuzzers draw from it to extend promising states instead of only
-//! random sequences, which keeps the search exploring paths around existing
-//! assertions.
+//! [`Corpus`] stores sequences that found new coverage. Fuzzers draw from it to
+//! extend promising states instead of only random sequences, which keeps the
+//! search exploring paths around existing coverage.
 //!
 //! The corpus also owns the literal extraction for the campaign: the
 //! compilation output set via [`Corpus::with_solc_output`] feeds the
