@@ -321,10 +321,9 @@ impl Fuzzer {
             warn!("no sequence improved the initial value {}", best.value());
         } else {
             info!(
-                "best sequence: value {}, {} calls, {}, {}s",
+                "best sequence: value {}, {} calls, {}s",
                 best.value(),
                 best.sequence().len(),
-                best.sequence(),
                 start.elapsed().as_secs(),
             );
         }
