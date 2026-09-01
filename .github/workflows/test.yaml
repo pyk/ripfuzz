@@ -21,7 +21,7 @@ jobs:
                   python3 - <<'EOF'
                   import os, re, pathlib
                   text = pathlib.Path("ripfuzz.toml").read_text()
-                  m = re.search(r'solc\s*=\s*"([^"]+)"', text)
+                  m = re.search(r'version\s*=\s*"([^"]+)"', text)
                   version = m.group(1) if m else ""
                   print(f"version={version}")
                   with open(os.environ["GITHUB_OUTPUT"], "a") as f:
