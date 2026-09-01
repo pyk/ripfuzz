@@ -132,6 +132,7 @@ pub fn run(args: Args) -> Result<Best> {
     let coverage = SharedCoverage::new();
 
     // 8. Deploy the harness contract.
+    info!("deploying harness");
     let deployment = chain.deploy(&max_harness)?;
     if !deployment.result.success {
         let trace_file = dump_execution_trace(&root, &trace_context, &deployment.trace)?;
@@ -145,7 +146,7 @@ pub fn run(args: Args) -> Result<Best> {
         .address
         .context("deployment succeeded but created_address is missing")?;
     coverage.merge(&deployment.coverage);
-    info!(harness = %max_harness.id(), address = %address, "harness deployed");
+    info!(address = %address, "harness deployed");
 
     // 9. Run the setup function if the harness defines one.
     // checkrs: allow(nested_if_let)
@@ -199,26 +200,26 @@ pub fn run(args: Args) -> Result<Best> {
     // 11. Load the persisted corpus so mutations start from known sequences.
     let corpus_path = corpus_path(&root, &args.corpus_dir, &args.harness)?;
     let corpus = Corpus::new();
-    let loaded = corpus.load(&corpus_path, &max_harness.handlers())?;
     info!(
-        entries = loaded,
-        path = %corpus_path.display(),
-        "corpus loaded"
+        path = %strip_dot_prefix(corpus_path.display().to_string()),
+        "loading corpus"
     );
+    let loaded = corpus.load(&corpus_path, &max_harness.handlers())?;
+    info!(entries = loaded, "replaying corpus");
 
     // 12. Replay the loaded corpus so the fuzzers start from the coverage
     //     the sequences bring and from values re-measured on the current
     //     harness. Entries that no longer execute cleanly are dropped.
     let seed = jiff::Timestamp::now().as_nanosecond() as u64;
     let deployer = chain.deployer();
-    let (corpus, replayed) = CorpusReplayer::new()
+    let (corpus, _) = CorpusReplayer::new()
         .with_chain(chain.clone())
         .with_target(address)
         .with_deployer(deployer)
         .with_value_calldata(value_calldata.clone())
         .with_coverage(coverage.clone())
         .replay(corpus)?;
-    info!(entries = replayed, "corpus replayed");
+    info!("corpus loaded & replayed");
 
     // 13. Fuzz for the highest value within the stop conditions.
     let fuzzer = Fuzzer::new()
@@ -394,4 +395,18 @@ fn dump_execution_trace(
 fn trace_id() -> String {
     let uuid: String = uuid::Uuid::new_v4().into();
     uuid.split('-').next().unwrap_or_default().to_owned()
+}
+
+fn strip_dot_prefix(path: impl AsRef<Path>) -> String {
+    let mut display = path.as_ref().display().to_string();
+    loop {
+        if let Some(stripped) = display.strip_prefix("./") {
+            display = stripped.to_owned();
+        } else if let Some(stripped) = display.strip_prefix(".\\") {
+            display = stripped.to_owned();
+        } else {
+            break;
+        }
+    }
+    display
 }

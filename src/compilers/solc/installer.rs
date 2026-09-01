@@ -34,7 +34,6 @@ impl SolcInstaller {
         if binary_path.is_file() {
             info!(
                 version = %self.version,
-                path = %binary_path.display(),
                 "using existing solc"
             );
             return Ok(());

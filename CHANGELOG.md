@@ -165,14 +165,6 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
-- `ripfuzz max` discovery extends memoized snapshots with one fresh call per
-  step instead of re-executing mutated sequences from genesis, and keeps
-  value-improving states in the corpus even without new coverage, so stateful
-  chains such as approve, deposit, redeem build up one reliable step at a time;
-  the corpus always keeps the best-value entry and seeds the next campaign from
-  the highest-value replayed state; fixes the 2025-07-yscrvUSD challenge
-  failing to reach its 0.18 ETH profit within the budget
-
 - `ripfuzz max` now generates arguments for handlers that take struct (tuple)
   parameters, including arrays and nested structs, by resolving JSON-ABI
   parameters with their components instead of parsing the bare `tuple` type

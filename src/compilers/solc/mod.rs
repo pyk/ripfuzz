@@ -166,9 +166,7 @@ impl Solc {
         installer.ensure_installed()?;
 
         info!(
-            version = %version,
-            target = %target.display(),
-            out = %out_dir.display(),
+            file = %strip_dot_prefix(&target),
             "compiling harness"
         );
 
@@ -215,11 +213,7 @@ impl Solc {
         //    result.
         write_output(&out_dir, &source_path, &output)?;
 
-        info!(
-            version = %version,
-            out = %out_dir.display(),
-            "compilation succeeded"
-        );
+        info!("compilation succeeded");
 
         // 8. Identify the compiled target contract.
         let name = match self.name {
@@ -280,4 +274,18 @@ fn write_output(
     }
 
     Ok(())
+}
+
+fn strip_dot_prefix(path: impl AsRef<Path>) -> String {
+    let mut display = path.as_ref().display().to_string();
+    loop {
+        if let Some(stripped) = display.strip_prefix("./") {
+            display = stripped.to_owned();
+        } else if let Some(stripped) = display.strip_prefix(".\\") {
+            display = stripped.to_owned();
+        } else {
+            break;
+        }
+    }
+    display
 }
