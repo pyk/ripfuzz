@@ -19,6 +19,7 @@ pub mod deal;
 pub mod etch;
 pub mod fee;
 pub mod ffi;
+pub mod finding;
 pub mod fork;
 pub mod get_code;
 pub mod get_env;
@@ -35,6 +36,11 @@ pub mod warp;
 
 sol! {
     interface Vm {
+        // Finding
+        enum Severity { Info, Low, Medium, High, Critical }
+        struct Finding { string id; Severity severity; string title; string description; }
+        function finding(Finding calldata finding) external;
+        function finding(string calldata id) external;
         // Block
         function warp(uint256 newTimestamp) external;
         function roll(uint256 newNumber) external;
@@ -161,6 +167,10 @@ where
         // Environment
         VmCalls::getEnv_0(c) => get_env::get_env(&c.key),
         VmCalls::getEnv_1(c) => get_env::get_env_or_default(&c.key, &c.defaultValue),
+
+        // Finding
+        VmCalls::finding_0(c) => finding::handle(state, c.finding),
+        VmCalls::finding_1(c) => finding::handle_simple(state, &c.id),
 
         // Fork
         VmCalls::fork_0(c) => fork::fork(ctx, state, &c.url, c.blockNumber),

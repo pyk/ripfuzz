@@ -21,6 +21,7 @@ pub use exec::ExecOutput;
 pub use setup::{SetupInput, SetupOutput};
 pub use transaction::Transaction;
 
+use crate::evm::cheatcode::ReportedFinding;
 use crate::evm::forkdb::{LocalTracker, RpcStats, SharedBackend, SharedLocalAddressRegistry};
 use crate::evm::{cheatcode, coverage, database, result, trace};
 
@@ -383,6 +384,8 @@ impl Chain {
         );
         let mut results = Vec::with_capacity(transactions.len());
         let mut panic_transactions = Vec::new();
+        let mut findings: Vec<Vec<ReportedFinding>> = Vec::with_capacity(transactions.len());
+        let mut prev_findings_len = 0usize;
 
         let db = self.database.take().context("database unavailable")?;
         let mut ctx = Context::mainnet().with_db(db);
@@ -413,6 +416,15 @@ impl Chain {
                 // checkrs: allow(clone_in_loops)
                 panic_transactions.push(tx.clone());
             }
+            // 1. Capture explicit findings emitted during this transaction.
+            let current_len = evm.inspector.0.0.state.findings.len();
+            let new_findings = if current_len > prev_findings_len {
+                evm.inspector.0.0.state.findings[prev_findings_len..current_len].to_vec()
+            } else {
+                Vec::new()
+            };
+            prev_findings_len = current_len;
+            findings.push(new_findings);
             results.push(result);
         }
 
@@ -432,6 +444,7 @@ impl Chain {
                 Either::Right(_) => None,
             },
             panic_transactions,
+            findings,
         })
     }
 

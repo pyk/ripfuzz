@@ -9,6 +9,51 @@ use revm::primitives::{Address, Bytes, U256};
 use crate::evm::cheatcode::CheatcodeConfig;
 use crate::evm::forkdb::{ForkDBConfig, SharedLocalAddressRegistry, Transport};
 
+/// Severity of an explicit `rvm.finding` report.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Severity {
+    Info = 0,
+    Low = 1,
+    #[default]
+    Medium = 2,
+    High = 3,
+    Critical = 4,
+}
+
+impl Severity {
+    /// Convert a `uint8` cheatcode value into a [`Severity`].
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::Info),
+            1 => Some(Self::Low),
+            2 => Some(Self::Medium),
+            3 => Some(Self::High),
+            4 => Some(Self::Critical),
+            _ => None,
+        }
+    }
+
+    /// Render the severity as a lowercase string.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Info => "info",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Critical => "critical",
+        }
+    }
+}
+
+/// One explicit finding emitted via `rvm.finding`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReportedFinding {
+    pub id: String,
+    pub severity: Severity,
+    pub title: String,
+    pub description: String,
+}
+
 /// Transient scratchpad for one call sequence.
 #[derive(Clone, Debug)]
 pub struct ExecutionState {
@@ -24,6 +69,8 @@ pub struct ExecutionState {
     pub transport: Option<Arc<dyn Transport>>,
     /// Local addresses that must persist across fork switches.
     pub local_registry: SharedLocalAddressRegistry,
+    /// Explicit findings emitted via `rvm.finding` during the current `exec`.
+    pub findings: Vec<ReportedFinding>,
 }
 
 impl Default for ExecutionState {
@@ -38,6 +85,7 @@ impl Default for ExecutionState {
             fork_defaults: ForkDBConfig::new(""),
             transport: None,
             local_registry: SharedLocalAddressRegistry::new(),
+            findings: Vec::new(),
         }
     }
 }

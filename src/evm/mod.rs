@@ -17,7 +17,7 @@ pub use chain::{
     Chain, DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput, ExecOutput,
     SetupInput, SetupOutput, Transaction,
 };
-pub use cheatcode::CheatcodeConfig;
+pub use cheatcode::{CheatcodeConfig, ReportedFinding, Severity};
 pub use contract::Contract;
 pub use coverage::{
     CoverageId, CoverageReport, CoverageReporter, CoverageUpdate, ExecutionContractCoverage,

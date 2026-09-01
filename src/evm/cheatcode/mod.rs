@@ -6,7 +6,7 @@
 pub use address::VM_ADDRESS;
 pub use config::CheatcodeConfig;
 pub use inspector::Inspector;
-pub use state::ExecutionState;
+pub use state::{ExecutionState, ReportedFinding, Severity};
 
 mod address;
 mod config;
