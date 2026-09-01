@@ -105,6 +105,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Moved the broken-invariant reporting into the `BrokenInvariantReporter` type
+  under `src/tester/broken_invariant.rs`: it re-runs a broken invariant on a
+  traced chain clone, saves the execution trace under `.ripfuzz/traces`, and
+  logs the trace path relative to the project root (`trace=.ripfuzz/traces/...`
+  instead of the absolute path)
 - Renamed the `rvm.finding` cheatcode to `rvm.bail(Invariant)` and replaced the
   `assert(false)` panic workflow: `Invariant` carries `{ id, description }`,
   the cheatcode records the broken invariant and reverts the call so the

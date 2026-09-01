@@ -1,5 +1,6 @@
-//! Broken invariants discovered during fuzzing and the shared, deduplicated
-//! collection that tracks them across fuzzer threads.
+//! Broken invariants discovered during fuzzing, the shared, deduplicated
+//! collection that tracks them across fuzzer threads, and the reporter that
+//! re-runs a broken invariant and saves its execution trace.
 //!
 //! A broken invariant is an explicit `rvm.bail` report emitted by a handler
 //! call or by an `invariant_*` call checked after each handler call.
@@ -16,10 +17,18 @@
 //! ```
 
 use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use alloy_json_abi::Function;
+use alloy_primitives::Address;
+use anyhow::{Context, Result};
 use parking_lot::Mutex;
+use revm::primitives::Bytes;
+use tracing::info;
 
+use crate::evm::{Chain, Trace, TraceContext, Transaction};
 use crate::tester::Sequence;
 
 /// One broken invariant: the calls that reproduce it, ending with the
@@ -148,6 +157,134 @@ impl SharedBrokenInvariants {
     pub fn all(&self) -> Vec<BrokenInvariant> {
         self.lock().broken_invariants.clone()
     }
+}
+
+/// Re-runs a broken invariant on a traced chain clone and saves its
+/// execution trace under `{root}/.ripfuzz/traces`.
+///
+/// The re-run transaction batch is the broken invariant's sequence, whose
+/// last call is the bail-emitting trigger, plus the optional summary call.
+///
+/// ```rust,no_run
+/// use ripfuzz::tester::{BrokenInvariant, BrokenInvariantReporter};
+/// use ripfuzz::{Chain, ChainConfig, TraceContext};
+///
+/// # let chain = Chain::empty(ChainConfig::default());
+/// # let broken = BrokenInvariant::new().with_id("INV-001");
+/// let trace_context = TraceContext::new();
+/// let reporter = BrokenInvariantReporter::new(std::path::Path::new("."))
+///     .with_chain(&chain)
+///     .with_trace_context(&trace_context)
+///     .with_address(chain.deployer());
+/// reporter.report(&broken).unwrap();
+/// ```
+#[derive(Debug)]
+pub struct BrokenInvariantReporter {
+    root: PathBuf,
+    chain: Option<Chain>,
+    trace_context: Option<TraceContext>,
+    address: Option<Address>,
+    summary: Option<Function>,
+}
+
+impl BrokenInvariantReporter {
+    /// Create a reporter that saves traces under the project root.
+    pub fn new(root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            chain: None,
+            trace_context: None,
+            address: None,
+            summary: None,
+        }
+    }
+
+    /// Set the chain the broken invariant is re-run on.
+    pub fn with_chain(mut self, chain: &Chain) -> Self {
+        self.chain = Some(chain.clone());
+        self
+    }
+
+    /// Set the trace context used to format the saved trace.
+    pub fn with_trace_context(mut self, trace_context: &TraceContext) -> Self {
+        self.trace_context = Some(trace_context.clone());
+        self
+    }
+
+    /// Set the address the sequence calls are sent to.
+    pub fn with_address(mut self, address: Address) -> Self {
+        self.address = Some(address);
+        self
+    }
+
+    /// Set the optional summary call appended after the sequence.
+    pub fn with_summary(mut self, summary: Option<&Function>) -> Self {
+        self.summary = summary.cloned();
+        self
+    }
+
+    /// Re-run the broken invariant on a traced chain clone and save its
+    /// execution trace.
+    pub fn report(&self, broken: &BrokenInvariant) -> Result<()> {
+        // 1. Require the execution context.
+        let chain = self
+            .chain
+            .as_ref()
+            .context("chain not set, call BrokenInvariantReporter::new().with_chain(..)")?;
+        let trace_context = self.trace_context.as_ref().context(
+            "trace context not set, call BrokenInvariantReporter::new().with_trace_context(..)",
+        )?;
+        let address = self
+            .address
+            .context("address not set, call BrokenInvariantReporter::new().with_address(..)")?;
+
+        // 2. Build the traced re-run with the sequence and the summary.
+        let deployer = chain.deployer();
+        let mut rerun_chain = chain.clone();
+        rerun_chain.set_trace(true);
+        let mut transactions: Vec<Transaction> = broken.sequence().transactions(address, deployer);
+        if let Some(summary) = &self.summary {
+            transactions.push(
+                Transaction::new(address)
+                    .calldata(Bytes::from(summary.selector().as_slice().to_vec())),
+            );
+        }
+
+        // 3. Execute the re-run, the bail-emitting trigger is expected and
+        //    does not invalidate the logs of the calls before it.
+        let output = rerun_chain.exec(&transactions)?;
+
+        // 4. Save the execution trace for offline analysis.
+        let trace = output
+            .trace
+            .context("broken invariant re-run trace missing")?;
+        let trace_file = self.save_trace(trace_context, &trace)?;
+        info!(id = %broken.id(), trace = %trace_file.display(), "broken invariant saved");
+        Ok(())
+    }
+
+    /// Save an execution trace under `{root}/.ripfuzz/traces` and return its
+    /// path relative to the root for logging.
+    fn save_trace(&self, trace_context: &TraceContext, trace: &Trace) -> Result<PathBuf> {
+        // 1. Write the execution trace to a timestamped trace file.
+        let trace_dir = self.root.join(".ripfuzz").join("traces");
+        fs::create_dir_all(&trace_dir)?;
+        let timestamp = jiff::Timestamp::now().as_second();
+        let trace_file = trace_dir.join(format!("{timestamp}-{}.log", trace_id()));
+        let trace = trace.display_with(trace_context).to_string();
+        fs::write(&trace_file, trace)
+            .with_context(|| format!("failed to write {}", trace_file.display()))?;
+
+        // 2. Return the path relative to the root so logs stay portable.
+        let relative = trace_file.strip_prefix(&self.root).unwrap_or(&trace_file);
+        Ok(relative.to_path_buf())
+    }
+}
+
+/// Short unique id for a trace file name.
+fn trace_id() -> String {
+    let uuid: String = uuid::Uuid::new_v4().into();
+    uuid.split('-').next().unwrap_or_default().to_owned()
 }
 
 #[cfg(test)]

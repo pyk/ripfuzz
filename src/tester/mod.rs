@@ -26,7 +26,7 @@
 //! // let broken_invariants = Shrinker::new().shrink(&output.broken_invariants)?;
 //! ```
 
-pub use broken_invariant::{BrokenInvariant, SharedBrokenInvariants};
+pub use broken_invariant::{BrokenInvariant, BrokenInvariantReporter, SharedBrokenInvariants};
 pub use corpus::{Call, Corpus, EntrySnapshot, LiteralExtractor, Replayer, Sequence};
 pub use fuzzer::{Fuzzer, Output};
 pub use harness::TestHarness;

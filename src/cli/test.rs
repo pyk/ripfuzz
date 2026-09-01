@@ -16,7 +16,8 @@ use crate::evm::{
 };
 use crate::harness::HarnessId;
 use crate::tester::{
-    BrokenInvariant, Corpus, Fuzzer, Replayer, SharedBrokenInvariants, Shrinker, TestHarness,
+    BrokenInvariant, BrokenInvariantReporter, Corpus, Fuzzer, Replayer, SharedBrokenInvariants,
+    Shrinker, TestHarness,
 };
 
 /// Find broken invariants.
@@ -238,21 +239,19 @@ pub fn run(args: Args) -> Result<Vec<BrokenInvariant>> {
         "corpus saved"
     );
 
-    // 15. Re-run every broken invariant with tracing so the console shows the
-    //     logs emitted on the way to the broken invariant, and the trace file
-    //     captures the full sequence.
+    // 15. Re-run every broken invariant on a traced chain clone and save its
+    //     execution trace under `.ripfuzz/traces`, logging the trace path
+    //     relative to the root.
     //
     //     The trigger call runs last and its state is discarded, so the
-    //     optional summary call below still reports on the pre-trigger state.
+    //     optional summary call still reports on the pre-trigger state.
+    let reporter = BrokenInvariantReporter::new(&root)
+        .with_chain(&chain)
+        .with_trace_context(&trace_context)
+        .with_address(address)
+        .with_summary(test_harness.summary());
     for broken in &broken_invariants {
-        report_broken_invariant(
-            &root,
-            &chain,
-            &trace_context,
-            address,
-            broken,
-            test_harness.summary(),
-        )?;
+        reporter.report(broken)?;
     }
 
     // 16. Run the summary function when no broken invariant was found so the
@@ -276,43 +275,6 @@ pub fn run(args: Args) -> Result<Vec<BrokenInvariant>> {
     }
 
     Ok(broken_invariants)
-}
-
-/// Re-run one broken invariant on a traced chain clone, print its logs, and
-/// save the execution trace.
-///
-/// The transaction batch is the shrunk sequence, whose last call is the
-/// bail-emitting trigger, plus the optional summary call.
-fn report_broken_invariant(
-    root: &Path,
-    chain: &Chain,
-    trace_context: &TraceContext,
-    address: alloy_primitives::Address,
-    broken: &BrokenInvariant,
-    summary: Option<&alloy_json_abi::Function>,
-) -> Result<()> {
-    // 1. Build the traced re-run with the sequence and the summary.
-    let deployer = chain.deployer();
-    let mut rerun_chain = chain.clone();
-    rerun_chain.set_trace(true);
-    let mut transactions: Vec<Transaction> = broken.sequence().transactions(address, deployer);
-    if let Some(summary) = summary {
-        transactions.push(
-            Transaction::new(address).calldata(Bytes::from(summary.selector().as_slice().to_vec())),
-        );
-    }
-
-    // 2. Execute the re-run; the bail-emitting trigger is expected and does
-    //    not invalidate the logs of the calls before it.
-    let output = rerun_chain.exec(&transactions)?;
-
-    // 3. Save the execution trace for offline analysis.
-    let trace = output
-        .trace
-        .context("broken invariant re-run trace missing")?;
-    let trace_file = dump_execution_trace(root, trace_context, &trace)?;
-    info!(id = %broken.id(), trace = %trace_file.display(), "broken invariant saved");
-    Ok(())
 }
 
 /// Dump an execution trace and return its absolute path.
