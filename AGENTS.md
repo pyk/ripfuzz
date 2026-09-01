@@ -1,7 +1,6 @@
 # Ripfuzz
 
-Ripfuzz is a high-throughput, coverage-guided, mutational fuzzer for Solidity
-smart contracts.
+Ripfuzz is an extremely fast Smart contract fuzzer.
 
 ## Non-negotiable rules
 

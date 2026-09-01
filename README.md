@@ -3,7 +3,7 @@
 </h3>
 
 <p align="center">
-    High-throughput, coverage-guided, mutational fuzzer for Solidity smart contracts.
+    An extremely fast Smart contract fuzzer.
 <p>
 
 <p align="center">
@@ -17,12 +17,11 @@
 >
 > `ripfuzz` is in early active development.
 
-**Ripfuzz** is a high-throughput, coverage-guided, mutational fuzzer for
-Solidity smart contracts. Point it at a harness contract and it generates
-stateful call sequences, steers toward new EVM coverage, checks your invariants
-after every sequence, and shrinks any `assert` panic it finds into a minimal
-reproduction. Distinct failed assertions are deduplicated, and each one is
-shrunk and reported separately.
+**Ripfuzz** is an extremely fast Smart contract fuzzer. Point it at a harness
+contract and it generates stateful call sequences, steers toward new EVM
+coverage, checks your invariants after every sequence, and shrinks any `assert`
+panic it finds into a minimal reproduction. Distinct failed assertions are
+deduplicated, and each one is shrunk and reported separately.
 
 ## Features
 

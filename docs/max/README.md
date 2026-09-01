@@ -1,4 +1,4 @@
-# `ripfuzz max`: Maximize a Harness Value
+# `ripfuzz max`: Find Maximum Value
 
 > Status: DRAFT
 

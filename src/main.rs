@@ -18,7 +18,7 @@ struct Cli {
 enum Commands {
     /// Run a fuzzing campaign.
     Run(Box<cli::run::Args>),
-    /// Maximize a harness value.
+    /// Find maximum value.
     Max(Box<cli::max::Args>),
     /// Find failed assertions.
     Test(Box<cli::test::Args>),

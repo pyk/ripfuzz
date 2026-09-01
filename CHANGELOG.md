@@ -84,6 +84,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Updated the CLI description to `An extremely fast Smart contract fuzzer.` and
+  renamed the `max` command help text to `Find maximum value`
 - `ripfuzz.toml` moves the solc settings under the `[solc]` section with
   `version` required and `out` (default `.ripfuzz/solc`), `evm_version`
   (default `prague`), `optimizer` (default `false`), `optimizer_runs` (default

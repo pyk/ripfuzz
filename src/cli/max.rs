@@ -18,7 +18,7 @@ use crate::evm::{
 use crate::harness::HarnessId;
 use crate::max::{Best, Corpus, CorpusReplayer, Fuzzer, MaxHarness, Sequence, Shrinker, Value};
 
-/// Maximize a harness value.
+/// Find maximum value.
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path to harness to run.

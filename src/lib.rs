@@ -1,4 +1,4 @@
-//! Ripfuzz - High-throughput, coverage-guided, mutational fuzzer for Solidity smart contracts.
+//! Ripfuzz - An extremely fast Smart contract fuzzer.
 
 pub use corpus::{
     Call, CorpusConfig, CorpusReplayer, CorpusStats, ExtractedLiterals, Item, ReplayFailure,
