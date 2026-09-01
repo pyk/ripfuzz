@@ -28,8 +28,8 @@ pub use forkdb::MockTransport;
 pub use forkdb::RpcStats;
 pub use result::TransactionResult;
 pub use trace::{
-    CallFrame, CallFrameKind, Evmole, StorageChange, StorageChangeInfo, StorageType, Trace,
-    TraceContext, TraceDisplay,
+    CallFrame, CallFrameKind, Evmole, ExecutionTraceWriter, StorageChange, StorageChangeInfo,
+    StorageType, Trace, TraceContext, TraceDisplay,
 };
 
 mod chain;

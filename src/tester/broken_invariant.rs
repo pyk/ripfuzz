@@ -17,8 +17,7 @@
 //! ```
 
 use std::collections::HashSet;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf, absolute};
 use std::sync::Arc;
 
 use alloy_json_abi::Function;
@@ -28,7 +27,7 @@ use parking_lot::Mutex;
 use revm::primitives::Bytes;
 use tracing::info;
 
-use crate::evm::{Chain, Trace, TraceContext, Transaction};
+use crate::evm::{Chain, ExecutionTraceWriter, Trace, TraceContext, Transaction};
 use crate::tester::Sequence;
 
 /// One broken invariant: the calls that reproduce it, ending with the
@@ -266,25 +265,18 @@ impl BrokenInvariantReporter {
     /// Save an execution trace under `{root}/.ripfuzz/traces` and return its
     /// path relative to the root for logging.
     fn save_trace(&self, trace_context: &TraceContext, trace: &Trace) -> Result<PathBuf> {
-        // 1. Write the execution trace to a timestamped trace file.
-        let trace_dir = self.root.join(".ripfuzz").join("traces");
-        fs::create_dir_all(&trace_dir)?;
-        let timestamp = jiff::Timestamp::now().as_second();
-        let trace_file = trace_dir.join(format!("{timestamp}-{}.log", trace_id()));
-        let trace = trace.display_with(trace_context).to_string();
-        fs::write(&trace_file, trace)
-            .with_context(|| format!("failed to write {}", trace_file.display()))?;
+        // 1. Write the execution trace through the shared trace writer.
+        let writer =
+            ExecutionTraceWriter::new(&self.root).with_trace_context(trace_context.clone());
+        let trace_file = writer.write(trace)?;
 
         // 2. Return the path relative to the root so logs stay portable.
-        let relative = trace_file.strip_prefix(&self.root).unwrap_or(&trace_file);
+        //    The writer returns an absolute path, so the root is absolutized
+        //    before stripping.
+        let root = absolute(&self.root)?;
+        let relative = trace_file.strip_prefix(root).unwrap_or(&trace_file);
         Ok(relative.to_path_buf())
     }
-}
-
-/// Short unique id for a trace file name.
-fn trace_id() -> String {
-    let uuid: String = uuid::Uuid::new_v4().into();
-    uuid.split('-').next().unwrap_or_default().to_owned()
 }
 
 #[cfg(test)]

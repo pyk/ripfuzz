@@ -94,6 +94,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - `Vault` and `VaultWithNoise` max challenges cover the approve, deposit, and
   redeem pattern with 28 handlers and fork-free simplified accounting, catching
   future regressions
+- `ExecutionTraceWriter` under `src/evm/trace/writer.rs`: the shared type that
+  renders an execution trace through its trace context and saves it as
+  `{root}/.ripfuzz/traces/{unix-timestamp}-{id}.log`; `ripfuzz exec`,
+  `ripfuzz max`, `ripfuzz test`, and the broken-invariant re-run all use it,
+  replacing the copy-pasted `dump_execution_trace` helper in each command
 
 ### Fixed
 

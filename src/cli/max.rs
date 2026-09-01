@@ -1,7 +1,6 @@
 //! `max` CLI command implementation.
 
-use std::fs;
-use std::path::{Path, PathBuf, absolute};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use alloy_primitives::U256;
@@ -13,7 +12,8 @@ use tracing::{error, info, warn};
 use crate::compilers::solc::Solc;
 use crate::config::Config;
 use crate::evm::{
-    Chain, ChainConfig, ForkDBConfig, SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
+    Chain, ChainConfig, ExecutionTraceWriter, ForkDBConfig, SetupInput, SharedCoverage,
+    TraceContext, Transaction,
 };
 use crate::harness::HarnessId;
 use crate::max::{Best, Corpus, CorpusReplayer, Fuzzer, MaxHarness, Sequence, Shrinker, Value};
@@ -120,12 +120,14 @@ pub fn run(args: Args) -> Result<Best> {
         .coverage(true);
     let mut chain = Chain::new(chain_config)?;
 
-    // 6. Label the trace context from the compilation output and the chain.
+    // 6. Label the trace context from the compilation output and the chain,
+    //    and create the writer that saves execution traces under the root.
     let mut trace_context = TraceContext::from(&solc_output);
     let labels = chain.labels().clone();
     for (address, label) in labels {
         trace_context = trace_context.with_label(address, label);
     }
+    let trace_writer = ExecutionTraceWriter::new(&root).with_trace_context(trace_context.clone());
 
     // 7. Create the shared coverage map so the deployment and setup calls
     //    below seed the baseline the fuzzers measure new edges against.
@@ -135,7 +137,7 @@ pub fn run(args: Args) -> Result<Best> {
     info!("deploying harness");
     let deployment = chain.deploy(&max_harness)?;
     if !deployment.result.success {
-        let trace_file = dump_execution_trace(&root, &trace_context, &deployment.trace)?;
+        let trace_file = trace_writer.write(&deployment.trace)?;
         error!("execution trace: {}", trace_file.display());
         bail!(
             "harness contract `{}` deployment failed",
@@ -155,7 +157,7 @@ pub fn run(args: Args) -> Result<Best> {
             SetupInput::new(address).calldata(Bytes::from(setup.selector().as_slice().to_vec()));
         let setup_output = chain.setup(setup_input)?;
         if !setup_output.result.success {
-            let trace_file = dump_execution_trace(&root, &trace_context, &setup_output.trace)?;
+            let trace_file = trace_writer.write(&setup_output.trace)?;
             error!("execution trace: {}", trace_file.display());
             bail!("harness contract `{}` setup failed", max_harness.id().name);
         }
@@ -178,7 +180,7 @@ pub fn run(args: Args) -> Result<Best> {
         .context("value call result missing")?;
     if !value_result.success {
         let trace = value_output.trace.context("value call trace missing")?;
-        let trace_file = dump_execution_trace(&root, &trace_context, &trace)?;
+        let trace_file = trace_writer.write(&trace)?;
         error!("execution trace: {}", trace_file.display());
         bail!(
             "harness contract `{}` value call failed",
@@ -332,7 +334,7 @@ pub fn run(args: Args) -> Result<Best> {
     let trace = summary_output.trace.context("summary call trace missing")?;
     info!("\n{}", trace.display_logs_with(&trace_context));
 
-    let trace_file = dump_execution_trace(&root, &trace_context, &trace)?;
+    let trace_file = trace_writer.write(&trace)?;
     info!(
         harness = %max_harness.id(),
         path = %trace_file.display(),
@@ -367,34 +369,6 @@ fn corpus_path(
         .file_name()
         .context("harness path has no file name")?;
     Ok(base.join(file_name).join(&harness.name).join("corpus.json"))
-}
-
-/// Dump an execution trace and return its absolute path.
-///
-/// The trace is written to
-/// `{root}/.ripfuzz/traces/{unix-timestamp}-{id}.log`.
-fn dump_execution_trace(
-    root: &Path,
-    trace_context: &TraceContext,
-    trace: &Trace,
-) -> Result<PathBuf> {
-    // 1. Write the execution trace to a timestamped trace file.
-    let trace_dir = root.join(".ripfuzz").join("traces");
-    fs::create_dir_all(&trace_dir)?;
-    let timestamp = jiff::Timestamp::now().as_second();
-    let trace_file = trace_dir.join(format!("{timestamp}-{}.log", trace_id()));
-    let trace = trace.display_with(trace_context).to_string();
-    fs::write(&trace_file, trace)
-        .with_context(|| format!("failed to write {}", trace_file.display()))?;
-
-    // 2. Return the absolute path so logs and errors can point at the file.
-    Ok(absolute(trace_file)?)
-}
-
-/// Short unique id for a trace file name.
-fn trace_id() -> String {
-    let uuid: String = uuid::Uuid::new_v4().into();
-    uuid.split('-').next().unwrap_or_default().to_owned()
 }
 
 fn strip_dot_prefix(path: impl AsRef<Path>) -> String {

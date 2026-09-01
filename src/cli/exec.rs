@@ -1,7 +1,6 @@
 //! `exec` CLI command implementation.
 
-use std::fs;
-use std::path::{Path, PathBuf, absolute};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail, ensure};
 use clap::Parser;
@@ -10,7 +9,10 @@ use tracing::{error, info};
 
 use crate::compilers::solc::Solc;
 use crate::config::Config;
-use crate::evm::{Chain, ChainConfig, ForkDBConfig, SetupInput, Trace, TraceContext, Transaction};
+use crate::evm::{
+    Chain, ChainConfig, ExecutionTraceWriter, ForkDBConfig, SetupInput, Trace, TraceContext,
+    Transaction,
+};
 use crate::exec::Script;
 use crate::harness::HarnessId;
 
@@ -96,18 +98,19 @@ pub fn run(args: Args) -> Result<()> {
         .trace(true);
     let mut chain = Chain::new(chain_config)?;
 
-    // 7. Label the trace context from the compilation output and the chain.
+    // 7. Label the trace context from the compilation output and the chain,
+    //    and create the writer that saves execution traces under the root.
     let mut trace_context = TraceContext::from(&solc_output);
     let labels = chain.labels().clone();
     for (address, label) in labels {
         trace_context = trace_context.with_label(address, label);
     }
+    let trace_writer = ExecutionTraceWriter::new(&root).with_trace_context(trace_context.clone());
 
     // 8. Deploy the script contract.
     let deployment = chain.deploy(&script)?;
     ensure_call_success(
-        &root,
-        &trace_context,
+        &trace_writer,
         deployment.result.success,
         &deployment.trace,
         &format!("script contract `{}` deployment failed", script.id().name),
@@ -123,8 +126,7 @@ pub fn run(args: Args) -> Result<()> {
             SetupInput::new(address).calldata(Bytes::from(setup.selector().as_slice().to_vec()));
         let setup_output = chain.setup(setup_input)?;
         ensure_call_success(
-            &root,
-            &trace_context,
+            &trace_writer,
             setup_output.result.success,
             &setup_output.trace,
             &format!("script contract `{}` setup failed", script.id().name),
@@ -143,8 +145,7 @@ pub fn run(args: Args) -> Result<()> {
         .context("exec call result missing")?;
     let trace = exec_output.trace.context("exec call trace missing")?;
     ensure_call_success(
-        &root,
-        &trace_context,
+        &trace_writer,
         exec_result.success,
         &trace,
         &format!("script contract `{}` exec failed", script.id().name),
@@ -154,7 +155,7 @@ pub fn run(args: Args) -> Result<()> {
     print_logs(&trace, &trace_context);
 
     // 12. Save the execution trace.
-    let trace_file = dump_execution_trace(&root, &trace_context, &trace)?;
+    let trace_file = trace_writer.write(&trace)?;
     info!(
         script = %script.id(),
         path = %trace_file.display(),
@@ -166,8 +167,7 @@ pub fn run(args: Args) -> Result<()> {
 
 /// Bail with a dumped execution trace when a call failed.
 fn ensure_call_success(
-    root: &Path,
-    trace_context: &TraceContext,
+    trace_writer: &ExecutionTraceWriter,
     success: bool,
     trace: &Trace,
     message: &str,
@@ -175,7 +175,7 @@ fn ensure_call_success(
     if success {
         return Ok(());
     }
-    let trace_file = dump_execution_trace(root, trace_context, trace)?;
+    let trace_file = trace_writer.write(trace)?;
     error!("execution trace: {}", trace_file.display());
     bail!("{message}");
 }
@@ -189,32 +189,4 @@ fn print_logs(trace: &Trace, trace_context: &TraceContext) {
     if !logs.trim().is_empty() {
         info!("\n{logs}");
     }
-}
-
-/// Dump an execution trace and return its absolute path.
-///
-/// The trace is written to
-/// `{root}/.ripfuzz/traces/{unix-timestamp}-{id}.log`.
-fn dump_execution_trace(
-    root: &Path,
-    trace_context: &TraceContext,
-    trace: &Trace,
-) -> Result<PathBuf> {
-    // 1. Write the execution trace to a timestamped trace file.
-    let trace_dir = root.join(".ripfuzz").join("traces");
-    fs::create_dir_all(&trace_dir)?;
-    let timestamp = jiff::Timestamp::now().as_second();
-    let trace_file = trace_dir.join(format!("{timestamp}-{}.log", trace_id()));
-    let trace = trace.display_with(trace_context).to_string();
-    fs::write(&trace_file, trace)
-        .with_context(|| format!("failed to write {}", trace_file.display()))?;
-
-    // 2. Return the absolute path so logs and errors can point at the file.
-    Ok(absolute(trace_file)?)
-}
-
-/// Short unique id for a trace file name.
-fn trace_id() -> String {
-    let uuid: String = uuid::Uuid::new_v4().into();
-    uuid.split('-').next().unwrap_or_default().to_owned()
 }

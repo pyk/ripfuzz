@@ -11,6 +11,7 @@ use revm::primitives::{Address, Bytes, Log};
 pub use context::{StorageChangeInfo, TraceContext};
 pub use evmole::Evmole;
 pub use inspector::Inspector;
+pub use writer::ExecutionTraceWriter;
 
 use crate::evm::cheatcode::VM_ADDRESS;
 
@@ -18,6 +19,7 @@ mod common_events;
 mod context;
 mod evmole;
 mod inspector;
+mod writer;
 
 /// A single storage change recorded during a frame's execution.
 #[derive(Debug, Clone)]
