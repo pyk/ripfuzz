@@ -3,7 +3,7 @@
 //!
 //! The fixtures under `fixtures/exec-script-deployment` are sources of the
 //! project rooted at the current directory, and compilation artifacts are
-//! shared under `./.ripfuzz/out` namespaced by the script source path.
+//! shared under `./.ripfuzz/solc` namespaced by the script source path.
 
 use std::fs;
 use std::path::PathBuf;

@@ -19,6 +19,7 @@ use solc::ast::{
 };
 use solc::{ContractOutput, StandardJSONOutput};
 
+use crate::compilers::solc::SolcOutput;
 use crate::evm::chain::DEFAULT_DEPLOYER;
 use crate::evm::cheatcode::VM_ADDRESS;
 use crate::evm::trace::common_events::CommonEvents;
@@ -28,7 +29,6 @@ use crate::foundry::{
     AbstractArtifact, Artifact, ArtifactBytecode, ArtifactId, ContractArtifact, InterfaceArtifact,
     LibraryArtifact, Project, StorageTypeInfo, get_contract_definition,
 };
-use crate::solc::SolcOutput;
 
 /// A single bytecode entry for matching runtime code against artifacts.
 #[derive(Debug, Clone)]

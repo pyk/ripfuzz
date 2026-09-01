@@ -9,7 +9,7 @@
 //! use ripfuzz::test::{Corpus, Fuzzer, Shrinker, TestHarness};
 //! use ripfuzz::{Chain, ChainConfig, SharedCoverage};
 //!
-//! # let solc_output: ripfuzz::solc::SolcOutput = todo!();
+//! # let solc_output: ripfuzz::compilers::solc::SolcOutput = todo!();
 //! # let chain = Chain::empty(ChainConfig::default());
 //! # let coverage = SharedCoverage::new();
 //! // 1. Validate the compiled harness.

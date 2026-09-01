@@ -84,6 +84,18 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- `ripfuzz.toml` moves the solc settings under the `[solc]` section with
+  `version` required and `out` (default `.ripfuzz/solc`), `evm_version`
+  (default `prague`), `optimizer` (default `false`), `optimizer_runs` (default
+  `200`), `via_ir` (default `false`), and `remappings` (default `[]`); the
+  legacy flat `solc = "0.8.36"` form and the top-level `out` field are rejected
+  with a config parse error instead of being silently accepted, and
+  `ripfuzz init` writes the new shape with the optimizer enabled for 200 runs
+- Configured solc remappings resolve imports next to `{root}/remappings.txt`,
+  with config entries winning when both map the same prefix
+- Upgraded solc dependency to v0.3.5, and renamed the standard JSON input
+  `viaIr` key to the `viaIR` key solc expects so `via_ir` compiles through the
+  IR-based pipeline
 - `ripfuzz max` seeds the shared coverage map with the execution coverage of
   the harness deployment and setup calls, so fuzzers only count edges beyond
   harness initialization as new and corpus entries are not inflated with

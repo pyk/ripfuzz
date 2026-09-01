@@ -10,13 +10,13 @@ use clap::Parser;
 use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
+use crate::compilers::solc::Solc;
 use crate::config::Config;
 use crate::evm::{
     Chain, ChainConfig, ForkDBConfig, SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
 };
 use crate::harness::HarnessId;
 use crate::max::{Best, Corpus, CorpusReplayer, Fuzzer, MaxHarness, Sequence, Shrinker, Value};
-use crate::solc::Solc;
 
 /// Maximize a harness value.
 #[derive(Debug, Parser)]
@@ -93,11 +93,15 @@ pub fn run(args: Args) -> Result<Best> {
 
     // 3. Compile the harness via Solc relative to the project root.
     let solc_output = Solc::new()
-        .with_version(&config.solc)
+        .with_version(&config.solc.version)
         .with_root(&root)
         .with_target(&args.harness.path)
         .with_name(&args.harness.name)
-        .with_out(&config.out)
+        .with_out(&config.solc.out)
+        .with_evm_version(config.solc.evm_version)
+        .with_optimizer(config.solc.optimizer, config.solc.optimizer_runs)
+        .with_via_ir(config.solc.via_ir)
+        .with_remappings(config.solc.remappings.clone())
         .compile()?;
 
     // 4. Validate the compiled output against the max harness rules.

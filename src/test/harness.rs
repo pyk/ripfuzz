@@ -1,6 +1,6 @@
 //! Validated harness for the `test` command.
 //!
-//! [`TestHarness`] turns the raw [`SolcOutput`](ripfuzz::solc::SolcOutput) into
+//! [`TestHarness`] turns the raw [`SolcOutput`](ripfuzz::compilers::solc::SolcOutput) into
 //! a structured harness by extracting the target contract and checking the
 //! test harness rules against its ABI, resolving the functions used by later
 //! steps such as deployment and fuzzing.
@@ -24,9 +24,9 @@
 use alloy_json_abi::{Function, JsonAbi, StateMutability};
 use anyhow::{Context, Result, ensure};
 
+use crate::compilers::solc::SolcOutput;
 use crate::evm::DeployInput;
 use crate::harness::HarnessId;
-use crate::solc::SolcOutput;
 
 /// A compiled harness validated and structured for the `test` command.
 #[derive(Debug, Clone)]

@@ -3,8 +3,8 @@
 
 use revm::primitives::Bytes;
 
+use ripfuzz::compilers::solc::{Solc, SolcOutput};
 use ripfuzz::max::MaxHarness;
-use ripfuzz::solc::{Solc, SolcOutput};
 use ripfuzz::{DeployInput, TraceContext};
 
 const VERSION: &str = "0.8.36";

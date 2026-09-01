@@ -3,7 +3,7 @@
 //!
 //! The fixtures under `fixtures/max-harness-deployment` are sources of the
 //! project rooted at the current directory, and compilation artifacts are
-//! shared under `./.ripfuzz/out` namespaced by the harness source path. Each
+//! shared under `./.ripfuzz/solc` namespaced by the harness source path. Each
 //! test runs against a fresh temp corpus directory.
 
 use std::fs;

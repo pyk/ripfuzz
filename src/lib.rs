@@ -28,12 +28,12 @@ pub use test::{
 };
 
 pub mod cli;
+pub mod compilers;
 pub mod config;
 pub mod exec;
 pub mod harness;
 pub mod logger;
 pub mod max;
-pub mod solc;
 pub mod test;
 
 mod campaigns;

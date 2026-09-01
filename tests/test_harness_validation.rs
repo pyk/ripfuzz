@@ -3,7 +3,7 @@
 
 use revm::primitives::Bytes;
 
-use ripfuzz::solc::{Solc, SolcOutput};
+use ripfuzz::compilers::solc::{Solc, SolcOutput};
 use ripfuzz::test::TestHarness;
 use ripfuzz::{DeployInput, TraceContext};
 

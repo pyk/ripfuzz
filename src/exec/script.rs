@@ -1,6 +1,6 @@
 //! Validated script for the `exec` command.
 //!
-//! [`Script`] turns the raw [`SolcOutput`](ripfuzz::solc::SolcOutput) into
+//! [`Script`] turns the raw [`SolcOutput`](ripfuzz::compilers::solc::SolcOutput) into
 //! a structured script by extracting the target contract and checking the exec
 //! script rules against its ABI, resolving the functions used by later steps
 //! such as deployment and execution.
@@ -22,9 +22,9 @@
 use alloy_json_abi::{Function, JsonAbi, StateMutability};
 use anyhow::{Context, Result, ensure};
 
+use crate::compilers::solc::SolcOutput;
 use crate::evm::DeployInput;
 use crate::harness::HarnessId;
-use crate::solc::SolcOutput;
 
 /// A compiled script validated and structured for the `exec` command.
 #[derive(Debug, Clone)]

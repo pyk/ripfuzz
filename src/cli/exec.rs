@@ -8,11 +8,11 @@ use clap::Parser;
 use revm::primitives::Bytes;
 use tracing::{error, info};
 
+use crate::compilers::solc::Solc;
 use crate::config::Config;
 use crate::evm::{Chain, ChainConfig, ForkDBConfig, SetupInput, Trace, TraceContext, Transaction};
 use crate::exec::Script;
 use crate::harness::HarnessId;
-use crate::solc::Solc;
 
 /// Execute a script contract.
 #[derive(Debug, Parser)]
@@ -68,11 +68,15 @@ pub fn run(args: Args) -> Result<()> {
 
     // 4. Compile the script via Solc relative to the project root.
     let solc_output = Solc::new()
-        .with_version(&config.solc)
+        .with_version(&config.solc.version)
         .with_root(&root)
         .with_target(&args.script.path)
         .with_name(&args.script.name)
-        .with_out(&config.out)
+        .with_out(&config.solc.out)
+        .with_evm_version(config.solc.evm_version)
+        .with_optimizer(config.solc.optimizer, config.solc.optimizer_runs)
+        .with_via_ir(config.solc.via_ir)
+        .with_remappings(config.solc.remappings.clone())
         .compile()?;
 
     // 5. Validate the compiled output against the exec script rules.

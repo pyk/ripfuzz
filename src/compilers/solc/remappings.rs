@@ -48,6 +48,19 @@ impl RemappingsResolver {
         })
     }
 
+    /// Prepends `prefix=target` remappings from the config.
+    ///
+    /// Config remappings win over `remappings.txt` entries with the same
+    /// prefix because resolution uses the first matching prefix.
+    pub fn with_remappings(mut self, remappings: Vec<String>) -> Result<Self> {
+        let parsed = parse_remappings(&remappings.join("\n"))
+            .context("failed to parse configured remappings")?;
+        let mut remappings = parsed;
+        remappings.extend(self.remappings);
+        self.remappings = remappings;
+        Ok(self)
+    }
+
     /// Resolves `import` through the first matching remapping.
     ///
     /// Returns the candidate path joined with the project root when the
@@ -223,6 +236,59 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "invalid remapping on line 1: expected `prefix=target`, got `ripfuzz`"
+        );
+    }
+
+    #[test]
+    fn config_remappings_take_precedence_over_file() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("remappings.txt"), "ripfuzz/=lib/old/src/\n").unwrap();
+
+        let resolver = RemappingsResolver::load(dir.path())
+            .unwrap()
+            .with_remappings(vec!["ripfuzz/=lib/new/src/".to_owned()])
+            .unwrap();
+
+        assert_eq!(
+            resolver.resolve("ripfuzz/Harness.sol"),
+            Some(dir.path().join("lib/new/src/Harness.sol"))
+        );
+        assert_eq!(
+            resolver.solc_remappings(),
+            vec![
+                "ripfuzz/=lib/new/src/".to_owned(),
+                "ripfuzz/=lib/old/src/".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn config_remapping_without_equals_fails() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let err = RemappingsResolver::load(dir.path())
+            .unwrap()
+            .with_remappings(vec!["ripfuzz".to_owned()])
+            .unwrap_err();
+
+        assert_eq!(
+            format!("{err:#}"),
+            "failed to parse configured remappings: invalid remapping on line 1: expected `prefix=target`, got `ripfuzz`"
+        );
+    }
+
+    #[test]
+    fn config_remappings_without_file_resolve() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let resolver = RemappingsResolver::load(dir.path())
+            .unwrap()
+            .with_remappings(vec!["ripfuzz/=lib/ripfuzz/src/".to_owned()])
+            .unwrap();
+
+        assert_eq!(
+            resolver.resolve("ripfuzz/Harness.sol"),
+            Some(dir.path().join("lib/ripfuzz/src/Harness.sol"))
         );
     }
 }

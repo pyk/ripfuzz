@@ -33,7 +33,7 @@ impl Initializer {
     }
 
     fn content(&self) -> String {
-        String::from("solc = \"0.8.36\"\n")
+        String::from("[solc]\nversion = \"0.8.36\"\noptimizer = true\noptimizer_runs = 200\n")
     }
 
     fn run(&self) -> Result<()> {
@@ -57,14 +57,21 @@ mod tests {
         let initializer = Initializer::new(&path);
         initializer.run().unwrap();
         let content = fs::read_to_string(&path).unwrap();
-        assert_eq!(content, "solc = \"0.8.36\"\n");
+        assert_eq!(
+            content,
+            "[solc]\nversion = \"0.8.36\"\noptimizer = true\noptimizer_runs = 200\n"
+        );
     }
 
     #[test]
     fn initializer_fails_if_file_already_exists() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ripfuzz.toml");
-        fs::write(&path, "solc = \"0.8.36\"\n").unwrap();
+        fs::write(
+            &path,
+            "[solc]\nversion = \"0.8.36\"\noptimizer = true\noptimizer_runs = 200\n",
+        )
+        .unwrap();
         let initializer = Initializer::new(&path);
         let err = initializer.run().unwrap_err();
         assert_eq!(err.to_string(), "ripfuzz.toml already exists");
@@ -73,6 +80,9 @@ mod tests {
     #[test]
     fn initializer_content_is_expected() {
         let initializer = Initializer::new("ripfuzz.toml");
-        assert_eq!(initializer.content(), "solc = \"0.8.36\"\n");
+        assert_eq!(
+            initializer.content(),
+            "[solc]\nversion = \"0.8.36\"\noptimizer = true\noptimizer_runs = 200\n"
+        );
     }
 }

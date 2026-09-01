@@ -5,7 +5,7 @@
 //!
 //! - The fixtures under `fixtures/max-challenges` are sources of the project
 //!   rooted at the current directory.
-//! - Compilation artifacts are shared under `./.ripfuzz/out`, namespaced by
+//! - Compilation artifacts are shared under `./.ripfuzz/solc`, namespaced by
 //!   the harness source path.
 //! - Each challenge corpus lives in a fresh temp directory, so every run
 //!   starts from an empty corpus.

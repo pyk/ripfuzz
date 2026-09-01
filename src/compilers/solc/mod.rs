@@ -5,7 +5,7 @@
 //! compilation.
 //!
 //! ```rust
-//! use ripfuzz::solc::Solc;
+//! use ripfuzz::compilers::solc::Solc;
 //!
 //! let solc = Solc::new().with_version("0.8.28").with_target("src/MyHarness.sol");
 //! // let solc_output = solc.compile()?;
@@ -15,7 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
-use solc::StandardJSONOutput;
+use solc::{EvmVersion, StandardJSONOutput};
 use tracing::info;
 
 pub use exec::SolcExecutor;
@@ -51,7 +51,8 @@ pub struct SolcOutput {
 ///
 /// - When a root is set via `with_root`, relative paths resolve against it
 /// - Imports are resolved using remappings from `{root}/remappings.txt` when
-///   present
+///   present, with remappings set via `with_remappings` taking precedence
+///   over `remappings.txt` entries with the same prefix
 /// - The harness contract name defaults to the target file stem and can be
 ///   overridden with `with_name`
 /// - Artifacts are written under a namespace derived from the target source
@@ -63,6 +64,10 @@ pub struct Solc {
     name: Option<String>,
     out: Option<PathBuf>,
     root: Option<PathBuf>,
+    evm_version: Option<EvmVersion>,
+    optimizer: Option<(bool, usize)>,
+    via_ir: Option<bool>,
+    remappings: Vec<String>,
 }
 
 impl Solc {
@@ -96,8 +101,33 @@ impl Solc {
         self
     }
 
+    /// Set the target EVM version for code generation.
+    pub fn with_evm_version(mut self, evm_version: EvmVersion) -> Self {
+        self.evm_version = Some(evm_version);
+        self
+    }
+
+    /// Enable the optimizer and set the number of runs.
+    pub fn with_optimizer(mut self, enabled: bool, runs: usize) -> Self {
+        self.optimizer = Some((enabled, runs));
+        self
+    }
+
+    /// Enable the IR-based compilation pipeline.
+    pub fn with_via_ir(mut self, via_ir: bool) -> Self {
+        self.via_ir = Some(via_ir);
+        self
+    }
+
+    /// Set `prefix=target` remappings. They take precedence over
+    /// `remappings.txt` entries with the same prefix.
+    pub fn with_remappings(mut self, remappings: Vec<String>) -> Self {
+        self.remappings = remappings;
+        self
+    }
+
     pub fn out_dir(&self) -> PathBuf {
-        self.resolve(self.out.as_deref().unwrap_or(Path::new(".ripfuzz/out")))
+        self.resolve(self.out.as_deref().unwrap_or(Path::new(".ripfuzz/solc")))
     }
 
     fn resolve(&self, path: impl AsRef<Path>) -> PathBuf {
@@ -144,14 +174,25 @@ impl Solc {
 
         // 4. Resolve the transitive sources and build the solc input.
         let root = self.root.clone().unwrap_or_else(|| PathBuf::from("."));
+        let remappings =
+            RemappingsResolver::load(&root)?.with_remappings(self.remappings.clone())?;
         let resolver = SourceResolver::new()
             .with_root(&root)
-            .with_remappings(RemappingsResolver::load(&root)?);
+            .with_remappings(remappings);
         let sources = resolver.resolve(&target)?;
-        let input = StandardJSONInputBuilder::new()
+        let mut input = StandardJSONInputBuilder::new()
             .with_sources(sources)
-            .with_remappings(resolver.solc_remappings())
-            .build();
+            .with_remappings(resolver.solc_remappings());
+        if let Some(evm_version) = self.evm_version {
+            input = input.with_evm_version(evm_version);
+        }
+        if let Some((enabled, runs)) = self.optimizer {
+            input = input.with_optimizer(enabled, runs);
+        }
+        if let Some(via_ir) = self.via_ir {
+            input = input.with_via_ir(via_ir);
+        }
+        let input = input.build();
 
         // 5. Run solc.
         let output = SolcExecutor::new()

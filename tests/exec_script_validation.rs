@@ -1,8 +1,8 @@
 //! `Script` validation against compiled fixtures: valid scripts convert
 //! cleanly, invalid scripts fail with exact error messages.
 
+use ripfuzz::compilers::solc::{Solc, SolcOutput};
 use ripfuzz::exec::Script;
-use ripfuzz::solc::{Solc, SolcOutput};
 
 const VERSION: &str = "0.8.36";
 const DIR: &str = "fixtures/exec-script-validation";

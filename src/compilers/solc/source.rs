@@ -15,7 +15,7 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::solc::RemappingsResolver;
+use crate::compilers::solc::RemappingsResolver;
 
 /// Collects the transitive Solidity sources reachable from a target.
 #[derive(Clone, Debug)]

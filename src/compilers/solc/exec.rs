@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, ensure};
 use solc::{StandardJSONInput, StandardJSONOutput};
 
-use crate::solc::SolcInstaller;
+use crate::compilers::solc::SolcInstaller;
 
 /// Runs the installed solc binary for a compilation.
 #[derive(Clone, Debug)]
@@ -77,7 +77,21 @@ impl SolcExecutor {
         };
 
         // 3. Serialize the standard JSON input.
-        let input_json = serde_json::to_string(&input).context("failed to serialize solc input")?;
+        //
+        //    The solc crate serializes `via_ir` as `viaIr`, but solc expects
+        //    the `viaIR` key, so rename it before feeding the input to the
+        //    compiler.
+        let mut input_value =
+            serde_json::to_value(&input).context("failed to serialize solc input")?;
+        if let Some(settings) = input_value
+            .get_mut("settings")
+            .and_then(|settings| settings.as_object_mut())
+            && let Some(via_ir) = settings.remove("viaIr")
+        {
+            settings.insert("viaIR".to_owned(), via_ir);
+        }
+        let input_json =
+            serde_json::to_string(&input_value).context("failed to serialize solc input")?;
 
         // 4. Spawn solc from the project root and feed it the input.
         let mut child = Command::new(&binary)
