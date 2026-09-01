@@ -1,8 +1,0 @@
-[
-  {"type":"event","name":"Transfer","inputs":[{"name":"from","type":"address","indexed":true},{"name":"to","type":"address","indexed":true},{"name":"value","type":"uint256","indexed":false}],"anonymous":false},
-  {"type":"event","name":"Approval","inputs":[{"name":"owner","type":"address","indexed":true},{"name":"spender","type":"address","indexed":true},{"name":"value","type":"uint256","indexed":false}],"anonymous":false},
-  {"type":"event","name":"ApprovalForAll","inputs":[{"name":"owner","type":"address","indexed":true},{"name":"operator","type":"address","indexed":true},{"name":"approved","type":"bool","indexed":false}],"anonymous":false},
-  {"type":"event","name":"Deposit","inputs":[{"name":"dst","type":"address","indexed":true},{"name":"wad","type":"uint256","indexed":false}],"anonymous":false},
-  {"type":"event","name":"Withdrawal","inputs":[{"name":"src","type":"address","indexed":true},{"name":"wad","type":"uint256","indexed":false}],"anonymous":false},
-  {"type":"event","name":"OwnershipTransferred","inputs":[{"name":"previousOwner","type":"address","indexed":true},{"name":"newOwner","type":"address","indexed":true}],"anonymous":false}
-]

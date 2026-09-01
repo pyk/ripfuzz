@@ -53,7 +53,7 @@ alloy-op-hardforks = "0.5"
 alloy-json-abi = "1.6.0"
 alloy-dyn-abi = "1.6.0"
 alloy-primitives = "1.6.0"
-alloy-sol-types = "1.6.0"
+alloy-sol-types = { version = "1.6.0", features = ["json"] }
 alloy-sol-macro = "1.6.0"
 
 # Crypto (wallet cheatcodes)
