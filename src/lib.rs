@@ -23,7 +23,7 @@ pub use shrinkers::{
     InvariantShrinker, InvariantShrinkerConfig, InvariantShrinkerOutput, MaxxingResult,
     MaxxingShrinker, MaxxingShrinkerConfig, MaxxingShrinkerCorpus, MaxxingShrinkerOutput,
 };
-pub use test::{
+pub use tester::{
     Corpus as TestCorpus, Finding, Fuzzer as TestFuzzer, Shrinker as TestShrinker, TestHarness,
 };
 
@@ -34,7 +34,7 @@ pub mod exec;
 pub mod harness;
 pub mod logger;
 pub mod max;
-pub mod test;
+pub mod tester;
 
 mod campaigns;
 mod corpus;

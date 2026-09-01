@@ -4,11 +4,11 @@
 use revm::primitives::Bytes;
 
 use ripfuzz::compilers::solc::{Solc, SolcOutput};
-use ripfuzz::test::TestHarness;
+use ripfuzz::tester::TestHarness;
 use ripfuzz::{DeployInput, TraceContext};
 
 const VERSION: &str = "0.8.36";
-const DIR: &str = "fixtures/test-harness-validation";
+const DIR: &str = "fixtures/tester/harness-validation";
 
 /// Compile a fixture harness through solc into a temporary out directory.
 fn solc_output(name: &str) -> SolcOutput {
@@ -60,7 +60,7 @@ fn rejects_constructor_args() {
     let err = TestHarness::try_from(&solc_output).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "test harness `fixtures/test-harness-validation/HarnessWithConstructorArgs.sol:HarnessWithConstructorArgs` constructor must not take arguments"
+        "test harness `fixtures/tester/harness-validation/HarnessWithConstructorArgs.sol:HarnessWithConstructorArgs` constructor must not take arguments"
     );
 }
 
@@ -72,7 +72,7 @@ fn rejects_payable_constructor() {
     let err = TestHarness::try_from(&solc_output).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "test harness `fixtures/test-harness-validation/HarnessWithPayableConstructor.sol:HarnessWithPayableConstructor` constructor must not be `payable`"
+        "test harness `fixtures/tester/harness-validation/HarnessWithPayableConstructor.sol:HarnessWithPayableConstructor` constructor must not be `payable`"
     );
 }
 
@@ -84,7 +84,7 @@ fn rejects_setup_args() {
     let err = TestHarness::try_from(&solc_output).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "test harness `fixtures/test-harness-validation/HarnessWithSetupArgs.sol:HarnessWithSetupArgs` function `setup` must not take arguments"
+        "test harness `fixtures/tester/harness-validation/HarnessWithSetupArgs.sol:HarnessWithSetupArgs` function `setup` must not take arguments"
     );
 }
 
@@ -96,7 +96,7 @@ fn rejects_payable_setup() {
     let err = TestHarness::try_from(&solc_output).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "test harness `fixtures/test-harness-validation/HarnessWithPayableSetup.sol:HarnessWithPayableSetup` function `setup` must not be `payable`"
+        "test harness `fixtures/tester/harness-validation/HarnessWithPayableSetup.sol:HarnessWithPayableSetup` function `setup` must not be `payable`"
     );
 }
 
@@ -108,7 +108,7 @@ fn rejects_summary_args() {
     let err = TestHarness::try_from(&solc_output).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "test harness `fixtures/test-harness-validation/HarnessWithSummaryArgs.sol:HarnessWithSummaryArgs` function `summary` must not take arguments"
+        "test harness `fixtures/tester/harness-validation/HarnessWithSummaryArgs.sol:HarnessWithSummaryArgs` function `summary` must not take arguments"
     );
 }
 
@@ -120,7 +120,7 @@ fn rejects_payable_summary() {
     let err = TestHarness::try_from(&solc_output).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "test harness `fixtures/test-harness-validation/HarnessWithPayableSummary.sol:HarnessWithPayableSummary` function `summary` must not be `payable`"
+        "test harness `fixtures/tester/harness-validation/HarnessWithPayableSummary.sol:HarnessWithPayableSummary` function `summary` must not be `payable`"
     );
 }
 
@@ -132,7 +132,7 @@ fn rejects_invariant_args() {
     let err = TestHarness::try_from(&solc_output).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "test harness `fixtures/test-harness-validation/HarnessWithInvariantArgs.sol:HarnessWithInvariantArgs` function `invariant_total` must not take arguments"
+        "test harness `fixtures/tester/harness-validation/HarnessWithInvariantArgs.sol:HarnessWithInvariantArgs` function `invariant_total` must not take arguments"
     );
 }
 
@@ -144,7 +144,7 @@ fn rejects_payable_invariant() {
     let err = TestHarness::try_from(&solc_output).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "test harness `fixtures/test-harness-validation/HarnessWithPayableInvariant.sol:HarnessWithPayableInvariant` function `invariant_total` must not be `payable`"
+        "test harness `fixtures/tester/harness-validation/HarnessWithPayableInvariant.sol:HarnessWithPayableInvariant` function `invariant_total` must not be `payable`"
     );
 }
 

@@ -21,7 +21,7 @@ fmt: # Run formatter
 	@echo "Run markdown formatter"
 	@uvx --from panache-cli==2.61.0 panache format .
 
-FIXTURE_DIRS := $(wildcard fixtures/*)
+FIXTURE_DIRS := $(wildcard fixtures/* fixtures/*/*)
 
 .PHONY: build-fixtures
 build-fixtures: # Force-rebuild all test fixtures with --ast

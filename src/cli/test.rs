@@ -15,7 +15,7 @@ use crate::evm::{
     Chain, ChainConfig, ForkDBConfig, SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
 };
 use crate::harness::HarnessId;
-use crate::test::{Corpus, Finding, Fuzzer, Replayer, SharedFindings, Shrinker, TestHarness};
+use crate::tester::{Corpus, Finding, Fuzzer, Replayer, SharedFindings, Shrinker, TestHarness};
 
 /// Find failed assertions.
 #[derive(Debug, Parser)]

@@ -24,9 +24,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   panicking function and revert output, and only `assert` panics count, so
   `require` and custom-error reverts stay plain control flow
 - `ripfuzz test` runs coverage-guided evolutionary fuzzing over a standalone
-  corpus (`TestHarness`, `Fuzzer`, `Corpus`, `Shrinker` under `src/test`), with
-  `--threads`, `--max-runs`, `--max-calls`, `--timeout`, `--max-failures`, and
-  `--corpus-dir` flags mirroring `ripfuzz max`
+  corpus (`TestHarness`, `Fuzzer`, `Corpus`, `Shrinker` under `src/tester`),
+  with `--threads`, `--max-runs`, `--max-calls`, `--timeout`, `--max-failures`,
+  and `--corpus-dir` flags mirroring `ripfuzz max`
 - `ripfuzz exec <script>` runs a Solidity script contract: it compiles the
   script (default contract name from the file stem, or `path/File.sol:Name` to
   pick one), deploys it on a sandbox chain, runs the optional `setup` function,
@@ -84,6 +84,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Renamed the `src/test` module to `src/tester`, moved the test fixtures under
+  `fixtures/tester` (`harness-deployment`, `harness-validation`), and the
+  integration tests under `tests/tester` (`harness_deployment.rs`,
+  `harness_validation.rs`)
 - Updated the CLI description to `An extremely fast Smart contract fuzzer.` and
   renamed the `max` command help text to `Find maximum value`
 - `ripfuzz.toml` moves the solc settings under the `[solc]` section with

@@ -1,7 +1,7 @@
 //! `ripfuzz test` compiles the harness via solc and deploys it on a sandbox
 //! chain, fuzzes for failed assertions, shrinks every finding, and reports.
 //!
-//! The fixtures under `fixtures/test-harness-deployment` are sources of the
+//! The fixtures under `fixtures/tester/harness-deployment` are sources of the
 //! project rooted at the current directory, and compilation artifacts are
 //! shared under `./.ripfuzz/solc` namespaced by the harness source path. Each
 //! test runs against a fresh temp corpus directory.
@@ -12,16 +12,16 @@ use std::path::PathBuf;
 use ripfuzz::cli::test::{Args, run};
 
 const HARNESS: &str =
-    "fixtures/test-harness-deployment/HarnessWithIncrement.sol:HarnessWithIncrement";
-const FAILING_INVARIANT: &str =
-    "fixtures/test-harness-deployment/HarnessWithFailingInvariant.sol:HarnessWithFailingInvariant";
+    "fixtures/tester/harness-deployment/HarnessWithIncrement.sol:HarnessWithIncrement";
+const FAILING_INVARIANT: &str = "fixtures/tester/harness-deployment/HarnessWithFailingInvariant.sol:HarnessWithFailingInvariant";
 const FAILING_HANDLER: &str =
-    "fixtures/test-harness-deployment/HarnessWithFailingHandler.sol:HarnessWithFailingHandler";
-const REVERTING: &str = "fixtures/test-harness-deployment/HarnessWithRevertingConstructor.sol:HarnessWithRevertingConstructor";
+    "fixtures/tester/harness-deployment/HarnessWithFailingHandler.sol:HarnessWithFailingHandler";
+const REVERTING: &str = "fixtures/tester/harness-deployment/HarnessWithRevertingConstructor.sol:HarnessWithRevertingConstructor";
 const REVERTING_SETUP: &str =
-    "fixtures/test-harness-deployment/HarnessWithRevertingSetup.sol:HarnessWithRevertingSetup";
-const SUMMARY: &str = "fixtures/test-harness-deployment/HarnessWithSummary.sol:HarnessWithSummary";
-const WRONG_NAME: &str = "fixtures/test-harness-deployment/HarnessWithIncrement.sol:DoesNotExist";
+    "fixtures/tester/harness-deployment/HarnessWithRevertingSetup.sol:HarnessWithRevertingSetup";
+const SUMMARY: &str =
+    "fixtures/tester/harness-deployment/HarnessWithSummary.sol:HarnessWithSummary";
+const WRONG_NAME: &str = "fixtures/tester/harness-deployment/HarnessWithIncrement.sol:DoesNotExist";
 
 fn args(harness: &str) -> Args {
     let corpus_dir = std::env::temp_dir().join(format!(
@@ -134,7 +134,7 @@ fn test_fails_when_contract_name_is_wrong() {
     let err = run(args(WRONG_NAME)).expect_err("test must fail for a wrong contract name");
     assert_eq!(
         err.to_string(),
-        "contract `DoesNotExist` not found in `fixtures/test-harness-deployment/HarnessWithIncrement.sol`, available contracts: HarnessWithIncrement"
+        "contract `DoesNotExist` not found in `fixtures/tester/harness-deployment/HarnessWithIncrement.sol`, available contracts: HarnessWithIncrement"
     );
 }
 

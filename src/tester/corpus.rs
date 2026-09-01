@@ -7,7 +7,7 @@
 //!
 //! ```rust,no_run
 //! use ripfuzz::max::Sequence;
-//! use ripfuzz::test::Corpus;
+//! use ripfuzz::tester::Corpus;
 //! use ripfuzz::{Chain, ChainConfig};
 //! use fastrand::Rng;
 //!

@@ -12,7 +12,7 @@
 //! - the trigger call still panics with the exact same revert output
 //!
 //! ```rust
-//! use ripfuzz::test::Shrinker;
+//! use ripfuzz::tester::Shrinker;
 //!
 //! // let shrinker = Shrinker::new().with_chain(chain);
 //! // let shrunk = shrinker.shrink(&findings)?;
@@ -31,7 +31,7 @@ use tracing::{error, info};
 
 use crate::evm::{Chain, Transaction};
 use crate::max::Sequence;
-use crate::test::Finding;
+use crate::tester::Finding;
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);

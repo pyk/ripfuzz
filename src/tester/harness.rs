@@ -14,7 +14,7 @@
 //! - MAY have `invariant_*` functions without arguments and not `payable`
 //!
 //! ```rust
-//! use ripfuzz::test::TestHarness;
+//! use ripfuzz::tester::TestHarness;
 //!
 //! // let solc_output = solc.compile()?;
 //! // let test_harness = TestHarness::try_from(&solc_output)?;

@@ -18,7 +18,7 @@
 //!
 //! ```rust,no_run
 //! use ripfuzz::max::Sequence;
-//! use ripfuzz::test::{Corpus, Fuzzer, SharedFindings};
+//! use ripfuzz::tester::{Corpus, Fuzzer, SharedFindings};
 //! use ripfuzz::{Chain, ChainConfig, SharedCoverage};
 //!
 //! # let chain = Chain::empty(ChainConfig::default());
@@ -49,7 +49,7 @@ use tracing::{error, info, warn};
 
 use crate::evm::{Chain, CoverageUpdate, SharedCoverage, Transaction};
 use crate::max::{Call, Sequence};
-use crate::test::{Corpus, Finding, SharedFindings};
+use crate::tester::{Corpus, Finding, SharedFindings};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);

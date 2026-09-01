@@ -8,7 +8,7 @@
 //! ```rust
 //! use alloy_json_abi::Function;
 //! use ripfuzz::max::Sequence;
-//! use ripfuzz::test::Finding;
+//! use ripfuzz::tester::Finding;
 //!
 //! // let function = Function::parse("invariant_total()")?;
 //! // let finding = Finding::new(sequence, function, revert_output);
