@@ -360,7 +360,7 @@ fn shrink_worker(execution: &Execution, shared: &SharedShrink, thread_id: usize)
         if value >= execution.target_value {
             // checkrs: allow(clone_in_loops)
             if shared.update(candidate.clone()) {
-                info!("shrunk sequence to {} calls", candidate.len());
+                info!("minimized sequence to {} calls", candidate.len());
             }
         }
     }

@@ -272,7 +272,12 @@ pub fn run(args: Args) -> Result<Best> {
             .with_timeout(args.timeout.map(Duration::from_secs))
             .with_seed(seed)
             .shrink(best.sequence())?;
-        info!("shrunk best sequence to {} calls: {shrunk}", shrunk.len());
+        info!(
+            "best sequence {} minimized from {} calls to {}",
+            best.value(),
+            best.sequence().len(),
+            shrunk.len(),
+        );
 
         // The shrunk sequence brings no new coverage of its own, so it
         // inherits the edge count of the best sequence it was shrunk from,
