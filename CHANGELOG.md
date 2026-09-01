@@ -10,6 +10,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- Tester challenges under `fixtures/tester/challenges`: the easy
+  `GatedByLiterals` harness gates one failed assertion behind every literal
+  kind (`bool`, `uint256`, `uint128`, `int256`, `int8`, `bytes32`, `bytes1`,
+  `address`, `bytes`, `string`, and the `1 ether` subdenomination);
+  `tests/tester/challenges.rs` asserts the literals are extracted from the
+  compiled harness and that the campaign finds all gated assertions within the
+  easy budget (run with `make tester-challenges`)
 - Tester campaigns seed argument generation with the harness literals: the
   corpus extracts literals from the solc output via the new `Corpus::new()`
   builder (`with_root`, `with_dir`, `with_harness`, `with_handlers`,

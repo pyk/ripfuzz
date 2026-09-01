@@ -51,6 +51,11 @@ challenges: # Run challenge tests
 	@echo "Running challenges"
 	@cargo test --quiet --test max_challenges -- --ignored
 
+.PHONY: tester-challenges
+tester-challenges: # Run tester challenge tests
+	@echo "Running tester challenges"
+	@cargo test --quiet --test tester -- --ignored challenges
+
 # Catch-all target to handle extra arguments passed to make
 %:
 	@
