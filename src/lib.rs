@@ -26,6 +26,7 @@ pub use shrinkers::{
 
 pub mod cli;
 pub mod config;
+pub mod exec;
 pub mod harness;
 pub mod logger;
 pub mod max;

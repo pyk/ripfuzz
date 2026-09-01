@@ -10,6 +10,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz exec <script>` runs a Solidity script contract: it compiles the
+  script (default contract name from the file stem, or `path/File.sol:Name` to
+  pick one), deploys it on a sandbox chain, runs the optional `setup` function,
+  executes the mandatory `exec` function once, prints emitted logs to the
+  console, and saves the execution trace under `.ripfuzz/traces`; validation
+  rejects an `exec`/`setup` with arguments or `payable`, and a constructor with
+  arguments or `payable`
 - `ripfuzz max` runs the optional harness `summary` function on the final
   campaign state after saving the corpus, prints its log output to the console,
   and saves the full execution trace under `.ripfuzz/traces` for offline
