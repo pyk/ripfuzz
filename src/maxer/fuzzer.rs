@@ -602,10 +602,9 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
             );
             if improved {
                 info!(
-                    "new best sequence on thread {thread_id}: value {}, {} calls, {}",
+                    "found best sequence: value {}, {} calls",
                     last.value,
                     last.sequence.len(),
-                    last.sequence,
                 );
             }
             improved

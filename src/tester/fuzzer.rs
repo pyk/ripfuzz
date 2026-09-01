@@ -522,7 +522,7 @@ fn execute_sequence(
                     .with_id(&report.id)
                     .with_description(&report.description);
                 if execution.broken_invariants.try_add(&broken) {
-                    info!("new broken invariant {}", broken.id());
+                    info!("found broken invariant {}", broken.id());
                 }
             }
         }
@@ -558,7 +558,7 @@ fn execute_sequence(
                         .with_id(&report.id)
                         .with_description(&report.description);
                     if execution.broken_invariants.try_add(&broken) {
-                        info!("new broken invariant {}", broken.id());
+                        info!("found broken invariant {}", broken.id());
                     }
                 }
             }
