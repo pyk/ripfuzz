@@ -129,6 +129,7 @@ contract CounterHarness is Harness {
 | Wallet      | `addr`, `sign`                                                                                 |
 | FFI         | `ffi`                                                                                          |
 | Environment | `getEnv`                                                                                       |
+| Invariant   | `bail`                                                                                         |
 | Fork        | `fork`                                                                                         |
 
 The full interface lives in

@@ -1,5 +1,5 @@
 //! `ripfuzz test` compiles the harness via solc and deploys it on a sandbox
-//! chain, fuzzes for failed assertions, shrinks every finding, and reports.
+//! chain, fuzzes for broken invariants, shrinks every sequence, and reports.
 //!
 //! The fixtures under `fixtures/tester/harness-deployment` are sources of the
 //! project rooted at the current directory, and compilation artifacts are
@@ -10,7 +10,6 @@ use std::fs;
 use std::path::PathBuf;
 
 use ripfuzz::cli::test::{Args, run};
-use ripfuzz::tester::Severity;
 
 const HARNESS: &str =
     "fixtures/tester/harness-deployment/HarnessWithIncrement.sol:HarnessWithIncrement";
@@ -45,48 +44,53 @@ fn args(harness: &str) -> Args {
     }
 }
 
-/// A valid harness must compile, deploy, and fuzz without findings.
+/// A valid harness must compile, deploy, and fuzz without broken invariants.
 #[test]
 fn test_compiles_and_deploys_harness() {
-    let findings = run(args(HARNESS)).expect("test should compile and deploy the harness");
-    assert!(findings.is_empty(), "no assertion should fail");
+    let broken_invariants = run(args(HARNESS)).expect("test should compile and deploy the harness");
+    assert!(broken_invariants.is_empty(), "no invariant should break");
 }
 
-/// An `invariant_*` function that reports a finding for reachable state must
-/// produce a finding whose trigger and metadata are captured, deduplicated
-/// to one finding for the same id.
+/// An `invariant_*` function that bails for reachable state must produce a
+/// broken invariant whose bail-emitting call and metadata are captured,
+/// deduplicated to one broken invariant per id.
 #[test]
 fn test_finds_and_shrinks_failing_invariant() {
-    let findings = run(args(FAILING_INVARIANT)).expect("test should complete the campaign");
+    let broken_invariants =
+        run(args(FAILING_INVARIANT)).expect("test should complete the campaign");
 
-    assert_eq!(findings.len(), 1, "dedup must collapse identical ids");
-    let finding = &findings[0];
     assert_eq!(
-        finding.trigger().signature(),
-        "invariant_total_below_limit()"
+        broken_invariants.len(),
+        1,
+        "dedup must collapse identical ids"
     );
-    assert_eq!(finding.id(), "INV-001");
-    assert_eq!(finding.severity(), Severity::High);
-    assert_eq!(finding.title(), "total below limit");
-    assert_eq!(finding.reason_display(), "total below limit");
+    let broken = &broken_invariants[0];
+    let last = broken.sequence().calls().last().unwrap();
+    assert_eq!(last.signature(), "invariant_total_below_limit()");
+    assert_eq!(broken.id(), "INV-001");
+    assert_eq!(broken.description(), "total exceeded 100");
+    assert_eq!(broken.reason_display(), "total exceeded 100");
     assert!(
-        finding.sequence().len() <= 1,
-        "the shrunk sequence must be at most one call for this harness"
+        broken.sequence().len() <= 2,
+        "the shrunk sequence must be at most one handler call plus the invariant check"
     );
 }
 
-/// A handler that reports a finding for reachable arguments must produce a
-/// finding whose trigger is the handler.
+/// A handler that bails for reachable arguments must produce a broken
+/// invariant whose bail-emitting call is the handler.
 #[test]
 fn test_finds_failing_handler() {
-    let findings = run(args(FAILING_HANDLER)).expect("test should complete the campaign");
+    let broken_invariants = run(args(FAILING_HANDLER)).expect("test should complete the campaign");
 
-    assert!(!findings.is_empty(), "the failing handler must be found");
-    let finding = &findings[0];
-    assert_eq!(finding.trigger().signature(), "deposit(uint256)");
-    assert_eq!(finding.id(), "HAN-001");
-    assert_eq!(finding.severity(), Severity::Critical);
-    assert_eq!(finding.reason_display(), "total below 1000");
+    assert!(
+        !broken_invariants.is_empty(),
+        "the failing handler must be found"
+    );
+    let broken = &broken_invariants[0];
+    let last = broken.sequence().calls().last().unwrap();
+    assert_eq!(last.signature(), "deposit(uint256)");
+    assert_eq!(broken.id(), "HAN-001");
+    assert_eq!(broken.reason_display(), "total exceeded 1000");
 }
 
 /// A harness whose constructor reverts must fail deployment with a clear
@@ -124,7 +128,7 @@ fn test_fails_when_setup_reverts() {
 /// A harness with a working `summary` must run it even when no assertion
 /// fails, saving an execution trace of the summary call.
 #[test]
-fn test_runs_summary_without_findings() {
+fn test_runs_summary_without_broken_invariants() {
     run(args(SUMMARY)).expect("test must run the summary after the campaign");
 
     assert!(

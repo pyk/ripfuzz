@@ -24,7 +24,8 @@ pub use shrinkers::{
     MaxxingShrinker, MaxxingShrinkerConfig, MaxxingShrinkerCorpus, MaxxingShrinkerOutput,
 };
 pub use tester::{
-    Corpus as TestCorpus, Finding, Fuzzer as TestFuzzer, Shrinker as TestShrinker, TestHarness,
+    BrokenInvariant, Corpus as TestCorpus, Fuzzer as TestFuzzer, Shrinker as TestShrinker,
+    TestHarness,
 };
 
 pub mod cli;

@@ -1,20 +1,33 @@
-//! Shrinking of finding sequences to the shortest ones preserving the finding.
+//! Shrinking of broken-invariant sequences to the shortest ones preserving
+//! the broken invariant.
 //!
 //! [`Shrinker`] runs parallel shrinkers that delete random chunks of calls
-//! from each finding's sequence. A candidate is valid when replaying it from
-//! a clean chain and then re-executing the trigger call reproduces the same
-//! `rvm.finding` id, so every accepted candidate is a full clean-state replay.
+//! from each broken invariant's sequence. A candidate is valid when replaying
+//! it from a clean chain reproduces the same `rvm.bail` id, so every accepted
+//! candidate is a full clean-state replay.
 //!
 //! Invariants:
 //!
 //! - the sequence length never increases
-//! - the trigger call still emits the exact same finding id
+//! - the bail-emitting call still emits the exact same broken-invariant id
 //!
-//! ```rust
+//! ```rust,no_run
+//! use alloy_primitives::Address;
 //! use ripfuzz::tester::Shrinker;
+//! use ripfuzz::{Chain, ChainConfig};
 //!
-//! // let shrinker = Shrinker::new().with_chain(chain);
-//! // let shrunk = shrinker.shrink(&findings)?;
+//! # fn main() -> anyhow::Result<()> {
+//! # let chain = Chain::empty(ChainConfig::default());
+//! # let target = Address::ZERO;
+//! # let deployer = Address::ZERO;
+//! # let broken_invariants = Vec::new();
+//! let shrunk = Shrinker::new()
+//!     .with_chain(chain)
+//!     .with_target(target)
+//!     .with_deployer(deployer)
+//!     .shrink(&broken_invariants)?;
+//! # Ok(())
+//! # }
 //! ```
 
 use std::sync::Arc;
@@ -22,14 +35,12 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use alloy_json_abi::Function;
 use alloy_primitives::Address;
 use anyhow::{Context, Result};
-use revm::primitives::Bytes;
 use tracing::{error, info};
 
-use crate::evm::{Chain, Transaction};
-use crate::tester::{Finding, Sequence};
+use crate::evm::Chain;
+use crate::tester::{BrokenInvariant, Sequence};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
@@ -37,7 +48,7 @@ const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
 /// Interval between finished checks while waiting for the shrinkers.
 const PROGRESS_TICK: Duration = Duration::from_millis(100);
 
-/// Parallel shrinker for finding sequences.
+/// Parallel shrinker for broken-invariant sequences.
 ///
 /// The type carries its inputs as optional fields set via `with_*` builders;
 /// `shrink` resolves them and errors on the missing ones.
@@ -87,8 +98,8 @@ impl Shrinker {
         self
     }
 
-    /// Set the maximum number of validation executions per finding across
-    /// all shrinker threads.
+    /// Set the maximum number of validation executions per broken invariant
+    /// across all shrinker threads.
     pub fn with_max_runs(mut self, max_runs: u64) -> Self {
         self.max_runs = Some(max_runs);
         self
@@ -100,9 +111,10 @@ impl Shrinker {
         self
     }
 
-    /// Shrink every finding's sequence while the trigger call still emits
-    /// the exact same finding id, and return the shrunk findings.
-    pub fn shrink(self, findings: &[Finding]) -> Result<Vec<Finding>> {
+    /// Shrink every broken invariant's sequence while it still emits the
+    /// exact same broken-invariant id, and return the shrunk broken
+    /// invariants.
+    pub fn shrink(self, broken_invariants: &[BrokenInvariant]) -> Result<Vec<BrokenInvariant>> {
         // 1. Require the execution context.
         let execution = Execution {
             chain: self
@@ -120,27 +132,27 @@ impl Shrinker {
             timeout: self.timeout.unwrap_or_default(),
         };
 
-        // 2. Shrink each finding independently with its own budget.
+        // 2. Shrink each broken invariant independently with its own budget.
         let start = Instant::now();
         info!(
-            findings = findings.len(),
+            broken_invariants = broken_invariants.len(),
             threads = execution.threads,
             runs = execution.max_runs,
             "shrinking started"
         );
-        let mut shrunk = Vec::with_capacity(findings.len());
-        for finding in findings.iter() {
-            let shrunk_finding = shrink_one(&execution, finding)?;
+        let mut shrunk = Vec::with_capacity(broken_invariants.len());
+        for broken in broken_invariants.iter() {
+            let shrunk_broken = shrink_one(&execution, broken)?;
             info!(
-                id = %shrunk_finding.id(),
-                initial_calls = finding.sequence().len(),
-                final_calls = shrunk_finding.sequence().len(),
-                "finding minimized"
+                id = %shrunk_broken.id(),
+                initial_calls = broken.sequence().len(),
+                final_calls = shrunk_broken.sequence().len(),
+                "broken invariant minimized"
             );
-            shrunk.push(shrunk_finding);
+            shrunk.push(shrunk_broken);
         }
         info!(
-            findings = shrunk.len(),
+            broken_invariants = shrunk.len(),
             elapsed = start.elapsed().as_secs(),
             "shrinking finished"
         );
@@ -148,17 +160,17 @@ impl Shrinker {
     }
 }
 
-/// Shrink one finding's sequence to the shortest one that still reproduces
-/// the exact finding.
-fn shrink_one(execution: &Execution, finding: &Finding) -> Result<Finding> {
+/// Shrink one broken invariant's sequence to the shortest one that still
+/// reproduces the exact broken invariant.
+fn shrink_one(execution: &Execution, broken: &BrokenInvariant) -> Result<BrokenInvariant> {
     // 1. Short sequences are already minimal.
-    if finding.sequence().len() <= 1 {
-        return Ok(finding.clone());
+    if broken.sequence().len() <= 1 {
+        return Ok(broken.clone());
     }
 
     let start = Instant::now();
     let deadline = execution.timeout.map(|timeout| start + timeout);
-    let shared = SharedShrink::new(finding.clone(), deadline, execution.max_runs);
+    let shared = SharedShrink::new(broken.clone(), deadline, execution.max_runs);
 
     // 2. Spawn shrinkers over the shared current best.
     let mut handles = Vec::with_capacity(execution.threads);
@@ -182,7 +194,7 @@ fn shrink_one(execution: &Execution, finding: &Finding) -> Result<Finding> {
         }
         if last_progress.elapsed() >= PROGRESS_INTERVAL {
             info!(
-                id = %finding.id(),
+                id = %broken.id(),
                 attempts = shared.attempts(),
                 calls = shared.current_len(),
                 elapsed = start.elapsed().as_secs(),
@@ -231,18 +243,18 @@ struct Execution {
     timeout: Option<Duration>,
 }
 
-/// State shared across shrinkers for one finding.
+/// State shared across shrinkers for one broken invariant.
 #[derive(Debug, Clone)]
 struct SharedShrink {
-    current: Arc<Mutex<Finding>>,
+    current: Arc<Mutex<BrokenInvariant>>,
     attempts: Arc<AtomicU64>,
     deadline: Option<Instant>,
     max_runs: u64,
 }
 
 impl SharedShrink {
-    /// Create shared state from the seed finding and budget.
-    fn new(current: Finding, deadline: Option<Instant>, max_runs: u64) -> Self {
+    /// Create shared state from the seed broken invariant and budget.
+    fn new(current: BrokenInvariant, deadline: Option<Instant>, max_runs: u64) -> Self {
         Self {
             current: Arc::new(Mutex::new(current)),
             attempts: Arc::new(AtomicU64::new(0)),
@@ -251,15 +263,15 @@ impl SharedShrink {
         }
     }
 
-    /// Lock the current finding, recovering from poisoning.
-    fn lock_current(&self) -> std::sync::MutexGuard<'_, Finding> {
+    /// Lock the current broken invariant, recovering from poisoning.
+    fn lock_current(&self) -> std::sync::MutexGuard<'_, BrokenInvariant> {
         self.current
             .lock()
             .unwrap_or_else(|error| error.into_inner())
     }
 
-    /// A clone of the current shortest finding.
-    fn current(&self) -> Finding {
+    /// A clone of the current shortest broken invariant.
+    fn current(&self) -> BrokenInvariant {
         self.lock_current().clone()
     }
 
@@ -268,9 +280,9 @@ impl SharedShrink {
         self.lock_current().sequence().len()
     }
 
-    /// Replace the current finding when the candidate is shorter, returning
-    /// whether it was accepted.
-    fn update(&self, candidate: Finding) -> bool {
+    /// Replace the current broken invariant when the candidate is shorter,
+    /// returning whether it was accepted.
+    fn update(&self, candidate: BrokenInvariant) -> bool {
         let mut current = self.lock_current();
         if candidate.sequence().len() < current.sequence().len() {
             *current = candidate;
@@ -305,32 +317,22 @@ impl SharedShrink {
     }
 }
 
-/// Whether replaying `candidate` and then the trigger call reproduces the
-/// finding's exact id on a clean chain.
-fn reproduces(execution: &Execution, sequence: &Sequence, finding: &Finding) -> Result<bool> {
+/// Whether replaying the candidate sequence on a clean chain still emits the
+/// broken invariant's exact id. The sequence ends with the bail-emitting
+/// call, so replaying it alone must reproduce the finding.
+fn reproduces(
+    execution: &Execution,
+    sequence: &Sequence,
+    broken: &BrokenInvariant,
+) -> Result<bool> {
     // checkrs: allow(clone_in_loops) each candidate replays on a clean state
     let mut chain = execution.chain.clone();
-    let mut transactions = sequence.transactions(execution.target, execution.deployer);
-    transactions.push(trigger_transaction(
-        finding.trigger(),
-        execution.target,
-        execution.deployer,
-    ));
+    let transactions = sequence.transactions(execution.target, execution.deployer);
     let exec = chain.exec(&transactions)?;
     Ok(exec
-        .findings
+        .broken_invariants
         .iter()
-        .any(|per_tx| per_tx.iter().any(|f| f.id == finding.id())))
-}
-
-/// Build the transaction that re-executes the finding's trigger call.
-///
-/// The trigger is a handler or an `invariant_*` function, and invariants
-/// take no arguments, so the calldata is just the selector.
-fn trigger_transaction(function: &Function, target: Address, caller: Address) -> Transaction {
-    Transaction::new(target)
-        .caller(caller)
-        .calldata(Bytes::from(function.selector().as_slice().to_vec()))
+        .any(|per_tx| per_tx.iter().any(|report| report.id == broken.id())))
 }
 
 /// Delete random chunks from the current sequence until the budget is
@@ -356,20 +358,12 @@ fn shrink_worker(execution: &Execution, shared: &SharedShrink, thread_id: usize)
             break;
         }
 
-        // 2. Accept the candidate when the finding still reproduces
+        // 2. Accept the candidate when the broken invariant still reproduces
         //    exactly on a clean replay.
         if reproduces(execution, &candidate, &current)? {
-            // checkrs: allow(clone_in_loops) the accepted finding must own its data
-            let trigger = current.trigger().clone();
-            let candidate_finding = Finding::new_explicit_with_meta(
-                candidate,
-                trigger,
-                current.id(),
-                current.severity(),
-                current.title(),
-                current.description(),
-            );
-            let _ = shared.update(candidate_finding);
+            // checkrs: allow(clone_in_loops) the accepted broken invariant must own its data
+            let candidate_broken = current.clone().with_calls(candidate);
+            let _ = shared.update(candidate_broken);
         }
     }
     Ok(())

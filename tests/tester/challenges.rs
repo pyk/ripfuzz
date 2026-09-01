@@ -1,5 +1,5 @@
-//! The `fixtures/tester/challenges` harnesses must fail all their gated
-//! assertions within the budget granted to their difficulty level.
+//! The `fixtures/tester/challenges` harnesses must break all their gated
+//! invariants within the budget granted to their difficulty level.
 //!
 //! ## Layout
 //!
@@ -21,19 +21,20 @@ use ripfuzz::tester::LiteralExtractor;
 const VERSION: &str = "0.8.36";
 const HARNESS: &str = "fixtures/tester/challenges/GatedByLiterals.sol:GatedByLiterals";
 
-/// The assertion trigger of every gate in `GatedByLiterals`.
-const TRIGGERS: &[&str] = &[
-    "gatedByBoolLiteral(bool)",
-    "gatedByUint256Literal(uint256)",
-    "gatedByUint128Literal(uint128)",
-    "gatedByInt256Literal(int256)",
-    "gatedByInt8Literal(int8)",
-    "gatedByBytes32Literal(bytes32)",
-    "gatedByBytes1Literal(bytes1)",
-    "gatedByAddressLiteral(address)",
-    "gatedByBytesLiteral(bytes)",
-    "gatedByStringLiteral(string)",
-    "gatedByEtherLiteral(uint256)",
+/// The broken invariant behind every gate in `GatedByLiterals`: the bail id
+/// and its description.
+const BROKEN_INVARIANTS: &[(&str, &str)] = &[
+    ("GATED-BOOL", "flag == true"),
+    ("GATED-UINT256", "value == 2"),
+    ("GATED-UINT128", "value == 12345"),
+    ("GATED-INT256", "value == -7"),
+    ("GATED-INT8", "value == -3"),
+    ("GATED-BYTES32", "hash == 0x123456..."),
+    ("GATED-BYTES1", "tag == 0xab"),
+    ("GATED-ADDRESS", "account == 0x5B38..."),
+    ("GATED-BYTES", "keccak256(data) == keccak256(0xdeadbeef)"),
+    ("GATED-STRING", "text == gold"),
+    ("GATED-ETHER", "value == 1 ether"),
 ];
 
 /// Compile the challenge harness into a temporary out directory.
@@ -120,7 +121,7 @@ fn temp_corpus_dir() -> PathBuf {
     dir
 }
 
-/// Every gated assertion in the challenge harness must be found within the
+/// Every gated invariant in the challenge harness must break within the
 /// easy budget. Slow: ignored by default and run explicitly with
 /// `make tester-challenges`.
 #[ignore = "slow fuzzing campaign; run with `make tester-challenges`"]
@@ -132,7 +133,7 @@ fn gated_by_literals_finds_every_assertion() {
         config: PathBuf::from("./ripfuzz.toml"),
         root: PathBuf::from("."),
         threads: 4,
-        max_runs: 4096,
+        max_runs: 10000,
         max_calls: 8,
         timeout: Some(120),
         max_failures: 32,
@@ -141,28 +142,40 @@ fn gated_by_literals_finds_every_assertion() {
         log_level: tracing::Level::INFO,
     };
 
-    let findings = run(args).expect("challenge should complete the campaign");
-    let triggers: HashSet<String> = findings
-        .iter()
-        .map(|finding| finding.trigger().signature())
-        .collect();
-    let expected: HashSet<String> = TRIGGERS.iter().map(|name| name.to_string()).collect();
+    let broken_invariants = run(args).expect("challenge should complete the campaign");
 
-    let missing: Vec<&String> = expected.difference(&triggers).collect();
+    let ids: HashSet<&str> = broken_invariants.iter().map(|broken| broken.id()).collect();
+    let expected: HashSet<&str> = BROKEN_INVARIANTS.iter().map(|(id, _)| *id).collect();
+    let missing: Vec<&str> = expected.difference(&ids).copied().collect();
     assert_eq!(
-        triggers,
+        ids,
         expected,
-        "every gated assertion must be found within its budget; missing {missing:?} (corpus {})",
+        "every gated invariant must break within its budget; missing {missing:?} (corpus {})",
         corpus_dir.display()
     );
     assert_eq!(
-        findings.len(),
-        TRIGGERS.len(),
-        "every gated assertion must be found within its budget (corpus {})",
+        broken_invariants.len(),
+        BROKEN_INVARIANTS.len(),
+        "every gated invariant must break exactly once (corpus {})",
         corpus_dir.display()
     );
-    for finding in &findings {
-        assert_eq!(finding.reason_display(), "assertion failed");
+    for broken in &broken_invariants {
+        let expected = BROKEN_INVARIANTS
+            .iter()
+            .find(|(id, _)| *id == broken.id())
+            .map(|(_, description)| *description);
+        assert_eq!(
+            Some(broken.description()),
+            expected,
+            "the description must match the bail report (corpus {})",
+            corpus_dir.display()
+        );
+        assert_eq!(
+            broken.sequence().len(),
+            1,
+            "the gate call must be the only call in the shrunk sequence (corpus {})",
+            corpus_dir.display()
+        );
     }
 
     let _ = std::fs::remove_dir_all(&corpus_dir);

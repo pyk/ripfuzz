@@ -3,12 +3,19 @@
 //! [`Sequence`] is the fuzzed unit: a list of handler calls executed in order
 //! against the deployed harness.
 //!
-//! ```rust
+//! ```rust,no_run
 //! use alloy_json_abi::Function;
-//! use ripfuzz::tester::Sequence;
+//! use fastrand::Rng;
+//! use ripfuzz::tester::{LiteralExtractor, Sequence};
 //!
-//! // let handlers: Vec<Function> = test_harness.handlers()...;
-//! // let sequence = Sequence::random(&mut rng, &handlers, 8, &literals)?;
+//! # fn main() -> anyhow::Result<()> {
+//! # let mut rng = Rng::new();
+//! # let handlers = vec![Function::parse("deposit(uint256)").unwrap()];
+//! # let literals = LiteralExtractor::new();
+//! let sequence = Sequence::random(&mut rng, &handlers, 8, &literals)?;
+//! println!("{}", sequence);
+//! # Ok(())
+//! # }
 //! ```
 
 use std::fmt;

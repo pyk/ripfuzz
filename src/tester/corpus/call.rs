@@ -4,13 +4,20 @@
 //! seeded with the literals extracted from the harness sources, and encodes
 //! them into EVM calldata.
 //!
-//! ```rust
+//! ```rust,no_run
 //! use alloy_json_abi::Function;
-//! use ripfuzz::tester::Call;
+//! use fastrand::Rng;
+//! use ripfuzz::tester::{Call, LiteralExtractor};
 //!
-//! // let function = Function::parse("deposit(uint256)")?;
-//! // let call = Call::random(&mut rng, &function, &literals)?;
-//! // let data = call.calldata();
+//! # fn main() -> anyhow::Result<()> {
+//! # let mut rng = Rng::new();
+//! # let function = Function::parse("deposit(uint256)").unwrap();
+//! # let literals = LiteralExtractor::new();
+//! let call = Call::random(&mut rng, &function, &literals)?;
+//! let data = call.calldata();
+//! println!("{} bytes of calldata", data.len());
+//! # Ok(())
+//! # }
 //! ```
 
 use alloy_dyn_abi::{DynSolValue, Specifier};

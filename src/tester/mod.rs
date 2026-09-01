@@ -1,12 +1,12 @@
-//! Find findings.
+//! Find broken invariants.
 //!
 //! The `tester` module mirrors [`crate::max`] around a different objective:
-//! instead of maximizing a value, the fuzzers hunt explicit `rvm.finding`
+//! instead of maximizing a value, the fuzzers hunt explicit `rvm.bail`
 //! reports, both inside handler calls and inside `invariant_*` functions
 //! checked after each handler call.
 //!
 //! ```rust,no_run
-//! use ripfuzz::tester::{Corpus, Fuzzer, Shrinker, TestHarness};
+//! use ripfuzz::tester::{BrokenInvariant, Corpus, Fuzzer, Shrinker, SharedBrokenInvariants, TestHarness};
 //! use ripfuzz::{Chain, ChainConfig, SharedCoverage};
 //!
 //! # let solc_output: ripfuzz::compilers::solc::SolcOutput = todo!();
@@ -14,27 +14,26 @@
 //! # let coverage = SharedCoverage::new();
 //! // 1. Validate the compiled harness.
 //! // let test_harness = TestHarness::try_from(&solc_output)?;
-//! // 2. Deploy it and fuzz for findings.
+//! // 2. Deploy it and fuzz for broken invariants.
 //! // let deployment = chain.deploy(&test_harness)?;
 //! // let output = Fuzzer::new()
 //! //     .with_chain(chain)
 //! //     .with_corpus(Corpus::new())
 //! //     .with_coverage(coverage)
-//! //     .with_findings(ripfuzz::tester::SharedFindings::new(256))
+//! //     .with_broken_invariants(SharedBrokenInvariants::new(256))
 //! //     .run()?;
-//! // 3. Shrink every finding's sequence.
-//! // let findings = Shrinker::new().shrink(&output.findings)?;
+//! // 3. Shrink every broken invariant's sequence.
+//! // let broken_invariants = Shrinker::new().shrink(&output.broken_invariants)?;
 //! ```
 
-pub use crate::evm::Severity;
+pub use broken_invariant::{BrokenInvariant, SharedBrokenInvariants};
 pub use corpus::{Call, Corpus, EntrySnapshot, LiteralExtractor, Replayer, Sequence};
-pub use finding::{Finding, SharedFindings};
 pub use fuzzer::{Fuzzer, Output};
 pub use harness::TestHarness;
 pub use shrinker::Shrinker;
 
+mod broken_invariant;
 mod corpus;
-mod finding;
 mod fuzzer;
 mod harness;
 mod shrinker;

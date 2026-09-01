@@ -13,12 +13,18 @@
 //! - MAY have a `summary` function without arguments and not `payable`
 //! - MAY have `invariant_*` functions without arguments and not `payable`
 //!
-//! ```rust
+//! ```rust,no_run
 //! use ripfuzz::tester::TestHarness;
+//! use ripfuzz::{Chain, ChainConfig};
 //!
-//! // let solc_output = solc.compile()?;
-//! // let test_harness = TestHarness::try_from(&solc_output)?;
-//! // chain.deploy(&test_harness)?;
+//! # fn main() -> anyhow::Result<()> {
+//! # let solc_output: ripfuzz::compilers::solc::SolcOutput = todo!();
+//! # let mut chain = Chain::empty(ChainConfig::default());
+//! let test_harness = TestHarness::try_from(&solc_output)?;
+//! let deployment = chain.deploy(&test_harness)?;
+//! println!("harness at {:?}", deployment.address);
+//! # Ok(())
+//! # }
 //! ```
 
 use alloy_json_abi::{Function, JsonAbi, StateMutability};

@@ -95,8 +95,32 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   redeem pattern with 28 handlers and fork-free simplified accounting, catching
   future regressions
 
+### Fixed
+
+- Seeded signed-integer argument generation with the extracted literals: the
+  literal branch compared pool values against `+2^(bits-1)` instead of
+  `-2^(bits-1)` (`I256::from_raw(sign_bit(bits))` is positive for every width
+  below 256), so the branch always fell through to uniform random values and
+  negative-literal gates below 256 bits were near-unreachable
+
 ### Changed
 
+- Renamed the `rvm.finding` cheatcode to `rvm.bail(Invariant)` and replaced the
+  `assert(false)` panic workflow: `Invariant` carries `{ id, description }`,
+  the cheatcode records the broken invariant and reverts the call so the
+  sequence continues on the pre-call state, findings are deduplicated by `id`,
+  and the `Severity` enum and finding `title` are gone; the tester API renames
+  `Finding` to `BrokenInvariant` and `SharedFindings` to
+  `SharedBrokenInvariants` (`Fuzzer::with_findings` becomes
+  `with_broken_invariants`, and `SharedBrokenInvariants::findings` becomes
+  `all`)
+- Stored the bail-emitting call inside each broken invariant's sequence, so the
+  sequence is the full reproduction: the shrinker and the finding re-run replay
+  the stored calls with their arguments instead of re-encoding the trigger from
+  its selector alone, so handler findings with arguments now shrink correctly
+  (the EVM-level `ReportedFinding` became `BrokenInvariant`, and
+  `ExecutionState`/`ExecOutput` `findings` became `broken_invariants`)
+- Renamed the `test` command help text to `Find broken invariants`
 - Renamed the `src/test` module to `src/tester`, moved the test fixtures under
   `fixtures/tester` (`harness-deployment`, `harness-validation`), and the
   integration tests under `tests/tester` (`harness_deployment.rs`,

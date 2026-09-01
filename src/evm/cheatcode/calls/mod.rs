@@ -13,13 +13,13 @@ use crate::evm::cheatcode::state::ExecutionState;
 use crate::evm::database::DatabaseExt;
 
 pub mod addr;
+pub mod bail;
 pub mod chain_id;
 pub mod coinbase;
 pub mod deal;
 pub mod etch;
 pub mod fee;
 pub mod ffi;
-pub mod finding;
 pub mod fork;
 pub mod get_code;
 pub mod get_env;
@@ -36,11 +36,6 @@ pub mod warp;
 
 sol! {
     interface Vm {
-        // Finding
-        enum Severity { Info, Low, Medium, High, Critical }
-        struct Finding { string id; Severity severity; string title; string description; }
-        function finding(Finding calldata finding) external;
-        function finding(string calldata id) external;
         // Block
         function warp(uint256 newTimestamp) external;
         function roll(uint256 newNumber) external;
@@ -101,6 +96,10 @@ sol! {
         }
         function fork(string url, uint256 blockNumber) external;
         function fork(string url, uint256 blockNumber, ForkConfig config) external;
+
+        // Invariant
+        struct Invariant { string id; string description; }
+        function bail(Invariant calldata invariant) external;
     }
 }
 
@@ -168,10 +167,6 @@ where
         VmCalls::getEnv_0(c) => get_env::get_env(&c.key),
         VmCalls::getEnv_1(c) => get_env::get_env_or_default(&c.key, &c.defaultValue),
 
-        // Finding
-        VmCalls::finding_0(c) => finding::handle(state, c.finding),
-        VmCalls::finding_1(c) => finding::handle_simple(state, &c.id),
-
         // Fork
         VmCalls::fork_0(c) => fork::fork(ctx, state, &c.url, c.blockNumber),
         VmCalls::fork_1(c) => fork::fork_with_options(
@@ -186,5 +181,8 @@ where
                 rate_limit: Some(c.config.rateLimit),
             },
         ),
+
+        // Invariant
+        VmCalls::bail(c) => bail::handle(state, c.invariant),
     }
 }

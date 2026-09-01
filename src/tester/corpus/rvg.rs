@@ -96,7 +96,10 @@ impl<'a> RandomValueGenerator<'a> {
 
     /// Generate a random signed integer of the given bit width.
     fn int(&mut self, bits: usize) -> I256 {
-        let min = I256::from_raw(sign_bit(bits));
+        // The minimum is the sign bit sign-extended to 256 bits: a raw
+        // `from_raw(sign_bit(bits))` is positive for every width below 256
+        // and would make the literal range check below impossible.
+        let min = sign_extend(sign_bit(bits), bits);
         let max_positive = I256::from_raw(max_positive_for_bits(bits));
         let group = self.literals.int(bits).to_vec();
 

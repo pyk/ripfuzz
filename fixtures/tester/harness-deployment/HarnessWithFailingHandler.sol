@@ -2,21 +2,12 @@
 pragma solidity ^0.8.36;
 
 interface RVM {
-    enum Severity {
-        Info,
-        Low,
-        Medium,
-        High,
-        Critical
-    }
-
-    struct Finding {
+    struct Invariant {
         string id;
-        Severity severity;
-        string title;
         string description;
     }
-    function finding(Finding calldata finding) external;
+
+    function bail(Invariant calldata invariant) external;
 }
 
 contract HarnessWithFailingHandler {
@@ -27,24 +18,13 @@ contract HarnessWithFailingHandler {
     function deposit(uint256 amount) external {
         total += amount;
         if (total >= 1000) {
-            RVM(RVM_ADDRESS)
-                .finding(
-                    RVM.Finding({
-                    id: "HAN-001",
-                    severity: RVM.Severity.Critical,
-                    title: "total below 1000",
-                    description: "total exceeded 1000"
-                })
-                );
+            RVM(RVM_ADDRESS).bail(RVM.Invariant({id: "HAN-001", description: "total exceeded 1000"}));
         }
     }
 
     function invariant_total() external {
         if (total >= type(uint256).max) {
-            RVM(RVM_ADDRESS)
-                .finding(
-                    RVM.Finding({id: "INV-MAX", severity: RVM.Severity.High, title: "total below max", description: ""})
-                );
+            RVM(RVM_ADDRESS).bail(RVM.Invariant({id: "INV-MAX", description: "total overflowed"}));
         }
     }
 }

@@ -512,3 +512,38 @@ fn apply_subdenomination(value: &str, sub: &str) -> Option<U256> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloy_dyn_abi::{DynSolType, DynSolValue};
+    use alloy_primitives::I256;
+    use fastrand::Rng;
+
+    use super::*;
+    use crate::tester::corpus::rvg::RandomValueGenerator;
+
+    /// A signed literal pushed into a narrow-width pool must be reachable
+    /// from the generator: the range check compares against the true minimum
+    /// of the width, not its positive sign-bit value.
+    #[test]
+    fn signed_literals_are_reachable_for_narrow_widths() {
+        let mut literals = LiteralExtractor::default();
+        push_int(I256::try_from(-3).unwrap(), &mut literals.ints);
+
+        let mut rng = Rng::new();
+        let mut hits = 0;
+        for _ in 0..1000 {
+            let mut generator = RandomValueGenerator::new(&mut rng, &literals);
+            let DynSolValue::Int(value, _) = generator.value(&DynSolType::Int(8)) else {
+                panic!("expected an int");
+            };
+            if value == I256::try_from(-3).unwrap() {
+                hits += 1;
+            }
+        }
+        assert!(
+            hits > 100,
+            "the literal branch must return the pool value, got {hits}/1000"
+        );
+    }
+}

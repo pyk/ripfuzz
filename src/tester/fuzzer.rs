@@ -1,22 +1,23 @@
-//! Fuzzing of harness sequences to find findings.
+//! Fuzzing of harness sequences to find broken invariants.
 //!
 //! [`Fuzzer`] spawns fuzzers (threads) that generate random handler-call
 //! sequences, execute each call on a clean chain clone, and collect
-//! `rvm.finding` reports after every call:
+//! `rvm.bail` reports after every call:
 //!
-//! - a handler call that emits `rvm.finding` is a finding
+//! - a handler call that emits `rvm.bail` is a broken invariant, and the call
+//!   reverts so the sequence continues on the pre-call state
 //! - after each committed handler call, every `invariant_*` function runs on
 //!   a throwaway clone, so invariant state is never committed, and a report
-//!   there is a finding too
+//!   there is a broken invariant too
 //!
 //! Stop conditions, checked between sequences:
 //!
 //! - the run budget is exhausted
 //! - the timeout elapses
-//! - the requested number of distinct findings is collected
+//! - the requested number of distinct broken invariants is collected
 //!
 //! ```rust,no_run
-//! use ripfuzz::tester::{Corpus, Fuzzer, Sequence, SharedFindings};
+//! use ripfuzz::tester::{Corpus, Fuzzer, SharedBrokenInvariants};
 //! use ripfuzz::{Chain, ChainConfig, SharedCoverage};
 //!
 //! # let chain = Chain::empty(ChainConfig::default());
@@ -30,7 +31,7 @@
 //!     .with_coverage(coverage)
 //!     .with_handlers(handlers)
 //!     .with_invariants(invariants)
-//!     .with_findings(SharedFindings::new(256))
+//!     .with_broken_invariants(SharedBrokenInvariants::new(256))
 //!     .run()
 //!     .unwrap();
 //! ```
@@ -39,6 +40,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use alloy_dyn_abi::DynSolValue;
 use alloy_json_abi::Function;
 use alloy_primitives::Address;
 use anyhow::{Context, Result};
@@ -46,7 +48,7 @@ use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
 use crate::evm::{Chain, CoverageUpdate, SharedCoverage, Transaction};
-use crate::tester::{Call, Corpus, Finding, Sequence, SharedFindings};
+use crate::tester::{BrokenInvariant, Call, Corpus, Sequence, SharedBrokenInvariants};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
@@ -54,7 +56,7 @@ const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
 /// Interval between finished checks while waiting for the fuzzers.
 const PROGRESS_TICK: Duration = Duration::from_millis(100);
 
-/// Per-thread fuzzer that discovers failed assertions.
+/// Per-thread fuzzer that discovers broken invariants.
 ///
 /// The type carries its inputs as optional fields set via `with_*` builders;
 /// `run` resolves them and errors on the missing ones.
@@ -67,7 +69,7 @@ pub struct Fuzzer {
     invariants: Option<Vec<Function>>,
     corpus: Option<Corpus>,
     coverage: Option<SharedCoverage>,
-    findings: Option<SharedFindings>,
+    broken_invariants: Option<SharedBrokenInvariants>,
     seed: Option<u64>,
     threads: Option<usize>,
     max_runs: Option<u64>,
@@ -122,9 +124,9 @@ impl Fuzzer {
         self
     }
 
-    /// Set the shared findings collector.
-    pub fn with_findings(mut self, findings: SharedFindings) -> Self {
-        self.findings = Some(findings);
+    /// Set the shared broken-invariant collector.
+    pub fn with_broken_invariants(mut self, broken_invariants: SharedBrokenInvariants) -> Self {
+        self.broken_invariants = Some(broken_invariants);
         self
     }
 
@@ -161,7 +163,7 @@ impl Fuzzer {
         self
     }
 
-    /// Run fuzzing and return the findings collected.
+    /// Run fuzzing and return the broken invariants collected.
     pub fn run(self) -> Result<Output> {
         // 1. Require the execution context.
         let execution = Execution {
@@ -186,9 +188,9 @@ impl Fuzzer {
             coverage: self
                 .coverage
                 .context("coverage not set, call Fuzzer::new().with_coverage(..)")?,
-            findings: self
-                .findings
-                .context("findings not set, call Fuzzer::new().with_findings(..)")?,
+            broken_invariants: self.broken_invariants.context(
+                "broken invariants not set, call Fuzzer::new().with_broken_invariants(..)",
+            )?,
             seed: self.seed.unwrap_or(0),
             threads: self.threads.unwrap_or(1),
             max_runs: self.max_runs.unwrap_or(0),
@@ -240,7 +242,7 @@ impl Fuzzer {
             if last_progress.elapsed() >= PROGRESS_INTERVAL {
                 info!(
                     runs = shared.runs(),
-                    findings = execution.findings.len(),
+                    broken_invariants = execution.broken_invariants.len(),
                     corpus = execution.corpus.len(),
                     edges = execution.coverage.edge_count(),
                     elapsed = start.elapsed().as_secs(),
@@ -272,16 +274,16 @@ impl Fuzzer {
         }
 
         // 7. Report the campaign outcome.
-        let findings = execution.findings.findings();
-        if findings.is_empty() {
+        let broken_invariants = execution.broken_invariants.all();
+        if broken_invariants.is_empty() {
             info!(
                 runs = shared.runs(),
                 elapsed = start.elapsed().as_secs(),
-                "no failed assertions found"
+                "no broken invariants found"
             );
         } else {
             info!(
-                findings = findings.len(),
+                broken_invariants = broken_invariants.len(),
                 runs = shared.runs(),
                 elapsed = start.elapsed().as_secs(),
                 "fuzzing finished"
@@ -302,7 +304,7 @@ struct Execution {
     invariants: Vec<Function>,
     corpus: Corpus,
     coverage: SharedCoverage,
-    findings: SharedFindings,
+    broken_invariants: SharedBrokenInvariants,
     seed: u64,
     threads: usize,
     max_runs: u64,
@@ -311,13 +313,13 @@ struct Execution {
 }
 
 /// The fuzzer outcome: the number of executed sequences and the distinct
-/// failed assertions found.
+/// broken invariants found.
 #[derive(Debug, Clone)]
 pub struct Output {
     /// The number of sequences executed across all threads.
     pub runs: u64,
-    /// The distinct failed assertions in discovery order.
-    pub findings: Vec<Finding>,
+    /// The distinct broken invariants in discovery order.
+    pub broken_invariants: Vec<BrokenInvariant>,
 }
 
 /// State shared across fuzzers.
@@ -370,7 +372,7 @@ impl Shared {
     fn finish(&self, execution: &Execution) -> Output {
         Output {
             runs: self.runs(),
-            findings: execution.findings.findings(),
+            broken_invariants: execution.broken_invariants.all(),
         }
     }
 }
@@ -380,16 +382,16 @@ impl Shared {
 ///
 /// The corpus is a prefix tree over states, mirroring the max fuzzer. Each
 /// entry memoizes the chain state after its sequence, and a candidate extends
-/// one snapshot with a single fresh call. Assertions live in the states the
-/// sequence passes through, so extending a state that already reached one
-/// failure tends to reach related failures with fewer new calls.
+/// one snapshot with a single fresh call. Broken invariants live in the
+/// states the sequence passes through, so extending a state that already
+/// broke one tends to break related invariants with fewer new calls.
 fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -> Result<()> {
     let mut rng = fastrand::Rng::with_seed(execution.seed.wrapping_add(thread_id as u64));
     for _ in 0..runs {
         if shared.stopped() || shared.timed_out() {
             break;
         }
-        if execution.findings.is_full() {
+        if execution.broken_invariants.is_full() {
             shared.request_stop();
             break;
         }
@@ -452,10 +454,11 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
             }
         };
 
-        // 2. Execute the pending calls, checking assertions along the way.
+        // 2. Execute the pending calls, checking for broken invariants along
+        //    the way.
         //
         //    The chain snapshot after the last committed handler call joins
-        //    the corpus when it brought new coverage or reached a finding, so
+        //    the corpus when it brought new coverage or broke an invariant, so
         //    later runs can extend that state instead of rediscovering it.
         execute_sequence(execution, shared, thread_id, &sequence, pending, base_chain)?;
     }
@@ -463,12 +466,12 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
 }
 
 /// Execute the pending calls on a chain clone of the base snapshot and check
-/// assertions after each one.
+/// for broken invariants after each one.
 ///
-/// The assertion checks are:
+/// The checks are:
 ///
-/// - a handler call that raises a Solidity `assert` panic is recorded with
-///   the calls before it, then the sequence continues on the pre-call state
+/// - a handler call that emits `rvm.bail` is recorded with the calls before
+///   it, and the call reverts so the sequence continues on the pre-call state
 /// - after every committed handler call, the `invariant_*` functions run on
 ///   a throwaway clone, so their state changes are never committed
 fn execute_sequence(
@@ -496,20 +499,19 @@ fn execute_sequence(
             new_edges += score(&update);
         }
 
-        // 2. Record findings emitted via `rvm.finding` in the handler.
-        if !exec.findings.is_empty() {
-            for finding_meta in &exec.findings[0] {
-                // checkrs: allow(clone_in_loops) the finding must own its data
-                let trigger = call.function().clone();
-                let sequence_prefix = Sequence::new(sequence.calls()[..index].to_vec());
-                let finding =
-                    // checkrs: allow(clone_in_loops) the finding must own its data
-                    Finding::new_explicit(sequence_prefix, trigger, finding_meta.clone());
-                if execution.findings.try_add(&finding) {
+        // 2. Record reports emitted via `rvm.bail` in the handler. The
+        //    sequence ends with the bail-emitting handler call.
+        if !exec.broken_invariants.is_empty() {
+            for report in &exec.broken_invariants[0] {
+                let sequence_prefix = Sequence::new(sequence.calls()[..=index].to_vec());
+                let broken = BrokenInvariant::new()
+                    .with_calls(sequence_prefix)
+                    .with_id(&report.id)
+                    .with_description(&report.description);
+                if execution.broken_invariants.try_add(&broken) {
                     info!(
-                        id = %finding.id(),
-                        severity = ?finding.severity(),
-                        "new finding"
+                        id = %broken.id(),
+                        "new broken invariant"
                     );
                     found = true;
                 }
@@ -534,20 +536,22 @@ fn execute_sequence(
             new_edges += score(&update);
         }
         for (idx, function) in execution.invariants.iter().enumerate() {
-            // 3a. Record findings emitted during invariants.
-            if idx < exec.findings.len() {
-                for finding_meta in &exec.findings[idx] {
-                    let sequence_prefix = Sequence::new(sequence.calls()[..=index].to_vec());
-                    // checkrs: allow(clone_in_loops) the finding must own its data
-                    let trigger = function.clone();
-                    let finding =
-                        // checkrs: allow(clone_in_loops) the finding must own its data
-                        Finding::new_explicit(sequence_prefix, trigger, finding_meta.clone());
-                    if execution.findings.try_add(&finding) {
+            // 3a. Record reports emitted during invariants. The sequence ends
+            //     with the invariant check call that bailed.
+            if idx < exec.broken_invariants.len() {
+                for report in &exec.broken_invariants[idx] {
+                    let mut calls = sequence.calls()[..=index].to_vec();
+                    // checkrs: allow(clone_in_loops) the broken invariant must own its data
+                    calls.push(Call::new(function.clone(), DynSolValue::Tuple(vec![])));
+                    let sequence_prefix = Sequence::new(calls);
+                    let broken = BrokenInvariant::new()
+                        .with_calls(sequence_prefix)
+                        .with_id(&report.id)
+                        .with_description(&report.description);
+                    if execution.broken_invariants.try_add(&broken) {
                         info!(
-                            id = %finding.id(),
-                            severity = ?finding.severity(),
-                            "new finding"
+                            id = %broken.id(),
+                            "new broken invariant"
                         );
                         found = true;
                     }
@@ -558,14 +562,14 @@ fn execute_sequence(
 
     // 4. Keep the sequence in the corpus when it is interesting.
     //
-    //    New coverage and findings both make the final state a promising
-    //    mutation base, and a finding stops the whole campaign when the
-    //    findings collector is full.
+    //    New coverage and broken invariants both make the final state a
+    //    promising mutation base, and a broken invariant stops the whole
+    //    campaign when the collector is full.
 
     if new_edges > 0 || found {
         execution.corpus.add(sequence.clone(), new_edges, chain);
     }
-    if execution.findings.is_full() {
+    if execution.broken_invariants.is_full() {
         shared.request_stop();
     }
     Ok(())

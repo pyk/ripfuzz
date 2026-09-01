@@ -20,7 +20,7 @@ enum Commands {
     Init(cli::init::Args),
     /// Execute a script contract.
     Exec(Box<cli::exec::Args>),
-    /// Find findings.
+    /// Find broken invariants.
     Test(Box<cli::test::Args>),
     /// Find maximum value.
     Max(Box<cli::max::Args>),

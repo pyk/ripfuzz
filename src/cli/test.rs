@@ -15,9 +15,11 @@ use crate::evm::{
     Chain, ChainConfig, ForkDBConfig, SetupInput, SharedCoverage, Trace, TraceContext, Transaction,
 };
 use crate::harness::HarnessId;
-use crate::tester::{Corpus, Finding, Fuzzer, Replayer, SharedFindings, Shrinker, TestHarness};
+use crate::tester::{
+    BrokenInvariant, Corpus, Fuzzer, Replayer, SharedBrokenInvariants, Shrinker, TestHarness,
+};
 
-/// Find findings.
+/// Find broken invariants.
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path to harness to run.
@@ -48,7 +50,7 @@ pub struct Args {
     #[arg(long, value_name = "SECONDS")]
     pub timeout: Option<u64>,
 
-    /// Stop fuzzing after this many distinct findings.
+    /// Stop fuzzing after this many distinct broken invariants.
     #[arg(long, default_value_t = 256, value_name = "COUNT")]
     pub max_failures: usize,
 
@@ -65,8 +67,8 @@ pub struct Args {
     pub log_level: tracing::Level,
 }
 
-/// Run the `test` command and return the shrunk findings.
-pub fn run(args: Args) -> Result<Vec<Finding>> {
+/// Run the `test` command and return the shrunk broken invariants.
+pub fn run(args: Args) -> Result<Vec<BrokenInvariant>> {
     // 1. Initialize the tracing subscriber.
     //
     //    Quiet mode writes to a null sink instead of skipping init, so a
@@ -186,8 +188,8 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
         .replay(corpus)?;
     info!("corpus loaded & replayed");
 
-    // 12. Fuzz for findings within the stop conditions.
-    let shared_findings = SharedFindings::new(args.max_failures);
+    // 12. Fuzz for broken invariants within the stop conditions.
+    let shared_broken_invariants = SharedBrokenInvariants::new(args.max_failures);
     let fuzzer = Fuzzer::new()
         .with_chain(chain.clone())
         .with_target(address)
@@ -196,7 +198,7 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
         .with_invariants(test_harness.invariants().to_vec())
         .with_corpus(corpus.clone())
         .with_coverage(coverage)
-        .with_findings(shared_findings)
+        .with_broken_invariants(shared_broken_invariants)
         .with_threads(args.threads)
         .with_max_runs(args.max_runs)
         .with_max_calls(args.max_calls)
@@ -213,10 +215,11 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
         }
     };
 
-    // 13. Shrink every finding's sequence while the finding still reproduces.
-    let mut findings = output.findings;
-    if !findings.is_empty() {
-        findings = Shrinker::new()
+    // 13. Shrink every broken invariant's sequence while the broken invariant
+    //     still reproduces.
+    let mut broken_invariants = output.broken_invariants;
+    if !broken_invariants.is_empty() {
+        broken_invariants = Shrinker::new()
             .with_chain(chain.clone())
             .with_target(address)
             .with_deployer(deployer)
@@ -224,7 +227,7 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
             .with_max_runs(args.max_runs)
             .with_timeout(args.timeout.map(Duration::from_secs))
             .with_seed(seed)
-            .shrink(&findings)?;
+            .shrink(&broken_invariants)?;
     }
 
     // 14. Save the corpus for the next campaign.
@@ -235,27 +238,26 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
         "corpus saved"
     );
 
-    // 15. Re-run every finding with tracing so the console shows the logs
-    //     emitted on the way to the finding, and the trace file captures
-    //     the full sequence.
+    // 15. Re-run every broken invariant with tracing so the console shows the
+    //     logs emitted on the way to the broken invariant, and the trace file
+    //     captures the full sequence.
     //
     //     The trigger call runs last and its state is discarded, so the
-    //     optional summary call below still reports on the pre-finding
-    //     state.
-    for finding in &findings {
-        report_finding(
+    //     optional summary call below still reports on the pre-trigger state.
+    for broken in &broken_invariants {
+        report_broken_invariant(
             &root,
             &chain,
             &trace_context,
             address,
-            finding,
+            broken,
             test_harness.summary(),
         )?;
     }
 
-    // 16. Run the summary function when no finding was found so the campaign
-    //     still reports its final state.
-    if findings.is_empty()
+    // 16. Run the summary function when no broken invariant was found so the
+    //     campaign still reports its final state.
+    if broken_invariants.is_empty()
         && let Some(summary) = test_harness.summary()
     {
         let summary_calldata = Bytes::from(summary.selector().as_slice().to_vec());
@@ -273,44 +275,43 @@ pub fn run(args: Args) -> Result<Vec<Finding>> {
         );
     }
 
-    Ok(findings)
+    Ok(broken_invariants)
 }
 
-/// Re-run one finding on a traced chain clone, print its logs, and save the
-/// execution trace.
+/// Re-run one broken invariant on a traced chain clone, print its logs, and
+/// save the execution trace.
 ///
-/// The transaction batch is the shrunk sequence, the trigger call that must
-/// panic, and the optional summary call.
-fn report_finding(
+/// The transaction batch is the shrunk sequence, whose last call is the
+/// bail-emitting trigger, plus the optional summary call.
+fn report_broken_invariant(
     root: &Path,
     chain: &Chain,
     trace_context: &TraceContext,
     address: alloy_primitives::Address,
-    finding: &Finding,
+    broken: &BrokenInvariant,
     summary: Option<&alloy_json_abi::Function>,
 ) -> Result<()> {
-    // 1. Build the traced re-run with the sequence, trigger, and summary.
+    // 1. Build the traced re-run with the sequence and the summary.
     let deployer = chain.deployer();
     let mut rerun_chain = chain.clone();
     rerun_chain.set_trace(true);
-    let mut transactions: Vec<Transaction> = finding.sequence().transactions(address, deployer);
-    transactions.push(Transaction::new(address).calldata(Bytes::from(
-        finding.trigger().selector().as_slice().to_vec(),
-    )));
+    let mut transactions: Vec<Transaction> = broken.sequence().transactions(address, deployer);
     if let Some(summary) = summary {
         transactions.push(
             Transaction::new(address).calldata(Bytes::from(summary.selector().as_slice().to_vec())),
         );
     }
 
-    // 2. Execute the re-run; the trigger finding is expected and does not
-    //    invalidate the logs of the calls before it.
+    // 2. Execute the re-run; the bail-emitting trigger is expected and does
+    //    not invalidate the logs of the calls before it.
     let output = rerun_chain.exec(&transactions)?;
 
     // 3. Save the execution trace for offline analysis.
-    let trace = output.trace.context("finding re-run trace missing")?;
+    let trace = output
+        .trace
+        .context("broken invariant re-run trace missing")?;
     let trace_file = dump_execution_trace(root, trace_context, &trace)?;
-    info!(id = %finding.id(), trace = %trace_file.display(), "finding saved");
+    info!(id = %broken.id(), trace = %trace_file.display(), "broken invariant saved");
     Ok(())
 }
 
