@@ -89,7 +89,6 @@ fn max_challenges_reach_the_highest_value() {
     let corpus_dir = temp_corpus_dir();
     for &(stem, contract, level) in CHALLENGES {
         let path = dir.join(format!("{stem}.sol"));
-        let max_runs = budget(level);
         let expected = expected_value(stem);
 
         let harness = format!("{}:{}", path.display(), contract);
@@ -98,7 +97,8 @@ fn max_challenges_reach_the_highest_value() {
             config: PathBuf::from("./ripfuzz.toml"),
             root: PathBuf::from("."),
             threads: default_threads(),
-            max_runs,
+            max_fuzz_runs: budget(level),
+            max_shrink_runs: 10_000,
             max_calls: MAX_CALLS,
             timeout: Some(120),
             target_value: None,

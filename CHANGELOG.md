@@ -15,6 +15,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - `ripfuzz test` and `ripfuzz max` now default `--threads` to the available CPU
   cores of the machine instead of a single thread.
 
+- `--max-runs` is renamed to `--max-fuzz-runs` and now defaults to 100,000
+  sequences instead of 256. A new `--max-shrink-runs` flag decouples the
+  shrinker budget from the fuzzing budget and defaults to 10,000 attempts.
+
 ### Fixed
 
 ## [0.9.5] - 2026-09-02

@@ -38,9 +38,13 @@ pub struct Args {
     #[arg(long, default_value_t = crate::cli::default_threads(), value_name = "THREADS")]
     pub threads: usize,
 
-    /// Maximum number of sequences to run across all threads.
-    #[arg(long, default_value_t = 256, value_name = "RUNS")]
-    pub max_runs: u64,
+    /// Maximum number of sequences to fuzz, split across all threads.
+    #[arg(long, default_value_t = 100_000, value_name = "RUNS")]
+    pub max_fuzz_runs: u64,
+
+    /// Maximum number of shrink attempts, split across all threads.
+    #[arg(long, default_value_t = 10_000, value_name = "RUNS")]
+    pub max_shrink_runs: u64,
 
     /// Maximum number of handler calls per sequence.
     #[arg(long, default_value_t = 8, value_name = "COUNT")]
@@ -232,7 +236,7 @@ pub fn run(args: Args) -> Result<Best> {
         .with_coverage(coverage.clone())
         .with_initial_value(initial_value)
         .with_threads(args.threads)
-        .with_max_runs(args.max_runs)
+        .with_max_runs(args.max_fuzz_runs)
         .with_max_calls(args.max_calls)
         .with_timeout(args.timeout.map(Duration::from_secs))
         .with_target_value(args.target_value.map(Value::new))
@@ -264,7 +268,7 @@ pub fn run(args: Args) -> Result<Best> {
             .with_value_calldata(value_calldata)
             .with_target_value(best.value())
             .with_threads(args.threads)
-            .with_max_runs(args.max_runs)
+            .with_max_runs(args.max_shrink_runs)
             .with_timeout(args.timeout.map(Duration::from_secs))
             .with_seed(seed)
             .shrink(best.sequence())?;
