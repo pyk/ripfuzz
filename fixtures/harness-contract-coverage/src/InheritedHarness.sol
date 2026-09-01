@@ -1,8 +1,0 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
-
-import {BaseRipFuzz} from "./BaseRipFuzz.sol";
-
-contract InheritedHarness is BaseRipFuzz {
-    // Inherits inheritedHandlerFunction from BaseRipFuzz
-}

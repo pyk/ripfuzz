@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity 0.8.36;
 
 /// A contract with a function that returns early when a condition is not met,
 /// simulating the `mintShouldSkip` pattern where a handler function bails out

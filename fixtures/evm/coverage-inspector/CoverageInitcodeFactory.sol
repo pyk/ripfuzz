@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+pragma solidity 0.8.36;
 
 contract CoverageInitcodeChild {
     uint256 public x;
+
     constructor(uint256 _x) {
         x = _x;
     }

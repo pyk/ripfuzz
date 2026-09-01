@@ -277,11 +277,11 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
-    use crate::evm::Contract;
+    use crate::compilers::solc::{Solc, SolcOutput};
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::coverage::SharedCoverage;
     use crate::evm::coverage::edge::call_edge_marker;
-    use crate::foundry;
+    use crate::harness::HarnessId;
 
     alloy_sol_types::sol! {
         interface CoverageBranch {
@@ -322,36 +322,44 @@ mod tests {
         }
     }
 
-    fn load_coverage_fixture(id: &str) -> Contract {
-        let project = foundry::Project::new("fixtures/harness-contract-coverage");
-        let artifacts = project.load_artifacts().unwrap();
-        let artifact_id = foundry::ArtifactId::try_from(id).unwrap();
-        Contract::try_get(&artifacts, &artifact_id).unwrap()
+    const ROOT: &str = "fixtures/evm/coverage-inspector";
+    const VERSION: &str = "0.8.36";
+
+    fn compile_fixture(target: &str) -> SolcOutput {
+        let id = HarnessId::try_from(target).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        Solc::new()
+            .with_version(VERSION)
+            .with_root(ROOT)
+            .with_target(&id.path)
+            .with_name(&id.name)
+            .with_out(tmp.path().join("out"))
+            .compile()
+            .unwrap_or_else(|err| panic!("fixture `{target}` must compile: {err}"))
     }
 
-    fn deploy_and_setup(contract: &Contract) -> (Chain, Address) {
+    fn deploy(initcode: &str) -> (Chain, Address) {
         let config = ChainConfig::default().coverage(true);
         let mut chain = Chain::new(config).unwrap();
-        let deployment = chain.deploy(DeployInput::new(&contract.initcode)).unwrap();
+        let deployment = chain.deploy(DeployInput::new(initcode)).unwrap();
         assert!(deployment.result.success, "deployment must succeed");
         let target = deployment.address.unwrap();
-
-        if let Some(setup) = &contract.setup_function {
-            let setup_data = Bytes::from(setup.selector().as_slice().to_vec());
-            let setup_opts = SetupInput::new(target).calldata(setup_data);
-            let setup = chain.setup(setup_opts).unwrap();
-            assert!(setup.result.success, "setup must succeed");
-        }
-
         (chain, target)
+    }
+
+    fn setup(chain: &mut Chain, target: Address, calldata: Bytes) {
+        let setup = chain
+            .setup(SetupInput::new(target).calldata(calldata))
+            .unwrap();
+        assert!(setup.result.success, "setup must succeed");
     }
 
     /// A second call sequence that hits a previously unexecuted instruction
     /// must be recorded as a new edge.
     #[test]
     fn coverage_new_instruction_hit() {
-        let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
-        let (mut chain, target) = deploy_and_setup(&contract);
+        let output = compile_fixture("CoverageBranch.sol:CoverageBranch");
+        let (mut chain, target) = deploy(output.initcode().unwrap());
 
         let global = SharedCoverage::new();
 
@@ -379,8 +387,8 @@ mod tests {
     /// direction must be recorded as a new jump edge.
     #[test]
     fn coverage_new_branch_direction() {
-        let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
-        let (mut chain, target) = deploy_and_setup(&contract);
+        let output = compile_fixture("CoverageBranch.sol:CoverageBranch");
+        let (mut chain, target) = deploy(output.initcode().unwrap());
 
         let global = SharedCoverage::new();
 
@@ -407,8 +415,13 @@ mod tests {
     /// contract call must be recorded as a new depth.
     #[test]
     fn coverage_new_call_depth() {
-        let contract = load_coverage_fixture("src/CoverageDepth.sol:CoverageDepth");
-        let (mut chain, target) = deploy_and_setup(&contract);
+        let output = compile_fixture("CoverageDepth.sol:CoverageDepth");
+        let (mut chain, target) = deploy(output.initcode().unwrap());
+        setup(
+            &mut chain,
+            target,
+            Bytes::from(CoverageDepth::setupCall::new(()).abi_encode()),
+        );
 
         let global = SharedCoverage::new();
 
@@ -432,8 +445,8 @@ mod tests {
     /// must be recorded as a new revert.
     #[test]
     fn coverage_new_revert_path() {
-        let contract = load_coverage_fixture("src/CoverageRevert.sol:CoverageRevert");
-        let (mut chain, target) = deploy_and_setup(&contract);
+        let output = compile_fixture("CoverageRevert.sol:CoverageRevert");
+        let (mut chain, target) = deploy(output.initcode().unwrap());
 
         let global = SharedCoverage::new();
 
@@ -459,8 +472,8 @@ mod tests {
     /// must not produce new coverage under binary edge tracking.
     #[test]
     fn coverage_deeper_execution_not_interesting() {
-        let contract = load_coverage_fixture("src/CoverageLoop.sol:CoverageLoop");
-        let (mut chain, target) = deploy_and_setup(&contract);
+        let output = compile_fixture("CoverageLoop.sol:CoverageLoop");
+        let (mut chain, target) = deploy(output.initcode().unwrap());
 
         let global = SharedCoverage::new();
 
@@ -494,8 +507,13 @@ mod tests {
     /// mirroring `pools[poolId].swap` where `poolId` is otherwise silent.
     #[test]
     fn coverage_same_bytecode_two_addresses() {
-        let contract = load_coverage_fixture("src/CoverageDuplicate.sol:CoverageDuplicate");
-        let (mut chain, target) = deploy_and_setup(&contract);
+        let output = compile_fixture("CoverageDuplicate.sol:CoverageDuplicate");
+        let (mut chain, target) = deploy(output.initcode().unwrap());
+        setup(
+            &mut chain,
+            target,
+            Bytes::from(CoverageDuplicate::setupCall::new(()).abi_encode()),
+        );
 
         // Same parent function, different child index -> same parent PCs.
         let txs1 = vec![Transaction::new(target).calldata(Bytes::from(
@@ -632,8 +650,8 @@ mod tests {
     /// on the second run.
     #[test]
     fn coverage_identical_sequence_not_interesting() {
-        let contract = load_coverage_fixture("src/CoverageBranch.sol:CoverageBranch");
-        let (mut chain, target) = deploy_and_setup(&contract);
+        let output = compile_fixture("CoverageBranch.sol:CoverageBranch");
+        let (mut chain, target) = deploy(output.initcode().unwrap());
 
         let txs = vec![Transaction::new(target).calldata(Bytes::from(
             CoverageBranch::branchCall::new((false,)).abi_encode(),
@@ -659,8 +677,8 @@ mod tests {
     /// when called a second time with different args that hit the same skip path.
     #[test]
     fn coverage_skip_not_interesting_twice() {
-        let contract = load_coverage_fixture("src/CoverageSkip.sol:CoverageSkip");
-        let (mut chain, target) = deploy_and_setup(&contract);
+        let output = compile_fixture("CoverageSkip.sol:CoverageSkip");
+        let (mut chain, target) = deploy(output.initcode().unwrap());
 
         let global = SharedCoverage::new();
 
@@ -696,8 +714,8 @@ mod tests {
     /// coverage entries per address.
     #[test]
     fn coverage_same_contract_deployed_twice() {
-        let contract = load_coverage_fixture("src/CoverageDeploy.sol:CoverageDeploy");
-        let (mut chain, target) = deploy_and_setup(&contract);
+        let output = compile_fixture("CoverageDeploy.sol:CoverageDeploy");
+        let (mut chain, target) = deploy(output.initcode().unwrap());
 
         let global = SharedCoverage::new();
 
@@ -739,9 +757,8 @@ mod tests {
     /// must not be kept, while runtime coverage is per-address.
     #[test]
     fn coverage_initcode_removed_on_successful_create() {
-        let contract =
-            load_coverage_fixture("src/CoverageInitcodeFactory.sol:CoverageInitcodeFactory");
-        let (mut chain, target) = deploy_and_setup(&contract);
+        let output = compile_fixture("CoverageInitcodeFactory.sol:CoverageInitcodeFactory");
+        let (mut chain, target) = deploy(output.initcode().unwrap());
 
         let global = SharedCoverage::new();
 
