@@ -1,23 +1,21 @@
 //! Trace context for formatting and decoding raw execution traces.
 //!
-//! [`TraceContext`] collects ABIs and address labels from build artifacts,
+//! [`TraceContext`] collects ABIs and address labels from solc output,
 //! then provides lookup methods used by [`Trace::display_with`](crate::evm::trace::Trace::display_with).
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 
 use alloy_dyn_abi::{DynSolEvent, DynSolType, DynSolValue};
 use alloy_json_abi::{EventParam, InternalType, JsonAbi, Param};
 use alloy_primitives::{B256, FixedBytes, U256, b256, keccak256};
 use alloy_sol_types::SolError;
-use anyhow::Result;
 use revm::primitives::{Address, Bytes};
 use serde::de::DeserializeOwned;
 use solc::ast::{
-    ContractDefinitionNode, ElementaryType, FunctionDefinition, SourceUnit, SourceUnitNode,
-    StorageLocation,
+    ContractDefinition, ContractDefinitionNode, ElementaryType, FunctionDefinition, SourceUnit,
+    SourceUnitNode, StorageLocation,
 };
-use solc::{ContractOutput, StandardJSONOutput};
+use solc::{Bytecode, StandardJSONOutput};
 
 use crate::compilers::solc::SolcOutput;
 use crate::evm::chain::DEFAULT_DEPLOYER;
@@ -25,10 +23,6 @@ use crate::evm::cheatcode::VM_ADDRESS;
 use crate::evm::trace::common_events::CommonEvents;
 use crate::evm::trace::evmole::Evmole;
 use crate::evm::trace::{MappingSlots, StorageType};
-use crate::foundry::{
-    AbstractArtifact, Artifact, ArtifactBytecode, ArtifactId, ContractArtifact, InterfaceArtifact,
-    LibraryArtifact, Project, StorageTypeInfo, get_contract_definition,
-};
 
 /// A single bytecode entry for matching runtime code against artifacts.
 #[derive(Debug, Clone)]
@@ -40,8 +34,8 @@ struct BytecodeEntry {
 
 /// Context for decoding and formatting a raw [`Trace`](crate::evm::trace::Trace).
 ///
-/// Collects ABIs, address labels, and runtime bytecode hashes from build
-/// artifacts, then provides lookup methods for the trace display logic.
+/// Collects ABIs, address labels, and runtime bytecode hashes from solc
+/// output, then provides lookup methods for the trace display logic.
 /// A single field within a struct element of an array.
 #[derive(Debug, Clone)]
 struct StructField {
@@ -140,88 +134,66 @@ impl TraceContext {
         Self::default().with_abi(CommonEvents::abi())
     }
 
-    /// Build a [`TraceContext`] from all build artifacts in a [`Project`].
-    pub fn from_project(project: &Project) -> Result<Self> {
-        let artifacts = project.load_artifacts()?;
-        Ok(Self::from_artifacts(artifacts))
-    }
-
     /// Build a [`TraceContext`] from a solc standard JSON output.
     ///
     /// Every contract in the compilation unit contributes its ABI, bytecode
-    /// entries, AST indexes, and storage layout, mirroring `from_artifacts`
-    /// without requiring a Foundry project. Contracts without an AST are
-    /// skipped since they cannot be classified.
+    /// entries, AST indexes, and storage layout. Sources without an AST, and
+    /// contracts without an ABI or AST definition, are skipped.
     pub fn from_solc_output(output: &StandardJSONOutput) -> Self {
-        // 1. Collect one artifact per contract that has an ABI and an AST.
-        let mut artifacts = HashMap::new();
-        for (source_path, contracts) in &output.contracts {
-            artifacts.extend(solc_source_artifacts(output, source_path, contracts));
-        }
-
-        Self::from_artifacts(artifacts)
-    }
-
-    /// Build a [`TraceContext`] from a map of build artifacts.
-    pub fn from_artifacts(artifacts: HashMap<ArtifactId, Artifact>) -> Self {
+        // 1. Walk each source that has an AST and index its contracts.
         let mut ctx = Self::default();
         let mut bytecode_entries = Vec::new();
         let mut initcode_entries = Vec::new();
-        for artifact in artifacts.into_values() {
-            // Index struct definitions from the AST (for library call decoding).
-            collect_struct_defs(artifact.ast(), &mut ctx.struct_field_index);
-            // Index external/public functions by their 4-byte selector.
-            collect_ast_functions(artifact.ast(), &mut ctx.ast_functions);
 
-            let bytecode = artifact.deployed_bytecode();
-            let is_library = matches!(&artifact, Artifact::Library(_));
-            let code =
-                bytecode.map(|b| parse_bytecode_with_placeholders(&b.object, &b.link_references));
-            if let Some(code) = code
-                && !code.is_empty()
-            {
-                let mut positions = bytecode
-                    .map(|b| collect_link_positions(&b.link_references))
-                    .unwrap_or_default();
-                // Libraries embed their own address at position 1 (PUSH20).
-                // Zero it out so that the same library deployed at different
-                // addresses matches the artifact bytecode.
-                if is_library && code.first() == Some(&0x73) {
-                    positions.push((1, 20));
+        for (source_path, contracts) in &output.contracts {
+            let Some(source) = output.sources.get(source_path) else {
+                continue;
+            };
+            let Some(ast) = source.ast.as_ref() else {
+                continue;
+            };
+
+            collect_struct_defs(ast, &mut ctx.struct_field_index);
+            collect_ast_functions(ast, &mut ctx.ast_functions);
+
+            for (contract_name, contract) in contracts {
+                // 2. Skip contracts that cannot be classified or decoded.
+                let Some(def) = contract_definition(ast, contract_name) else {
+                    continue;
+                };
+                let Some(abi) = contract.abi.as_ref() else {
+                    continue;
+                };
+                let is_library = matches!(def.contract_kind, solc::ast::ContractKind::Library);
+
+                // 3. Index runtime and init bytecode, storage layout, and ABI.
+                let evm = contract.evm.as_ref();
+                if let Some(entry) = evm.and_then(|evm| {
+                    bytecode_entry(contract_name, evm.deployed_bytecode.as_ref(), is_library)
+                }) {
+                    bytecode_entries.push(entry);
                 }
-                let mut masked = code;
-                zero_out_positions(&mut masked, &positions);
-                bytecode_entries.push(BytecodeEntry {
-                    name: artifact.name().into(),
-                    base_hash: keccak256(&masked),
-                    positions,
-                });
-            }
-            let initcode = artifact.bytecode();
-            let code =
-                initcode.map(|b| parse_bytecode_with_placeholders(&b.object, &b.link_references));
-            if let Some(code) = code
-                && !code.is_empty()
-            {
-                let positions = initcode
-                    .map(|b| collect_link_positions(&b.link_references))
-                    .unwrap_or_default();
-                let mut masked = code;
-                zero_out_positions(&mut masked, &positions);
-                initcode_entries.push(BytecodeEntry {
-                    name: artifact.name().into(),
-                    base_hash: keccak256(&masked),
-                    positions,
-                });
-            }
-            if let Some((names, arrays, mappings)) = parse_storage_layout(&artifact) {
-                ctx.storage_names.insert(artifact.name().into(), names);
-                ctx.array_info.insert(artifact.name().into(), arrays);
-                ctx.mapping_info.insert(artifact.name().into(), mappings);
-            }
+                if let Some(entry) =
+                    evm.and_then(|evm| bytecode_entry(contract_name, evm.bytecode.as_ref(), false))
+                {
+                    initcode_entries.push(entry);
+                }
 
-            ctx.abis.push(artifact.into_abi());
+                if let Some(layout) = contract.storage_layout.as_ref()
+                    && let Some((names, arrays, mappings)) = parse_storage_layout(layout)
+                {
+                    // checkrs: allow(clone_in_loops)
+                    ctx.storage_names.insert(contract_name.clone(), names);
+                    // checkrs: allow(clone_in_loops)
+                    ctx.array_info.insert(contract_name.clone(), arrays);
+                    // checkrs: allow(clone_in_loops)
+                    ctx.mapping_info.insert(contract_name.clone(), mappings);
+                }
+
+                ctx.abis.push(retype(abi));
+            }
         }
+
         ctx.bytecode_entries = bytecode_entries;
         ctx.initcode_entries = initcode_entries;
         ctx.abis.push(CommonEvents::abi());
@@ -255,8 +227,8 @@ impl TraceContext {
 
     /// Look up a contract name by its runtime bytecode.
     ///
-    /// Matches against the artifact bytecode index, masking out library
-    /// link-reference positions so that linked and unlinked bytecodes match.
+    /// Matches against the bytecode index, masking out library link-reference
+    /// positions so that linked and unlinked bytecodes match.
     pub fn resolve_by_bytecode(&self, code: &Bytes) -> Option<&str> {
         let mut masked = code.to_vec();
         for entry in &self.bytecode_entries {
@@ -278,8 +250,8 @@ impl TraceContext {
 
     /// Look up a contract name by its initcode.
     ///
-    /// Matches against the artifact initcode index, masking out library
-    /// link-reference positions so that linked and unlinked bytecodes match.
+    /// Matches against the initcode index, masking out library link-reference
+    /// positions so that linked and unlinked bytecodes match.
     pub fn resolve_by_initcode(&self, code: &Bytes) -> Option<&str> {
         let mut masked = code.to_vec();
         for entry in &self.initcode_entries {
@@ -1585,7 +1557,7 @@ pub(super) fn format_abi_args(
         .join(", ")
 }
 
-use crate::foundry::LinkReferences;
+type SolcLinkReferences = HashMap<String, HashMap<String, Vec<solc::LinkReference>>>;
 
 type StorageLayoutResult = (
     HashMap<U256, Vec<StorageEntry>>,
@@ -1593,20 +1565,19 @@ type StorageLayoutResult = (
     Vec<MappingInfo>,
 );
 
-/// Parse state-variable names, types, array and mapping metadata from an
-/// artifact's `storageLayout` output.
-fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
-    let layout = artifact.storage_layout()?;
+/// Parse state-variable names, types, array and mapping metadata from solc
+/// `storageLayout` output.
+fn parse_storage_layout(layout: &solc::StorageLayout) -> Option<StorageLayoutResult> {
+    let types = layout.types.as_ref()?;
     let mut names: HashMap<U256, Vec<StorageEntry>> = HashMap::new();
     let mut arrays = Vec::new();
     let mut mappings = Vec::new();
     for entry in &layout.storage {
         let slot = entry.slot.parse::<U256>().ok()?;
-        let ty = StorageType::parse(&entry.type_name)?;
-        let offset = entry.offset as usize;
-        let bytes = layout
-            .types
-            .get(&entry.type_name)
+        let ty = StorageType::parse(&entry.r#type)?;
+        let offset = usize::try_from(entry.offset).ok()?;
+        let bytes = types
+            .get(&entry.r#type)
             .and_then(|t| t.number_of_bytes.parse::<usize>().ok())
             .unwrap_or(32);
         names.entry(slot).or_default().push(StorageEntry {
@@ -1634,8 +1605,8 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
                     U256::from_be_bytes(keccak256(base_bytes).0)
                 };
 
-                let element_slots = element_byte_slots(&layout.types, &entry.type_name);
-                let struct_fields = parse_struct_fields(&layout.types, &entry.type_name);
+                let element_slots = element_byte_slots(layout, &entry.r#type);
+                let struct_fields = parse_struct_fields(layout, &entry.r#type);
                 arrays.push(ArrayInfo {
                     // checkrs: allow(clone_in_loops)
                     name: entry.label.clone(),
@@ -1648,15 +1619,15 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
                 });
             }
             StorageType::Mapping => {
-                if let Some(type_info) = layout.types.get(&entry.type_name)
-                    && type_info.encoding == "mapping"
+                if let Some(type_info) = types.get(&entry.r#type)
+                    && type_info.key.is_some()
                 {
-                    let key_types = resolve_mapping_key_types(&layout.types, &entry.type_name);
-                    let value_type = resolve_mapping_value_type(&layout.types, &entry.type_name);
+                    let key_types = resolve_mapping_key_types(layout, &entry.r#type);
+                    let value_type = resolve_mapping_value_type(layout, &entry.r#type);
                     let value_storage_type =
                         StorageType::parse(&value_type).unwrap_or(StorageType::Mapping);
-                    let value_struct_fields = parse_struct_fields(&layout.types, &value_type);
-                    let value_element_slots = element_byte_slots(&layout.types, &value_type);
+                    let value_struct_fields = parse_struct_fields(layout, &value_type);
+                    let value_element_slots = element_byte_slots(layout, &value_type);
                     mappings.push(MappingInfo {
                         // checkrs: allow(clone_in_loops)
                         name: entry.label.clone(),
@@ -1679,14 +1650,14 @@ fn parse_storage_layout(artifact: &Artifact) -> Option<StorageLayoutResult> {
 ///
 /// Returns the raw `storageLayout` type strings (e.g. `t_address`) so they
 /// can be parsed by [`StorageType::parse`].
-fn resolve_mapping_key_types(
-    types: &HashMap<String, StorageTypeInfo>,
-    type_ref: &str,
-) -> Vec<String> {
+fn resolve_mapping_key_types(layout: &solc::StorageLayout, type_ref: &str) -> Vec<String> {
+    let Some(types) = layout.types.as_ref() else {
+        return Vec::new();
+    };
     let mut keys = Vec::new();
     let mut current = type_ref;
     while let Some(info) = types.get(current) {
-        if info.encoding != "mapping" {
+        if info.key.is_none() {
             break;
         }
         if let Some(key) = &info.key {
@@ -1707,10 +1678,13 @@ fn resolve_mapping_key_types(
 ///
 /// Returns the raw `storageLayout` type string (e.g. `t_uint256`) so it
 /// can be parsed by [`StorageType::parse`] and looked up in the `types` map.
-fn resolve_mapping_value_type(types: &HashMap<String, StorageTypeInfo>, type_ref: &str) -> String {
+fn resolve_mapping_value_type(layout: &solc::StorageLayout, type_ref: &str) -> String {
+    let Some(types) = layout.types.as_ref() else {
+        return type_ref.to_owned();
+    };
     let mut current = type_ref;
     while let Some(info) = types.get(current) {
-        if info.encoding != "mapping" {
+        if info.key.is_none() {
             return current.into();
         }
         if let Some(value) = &info.value {
@@ -1726,7 +1700,10 @@ fn resolve_mapping_value_type(types: &HashMap<String, StorageTypeInfo>, type_ref
 ///
 /// Looks up the array's `base` type in the `storageLayout` types map and
 /// uses the base type's `numberOfBytes`.
-fn element_byte_slots(types: &HashMap<String, StorageTypeInfo>, array_type_name: &str) -> usize {
+fn element_byte_slots(layout: &solc::StorageLayout, array_type_name: &str) -> usize {
+    let Some(types) = layout.types.as_ref() else {
+        return 1;
+    };
     let info = types.get(array_type_name);
     let base_type = info.and_then(|t| t.base.as_ref());
     let bytes = base_type
@@ -1748,25 +1725,25 @@ fn element_byte_slots(types: &HashMap<String, StorageTypeInfo>, array_type_name:
 ///
 /// Returns `None` if the type is not a struct or if member info is
 /// unavailable.
-fn parse_struct_fields(
-    types: &HashMap<String, StorageTypeInfo>,
-    type_name: &str,
-) -> Option<Vec<StructField>> {
+fn parse_struct_fields(layout: &solc::StorageLayout, type_name: &str) -> Option<Vec<StructField>> {
     fn collect_fields(
-        types: &HashMap<String, StorageTypeInfo>,
-        info: &StorageTypeInfo,
+        layout: &solc::StorageLayout,
+        type_name: &str,
         prefix: &str,
         base_offset: usize,
     ) -> Option<Vec<StructField>> {
-        if info.members.is_empty() {
+        let types = layout.types.as_ref()?;
+        let info = types.get(type_name)?;
+        let members = info.members.as_deref().unwrap_or(&[]);
+        if members.is_empty() {
             return Some(Vec::new());
         }
         let mut fields = Vec::new();
-        for member in &info.members {
+        for member in members {
             let slot_offset = member.slot.parse::<usize>().ok()?;
-            let ty = StorageType::parse(&member.type_name)?;
+            let ty = StorageType::parse(&member.r#type)?;
             let bytes = types
-                .get(&member.type_name)
+                .get(&member.r#type)
                 .and_then(|t| t.number_of_bytes.parse::<usize>().ok())
                 .unwrap_or(32);
             let abs_offset = base_offset + slot_offset;
@@ -1780,8 +1757,7 @@ fn parse_struct_fields(
             // sub-fields so that offsets beyond the struct's base slot can
             // be matched to human-readable names.
             if ty == StorageType::Struct
-                && let Some(nested_info) = types.get(&member.type_name)
-                && let Some(sub_fields) = collect_fields(types, nested_info, &name, abs_offset)
+                && let Some(sub_fields) = collect_fields(layout, &member.r#type, &name, abs_offset)
             {
                 fields.extend(sub_fields);
             } else {
@@ -1796,22 +1772,24 @@ fn parse_struct_fields(
         Some(fields)
     }
 
+    let types = layout.types.as_ref()?;
     let info = types.get(type_name)?;
     // For array types, look up the base element type; for struct types use
     // the type itself.
-    let struct_type = info
-        .base
+    let struct_type_name = info.base.as_deref().unwrap_or(type_name);
+    let struct_info = types.get(struct_type_name)?;
+    if struct_info
+        .members
         .as_ref()
-        .and_then(|base| types.get(base))
-        .unwrap_or(info);
-    if struct_type.members.is_empty() {
+        .is_none_or(|members| members.is_empty())
+    {
         return None;
     }
-    collect_fields(types, struct_type, "", 0)
+    collect_fields(layout, struct_type_name, "", 0)
 }
 
-/// Collect all link-reference positions from a [`LinkReferences`] map.
-fn collect_link_positions(link_refs: &LinkReferences) -> Vec<(usize, usize)> {
+/// Collect all link-reference positions from a solc link-references map.
+fn collect_link_positions(link_refs: &SolcLinkReferences) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     for libs in link_refs.values() {
         for refs in libs.values() {
@@ -1836,7 +1814,7 @@ fn zero_out_positions(buf: &mut [u8], positions: &[(usize, usize)]) {
 
 /// Parse a bytecode object string, replacing library placeholders at the
 /// given link-reference positions with zero bytes.
-fn parse_bytecode_with_placeholders(object: &str, link_refs: &LinkReferences) -> Vec<u8> {
+fn parse_bytecode_with_placeholders(object: &str, link_refs: &SolcLinkReferences) -> Vec<u8> {
     let hex = object.strip_prefix("0x").unwrap_or(object);
 
     let mut hex_positions = Vec::new();
@@ -1867,118 +1845,59 @@ impl From<&SolcOutput> for TraceContext {
     }
 }
 
-/// Collect the artifacts for every contract of one solc source output.
+/// Index one bytecode object for later hash matching.
 ///
-/// Sources without an AST are skipped since their contracts cannot be
-/// classified.
-fn solc_source_artifacts(
-    output: &StandardJSONOutput,
-    source_path: impl AsRef<Path>,
-    contracts: &HashMap<String, ContractOutput>,
-) -> HashMap<ArtifactId, Artifact> {
-    // 1. Skip sources without an AST since contracts cannot be classified.
-    let source_path = source_path.as_ref();
-    let Some(source) = output.sources.get(source_path) else {
-        return HashMap::new();
-    };
-    let Some(ast) = source.ast.clone() else {
-        return HashMap::new();
-    };
-    let source_id = usize::try_from(source.id).unwrap_or_default();
+/// Library runtime code starts with `PUSH20 <address>`. That address is filled
+/// in at deploy time, so it is masked out. Initcode does not carry that prefix,
+/// so `is_library` must be false for it.
+fn bytecode_entry(
+    name: &str,
+    bytecode: Option<&Bytecode>,
+    is_library: bool,
+) -> Option<BytecodeEntry> {
+    // 1. Parse the bytecode object, replacing library placeholders with zeros.
+    let bytecode = bytecode?;
+    let link_refs = bytecode.link_references.clone().unwrap_or_default();
+    let object = bytecode.object.as_deref().unwrap_or("");
+    let code = parse_bytecode_with_placeholders(object, &link_refs);
+    if code.is_empty() {
+        return None;
+    }
 
-    // 2. Build one artifact per contract of the source.
-    let mut artifacts = HashMap::new();
-    for (contract_name, contract) in contracts {
-        let id = ArtifactId {
-            path: source_path.to_path_buf(),
-            name: contract_name.to_owned(),
-        };
-        if let Some(artifact) = solc_contract_artifact(&id, contract, &ast, source_id) {
-            artifacts.insert(id, artifact);
+    // 2. Collect positions that differ between unlinked and deployed code.
+    let mut positions = collect_link_positions(&link_refs);
+    if let Some(immutables) = bytecode.immutable_references.as_ref() {
+        for refs in immutables.values() {
+            for r in refs {
+                positions.push((r.start, r.length));
+            }
         }
     }
-    artifacts
-}
 
-/// Build a foundry artifact from one solc contract output.
-///
-/// Returns `None` when the contract has no ABI or no AST definition, since
-/// such contracts cannot be classified.
-fn solc_contract_artifact(
-    id: &ArtifactId,
-    contract: &ContractOutput,
-    ast: &SourceUnit,
-    source_id: usize,
-) -> Option<Artifact> {
-    // 1. Skip contracts without an ABI or without an AST definition.
-    let abi = contract.abi.as_ref()?;
-    let abi = retype(abi);
-    let def = get_contract_definition(ast, &id.name).ok()?;
+    // 3. Mask the library PUSH20 address on runtime bytecode only.
+    if is_library && code.first() == Some(&0x73) {
+        positions.push((1, 20));
+    }
 
-    // 2. Convert the EVM outputs and the storage layout to artifact types.
-    let evm = contract.evm.as_ref();
-    let bytecode = artifact_bytecode(evm.and_then(|evm| evm.bytecode.as_ref()));
-    let deployed_bytecode = artifact_bytecode(evm.and_then(|evm| evm.deployed_bytecode.as_ref()));
-    let method_identifiers = evm
-        .and_then(|evm| evm.method_identifiers.as_ref())
-        .cloned()
-        .unwrap_or_default();
-    let storage_layout = contract.storage_layout.as_ref().map(retype);
-
-    // 3. Assemble the artifact matching the contract kind.
-    Some(match def.contract_kind {
-        solc::ast::ContractKind::Contract if !def.r#abstract.unwrap_or(false) => {
-            Artifact::Contract(ContractArtifact {
-                id: id.clone(),
-                project_path: PathBuf::new(),
-                ast: ast.clone(),
-                abi,
-                bytecode,
-                deployed_bytecode,
-                storage_layout,
-                source_id,
-                sources: None,
-                optimizer: None,
-                method_identifiers,
-            })
-        }
-        solc::ast::ContractKind::Contract => Artifact::Abstract(AbstractArtifact {
-            id: id.clone(),
-            project_path: PathBuf::new(),
-            ast: ast.clone(),
-            abi,
-            source_id,
-            sources: None,
-            optimizer: None,
-            method_identifiers,
-        }),
-        solc::ast::ContractKind::Interface => Artifact::Interface(InterfaceArtifact {
-            id: id.clone(),
-            project_path: PathBuf::new(),
-            ast: ast.clone(),
-            abi,
-            source_id,
-            sources: None,
-            optimizer: None,
-            method_identifiers,
-        }),
-        solc::ast::ContractKind::Library => Artifact::Library(LibraryArtifact {
-            id: id.clone(),
-            project_path: PathBuf::new(),
-            ast: ast.clone(),
-            abi,
-            bytecode,
-            deployed_bytecode,
-            storage_layout,
-            source_id,
-            sources: None,
-            optimizer: None,
-            method_identifiers,
-        }),
+    // 4. Hash the masked bytes so linked and unlinked copies match.
+    let mut masked = code;
+    zero_out_positions(&mut masked, &positions);
+    Some(BytecodeEntry {
+        name: name.to_owned(),
+        base_hash: keccak256(&masked),
+        positions,
     })
 }
 
-/// Convert a solc output type into the artifact type with the same JSON shape.
+/// Find the named contract definition in a source AST.
+fn contract_definition<'a>(ast: &'a SourceUnit, name: &str) -> Option<&'a ContractDefinition> {
+    ast.nodes.iter().find_map(|node| match node {
+        SourceUnitNode::ContractDefinition(def) if def.name == name => Some(def),
+        _ => None,
+    })
+}
+
+/// Convert a solc ABI into [`JsonAbi`].
 ///
 /// The two type families share their serialized layouts, so a JSON round trip
 /// preserves every field without hand-written conversions. Returns the default
@@ -1986,15 +1905,6 @@ fn solc_contract_artifact(
 fn retype<T: serde::Serialize, U: DeserializeOwned + Default>(value: &T) -> U {
     let json = serde_json::to_value(value).unwrap_or_default();
     serde_json::from_value(json).unwrap_or_default()
-}
-
-/// Convert solc bytecode output into an artifact bytecode, defaulting to an
-/// empty object when the output selector omitted the bytecode.
-fn artifact_bytecode(bytecode: Option<&solc::Bytecode>) -> ArtifactBytecode {
-    match bytecode {
-        Some(bytecode) => retype(bytecode),
-        None => ArtifactBytecode::default(),
-    }
 }
 
 #[cfg(test)]

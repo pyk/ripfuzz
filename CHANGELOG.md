@@ -136,6 +136,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Removed the Foundry module and its public artifact types (`Project`,
+  `Artifact`, `ArtifactId`, `BuildInfo`, `BuildOptions`) and `Contract`. Traces
+  index solc standard JSON output via `TraceContext::from_solc_output`
 - Renamed `src/max` to `src/maxer` (`ripfuzz::maxer`). The CLI command is still
   `ripfuzz max`
 - `CoverageReporter` now builds reports from solc `StandardJSON` output instead

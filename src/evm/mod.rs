@@ -18,7 +18,6 @@ pub use chain::{
     SetupInput, SetupOutput, Transaction,
 };
 pub use cheatcode::CheatcodeConfig;
-pub use contract::Contract;
 pub use coverage::{
     CoverageId, CoverageReport, CoverageReporter, CoverageUpdate, CoverageWriter,
     ExecutionContractCoverage, ExecutionCoverage, SharedCoverage,
@@ -34,7 +33,6 @@ pub use trace::{
 
 mod chain;
 mod cheatcode;
-mod contract;
 mod coverage;
 mod database;
 pub mod forkdb;
