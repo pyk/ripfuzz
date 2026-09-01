@@ -21,16 +21,6 @@ fmt: # Run formatter
 	@echo "Run markdown formatter"
 	@uvx --from panache-cli==2.61.0 panache format .
 
-FIXTURE_DIRS := $(wildcard fixtures/* fixtures/*/*)
-
-.PHONY: build-fixtures
-build-fixtures: # Force-rebuild all test fixtures with --ast
-	@echo "Building fixtures"
-	@for d in $(FIXTURE_DIRS); do \
-		echo "  $$d"; \
-		forge build --root "$$d" --ast --extra-output storageLayout --force --quiet || true; \
-	done
-
 .PHONY: bin
 bin: # Install local binary
 	@echo "Installing local binary"
