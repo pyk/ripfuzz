@@ -39,11 +39,12 @@ use anyhow::{Context, Result};
 use revm::primitives::Bytes;
 use tracing::{debug, error, info, warn};
 
-use crate::evm::{Chain, SharedCoverage, Transaction};
+use crate::evm::{Chain, SharedCoverage, Transaction, TransactionResult};
 use crate::maxer::{Best, Call, Corpus, Delta, Records, Sequence, Value};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
+const METRICS_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Interval between finished checks while waiting for the fuzzers.
 const PROGRESS_TICK: Duration = Duration::from_millis(100);
@@ -261,6 +262,7 @@ impl Fuzzer {
 
         // 5. Log progress while the fuzzers run.
         let mut last_progress = Instant::now();
+        let mut last_metrics = Instant::now();
         while handles.iter().any(|(_, handle)| !handle.is_finished()) {
             std::thread::sleep(PROGRESS_TICK);
             if handles.iter().all(|(_, handle)| handle.is_finished()) {
@@ -276,6 +278,19 @@ impl Fuzzer {
                     start.elapsed().as_secs(),
                 );
                 last_progress = Instant::now();
+            }
+            if last_metrics.elapsed() >= METRICS_INTERVAL {
+                let elapsed = start.elapsed().as_secs().max(1);
+                let runs = shared.runs();
+                let calls = shared.calls();
+                let ggas = shared.gas() as f64 / elapsed as f64 / 1e9;
+                info!(
+                    "fuzzing metrics: {ggas:.2} Ggas/s, {} calls ({}/s), {runs} runs ({}/s)",
+                    calls,
+                    calls / elapsed,
+                    runs / elapsed,
+                );
+                last_metrics = Instant::now();
             }
         }
 
@@ -343,6 +358,8 @@ struct Execution {
 struct Shared {
     best: Arc<Mutex<Best>>,
     runs: Arc<AtomicU64>,
+    calls: Arc<AtomicU64>,
+    gas: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
     deadline: Option<Instant>,
     target_value: Option<Value>,
@@ -354,6 +371,8 @@ impl Shared {
         Self {
             best: Arc::new(Mutex::new(best)),
             runs: Arc::new(AtomicU64::new(0)),
+            calls: Arc::new(AtomicU64::new(0)),
+            gas: Arc::new(AtomicU64::new(0)),
             stop: Arc::new(AtomicBool::new(false)),
             deadline,
             target_value,
@@ -388,9 +407,30 @@ impl Shared {
         self.runs.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Record one executed handler call.
+    fn record_call(&self) {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record the gas spent by the given transaction results.
+    fn record_gas(&self, results: &[TransactionResult]) {
+        let gas = results.iter().map(|result| result.gas_used).sum::<u64>();
+        self.gas.fetch_add(gas, Ordering::Relaxed);
+    }
+
     /// The number of sequences executed so far.
     fn runs(&self) -> u64 {
         self.runs.load(Ordering::Relaxed)
+    }
+
+    /// The number of handler calls executed so far.
+    fn calls(&self) -> u64 {
+        self.calls.load(Ordering::Relaxed)
+    }
+
+    /// The total gas executed so far.
+    fn gas(&self) -> u64 {
+        self.gas.load(Ordering::Relaxed)
     }
 
     /// The value of the best sequence so far.
@@ -532,6 +572,8 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
         for call in pending {
             let transaction = call.transaction(execution.target, execution.deployer);
             let mut exec = chain.exec(std::slice::from_ref(&transaction))?;
+            shared.record_call();
+            shared.record_gas(&exec.results);
             let coverage = exec
                 .coverage
                 .take()
@@ -541,7 +583,7 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
                 (update.new_edges + update.new_depths + update.new_reverts + update.new_jump_edges)
                     as u64;
 
-            let measured = measure_value(&mut chain, &value_tx)?;
+            let measured = measure_value(shared, &mut chain, &value_tx)?;
             let value = measured.unwrap_or_else(|| Value::new(U256::ZERO));
             let delta = Delta::between(prev_value, value);
             let below_baseline = prev_value < execution.initial_value;
@@ -653,8 +695,13 @@ struct MeasuredPrefix {
 }
 
 /// Measure the harness value on `chain`, returning `None` when the call reverts.
-fn measure_value(chain: &mut Chain, value_tx: &Transaction) -> Result<Option<Value>> {
+fn measure_value(
+    shared: &Shared,
+    chain: &mut Chain,
+    value_tx: &Transaction,
+) -> Result<Option<Value>> {
     let output = chain.exec(std::slice::from_ref(value_tx))?;
+    shared.record_gas(&output.results);
     let result = output
         .results
         .first()

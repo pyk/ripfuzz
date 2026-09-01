@@ -47,11 +47,12 @@ use anyhow::{Context, Result};
 use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
-use crate::evm::{Chain, CoverageUpdate, SharedCoverage, Transaction};
+use crate::evm::{Chain, CoverageUpdate, SharedCoverage, Transaction, TransactionResult};
 use crate::tester::{BrokenInvariant, Call, Corpus, Sequence, SharedBrokenInvariants};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
+const METRICS_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Interval between finished checks while waiting for the fuzzers.
 const PROGRESS_TICK: Duration = Duration::from_millis(100);
@@ -242,6 +243,7 @@ impl Fuzzer {
 
         // 5. Log progress while the fuzzers run.
         let mut last_progress = Instant::now();
+        let mut last_metrics = Instant::now();
         while handles.iter().any(|(_, handle)| !handle.is_finished()) {
             std::thread::sleep(PROGRESS_TICK);
             if handles.iter().all(|(_, handle)| handle.is_finished()) {
@@ -260,6 +262,19 @@ impl Fuzzer {
                     start.elapsed().as_secs(),
                 );
                 last_progress = Instant::now();
+            }
+            if last_metrics.elapsed() >= METRICS_INTERVAL {
+                let elapsed = start.elapsed().as_secs().max(1);
+                let runs = shared.runs();
+                let calls = shared.calls();
+                let ggas = shared.gas() as f64 / elapsed as f64 / 1e9;
+                info!(
+                    "fuzzing metrics: {ggas:.2} Ggas/s, {} calls ({}/s), {runs} runs ({}/s)",
+                    calls,
+                    calls / elapsed,
+                    runs / elapsed,
+                );
+                last_metrics = Instant::now();
             }
         }
 
@@ -340,6 +355,8 @@ pub struct Output {
 #[derive(Debug, Clone)]
 struct Shared {
     runs: Arc<AtomicU64>,
+    calls: Arc<AtomicU64>,
+    gas: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
     deadline: Option<Instant>,
 }
@@ -349,6 +366,8 @@ impl Shared {
     fn new(deadline: Option<Instant>) -> Self {
         Self {
             runs: Arc::new(AtomicU64::new(0)),
+            calls: Arc::new(AtomicU64::new(0)),
+            gas: Arc::new(AtomicU64::new(0)),
             stop: Arc::new(AtomicBool::new(false)),
             deadline,
         }
@@ -359,9 +378,30 @@ impl Shared {
         self.runs.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Record one executed handler call.
+    fn record_call(&self) {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record the gas spent by the given transaction results.
+    fn record_gas(&self, results: &[TransactionResult]) {
+        let gas = results.iter().map(|result| result.gas_used).sum::<u64>();
+        self.gas.fetch_add(gas, Ordering::Relaxed);
+    }
+
     /// The number of sequences executed so far.
     fn runs(&self) -> u64 {
         self.runs.load(Ordering::Relaxed)
+    }
+
+    /// The number of handler calls executed so far.
+    fn calls(&self) -> u64 {
+        self.calls.load(Ordering::Relaxed)
+    }
+
+    /// The total gas executed so far.
+    fn gas(&self) -> u64 {
+        self.gas.load(Ordering::Relaxed)
     }
 
     /// Whether another fuzzer asked to stop.
@@ -507,6 +547,8 @@ fn execute_sequence(
         // 1. Commit the handler call on the working chain.
         let tx = call.transaction(execution.target, execution.deployer);
         let mut exec = chain.exec(std::slice::from_ref(&tx))?;
+        shared.record_call();
+        shared.record_gas(&exec.results);
         if let Some(coverage) = exec.coverage.take() {
             let update = execution.coverage.merge(&coverage);
             new_edges += score(&update);
@@ -540,6 +582,7 @@ fn execute_sequence(
             .map(|function| invariant_transaction(function, execution.target, execution.deployer))
             .collect();
         let mut exec = invariant_chain.exec(&transactions)?;
+        shared.record_gas(&exec.results);
         if let Some(coverage) = exec.coverage.take() {
             let update = execution.coverage.merge(&coverage);
             new_edges += score(&update);
