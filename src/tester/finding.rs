@@ -1,94 +1,135 @@
-//! Failed assertions discovered during fuzzing and the shared, deduplicated
+//! Findings discovered during fuzzing and the shared, deduplicated
 //! collection that tracks them across fuzzer threads.
 //!
-//! A failed assertion is a Solidity `assert` panic (`Panic(0x01)`) raised by
-//! a handler call or by an `invariant_*` call checked after each handler
-//! call. Other reverts are not assertions.
+//! A finding is an explicit `rvm.finding` cheatcode report emitted by a
+//! handler call or by an `invariant_*` call checked after each handler call.
 //!
 //! ```rust
 //! use alloy_json_abi::Function;
-//! use ripfuzz::tester::{Finding, Sequence};
+//! use ripfuzz::tester::{Finding, Sequence, Severity};
 //!
 //! // let function = Function::parse("invariant_total()")?;
-//! // let finding = Finding::new(sequence, function, revert_output);
+//! // let finding = Finding::new(sequence, function, "FIND-001", Severity::High, "title", "desc");
 //! ```
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use alloy_json_abi::Function;
-use alloy_sol_types::{Panic, PanicKind, Revert, SolError};
 use parking_lot::Mutex;
-use revm::primitives::Bytes;
 
+use crate::evm::ReportedFinding;
+use crate::evm::Severity;
 use crate::tester::Sequence;
 
-/// One failed assertion: the handler calls that reached it, the function
-/// whose `assert` panicked, and the revert output.
-///
-/// The `trigger` is either a handler (then `sequence` holds the calls before
-/// it) or an `invariant_*` function (then `sequence` holds the full prefix,
-/// because invariants are appended checks and never part of the sequence).
-#[derive(Debug, Clone)]
+/// One finding: the handler calls that reached it and the explicit metadata.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Finding {
     sequence: Sequence,
     trigger: Function,
-    reason: Bytes,
+    id: String,
+    severity: Severity,
+    title: String,
+    description: String,
 }
 
 impl Finding {
-    /// Create a finding from its sequence, trigger function, and revert
-    /// output.
-    pub fn new(sequence: Sequence, trigger: Function, reason: Bytes) -> Self {
+    /// Create a finding from its sequence, trigger function, and explicit
+    /// metadata.
+    pub fn new(
+        sequence: Sequence,
+        trigger: Function,
+        id: &str,
+        severity: Severity,
+        title: &str,
+        description: &str,
+    ) -> Self {
         Self {
             sequence,
             trigger,
-            reason,
+            id: id.to_owned(),
+            severity,
+            title: title.to_owned(),
+            description: description.to_owned(),
         }
     }
 
-    /// The handler calls executed before the assertion failed.
+    /// Create a finding from a [`ReportedFinding`] emitted via `rvm.finding`.
+    pub fn new_explicit(sequence: Sequence, trigger: Function, finding: ReportedFinding) -> Self {
+        Self {
+            sequence,
+            trigger,
+            id: finding.id,
+            severity: finding.severity,
+            title: finding.title,
+            description: finding.description,
+        }
+    }
+
+    /// Create a finding from raw fields.
+    pub fn new_explicit_with_meta(
+        sequence: Sequence,
+        trigger: Function,
+        id: &str,
+        severity: Severity,
+        title: &str,
+        description: &str,
+    ) -> Self {
+        Self {
+            sequence,
+            trigger,
+            id: id.to_owned(),
+            severity,
+            title: title.to_owned(),
+            description: description.to_owned(),
+        }
+    }
+
+    /// The handler calls executed before the finding was emitted.
     pub fn sequence(&self) -> &Sequence {
         &self.sequence
     }
 
-    /// The function whose `assert` panicked.
+    /// The function that emitted the finding.
     pub fn trigger(&self) -> &Function {
         &self.trigger
     }
 
-    /// The revert output of the failed assertion.
-    pub fn reason(&self) -> &Bytes {
-        &self.reason
+    /// The finding id.
+    pub fn id(&self) -> &str {
+        &self.id
     }
 
-    /// The human-readable revert reason.
-    ///
-    /// `Panic(0x01)` renders as `assertion failed`, `Error(string)` renders
-    /// as the string, and anything else renders as hex.
+    /// The finding severity.
+    pub fn severity(&self) -> Severity {
+        self.severity
+    }
+
+    /// The finding title.
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// The finding description.
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    /// The human-readable reason, preferring title over description and id.
     pub fn reason_display(&self) -> String {
-        decode_reason(&self.reason)
-    }
-
-    /// The key that identifies a distinct failed assertion: the trigger
-    /// signature plus the revert output.
-    pub fn key(&self) -> String {
-        format!("{}|{}", self.trigger.signature(), hex::encode(&self.reason))
-    }
-}
-
-/// Decode revert output into a human-readable reason.
-fn decode_reason(output: &Bytes) -> String {
-    if let Ok(panic) = Panic::abi_decode(output) {
-        if panic.kind() == Some(PanicKind::Assert) {
-            return "assertion failed".to_owned();
+        if !self.title.is_empty() {
+            return self.title.clone();
         }
-        return format!("Panic({:#x})", panic.code.to::<u64>());
+        if !self.description.is_empty() {
+            return self.description.clone();
+        }
+        self.id.clone()
     }
-    if let Ok(revert) = Revert::abi_decode(output) {
-        return revert.reason;
+
+    /// The key that identifies a distinct finding: the `id` alone.
+    pub fn key(&self) -> String {
+        self.id.clone()
     }
-    format!("0x{}", hex::encode(output))
 }
 
 /// Shared, deduplicated collection of findings across fuzzer threads.
@@ -119,7 +160,7 @@ impl SharedFindings {
         self.inner.lock()
     }
 
-    /// Add a finding when its key is new, returning whether it was added.
+    /// Add a finding when its id is new, returning whether it was added.
     pub fn try_add(&self, finding: &Finding) -> bool {
         let mut inner = self.lock();
         if inner.findings.len() >= self.max {
@@ -163,68 +204,111 @@ mod tests {
         Function::parse("invariant_total()").unwrap()
     }
 
-    /// The Panic(0x01) revert output for a failed `assert`.
-    fn assert_output() -> Bytes {
-        let mut data = vec![0x4e, 0x48, 0x7b, 0x71];
-        data.extend_from_slice(&[0u8; 31]);
-        data.push(0x01);
-        Bytes::from(data)
+    fn finding_with_id(id: &str) -> Finding {
+        Finding::new(
+            Sequence::empty(),
+            trigger(),
+            id,
+            Severity::Medium,
+            "title",
+            "desc",
+        )
     }
 
     #[test]
-    fn reason_display_renders_assertion_failure() {
-        let finding = Finding::new(Sequence::empty(), trigger(), assert_output());
+    fn reason_display_prefers_title() {
+        let finding = Finding::new(
+            Sequence::empty(),
+            trigger(),
+            "ID-001",
+            Severity::High,
+            "my title",
+            "my desc",
+        );
 
-        assert_eq!(finding.reason_display(), "assertion failed");
+        assert_eq!(finding.reason_display(), "my title");
     }
 
     #[test]
-    fn reason_display_renders_revert_string() {
-        let revert = Revert::from("balance overflow".to_owned());
-        let finding = Finding::new(Sequence::empty(), trigger(), revert.abi_encode().into());
+    fn reason_display_falls_back_to_description() {
+        let finding = Finding::new(
+            Sequence::empty(),
+            trigger(),
+            "ID-001",
+            Severity::High,
+            "",
+            "my desc",
+        );
 
-        assert_eq!(finding.reason_display(), "balance overflow");
+        assert_eq!(finding.reason_display(), "my desc");
     }
 
     #[test]
-    fn reason_display_renders_unknown_output_as_hex() {
-        let finding = Finding::new(Sequence::empty(), trigger(), Bytes::from([0xde, 0xad]));
+    fn reason_display_falls_back_to_id() {
+        let finding = Finding::new(
+            Sequence::empty(),
+            trigger(),
+            "ID-001",
+            Severity::High,
+            "",
+            "",
+        );
 
-        assert_eq!(finding.reason_display(), "0xdead");
+        assert_eq!(finding.reason_display(), "ID-001");
     }
 
     #[test]
-    fn try_add_deduplicates_by_trigger_and_reason() {
+    fn try_add_deduplicates_by_id() {
         let findings = SharedFindings::new(8);
-        let first = Finding::new(Sequence::empty(), trigger(), assert_output());
-        let same_assert = Finding::new(Sequence::new(vec![]), trigger(), assert_output());
+        let first = finding_with_id("ID-001");
+        let same = Finding::new(
+            Sequence::new(vec![]),
+            trigger(),
+            "ID-001",
+            Severity::High,
+            "other",
+            "other",
+        );
 
         assert!(findings.try_add(&first));
-        assert!(!findings.try_add(&same_assert));
+        assert!(!findings.try_add(&same));
         assert_eq!(findings.len(), 1);
     }
 
     #[test]
-    fn try_add_keeps_distinct_assertions() {
+    fn try_add_keeps_distinct_ids() {
         let findings = SharedFindings::new(8);
-        let handler = Function::parse("deposit(uint256)").unwrap();
-        let invariant_finding = Finding::new(Sequence::empty(), trigger(), assert_output());
-        let handler_finding = Finding::new(Sequence::empty(), handler, assert_output());
+        let first = finding_with_id("ID-001");
+        let second = Finding::new(
+            Sequence::empty(),
+            trigger(),
+            "ID-002",
+            Severity::Low,
+            "title",
+            "desc",
+        );
 
-        assert!(findings.try_add(&invariant_finding));
-        assert!(findings.try_add(&handler_finding));
+        assert!(findings.try_add(&first));
+        assert!(findings.try_add(&second));
         assert_eq!(findings.len(), 2);
     }
 
     #[test]
     fn try_add_stops_at_capacity() {
         let findings = SharedFindings::new(1);
-        let overflow = Function::parse("invariant_other()").unwrap();
+        let overflow = Finding::new(
+            Sequence::empty(),
+            Function::parse("invariant_other()").unwrap(),
+            "ID-002",
+            Severity::Medium,
+            "",
+            "",
+        );
 
-        assert!(findings.try_add(&Finding::new(Sequence::empty(), trigger(), assert_output())));
+        assert!(findings.try_add(&finding_with_id("ID-001")));
         assert!(!findings.is_empty());
         assert!(findings.is_full());
-        assert!(!findings.try_add(&Finding::new(Sequence::empty(), overflow, assert_output())));
+        assert!(!findings.try_add(&overflow));
         assert_eq!(findings.len(), 1);
     }
 
@@ -232,12 +316,25 @@ mod tests {
     fn findings_snapshot_preserves_discovery_order() {
         let findings = SharedFindings::new(8);
         let handler = Function::parse("deposit(uint256)").unwrap();
-        findings.try_add(&Finding::new(Sequence::empty(), trigger(), assert_output()));
-        findings.try_add(&Finding::new(Sequence::empty(), handler, assert_output()));
+        findings.try_add(&finding_with_id("ID-001"));
+        findings.try_add(&Finding::new(
+            Sequence::empty(),
+            handler,
+            "ID-002",
+            Severity::Medium,
+            "",
+            "",
+        ));
 
         let snapshot = findings.findings();
         assert_eq!(snapshot.len(), 2);
-        assert_eq!(snapshot[0].trigger().signature(), "invariant_total()");
-        assert_eq!(snapshot[1].trigger().signature(), "deposit(uint256)");
+        assert_eq!(snapshot[0].id(), "ID-001");
+        assert_eq!(snapshot[1].id(), "ID-002");
+    }
+
+    #[test]
+    fn key_is_id() {
+        let finding = finding_with_id("MY-ID");
+        assert_eq!(finding.key(), "MY-ID");
     }
 }

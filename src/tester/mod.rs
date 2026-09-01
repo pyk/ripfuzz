@@ -1,9 +1,9 @@
-//! Find failed assertions.
+//! Find findings.
 //!
 //! The `tester` module mirrors [`crate::max`] around a different objective:
-//! instead of maximizing a value, the fuzzers hunt Solidity `assert` panics
-//! (`Panic(0x01)`), both inside handler calls and inside `invariant_*`
-//! functions checked after each handler call.
+//! instead of maximizing a value, the fuzzers hunt explicit `rvm.finding`
+//! reports, both inside handler calls and inside `invariant_*` functions
+//! checked after each handler call.
 //!
 //! ```rust,no_run
 //! use ripfuzz::tester::{Corpus, Fuzzer, Shrinker, TestHarness};
@@ -14,7 +14,7 @@
 //! # let coverage = SharedCoverage::new();
 //! // 1. Validate the compiled harness.
 //! // let test_harness = TestHarness::try_from(&solc_output)?;
-//! // 2. Deploy it and fuzz for failed assertions.
+//! // 2. Deploy it and fuzz for findings.
 //! // let deployment = chain.deploy(&test_harness)?;
 //! // let output = Fuzzer::new()
 //! //     .with_chain(chain)
@@ -26,6 +26,7 @@
 //! // let findings = Shrinker::new().shrink(&output.findings)?;
 //! ```
 
+pub use crate::evm::Severity;
 pub use corpus::{Call, Corpus, EntrySnapshot, LiteralExtractor, Replayer, Sequence};
 pub use finding::{Finding, SharedFindings};
 pub use fuzzer::{Fuzzer, Output};

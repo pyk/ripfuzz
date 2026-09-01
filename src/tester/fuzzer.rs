@@ -1,14 +1,13 @@
-//! Fuzzing of harness sequences to find failed assertions.
+//! Fuzzing of harness sequences to find findings.
 //!
 //! [`Fuzzer`] spawns fuzzers (threads) that generate random handler-call
-//! sequences, execute each call on a clean chain clone, and check assertions
-//! after every call:
+//! sequences, execute each call on a clean chain clone, and collect
+//! `rvm.finding` reports after every call:
 //!
-//! - a handler call whose execution raises a Solidity `assert` panic
-//!   (`Panic(0x01)`) is a failed assertion
+//! - a handler call that emits `rvm.finding` is a finding
 //! - after each committed handler call, every `invariant_*` function runs on
-//!   a throwaway clone, so invariant state is never committed, and a panic
-//!   there is a failed assertion too
+//!   a throwaway clone, so invariant state is never committed, and a report
+//!   there is a finding too
 //!
 //! Stop conditions, checked between sequences:
 //!
@@ -492,33 +491,33 @@ fn execute_sequence(
         // 1. Commit the handler call on the working chain.
         let tx = call.transaction(execution.target, execution.deployer);
         let mut exec = chain.exec(std::slice::from_ref(&tx))?;
-        let result = &exec.results[0];
         if let Some(coverage) = exec.coverage.take() {
             let update = execution.coverage.merge(&coverage);
             new_edges += score(&update);
         }
 
-        // 2. Record a failed assertion raised by the handler.
-        //
-        //    Only Solidity `assert` panics count, other reverts are plain
-        //    control flow, e.g. `require` guards.
-        if result.is_assert_failure() {
-            // checkrs: allow(clone_in_loops) the finding must own its data
-            let trigger = call.function().clone();
-            // checkrs: allow(clone_in_loops) the finding must own its data
-            let output = result.output.clone().unwrap_or_default();
-            let sequence_prefix = Sequence::new(sequence.calls()[..index].to_vec());
-            let finding = Finding::new(sequence_prefix, trigger, output);
-            if execution.findings.try_add(&finding) {
-                info!(
-                    thread = thread_id,
-                    function = %finding.trigger().signature(),
-                    reason = %finding.reason_display(),
-                    calls = finding.sequence().len(),
-                    sequence = %finding.sequence(),
-                    "failed assertion"
-                );
-                found = true;
+        // 2. Record findings emitted via `rvm.finding` in the handler.
+        if !exec.findings.is_empty() {
+            for finding_meta in &exec.findings[0] {
+                // checkrs: allow(clone_in_loops) the finding must own its data
+                let trigger = call.function().clone();
+                let sequence_prefix = Sequence::new(sequence.calls()[..index].to_vec());
+                let finding =
+                    // checkrs: allow(clone_in_loops) the finding must own its data
+                    Finding::new_explicit(sequence_prefix, trigger, finding_meta.clone());
+                if execution.findings.try_add(&finding) {
+                    info!(
+                        thread = thread_id,
+                        finding_id = %finding.id(),
+                        severity = ?finding.severity(),
+                        function = %finding.trigger().signature(),
+                        reason = %finding.reason_display(),
+                        calls = finding.sequence().len(),
+                        sequence = %finding.sequence(),
+                        "finding"
+                    );
+                    found = true;
+                }
             }
         }
 
@@ -539,26 +538,30 @@ fn execute_sequence(
             let update = execution.coverage.merge(&coverage);
             new_edges += score(&update);
         }
-        for (function, result) in execution.invariants.iter().zip(exec.results.iter()) {
-            if !result.is_assert_failure() {
-                continue;
-            }
-            let sequence_prefix = Sequence::new(sequence.calls()[..=index].to_vec());
-            // checkrs: allow(clone_in_loops) the finding must own its data
-            let trigger = function.clone();
-            // checkrs: allow(clone_in_loops) the finding must own its data
-            let output = result.output.clone().unwrap_or_default();
-            let finding = Finding::new(sequence_prefix, trigger, output);
-            if execution.findings.try_add(&finding) {
-                info!(
-                    thread = thread_id,
-                    function = %finding.trigger().signature(),
-                    reason = %finding.reason_display(),
-                    calls = finding.sequence().len(),
-                    sequence = %finding.sequence(),
-                    "failed assertion"
-                );
-                found = true;
+        for (idx, function) in execution.invariants.iter().enumerate() {
+            // 3a. Record findings emitted during invariants.
+            if idx < exec.findings.len() {
+                for finding_meta in &exec.findings[idx] {
+                    let sequence_prefix = Sequence::new(sequence.calls()[..=index].to_vec());
+                    // checkrs: allow(clone_in_loops) the finding must own its data
+                    let trigger = function.clone();
+                    let finding =
+                        // checkrs: allow(clone_in_loops) the finding must own its data
+                        Finding::new_explicit(sequence_prefix, trigger, finding_meta.clone());
+                    if execution.findings.try_add(&finding) {
+                        info!(
+                            thread = thread_id,
+                            finding_id = %finding.id(),
+                            severity = ?finding.severity(),
+                            function = %finding.trigger().signature(),
+                            reason = %finding.reason_display(),
+                            calls = finding.sequence().len(),
+                            sequence = %finding.sequence(),
+                            "finding"
+                        );
+                        found = true;
+                    }
+                }
             }
         }
     }

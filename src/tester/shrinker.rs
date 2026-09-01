@@ -1,15 +1,14 @@
-//! Shrinking of finding sequences to the shortest ones preserving the
-//! assertion failure.
+//! Shrinking of finding sequences to the shortest ones preserving the finding.
 //!
 //! [`Shrinker`] runs parallel shrinkers that delete random chunks of calls
 //! from each finding's sequence. A candidate is valid when replaying it from
-//! a clean chain and then re-executing the trigger call reproduces the exact
-//! revert output, so every accepted candidate is a full clean-state replay.
+//! a clean chain and then re-executing the trigger call reproduces the same
+//! `rvm.finding` id, so every accepted candidate is a full clean-state replay.
 //!
 //! Invariants:
 //!
 //! - the sequence length never increases
-//! - the trigger call still panics with the exact same revert output
+//! - the trigger call still emits the exact same finding id
 //!
 //! ```rust
 //! use ripfuzz::tester::Shrinker;
@@ -101,8 +100,8 @@ impl Shrinker {
         self
     }
 
-    /// Shrink every finding's sequence while the trigger call still panics
-    /// with the exact same revert output, and return the shrunk findings.
+    /// Shrink every finding's sequence while the trigger call still emits
+    /// the exact same finding id, and return the shrunk findings.
     pub fn shrink(self, findings: &[Finding]) -> Result<Vec<Finding>> {
         // 1. Require the execution context.
         let execution = Execution {
@@ -132,7 +131,7 @@ impl Shrinker {
 }
 
 /// Shrink one finding's sequence to the shortest one that still reproduces
-/// the exact assertion panic.
+/// the exact finding.
 fn shrink_one(execution: &Execution, finding: &Finding, index: usize) -> Result<Finding> {
     // 1. Short sequences are already minimal.
     if finding.sequence().len() <= 1 {
@@ -302,7 +301,7 @@ impl SharedShrink {
 }
 
 /// Whether replaying `candidate` and then the trigger call reproduces the
-/// finding's exact assertion panic on a clean chain.
+/// finding's exact id on a clean chain.
 fn reproduces(execution: &Execution, sequence: &Sequence, finding: &Finding) -> Result<bool> {
     // checkrs: allow(clone_in_loops) each candidate replays on a clean state
     let mut chain = execution.chain.clone();
@@ -313,8 +312,10 @@ fn reproduces(execution: &Execution, sequence: &Sequence, finding: &Finding) -> 
         execution.deployer,
     ));
     let exec = chain.exec(&transactions)?;
-    let result = exec.results.last().context("trigger call result missing")?;
-    Ok(!result.success && result.output == Some(finding.reason().clone()))
+    Ok(exec
+        .findings
+        .iter()
+        .any(|per_tx| per_tx.iter().any(|f| f.id == finding.id())))
 }
 
 /// Build the transaction that re-executes the finding's trigger call.
@@ -350,14 +351,19 @@ fn shrink_worker(execution: &Execution, shared: &SharedShrink, thread_id: usize)
             break;
         }
 
-        // 2. Accept the candidate when the assertion panic still reproduces
+        // 2. Accept the candidate when the finding still reproduces
         //    exactly on a clean replay.
         if reproduces(execution, &candidate, &current)? {
             // checkrs: allow(clone_in_loops) the accepted finding must own its data
             let trigger = current.trigger().clone();
-            // checkrs: allow(clone_in_loops) the accepted finding must own its data
-            let reason = current.reason().clone();
-            let candidate_finding = Finding::new(candidate, trigger, reason);
+            let candidate_finding = Finding::new_explicit_with_meta(
+                candidate,
+                trigger,
+                current.id(),
+                current.severity(),
+                current.title(),
+                current.description(),
+            );
             if shared.update(candidate_finding) {
                 info!(calls = shared.current_len(), "shrunk sequence");
             }
