@@ -10,7 +10,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use ripfuzz::cli::default_threads;
-use ripfuzz::cli::test::{Args, run};
+use ripfuzz::cli::test::Command;
 
 const HARNESS: &str =
     "fixtures/tester/harness-deployment/HarnessWithIncrement.sol:HarnessWithIncrement";
@@ -24,13 +24,13 @@ const SUMMARY: &str =
     "fixtures/tester/harness-deployment/HarnessWithSummary.sol:HarnessWithSummary";
 const WRONG_NAME: &str = "fixtures/tester/harness-deployment/HarnessWithIncrement.sol:DoesNotExist";
 
-fn args(harness: &str) -> Args {
+fn command(harness: &str) -> Command {
     let corpus_dir = std::env::temp_dir().join(format!(
         "ripfuzz-test-deployment-{}-{}",
         std::process::id(),
         fastrand::u64(..)
     ));
-    Args {
+    Command {
         harness: harness.parse().unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
         root: PathBuf::from("."),
@@ -49,7 +49,9 @@ fn args(harness: &str) -> Args {
 /// A valid harness must compile, deploy, and fuzz without broken invariants.
 #[test]
 fn test_compiles_and_deploys_harness() {
-    let broken_invariants = run(args(HARNESS)).expect("test should compile and deploy the harness");
+    let broken_invariants = command(HARNESS)
+        .run()
+        .expect("test should compile and deploy the harness");
     assert!(broken_invariants.is_empty(), "no invariant should break");
 }
 
@@ -58,8 +60,9 @@ fn test_compiles_and_deploys_harness() {
 /// deduplicated to one broken invariant per id.
 #[test]
 fn test_finds_and_shrinks_failing_invariant() {
-    let broken_invariants =
-        run(args(FAILING_INVARIANT)).expect("test should complete the campaign");
+    let broken_invariants = command(FAILING_INVARIANT)
+        .run()
+        .expect("test should complete the campaign");
 
     assert_eq!(
         broken_invariants.len(),
@@ -82,7 +85,9 @@ fn test_finds_and_shrinks_failing_invariant() {
 /// invariant whose bail-emitting call is the handler.
 #[test]
 fn test_finds_failing_handler() {
-    let broken_invariants = run(args(FAILING_HANDLER)).expect("test should complete the campaign");
+    let broken_invariants = command(FAILING_HANDLER)
+        .run()
+        .expect("test should complete the campaign");
 
     assert!(
         !broken_invariants.is_empty(),
@@ -99,7 +104,9 @@ fn test_finds_failing_handler() {
 /// error, and the execution trace must be dumped to the traces directory.
 #[test]
 fn test_fails_when_harness_constructor_reverts() {
-    let err = run(args(REVERTING)).expect_err("test must fail when deployment reverts");
+    let err = command(REVERTING)
+        .run()
+        .expect_err("test must fail when deployment reverts");
     assert_eq!(
         err.to_string(),
         "harness contract `HarnessWithRevertingConstructor` deployment failed"
@@ -115,7 +122,9 @@ fn test_fails_when_harness_constructor_reverts() {
 /// execution trace dumped to the traces directory.
 #[test]
 fn test_fails_when_setup_reverts() {
-    let err = run(args(REVERTING_SETUP)).expect_err("test must fail when setup reverts");
+    let err = command(REVERTING_SETUP)
+        .run()
+        .expect_err("test must fail when setup reverts");
     assert_eq!(
         err.to_string(),
         "harness contract `HarnessWithRevertingSetup` setup failed"
@@ -131,7 +140,9 @@ fn test_fails_when_setup_reverts() {
 /// fails, saving an execution trace of the summary call.
 #[test]
 fn test_runs_summary_without_broken_invariants() {
-    run(args(SUMMARY)).expect("test must run the summary after the campaign");
+    command(SUMMARY)
+        .run()
+        .expect("test must run the summary after the campaign");
 
     assert!(
         traces_exist(".ripfuzz/traces"),
@@ -143,7 +154,9 @@ fn test_runs_summary_without_broken_invariants() {
 /// the available contracts listed.
 #[test]
 fn test_fails_when_contract_name_is_wrong() {
-    let err = run(args(WRONG_NAME)).expect_err("test must fail for a wrong contract name");
+    let err = command(WRONG_NAME)
+        .run()
+        .expect_err("test must fail for a wrong contract name");
     assert_eq!(
         err.to_string(),
         "contract `DoesNotExist` not found in `fixtures/tester/harness-deployment/HarnessWithIncrement.sol`, available contracts: HarnessWithIncrement"

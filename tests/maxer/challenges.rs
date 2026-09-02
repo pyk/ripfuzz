@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use alloy_primitives::U256;
 use ripfuzz::cli::default_threads;
-use ripfuzz::cli::max::{Args, run};
+use ripfuzz::cli::max::Command;
 
 const MAX_CALLS: usize = 32;
 
@@ -92,7 +92,7 @@ fn max_challenges_reach_the_highest_value() {
         let expected = expected_value(stem);
 
         let harness = format!("{}:{}", path.display(), contract);
-        let args = Args {
+        let command = Command {
             harness: harness.parse().unwrap(),
             config: PathBuf::from("./ripfuzz.toml"),
             root: PathBuf::from("."),
@@ -110,7 +110,7 @@ fn max_challenges_reach_the_highest_value() {
             .join(format!("{stem}.sol"))
             .join(contract)
             .join("corpus.json");
-        let best = run(args).unwrap_or_else(|err| {
+        let best = command.run().unwrap_or_else(|err| {
             panic!(
                 "challenge {stem} failed: {err:#} (corpus {})",
                 corpus_file.display()

@@ -17,13 +17,13 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Initialize a new ripfuzz project.
-    Init(cli::init::Args),
+    Init(cli::init::Command),
     /// Execute a script contract.
-    Exec(Box<cli::exec::Args>),
+    Exec(Box<cli::exec::Command>),
     /// Find broken invariants.
-    Test(Box<cli::test::Args>),
+    Test(Box<cli::test::Command>),
     /// Find maximum value.
-    Max(Box<cli::max::Args>),
+    Max(Box<cli::max::Command>),
 }
 
 fn main() -> ExitCode {
@@ -40,10 +40,10 @@ fn main() -> ExitCode {
     }
 
     let result = match cli.command {
-        Commands::Init(args) => cli::init::run(args),
-        Commands::Exec(args) => cli::exec::run(*args),
-        Commands::Test(args) => cli::test::run(*args).map(|_| ()),
-        Commands::Max(args) => cli::max::run(*args).map(|_| ()),
+        Commands::Init(command) => command.run(),
+        Commands::Exec(command) => command.run(),
+        Commands::Test(command) => command.run().map(|_| ()),
+        Commands::Max(command) => command.run().map(|_| ()),
     };
 
     if let Err(e) = result {

@@ -4,13 +4,13 @@
 use std::path::{Path, PathBuf};
 
 use ripfuzz::cli::default_threads;
-use ripfuzz::cli::test::{Args, run};
+use ripfuzz::cli::test::Command;
 
 const HARNESS: &str = "fixtures/tester/challenges/GatedByLiterals.sol:GatedByLiterals";
 const BROKEN_INVARIANT_COUNT: usize = 11;
 
-fn args(corpus_dir: &Path) -> Args {
-    Args {
+fn command(corpus_dir: &Path) -> Command {
+    Command {
         harness: HARNESS.parse().unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
         root: PathBuf::from("."),
@@ -44,7 +44,9 @@ fn gated_by_literals_second_campaign_does_not_grow_the_corpus() {
     let tmp = tempfile::tempdir().unwrap();
     let corpus_dir = tmp.path().join("corpus");
 
-    let first = run(args(&corpus_dir)).expect("first campaign must complete");
+    let first = command(&corpus_dir)
+        .run()
+        .expect("first campaign must complete");
     assert_eq!(
         first.len(),
         BROKEN_INVARIANT_COUNT,
@@ -52,7 +54,9 @@ fn gated_by_literals_second_campaign_does_not_grow_the_corpus() {
     );
     let first_len = corpus_len(&corpus_dir);
 
-    let second = run(args(&corpus_dir)).expect("second campaign must complete");
+    let second = command(&corpus_dir)
+        .run()
+        .expect("second campaign must complete");
     assert_eq!(
         second.len(),
         BROKEN_INVARIANT_COUNT,

@@ -8,7 +8,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use ripfuzz::cli::exec::{Args, run};
+use ripfuzz::cli::exec::Command;
 
 const SCRIPT: &str = "fixtures/executor/script-deployment/ScriptExecutes.sol";
 const REVERTING: &str = "fixtures/executor/script-deployment/ScriptWithRevertingConstructor.sol";
@@ -18,8 +18,8 @@ const CUSTOM_NAME: &str = "fixtures/executor/script-deployment/ScriptCustomName.
 const WRONG_NAME: &str = "fixtures/executor/script-deployment/ScriptCustomName.sol:DoesNotExist";
 const MISSING_FILE: &str = "fixtures/executor/script-deployment/ScriptMissing.sol";
 
-fn args(script: &str) -> Args {
-    Args {
+fn command(script: &str) -> Command {
+    Command {
         script: script.parse().unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
         root: PathBuf::from("."),
@@ -32,7 +32,9 @@ fn args(script: &str) -> Args {
 /// with the default contract name derived from the file stem.
 #[test]
 fn exec_compiles_and_runs_script() {
-    run(args(SCRIPT)).expect("exec should compile and run the script");
+    command(SCRIPT)
+        .run()
+        .expect("exec should compile and run the script");
 
     assert!(
         traces_contain(".ripfuzz/traces", "ExecRan"),
@@ -44,7 +46,9 @@ fn exec_compiles_and_runs_script() {
 /// error, and the execution trace must be dumped to the traces directory.
 #[test]
 fn exec_fails_when_constructor_reverts() {
-    let err = run(args(REVERTING)).expect_err("exec must fail when deployment reverts");
+    let err = command(REVERTING)
+        .run()
+        .expect_err("exec must fail when deployment reverts");
     assert_eq!(
         err.to_string(),
         "script contract `ScriptWithRevertingConstructor` deployment failed"
@@ -60,7 +64,9 @@ fn exec_fails_when_constructor_reverts() {
 /// execution trace dumped to the traces directory.
 #[test]
 fn exec_fails_when_setup_reverts() {
-    let err = run(args(REVERTING_SETUP)).expect_err("exec must fail when setup reverts");
+    let err = command(REVERTING_SETUP)
+        .run()
+        .expect_err("exec must fail when setup reverts");
     assert_eq!(
         err.to_string(),
         "script contract `ScriptWithRevertingSetup` setup failed"
@@ -76,7 +82,9 @@ fn exec_fails_when_setup_reverts() {
 /// to the traces directory.
 #[test]
 fn exec_fails_when_exec_reverts() {
-    let err = run(args(REVERTING_EXEC)).expect_err("exec must fail when exec reverts");
+    let err = command(REVERTING_EXEC)
+        .run()
+        .expect_err("exec must fail when exec reverts");
     assert_eq!(
         err.to_string(),
         "script contract `ScriptWithRevertingExec` exec failed"
@@ -92,14 +100,18 @@ fn exec_fails_when_exec_reverts() {
 /// default name derived from the file stem.
 #[test]
 fn exec_uses_explicit_contract_name() {
-    run(args(CUSTOM_NAME)).expect("exec should run the explicitly named contract");
+    command(CUSTOM_NAME)
+        .run()
+        .expect("exec should run the explicitly named contract");
 }
 
 /// A script path that exists but names a missing contract must fail with
 /// the available contracts listed.
 #[test]
 fn exec_fails_when_contract_name_is_wrong() {
-    let err = run(args(WRONG_NAME)).expect_err("exec must fail for a wrong contract name");
+    let err = command(WRONG_NAME)
+        .run()
+        .expect_err("exec must fail for a wrong contract name");
     assert_eq!(
         err.to_string(),
         "contract `DoesNotExist` not found in `fixtures/executor/script-deployment/ScriptCustomName.sol`, available contracts: CustomTarget, ScriptCustomName"
@@ -109,7 +121,9 @@ fn exec_fails_when_contract_name_is_wrong() {
 /// A script path that does not exist must fail before compilation.
 #[test]
 fn exec_fails_when_script_file_is_missing() {
-    let err = run(args(MISSING_FILE)).expect_err("exec must fail for a missing file");
+    let err = command(MISSING_FILE)
+        .run()
+        .expect_err("exec must fail for a missing file");
     assert_eq!(
         err.to_string(),
         "script file `fixtures/executor/script-deployment/ScriptMissing.sol` not found"

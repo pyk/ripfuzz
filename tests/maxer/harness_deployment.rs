@@ -10,7 +10,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use ripfuzz::cli::default_threads;
-use ripfuzz::cli::max::{Args, run};
+use ripfuzz::cli::max::Command;
 
 const HARNESS: &str =
     "fixtures/maxer/harness-deployment/HarnessWithIncrement.sol:HarnessWithIncrement";
@@ -22,13 +22,13 @@ const REVERTING_VALUE: &str =
 const SETUP: &str = "fixtures/maxer/harness-deployment/HarnessWithSetup.sol:HarnessWithSetup";
 const WRONG_NAME: &str = "fixtures/maxer/harness-deployment/HarnessWithIncrement.sol:DoesNotExist";
 
-fn args(harness: &str) -> Args {
+fn command(harness: &str) -> Command {
     let corpus_dir = std::env::temp_dir().join(format!(
         "ripfuzz-max-deployment-{}-{}",
         std::process::id(),
         fastrand::u64(..)
     ));
-    Args {
+    Command {
         harness: harness.parse().unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
         root: PathBuf::from("."),
@@ -47,14 +47,18 @@ fn args(harness: &str) -> Args {
 /// A valid harness must compile and deploy, printing the deployed address.
 #[test]
 fn max_compiles_and_deploys_harness() {
-    run(args(HARNESS)).expect("max should compile and deploy the harness");
+    command(HARNESS)
+        .run()
+        .expect("max should compile and deploy the harness");
 }
 
 /// A harness whose constructor reverts must fail deployment with a clear
 /// error, and the execution trace must be dumped to the traces directory.
 #[test]
 fn max_fails_when_harness_constructor_reverts() {
-    let err = run(args(REVERTING)).expect_err("max must fail when deployment reverts");
+    let err = command(REVERTING)
+        .run()
+        .expect_err("max must fail when deployment reverts");
     assert_eq!(
         err.to_string(),
         "harness contract `HarnessWithRevertingConstructor` deployment failed"
@@ -86,7 +90,9 @@ fn traces_contain(dir: &str, needle: &str) -> bool {
 /// execution trace dumped to the traces directory.
 #[test]
 fn max_fails_when_setup_reverts() {
-    let err = run(args(REVERTING_SETUP)).expect_err("max must fail when setup reverts");
+    let err = command(REVERTING_SETUP)
+        .run()
+        .expect_err("max must fail when setup reverts");
     assert_eq!(
         err.to_string(),
         "harness contract `HarnessWithRevertingSetup` setup failed"
@@ -102,7 +108,9 @@ fn max_fails_when_setup_reverts() {
 /// trace dumped to the traces directory.
 #[test]
 fn max_fails_when_value_reverts() {
-    let err = run(args(REVERTING_VALUE)).expect_err("max must fail when value reverts");
+    let err = command(REVERTING_VALUE)
+        .run()
+        .expect_err("max must fail when value reverts");
     assert_eq!(
         err.to_string(),
         "harness contract `HarnessWithRevertingValue` value call failed"
@@ -117,14 +125,18 @@ fn max_fails_when_value_reverts() {
 /// A harness with a working `setup` must compile, deploy, and run `setup`.
 #[test]
 fn max_runs_setup_after_deployment() {
-    run(args(SETUP)).expect("max must run setup after deployment");
+    command(SETUP)
+        .run()
+        .expect("max must run setup after deployment");
 }
 
 /// A harness path that exists but names a missing contract must fail with
 /// the available contracts listed.
 #[test]
 fn max_fails_when_contract_name_is_wrong() {
-    let err = run(args(WRONG_NAME)).expect_err("max must fail for a wrong contract name");
+    let err = command(WRONG_NAME)
+        .run()
+        .expect_err("max must fail for a wrong contract name");
     assert_eq!(
         err.to_string(),
         "contract `DoesNotExist` not found in `fixtures/maxer/harness-deployment/HarnessWithIncrement.sol`, available contracts: HarnessWithIncrement"

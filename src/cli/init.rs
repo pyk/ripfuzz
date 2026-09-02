@@ -16,9 +16,9 @@ const GITIGNORE_CONTENT: &str = ".ripfuzz\n.env\n";
 
 /// Initialize a new ripfuzz project.
 #[derive(Debug, Parser)]
-pub struct Args {}
+pub struct Command {}
 
-impl Args {
+impl Command {
     pub fn run(&self) -> Result<()> {
         // 1. Initialize stderr logging without a log file so command errors
         //    reach the console without creating `.ripfuzz` state.
@@ -27,10 +27,6 @@ impl Args {
         // 2. Create the project files.
         Initializer::new().with_root(".").run()
     }
-}
-
-pub fn run(args: Args) -> Result<()> {
-    args.run()
 }
 
 #[derive(Debug, Clone)]

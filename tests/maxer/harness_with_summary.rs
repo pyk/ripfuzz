@@ -7,13 +7,13 @@ use std::path::PathBuf;
 
 use alloy_primitives::U256;
 use ripfuzz::cli::default_threads;
-use ripfuzz::cli::max::{Args, run};
+use ripfuzz::cli::max::Command;
 
 /// The summary call must appear in a saved trace after the campaign.
 #[test]
 fn max_runs_summary_and_saves_its_trace() {
     let corpus_dir = tempfile::tempdir().unwrap();
-    let args = Args {
+    let command = Command {
         harness: "fixtures/maxer/harness-with-summary/HarnessWithSummary.sol:HarnessWithSummary"
             .parse()
             .unwrap(),
@@ -30,7 +30,7 @@ fn max_runs_summary_and_saves_its_trace() {
         log_level: tracing::Level::INFO,
     };
 
-    let best = run(args).unwrap();
+    let best = command.run().unwrap();
     assert!(
         best.value().get() > U256::ZERO,
         "campaign must find a deposit"

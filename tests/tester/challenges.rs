@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use alloy_primitives::U256;
 use ripfuzz::cli::default_threads;
-use ripfuzz::cli::test::{Args, run};
+use ripfuzz::cli::test::Command;
 use ripfuzz::compilers::solc::Solc;
 use ripfuzz::tester::LiteralExtractor;
 
@@ -129,7 +129,7 @@ fn temp_corpus_dir() -> PathBuf {
 #[test]
 fn gated_by_literals_finds_every_assertion() {
     let corpus_dir = temp_corpus_dir();
-    let args = Args {
+    let command = Command {
         harness: HARNESS.parse().unwrap(),
         config: PathBuf::from("./ripfuzz.toml"),
         root: PathBuf::from("."),
@@ -144,7 +144,9 @@ fn gated_by_literals_finds_every_assertion() {
         log_level: tracing::Level::INFO,
     };
 
-    let broken_invariants = run(args).expect("challenge should complete the campaign");
+    let broken_invariants = command
+        .run()
+        .expect("challenge should complete the campaign");
 
     let ids: HashSet<&str> = broken_invariants.iter().map(|broken| broken.id()).collect();
     let expected: HashSet<&str> = BROKEN_INVARIANTS.iter().map(|(id, _)| *id).collect();
