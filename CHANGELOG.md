@@ -10,6 +10,9 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz init` now also creates a `.gitignore` with `.ripfuzz` and `.env`
+  entries. An existing `.gitignore` gets only its missing entries appended.
+
 ### Changed
 
 - `ripfuzz test` and `ripfuzz max` now default `--threads` to the available CPU
