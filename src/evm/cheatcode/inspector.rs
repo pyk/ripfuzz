@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use alloy_sol_types::SolInterface;
 use revm::{
     context::{BlockEnv, ContextSetters, TxEnv},
-    context_interface::ContextTr,
+    context_interface::{ContextTr, JournalTr},
     handler::FrameResult,
     interpreter::{
         CallInputs, CallOutcome, CreateInputs, CreateOutcome, FrameInput, Gas, InstructionResult,
@@ -112,6 +112,14 @@ impl Inspector {
         }
     }
 
+    /// Load an account into the journal so a frame that moves value from
+    /// it does not hit revm's `transfer_loaded` unwrap on an unloaded
+    /// account. revm assumes the caller of every value-carrying frame is
+    /// already loaded, which does not hold for a spoofed prank caller.
+    fn load_pranked_caller(ctx: &mut impl ContextSetters<Tx = TxEnv>, addr: Address) {
+        let _ = ctx.journal_mut().load_account(addr);
+    }
+
     /// Apply an active prank to a nested call frame.
     fn apply_prank(&mut self, ctx: &mut impl ContextSetters<Tx = TxEnv>, inputs: &mut CallInputs) {
         if self.state.prank.start.is_none() && self.state.prank.active.is_none() {
@@ -147,6 +155,7 @@ impl Inspector {
 
         if let Some((caller, _)) = start_info {
             inputs.caller = caller;
+            Self::load_pranked_caller(ctx, caller);
         }
         if let Some((_, Some(o))) = start_info {
             self.patch_origin(ctx, o);
@@ -154,6 +163,7 @@ impl Inspector {
 
         if let Some((caller, _)) = prank_info {
             inputs.caller = caller;
+            Self::load_pranked_caller(ctx, caller);
         }
         if let Some((_, Some(o))) = prank_info {
             self.patch_origin(ctx, o);
@@ -201,6 +211,7 @@ impl Inspector {
 
         if let Some((caller, _)) = start_info {
             inputs.set_call(caller);
+            Self::load_pranked_caller(ctx, caller);
         }
         if let Some((_, Some(o))) = start_info {
             self.patch_origin(ctx, o);
@@ -208,6 +219,7 @@ impl Inspector {
 
         if let Some((caller, _)) = prank_info {
             inputs.set_call(caller);
+            Self::load_pranked_caller(ctx, caller);
         }
         if let Some((_, Some(o))) = prank_info {
             self.patch_origin(ctx, o);

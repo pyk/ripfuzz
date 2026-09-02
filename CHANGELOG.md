@@ -28,6 +28,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   console. It writes no log file, keeping a fresh project free of `.ripfuzz`
   state.
 
+- A `vm.prank` caller that pays value in the pranked call no longer panics the
+  fuzzer. The pranked address is now loaded into the journal before the frame
+  runs, so a zero-balance sponsor reverts out-of-funds cleanly instead of
+  hitting an `unwrap` on an unloaded account inside revm.
+
 ## [0.9.5] - 2026-09-02
 
 ### Added

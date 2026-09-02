@@ -177,6 +177,13 @@ mod tests {
         }
     }
 
+    alloy_sol_types::sol! {
+        interface PrankTransferHarness {
+            function actionPrankUnfundedTransfer() external;
+            function actionPrankFundedTransfer() external;
+        }
+    }
+
     const PRANK_ADDR: Address = address!("0x1111111111111111111111111111111111111111");
     const PRANK_ADDR_2: Address = address!("0x2222222222222222222222222222222222222222");
     const START_ADDR: Address = address!("0x5555555555555555555555555555555555555555");
@@ -212,6 +219,16 @@ mod tests {
 
         let setup = chain.setup(SetupInput::new(target)).unwrap();
         assert!(setup.result.success, "setup must succeed");
+
+        (chain, target)
+    }
+
+    fn deploy_and_setup_transfer() -> (Chain, Address) {
+        let initcode = load_initcode("PrankTransferHarness.sol:PrankTransferHarness");
+        let mut chain = Chain::new(ChainConfig::default()).unwrap();
+        let deployment = chain.deploy(DeployInput::new(&initcode)).unwrap();
+        assert!(deployment.result.success, "deployment must succeed");
+        let target = deployment.address.unwrap();
 
         (chain, target)
     }
@@ -579,6 +596,45 @@ mod tests {
         assert!(
             execution.results[1].success,
             "invariant must pass: startPrank must not leak into sub-calls"
+        );
+    }
+
+    /// Regression test: a prank that swaps in a never-loaded caller must
+    /// not panic revm's journal when the pranked frame transfers value.
+    /// The zero-balance sponsor cannot pay, so the transfer reverts with
+    /// empty revert data instead of panicking on an unloaded account.
+    #[test]
+    fn prank_unfunded_transfer_reverts_cleanly() {
+        let (mut chain, target) = deploy_and_setup_transfer();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            PrankTransferHarness::actionPrankUnfundedTransferCall::new(()).abi_encode(),
+        ))];
+
+        let execution = chain.exec(&txs).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            !execution.results[0].success,
+            "unfunded pranked transfer must revert"
+        );
+        assert_eq!(execution.results[0].output, Some(Bytes::new()));
+    }
+
+    /// A pranked caller funded through `vm.deal` must pay the transfer
+    /// value, proving the pranked frame moves funds from the spoofed
+    /// caller rather than reverting or panicking.
+    #[test]
+    fn prank_funded_transfer_pays_value() {
+        let (mut chain, target) = deploy_and_setup_transfer();
+        let txs = vec![Transaction::new(target).calldata(Bytes::from(
+            PrankTransferHarness::actionPrankFundedTransferCall::new(()).abi_encode(),
+        ))];
+
+        let execution = chain.exec(&txs).unwrap();
+        assert_eq!(execution.results.len(), 1);
+        assert!(
+            execution.results[0].success,
+            "funded pranked transfer must succeed: {:?}",
+            execution.results[0].output.as_ref().map(|o| o.to_string())
         );
     }
 }
