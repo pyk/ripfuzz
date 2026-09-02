@@ -1,11 +1,13 @@
 //! Configuration for `ripfuzz`.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use solc::EvmVersion;
+use toml_edit::{DocumentMut, InlineTable, Item, Table, Value};
 
 fn default_out() -> PathBuf {
     PathBuf::from(".ripfuzz/solc")
@@ -31,9 +33,29 @@ pub struct Config {
     /// Solc compiler configuration.
     pub solc: SolcConfig,
 
+    /// Fetched dependencies keyed by name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dependencies: BTreeMap<String, Dependency>,
+
     /// Root used to resolve the config path. Not part of the TOML file.
     #[serde(skip)]
     root: PathBuf,
+}
+
+/// A fetched dependency in the `[dependencies]` section of `ripfuzz.toml`.
+///
+/// ```toml
+/// [dependencies]
+/// ripfuzz = { url = "https://github.com/pyk/ripfuzz-std/archive/main.tar.gz", hash = "0x1220..." }
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Dependency {
+    /// URL of the tar.gz archive the dependency was fetched from.
+    pub url: String,
+
+    /// Multihash of the archive contents, hex encoded with a `0x` prefix.
+    pub hash: String,
 }
 
 /// Solc section of `ripfuzz.toml`.
@@ -97,6 +119,7 @@ impl Config {
     pub fn new() -> Self {
         Self {
             solc: SolcConfig::new(),
+            dependencies: BTreeMap::new(),
             root: PathBuf::from("."),
         }
     }
@@ -126,6 +149,73 @@ impl Config {
         } else {
             self.root.join(path)
         }
+    }
+
+    /// Records a dependency in the `[dependencies]` table of the TOML file at
+    /// `path`, preserving comments and formatting of the rest of the file.
+    ///
+    /// An existing entry with the same name is replaced.
+    pub fn record_dependency(
+        path: impl AsRef<Path>,
+        name: &str,
+        dependency: Dependency,
+    ) -> Result<()> {
+        // 1. Parse the TOML file without discarding comments or formatting.
+        let path = path.as_ref();
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("failed to read config `{}`", path.display()))?;
+        let mut doc = content
+            .parse::<DocumentMut>()
+            .with_context(|| format!("failed to parse config `{}`", path.display()))?;
+
+        // 2. Ensure the `[dependencies]` table exists.
+        let dependencies = doc
+            .entry("dependencies")
+            .or_insert(Item::Table(Table::new()));
+        let dependencies = dependencies
+            .as_table_mut()
+            .context("config field `dependencies` is not a table")?;
+
+        // 3. Write the dependency as an inline table so the entry reads
+        //    `name = { url = "...", hash = "..." }`.
+        let mut entry = InlineTable::new();
+        entry.insert("url", Value::from(dependency.url));
+        entry.insert("hash", Value::from(dependency.hash));
+        dependencies.insert(name, Item::Value(entry.into()));
+
+        // 4. Persist the updated document.
+        fs::write(path, doc.to_string())
+            .with_context(|| format!("failed to write config `{}`", path.display()))
+    }
+
+    /// Remappings that map each dependency name onto its extracted sources.
+    ///
+    /// The import `ripfuzz/std.sol` resolves to
+    /// `.ripfuzz/dependencies/ripfuzz/src/std.sol` when the dependency ships a
+    /// `src` directory, and to the dependency root otherwise.
+    pub fn dependency_remappings(&self) -> Vec<String> {
+        self.dependencies
+            .keys()
+            .map(|name| {
+                let relative = Path::new(".ripfuzz").join("dependencies").join(name);
+                let target = if self.root.join(&relative).join("src").is_dir() {
+                    relative.join("src")
+                } else {
+                    relative
+                };
+                format!("{name}/={}", target.display())
+            })
+            .collect()
+    }
+
+    /// Remappings for solc compilation.
+    ///
+    /// Explicit `[solc]` remappings come first so they win over dependency
+    /// remappings, which in turn win over `remappings.txt` entries.
+    pub fn compile_remappings(&self) -> Vec<String> {
+        let mut remappings = self.solc.remappings.clone();
+        remappings.extend(self.dependency_remappings());
+        remappings
     }
 }
 
@@ -205,6 +295,7 @@ mod tests {
                     via_ir: false,
                     remappings: Vec::new(),
                 },
+                dependencies: BTreeMap::new(),
                 root: PathBuf::from(""),
             }
         );
@@ -285,6 +376,142 @@ remappings = [
         assert_eq!(
             err.root_cause().to_string(),
             "TOML parse error at line 3, column 1\n  |\n3 | foo = 1\n  | ^^^\nunknown field `foo`, expected one of `version`, `out`, `evm_version`, `optimizer`, `optimizer_runs`, `via_ir`, `remappings`\n"
+        );
+    }
+
+    #[test]
+    fn dependency_remappings_target_src_when_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".ripfuzz/dependencies/ripfuzz/src")).unwrap();
+
+        let config = Config::parse(
+            "[solc]\nversion = \"0.8.36\"\n\n[dependencies]\nripfuzz = { url = \"https://example.com/std.tar.gz\", hash = \"0x1220abc\" }\n",
+        )
+        .unwrap()
+        .with_root(dir.path());
+
+        assert_eq!(
+            config.dependency_remappings(),
+            vec!["ripfuzz/=.ripfuzz/dependencies/ripfuzz/src".to_owned()]
+        );
+    }
+
+    #[test]
+    fn dependency_remappings_fall_back_to_dependency_root() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let config = Config::parse(
+            "[solc]\nversion = \"0.8.36\"\n\n[dependencies]\nripfuzz = { url = \"https://example.com/std.tar.gz\", hash = \"0x1220abc\" }\n",
+        )
+        .unwrap()
+        .with_root(dir.path());
+
+        assert_eq!(
+            config.dependency_remappings(),
+            vec!["ripfuzz/=.ripfuzz/dependencies/ripfuzz".to_owned()]
+        );
+    }
+
+    #[test]
+    fn compile_remappings_precede_dependency_remappings() {
+        let config = Config::parse(
+            "[solc]\nversion = \"0.8.36\"\nremappings = [\"ripfuzz/=lib/override/src/\"]\n\n[dependencies]\nripfuzz = { url = \"https://example.com/std.tar.gz\", hash = \"0x1220abc\" }\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.compile_remappings(),
+            vec![
+                "ripfuzz/=lib/override/src/".to_owned(),
+                "ripfuzz/=.ripfuzz/dependencies/ripfuzz".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn record_dependency_appends_the_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ripfuzz.toml");
+        fs::write(&path, "[solc]\nversion = \"0.8.36\"\n").unwrap();
+
+        Config::record_dependency(
+            &path,
+            "ripfuzz",
+            Dependency {
+                url: "https://example.com/std.tar.gz".to_owned(),
+                hash: "0x1220abc".to_owned(),
+            },
+        )
+        .unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            content,
+            "[solc]\nversion = \"0.8.36\"\n\n[dependencies]\nripfuzz = { url = \"https://example.com/std.tar.gz\", hash = \"0x1220abc\" }\n"
+        );
+    }
+
+    #[test]
+    fn record_dependency_preserves_comments_and_replaces_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ripfuzz.toml");
+        fs::write(
+            &path,
+            "# project config\n[solc]\nversion = \"0.8.36\" # pinned\n\n[dependencies]\nold = { url = \"https://example.com/old.tar.gz\", hash = \"0x1220old\" }\n",
+        )
+        .unwrap();
+
+        Config::record_dependency(
+            &path,
+            "ripfuzz",
+            Dependency {
+                url: "https://example.com/std.tar.gz".to_owned(),
+                hash: "0x1220abc".to_owned(),
+            },
+        )
+        .unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            content,
+            "# project config\n[solc]\nversion = \"0.8.36\" # pinned\n\n[dependencies]\nold = { url = \"https://example.com/old.tar.gz\", hash = \"0x1220old\" }\nripfuzz = { url = \"https://example.com/std.tar.gz\", hash = \"0x1220abc\" }\n"
+        );
+    }
+
+    #[test]
+    fn parse_dependencies() {
+        let config = Config::parse(
+            r#"
+[solc]
+version = "0.8.36"
+
+[dependencies]
+ripfuzz = { url = "https://github.com/pyk/ripfuzz-std/archive/main.tar.gz", hash = "0x1220abc" }
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.dependencies.get("ripfuzz"),
+            Some(&Dependency {
+                url: "https://github.com/pyk/ripfuzz-std/archive/main.tar.gz".to_owned(),
+                hash: "0x1220abc".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_rejects_dependency_without_hash() {
+        let err = Config::parse(
+            "[solc]\nversion = \"0.8.36\"\n\n[dependencies]\nripfuzz = { url = \"https://example.com/std.tar.gz\" }\n",
+        )
+        .unwrap_err();
+
+        assert_eq!(err.to_string(), "failed to parse config");
+        assert!(
+            err.root_cause()
+                .to_string()
+                .contains("missing field `hash`")
         );
     }
 }

@@ -17,6 +17,7 @@ pub use tester::{
 pub mod cli;
 pub mod compilers;
 pub mod config;
+pub mod dependencies;
 pub mod executor;
 pub mod harness;
 pub mod logger;

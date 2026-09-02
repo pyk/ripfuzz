@@ -80,7 +80,9 @@ to your Cargo bin directory.
 
 Ripfuzz compiles harnesses with `solc`. Run `ripfuzz init` to write a
 `ripfuzz.toml` with the compiler version, then point `ripfuzz test` or
-`ripfuzz max` at a Solidity file.
+`ripfuzz max` at a Solidity file. Shared libraries can be fetched with
+`ripfuzz fetch` instead of vendoring them, see
+[`docs/dependencies.md`](docs/dependencies.md).
 
 ## Quick start
 

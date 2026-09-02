@@ -93,6 +93,7 @@ impl Command {
         let config = Config::new().with_root(&root).load(&self.config)?;
 
         // 3. Compile the harness via Solc relative to the project root.
+        let remappings = config.compile_remappings();
         let solc_output = Solc::new()
             .with_version(&config.solc.version)
             .with_root(&root)
@@ -102,7 +103,7 @@ impl Command {
             .with_evm_version(config.solc.evm_version)
             .with_optimizer(config.solc.optimizer, config.solc.optimizer_runs)
             .with_via_ir(config.solc.via_ir)
-            .with_remappings(config.solc.remappings.clone())
+            .with_remappings(remappings)
             .compile()?;
 
         // 4. Validate the compiled output against the max harness rules.

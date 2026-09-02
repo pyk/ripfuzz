@@ -46,6 +46,16 @@ hex = "0.4.3"
 # SHA-256 for solc binary verification
 sha2 = "0.10"
 
+# Multihash encoding for dependency hashes (build.zig.zon style)
+multihash = "0.19"
+
+# Dependency tarball extraction
+tar = "0.4"
+flate2 = "1"
+
+# In-place TOML editing that preserves comments and formatting
+toml_edit = "0.25"
+
 # EVM stuff
 alloy-chains = "0.2"
 alloy-hardforks = "0.4"

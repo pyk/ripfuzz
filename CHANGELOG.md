@@ -10,6 +10,16 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz fetch <name> <url>` downloads and extracts a tar.gz dependency into
+  `.ripfuzz/dependencies/<name>`, hashes the archive as a sha2-256 multihash,
+  and records it under `[dependencies]` in `ripfuzz.toml`. Refuses to replace a
+  dependency whose recorded hash differs.
+
+- `ripfuzz test`, `ripfuzz max`, and `ripfuzz exec` now remap each dependency
+  name onto its extracted sources, so
+  `import {InvariantTest} from   "ripfuzz/std.sol"` compiles without manual
+  remappings. See [docs/dependencies.md](docs/dependencies.md).
+
 - `ripfuzz init` now also creates a `.gitignore` with `.ripfuzz` and `.env`
   entries. An existing `.gitignore` gets only its missing entries appended.
 
