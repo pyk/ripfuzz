@@ -11,7 +11,8 @@
 //! ```rust,no_run
 //! use ripfuzz::logger::Logger;
 //!
-//! Logger::new(std::path::Path::new("."))
+//! Logger::new()
+//!     .with_root(std::path::Path::new("."))
 //!     .with_level(tracing::Level::INFO)
 //!     .init()
 //!     .unwrap();
@@ -147,6 +148,17 @@ fn log_id() -> String {
     uuid.split('-').next().unwrap_or_default().to_owned()
 }
 
+/// Destination of the log-file layer.
+#[derive(Debug)]
+enum LogFile {
+    /// Default `{root}/.ripfuzz/logs` path.
+    Default,
+    /// Explicit path.
+    Path(PathBuf),
+    /// No log file at all.
+    Off,
+}
+
 /// Installs compact stderr logging and a timestamped log file under the
 /// project root.
 #[derive(Debug)]
@@ -154,20 +166,33 @@ pub struct Logger {
     root: PathBuf,
     quiet: bool,
     level: tracing::Level,
-    log_file: Option<PathBuf>,
+    log_file: LogFile,
     disabled: bool,
 }
 
+impl Default for Logger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Logger {
-    /// Create a logger that writes under `{root}/.ripfuzz/logs`.
-    pub fn new(root: &Path) -> Self {
+    /// Create a logger that writes under the working directory until
+    /// `with_root` selects another project root.
+    pub fn new() -> Self {
         Self {
-            root: root.to_path_buf(),
+            root: PathBuf::from("."),
             quiet: false,
             level: tracing::Level::INFO,
-            log_file: None,
+            log_file: LogFile::Default,
             disabled: false,
         }
+    }
+
+    /// Set the project root the log file lives under.
+    pub fn with_root(mut self, root: impl AsRef<Path>) -> Self {
+        self.root = root.as_ref().to_path_buf();
+        self
     }
 
     /// Suppress terminal log output.
@@ -184,7 +209,13 @@ impl Logger {
 
     /// Write the log file to an explicit path instead of `.ripfuzz/logs`.
     pub fn with_log_file(mut self, path: impl AsRef<Path>) -> Self {
-        self.log_file = Some(path.as_ref().to_path_buf());
+        self.log_file = LogFile::Path(path.as_ref().to_path_buf());
+        self
+    }
+
+    /// Skip log-file creation and write terminal output only.
+    pub fn disable_log_file(mut self) -> Self {
+        self.log_file = LogFile::Off;
         self
     }
 
@@ -197,33 +228,30 @@ impl Logger {
     /// Install the global tracing subscriber.
     ///
     /// Terminal output is written to stderr unless `quiet` is set. A formatted
-    /// log file is also written unless logging is disabled.
+    /// log file is also written unless logging is disabled or the file layer
+    /// is off.
     pub fn init(self) -> Result<()> {
         // 1. Skip subscriber setup when logging is disabled.
         if self.disabled {
             return Ok(());
         }
 
-        // 2. Resolve the log file path.
-        let log_file = match &self.log_file {
-            Some(path) => path.clone(),
-            None => {
+        // 2. Create the log file unless the file layer is off.
+        let file = match &self.log_file {
+            LogFile::Off => None,
+            LogFile::Path(path) => Some(open_log_file(path)?),
+            LogFile::Default => {
                 let timestamp = jiff::Timestamp::now().as_second();
-                self.root
+                let path = self
+                    .root
                     .join(".ripfuzz")
                     .join("logs")
-                    .join(format!("{timestamp}-{}.log", log_id()))
+                    .join(format!("{timestamp}-{}.log", log_id()));
+                Some(open_log_file(&path)?)
             }
         };
 
-        // 3. Create the log file and its parent directories.
-        if let Some(parent) = log_file.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let file = File::create(&log_file)
-            .with_context(|| format!("failed to write {}", log_file.display()))?;
-
-        // 4. Build the log-level filter.
+        // 3. Build the log-level filter.
         let filter = match self.level {
             tracing::Level::ERROR => EnvFilter::new("ripfuzz=error"),
             tracing::Level::WARN => EnvFilter::new("ripfuzz=warn,revm=error"),
@@ -232,10 +260,13 @@ impl Logger {
             tracing::Level::TRACE => EnvFilter::new("trace"),
         };
 
-        // 5. Install the subscriber.
-        // 5a. Quiet: file only, so `--quiet` and tests cannot leak to the
+        // 4. Install the subscriber.
+        // 4a. Quiet: file only, so `--quiet` and tests cannot leak to the
         //     terminal.
         if self.quiet {
+            let Some(file) = file else {
+                return Ok(());
+            };
             let file_layer = tracing_fmt::layer()
                 .with_ansi(false)
                 .with_writer(Mutex::new(file))
@@ -246,7 +277,7 @@ impl Logger {
             return Ok(());
         }
 
-        // 5b. Default: compact stderr plus the full file.
+        // 4b. Default: compact stderr plus the full file when enabled.
         //     Cast to a fn pointer: `FormatTime` covers
         //     `fn(&mut Writer<'_>) -> fmt::Result`, not the zero-sized fn item
         //     type.
@@ -256,17 +287,35 @@ impl Logger {
             .with_ansi(std::io::stderr().is_terminal())
             .fmt_fields(ConsoleFields)
             .with_writer(std::io::stderr);
-        let file_layer = tracing_fmt::layer()
-            .with_ansi(false)
-            .with_writer(Mutex::new(file))
-            .with_span_events(FmtSpan::CLOSE);
-        let _ = tracing_subscriber::registry()
-            .with(stderr_layer.with_filter(filter.clone()))
-            .with(file_layer.with_filter(filter))
-            .try_init();
+        match file {
+            Some(file) => {
+                let file_layer = tracing_fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(Mutex::new(file))
+                    .with_span_events(FmtSpan::CLOSE);
+                let _ = tracing_subscriber::registry()
+                    .with(stderr_layer.with_filter(filter.clone()))
+                    .with(file_layer.with_filter(filter))
+                    .try_init();
+            }
+            None => {
+                let _ = tracing_subscriber::registry()
+                    .with(stderr_layer.with_filter(filter))
+                    .try_init();
+            }
+        }
 
         Ok(())
     }
+}
+
+/// Create a log file, making its parent directories first.
+fn open_log_file(path: impl AsRef<Path>) -> Result<File> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    File::create(path).with_context(|| format!("failed to write {}", path.display()))
 }
 
 #[cfg(test)]
@@ -366,5 +415,20 @@ mod tests {
             out,
             " WARN transient RPC error; retrying batch retry=1 retries=3 backoff_ms=100 items=18 url=https://eth-mainnet.g.alchemy.com/v2/secret-key request=[{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"eth_getBalance\",\"params\":[\"0xabc\"]}] error=RPC error 429: JSON-RPC response contains error object: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":429,\"message\":\"rate limited\"}}\n"
         );
+    }
+
+    /// `disable_log_file` must not create `.ripfuzz` state, so commands like
+    /// `init` can report errors without touching a fresh project. Quiet mode
+    /// keeps the test from installing a global subscriber.
+    #[test]
+    fn disable_log_file_creates_no_ripfuzz_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        Logger::new()
+            .with_root(dir.path())
+            .with_quiet(true)
+            .disable_log_file()
+            .init()
+            .unwrap();
+        assert!(!dir.path().join(".ripfuzz").exists());
     }
 }

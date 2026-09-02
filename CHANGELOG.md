@@ -24,6 +24,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- `ripfuzz init` now installs stderr logging so command errors appear in the
+  console. It writes no log file, keeping a fresh project free of `.ripfuzz`
+  state.
+
 ## [0.9.5] - 2026-09-02
 
 ### Added

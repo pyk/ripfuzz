@@ -81,7 +81,8 @@ pub fn run(args: Args) -> Result<Best> {
     // 1. Initialize logging. Quiet mode writes the file layer only, so a
     //    subscriber installed by an earlier caller (e.g. a test binary)
     //    cannot leak events into the terminal.
-    Logger::new(&args.root)
+    Logger::new()
+        .with_root(&args.root)
         .with_quiet(args.quiet)
         .with_level(args.log_level)
         .init()?;
