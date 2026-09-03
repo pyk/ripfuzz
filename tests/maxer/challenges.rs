@@ -81,6 +81,8 @@ fn temp_corpus_dir() -> PathBuf {
 }
 
 /// Every challenge harness must reach its highest value within its budget.
+/// The known highest value doubles as the fuzzer's target value, so a
+/// campaign stops as soon as it is reached instead of burning its budget.
 /// Slow: ignored by default and run explicitly with `make max`.
 #[ignore = "slow fuzzing campaign; run with `make max`"]
 #[test]
@@ -101,7 +103,7 @@ fn max_challenges_reach_the_highest_value() {
             max_shrink_runs: 10_000,
             max_calls: MAX_CALLS,
             timeout: Some(120),
-            target_value: None,
+            target_value: Some(expected),
             corpus_dir: corpus_dir.clone(),
             quiet: true,
             log_level: tracing::Level::INFO,
