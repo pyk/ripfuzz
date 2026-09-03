@@ -205,4 +205,4 @@ such as `PUSH0` remain valid after the fork.
 
 - Harness writing guide: [harness-contract.md](./harness-contract.md)
 - Blog: [rvm.fork instead of
-  --rpc-url](https://pyk.sh/blog/2026-08-07-vm-fork-instead-of-cli)
+  --rpc-url](https://probablyrevert.com/blog/2026-08-07-vm-fork-instead-of-cli)

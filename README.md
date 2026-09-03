@@ -101,10 +101,11 @@ For cheatcodes, fork mode, and a full harness reference, see
 
 ## Blog Posts
 
-- [Value deltas for the max search](https://pyk.sh/blog/2026-09-02-value-deltas-for-the-max-search)
-- [`rvm.fork` instead of `--rpc-url`](https://pyk.sh/blog/2026-08-07-vm-fork-instead-of-cli)
-- [Coverage-guided fuzzing with revm](https://pyk.sh/blog/2026-05-28-coverage-guided-fuzzing-with-revm)
-- [Replacing my revm `ForkDB` background thread with `SharedBackend`](https://pyk.sh/blog/2026-05-24-forkdb-shared-backend)
+- [Friendship ended with `Panic(0x1)`, now `BrokenInvariantError` is my best friend](https://probablyrevert.com/blog/2026-09-03-friendship-ended-with-panic-0x1)
+- [Value deltas for the max search](https://probablyrevert.com/blog/2026-09-02-value-deltas-for-the-max-search)
+- [`rvm.fork` instead of `--rpc-url`](https://probablyrevert.com/blog/2026-08-07-vm-fork-instead-of-cli)
+- [Coverage-guided fuzzing with revm](https://probablyrevert.com/blog/2026-05-28-coverage-guided-fuzzing-with-revm)
+- [Replacing my revm `ForkDB` background thread with `SharedBackend`](https://probablyrevert.com/blog/2026-05-24-forkdb-shared-backend)
 
 ## Development
 
