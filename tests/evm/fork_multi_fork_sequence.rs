@@ -693,7 +693,7 @@ fn harness_value_conservation_invariant_fails_when_unbalanced() {
         "invariant_conservation must fail when inflow != outflow"
     );
     assert!(
-        execution.results[2].is_assert_failure(),
-        "conservation failure must be an assert panic"
+        execution.broken_invariants[2].is_empty(),
+        "an `assert` panic is not a broken invariant"
     );
 }

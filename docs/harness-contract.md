@@ -50,6 +50,9 @@ pragma solidity 0.8.35;
 
 import {Harness} from "ripfuzz/Harness.sol";
 
+/// Revert with this error to report a broken invariant to ripfuzz.
+error BrokenInvariantError(string id, string description);
+
 contract Counter {
     uint256 public count;
     address public owner;
@@ -107,10 +110,12 @@ contract CounterHarness is Harness {
 
     /// @notice Count must stay below 1000.
     /// @dev Invariant functions use the `invariant_` prefix and take no
-    ///      arguments. Ripfuzz appends them to every call sequence. An
-    ///      `assert` panic is reported as a bug.
+    ///      arguments. Ripfuzz appends them to every call sequence. A
+    ///      `BrokenInvariantError` revert is reported as a bug.
     function invariant_CountStaysSmall() external view {
-        assert(counter.count() < 1000);
+        if (counter.count() >= 1000) {
+            revert BrokenInvariantError({id: "COUNT-SMALL", description: "count must stay below 1000"});
+        }
     }
 }
 ```
@@ -127,8 +132,27 @@ contract CounterHarness is Harness {
 | Wallet      | `addr`, `sign`                                                                                 |
 | FFI         | `ffi`                                                                                          |
 | Environment | `getEnv`                                                                                       |
-| Invariant   | `bail`                                                                                         |
 | Fork        | `fork`                                                                                         |
+
+### Broken invariants
+
+A handler or `invariant_*` function reports a broken invariant by reverting
+with the `BrokenInvariantError` custom error:
+
+```solidity
+error BrokenInvariantError(string id, string description);
+
+function invariant_total() external view {
+    if (total > 100) {
+        revert BrokenInvariantError({id: "INV-001", description: "total exceeded 100"});
+    }
+}
+```
+
+The `id` deduplicates findings across the campaign, the `description` is the
+human-readable reason shown in the output. The error must propagate to the top
+of the call: a revert caught with `try/catch` is treated as handled and is not
+reported.
 
 The full interface lives in
 [RVM.sol](https://github.com/pyk/ripfuzz-std/blob/main/src/RVM.sol). More
@@ -253,23 +277,32 @@ clone afterward, so any storage writes are naturally isolated.
 
 - Ripfuzz appends **all** invariant calls to the end of every function call
   sequence and executes them in the same EVM loop
-- If **any** call (handler function or invariant) reverts with a Solidity
-  `assert` panic (`Panic(0x01)`), the fuzzer records a **failed assertion**
-  (objective)
-- Reverts caused by `require` or other reasons do **not** produce a failed
-  assertion. The sequence continues executing and invariants are still checked
+- If **any** call (handler function or invariant) reverts with the
+  `BrokenInvariantError` custom error, the fuzzer records a **broken
+  invariant** (objective)
+- Reverts caused by `require`, Solidity `assert` panics, or other reasons do
+  **not** produce a broken invariant. The sequence continues executing and
+  invariants are still checked
+- The error must propagate to the top of the call: a revert caught with
+  `try/catch` is treated as handled and is not reported
 - Invariants are **not** called as handler functions (they are appended, not
   randomly generated)
 
 ### Example invariants
 
 ```solidity
-function invariant_Solvency() external {
-    assert(token.balanceOf(address(pool)) >= pool.totalDeposits());
+error BrokenInvariantError(string id, string description);
+
+function invariant_Solvency() external view {
+    if (token.balanceOf(address(pool)) < pool.totalDeposits()) {
+        revert BrokenInvariantError({id: "SOLVENCY", description: "pool balance below deposits"});
+    }
 }
 
 function invariant_UserCantBorrowMoreThanDeposited() external {
-    assert(pool.totalBorrows() <= pool.totalDeposits());
+    if (pool.totalBorrows() > pool.totalDeposits()) {
+        revert BrokenInvariantError({id: "BORROW-LIMIT", description: "borrows exceed deposits"});
+    }
 }
 ```
 
@@ -285,11 +318,11 @@ single function runs. For example, after calling `deposit(uint256 amount)`, the
 contract's ETH balance should increase by `amount` and the sender's balance
 should decrease by the same amount.
 
-In ripfuzz, you can test function-level invariants by adding `assert`
-statements directly inside the handler function itself. The fuzzer records a
-failed assertion whenever any call reverts with a Solidity `assert` panic
-(`Panic(0x01)`), regardless of whether the assertion is in a handler function
-or an `invariant_` function.
+In ripfuzz, you can test function-level invariants by reverting with
+`BrokenInvariantError` directly inside the handler function itself. The fuzzer
+records a broken invariant whenever any call reverts with that error,
+regardless of whether the revert happens in a handler function or an
+`invariant_` function.
 
 ```solidity
 contract CounterHarness {
@@ -298,13 +331,17 @@ contract CounterHarness {
     function increment() external {
         uint256 before = count;
         count += 1;
-        assert(count == before + 1);
+        if (count != before + 1) {
+            revert BrokenInvariantError({id: "COUNT-INC", description: "count must increase by 1"});
+        }
     }
 
     function add(uint256 x) external {
         uint256 before = count;
         count += x;
-        assert(count == before + x);
+        if (count != before + x) {
+            revert BrokenInvariantError({id: "COUNT-ADD", description: "count must increase by x"});
+        }
     }
 }
 ```
@@ -339,7 +376,9 @@ contract VaultHarness {
     }
 
 function invariant_TotalWithinLimit() external {
-        assert(totalDeposits <= MAX_DEPOSIT);
+        if (totalDeposits > MAX_DEPOSIT) {
+            revert BrokenInvariantError({id: "VAULT-LIMIT", description: "deposits exceed MAX_DEPOSIT"});
+        }
     }
 }
 ```
@@ -400,26 +439,26 @@ For each fuzz input, ripfuzz performs this exact sequence:
    - invariant calls (appended automatically)
 3. EXECUTE every call in a single loop, committing state after each call
    - Succeeded → continue to next call
-   - Reverted with assert panic → FAILED ASSERTION (BUG!)
+   - Reverted with `BrokenInvariantError` → BROKEN INVARIANT (BUG!)
    - Reverted for any other reason → continue to next call
 4. RECORD result:
    - New coverage → add to corpus
-   - Assert panic detected → add to objectives (BUG!)
+   - `BrokenInvariantError` detected → add to objectives (BUG!)
    - Normal revert → not a bug
 5. RESET state (discard clone, go back to base)
 ```
 
 ## Comparison with Other Fuzzers
 
-| Feature           | Ripfuzz                 | Foundry (invariant) | Medusa                 | Echidna                 |
-| ----------------- | ----------------------- | ------------------- | ---------------------- | ----------------------- |
-| Setup             | `constructor`/`setup()` | `setup()`           | Deployment + `setup()` | `constructor`/`setup()` |
-| Handler Functions | All external/public     | Handlers            | All external/public    | All external/public     |
-| Invariant prefix  | `invariant_`            | `invariant_`        | `property_`            | `echidna_`              |
-| Invariant args    | None                    | None                | None                   | None                    |
-| Invariant returns | Ignored                 | `bool`              | `bool`                 | `bool`                  |
-| Bug on            | `assert` panic          | Invariant `false`   | Property `false`       | Property `false`        |
-| Bug on revert     | `assert` only           | No                  | No                     | No                      |
+| Feature           | Ripfuzz                     | Foundry (invariant) | Medusa                 | Echidna                 |
+| ----------------- | --------------------------- | ------------------- | ---------------------- | ----------------------- |
+| Setup             | `constructor`/`setup()`     | `setup()`           | Deployment + `setup()` | `constructor`/`setup()` |
+| Handler Functions | All external/public         | Handlers            | All external/public    | All external/public     |
+| Invariant prefix  | `invariant_`                | `invariant_`        | `property_`            | `echidna_`              |
+| Invariant args    | None                        | None                | None                   | None                    |
+| Invariant returns | Ignored                     | `bool`              | `bool`                 | `bool`                  |
+| Bug on            | `BrokenInvariantError`      | Invariant `false`   | Property `false`       | Property `false`        |
+| Bug on revert     | `BrokenInvariantError` only | No                  | No                     | No                      |
 
 ## Fork Mode
 

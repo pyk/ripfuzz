@@ -19,9 +19,10 @@
 
 **Ripfuzz** is an extremely fast Smart contract fuzzer. Point it at a harness
 contract and it generates stateful call sequences, steers toward new EVM
-coverage, checks your invariants after every sequence, and shrinks any `assert`
-panic it finds into a minimal reproduction. Distinct failed assertions are
-deduplicated, and each one is shrunk and reported separately.
+coverage, checks your invariants after every sequence, and shrinks any
+`BrokenInvariantError` revert it finds into a minimal reproduction. Distinct
+broken invariants are deduplicated by id, and each one is shrunk and reported
+separately.
 
 ## Features
 
@@ -34,7 +35,7 @@ deduplicated, and each one is shrunk and reported separately.
   starting from scratch.
 - **Parallel fuzzing**: scale across all available CPU cores by default, with
   every worker sharing a coverage-guided corpus and metrics.
-- **Lightning fast shrinker**: minimize each distinct failed assertion down to
+- **Lightning fast shrinker**: minimize each distinct broken invariant down to
   the fewest calls that still reproduce it, with shrinking running in parallel
   across multiple workers.
 - **Stateful call sequences**: explore sequences of up to 100 handler calls per

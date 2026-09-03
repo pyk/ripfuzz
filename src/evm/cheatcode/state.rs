@@ -9,13 +9,6 @@ use revm::primitives::{Address, U256};
 use crate::evm::cheatcode::CheatcodeConfig;
 use crate::evm::forkdb::{ForkDBConfig, SharedLocalAddressRegistry, Transport};
 
-/// One broken invariant emitted via `rvm.bail`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BrokenInvariant {
-    pub id: String,
-    pub description: String,
-}
-
 /// Transient scratchpad for one call sequence.
 #[derive(Clone, Debug)]
 pub struct ExecutionState {
@@ -30,8 +23,6 @@ pub struct ExecutionState {
     pub transport: Option<Arc<dyn Transport>>,
     /// Local addresses that must persist across fork switches.
     pub local_registry: SharedLocalAddressRegistry,
-    /// Broken invariants emitted via `rvm.bail` during the current `exec`.
-    pub broken_invariants: Vec<BrokenInvariant>,
 }
 
 impl Default for ExecutionState {
@@ -45,7 +36,6 @@ impl Default for ExecutionState {
             fork_defaults: ForkDBConfig::new(""),
             transport: None,
             local_registry: SharedLocalAddressRegistry::new(),
-            broken_invariants: Vec::new(),
         }
     }
 }

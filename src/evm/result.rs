@@ -5,10 +5,8 @@ use std::time::Duration;
 use revm::context_interface::result::{ExecutionResult, Output};
 use revm::primitives::{Address, Bytes};
 
+use crate::evm::chain::BrokenInvariant;
 use crate::evm::forkdb::RpcStats;
-
-/// Solidity `Panic(uint256)` selector: keccak256("Panic(uint256)")[:4]
-const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
 
 /// Result of a single EVM transaction execution.
 #[derive(Debug, Clone, Default)]
@@ -69,13 +67,13 @@ impl From<ExecutionResult> for TransactionResult {
 }
 
 impl TransactionResult {
-    /// Detect a Solidity `assert` failure (`Panic(0x01)`) in revert output.
-    pub fn is_assert_failure(&self) -> bool {
-        match &self.output {
-            Some(output) => {
-                output.len() >= 36 && output[..4] == PANIC_SELECTOR && output[35] == 0x01
-            }
-            None => false,
+    /// The broken invariant reported by a `BrokenInvariantError` revert, if
+    /// any.
+    pub fn broken_invariant(&self) -> Option<BrokenInvariant> {
+        if self.success {
+            return None;
         }
+        let output = self.output.as_ref()?;
+        BrokenInvariant::from_revert(output)
     }
 }

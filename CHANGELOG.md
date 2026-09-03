@@ -25,6 +25,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Changed
 
+- Broken invariants are now reported by reverting with the
+  `BrokenInvariantError` custom error instead of the `rvm.bail(Invariant)`
+  cheatcode: `error BrokenInvariantError(string id, string description);`.
+  Harnesses no longer need the `RVM` interface or the cheatcode address for
+  invariant reporting. The error must propagate to the top of the call, a
+  revert caught with `try/catch` is treated as handled and is not reported.
+  Solidity `assert` panics (`Panic(0x01)`) are not findings.
+
 - `ripfuzz test` and `ripfuzz max` now default `--threads` to the available CPU
   cores of the machine instead of a single thread.
 

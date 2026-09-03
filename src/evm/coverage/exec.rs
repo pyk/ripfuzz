@@ -9,18 +9,12 @@ use crate::evm::coverage::id::CoverageId;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExecutionCoverage {
     pub contracts: HashMap<CoverageId, ExecutionContractCoverage>,
-    /// PCs identifying Solidity `assert` panics, in execution order.
-    ///
-    /// The recorded PC is the taken jump that entered the shared panic routine
-    /// when one is available, falling back to the panic PC itself.
-    pub panic_pcs: Vec<(CoverageId, usize)>,
 }
 
 impl ExecutionCoverage {
     pub fn new() -> Self {
         Self {
             contracts: HashMap::new(),
-            panic_pcs: Vec::new(),
         }
     }
 
@@ -28,7 +22,6 @@ impl ExecutionCoverage {
         for coverage in self.contracts.values_mut() {
             coverage.clear();
         }
-        self.panic_pcs.clear();
     }
 }
 

@@ -1,15 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-struct Invariant {
-    string id;
-    string description;
-}
-
-interface RVM {
-    function bail(Invariant calldata invariant) external;
-}
-
-abstract contract Challenge {
-    RVM constant rvm = RVM(address(uint160(uint256(keccak256("ripfuzz cheatcode")))));
-}
+/// @notice Revert with this error to report a broken invariant to ripfuzz.
+/// @dev The id deduplicates findings across the campaign, the description is
+///      the human-readable reason shown in the output.
+error BrokenInvariantError(string id, string description);

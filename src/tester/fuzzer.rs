@@ -2,10 +2,11 @@
 //!
 //! [`Fuzzer`] spawns fuzzers (threads) that generate random handler-call
 //! sequences, execute each call on a clean chain clone, and collect
-//! `rvm.bail` reports after every call:
+//! `BrokenInvariantError` reports after every call:
 //!
-//! - a handler call that emits `rvm.bail` is a broken invariant, and the call
-//!   reverts so the sequence continues on the pre-call state
+//! - a handler call that reverts with `BrokenInvariantError` is a broken
+//!   invariant, and the call reverts so the sequence continues on the
+//!   pre-call state
 //! - after each committed handler call, every `invariant_*` function runs on
 //!   a throwaway clone, so invariant state is never committed, and a report
 //!   there is a broken invariant too
@@ -524,8 +525,8 @@ fn worker(execution: &Execution, shared: &Shared, thread_id: usize, runs: u64) -
 ///
 /// The checks are:
 ///
-/// - a handler call that emits `rvm.bail` is recorded with the calls before
-///   it, and the call reverts so the sequence continues on the pre-call state
+/// - a handler call that reverts with `BrokenInvariantError` is recorded with
+///   the calls before it, and the call reverts so the sequence continues on the pre-call state
 /// - after every committed handler call, the `invariant_*` functions run on
 ///   a throwaway clone, so their state changes are never committed
 fn execute_sequence(
@@ -554,8 +555,8 @@ fn execute_sequence(
             new_edges += score(&update);
         }
 
-        // 2. Record reports emitted via `rvm.bail` in the handler. The
-        //    sequence ends with the bail-emitting handler call.
+        // 2. Record reports emitted via `BrokenInvariantError` in the handler.
+        //    The sequence ends with the reverting handler call.
         if !exec.broken_invariants.is_empty() {
             for report in &exec.broken_invariants[0] {
                 let sequence_prefix = Sequence::new(sequence.calls()[..=index].to_vec());
@@ -589,7 +590,7 @@ fn execute_sequence(
         }
         for (idx, function) in execution.invariants.iter().enumerate() {
             // 3a. Record reports emitted during invariants. The sequence ends
-            //     with the invariant check call that bailed.
+            //     with the invariant check call that reverted.
             if idx < exec.broken_invariants.len() {
                 for report in &exec.broken_invariants[idx] {
                     let mut calls = sequence.calls()[..=index].to_vec();

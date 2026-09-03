@@ -3,13 +3,13 @@
 //!
 //! [`Shrinker`] runs parallel shrinkers that delete random chunks of calls
 //! from each broken invariant's sequence. A candidate is valid when replaying
-//! it from a clean chain reproduces the same `rvm.bail` id, so every accepted
-//! candidate is a full clean-state replay.
+//! it from a clean chain reproduces the same `BrokenInvariantError` id, so
+//! every accepted candidate is a full clean-state replay.
 //!
 //! Invariants:
 //!
 //! - the sequence length never increases
-//! - the bail-emitting call still emits the exact same broken-invariant id
+//! - the reverting call still reports the exact same broken-invariant id
 //!
 //! ```rust,no_run
 //! use alloy_primitives::Address;
@@ -324,8 +324,8 @@ impl SharedShrink {
 }
 
 /// Whether replaying the candidate sequence on a clean chain still emits the
-/// broken invariant's exact id. The sequence ends with the bail-emitting
-/// call, so replaying it alone must reproduce the finding.
+/// broken invariant's exact id. The sequence ends with the reverting call, so
+/// replaying it alone must reproduce the finding.
 fn reproduces(
     execution: &Execution,
     sequence: &Sequence,

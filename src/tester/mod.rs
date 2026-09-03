@@ -1,7 +1,7 @@
 //! Find broken invariants.
 //!
 //! The `tester` module mirrors [`crate::maxer`] around a different objective:
-//! instead of maximizing a value, the fuzzers hunt explicit `rvm.bail`
+//! instead of maximizing a value, the fuzzers hunt explicit `BrokenInvariantError`
 //! reports, both inside handler calls and inside `invariant_*` functions
 //! checked after each handler call.
 //!

@@ -15,10 +15,10 @@ Pick the campaign with the command:
 
 ### Test Campaign
 
-`ripfuzz test`. Finds **broken invariants** from `rvm.bail` and Solidity
-`assert` panics. Each **test fuzzer** executes handler call sequences and
-reports new coverage or broken invariants. When a broken invariant is found,
-**test shrinkers** minimize each distinct one.
+`ripfuzz test`. Finds **broken invariants** from `BrokenInvariantError`
+reverts. Each **test fuzzer** executes handler call sequences and reports new
+coverage or broken invariants. When a broken invariant is found, **test
+shrinkers** minimize each distinct one.
 
 ### Max Campaign
 
@@ -46,10 +46,9 @@ A Solidity function that checks an invariant. By default it must:
 Mutability is not enforced: invariants may be `view`, `pure`, or
 state-changing, because ripfuzz runs them on cloned state and discards the
 clone. Ripfuzz appends every invariant to the end of each function call
-sequence and executes it in the same EVM loop. If an invariant reverts with a
-Solidity `assert` failure (`Panic(0x01)`), the fuzzer records a failed
-assertion. The return value, if any, is ignored. Synonyms: **invariant**,
-**property test**.
+sequence and executes it in the same EVM loop. If an invariant reverts with the
+`BrokenInvariantError` custom error, the fuzzer records a broken invariant. The
+return value, if any, is ignored. Synonyms: **invariant**, **property test**.
 
 ### Max Function
 
@@ -147,11 +146,12 @@ the maximum `value()` and the call sequence that produced it.
 
 ### Broken Invariant
 
-A failure recorded when a harness call emits `rvm.bail` or reverts with a
-Solidity `assert` panic (`Panic(0x01)`), found in **test campaigns**. The
-fuzzer treats it as a bug and adds it to the set of objectives. Reverts caused
-by `require` or other reasons do not produce a broken invariant. Synonyms:
-**failed assertion**, **objective**, **bug**.
+A failure recorded when a harness call reverts with the `BrokenInvariantError`
+custom error (`error BrokenInvariantError(string id, string description)`),
+found in **test campaigns**. The fuzzer treats it as a bug and adds it to the
+set of objectives. Reverts caused by `require`, Solidity `assert` panics, or
+other reasons do not produce a broken invariant. Synonyms: **objective**,
+**bug**.
 
 ## Coverage Terms
 

@@ -13,7 +13,6 @@ use crate::evm::cheatcode::state::ExecutionState;
 use crate::evm::database::DatabaseExt;
 
 pub mod addr;
-pub mod bail;
 pub mod chain_id;
 pub mod coinbase;
 pub mod deal;
@@ -94,10 +93,6 @@ sol! {
         }
         function fork(string url, uint256 blockNumber) external;
         function fork(string url, uint256 blockNumber, ForkConfig config) external;
-
-        // Invariant
-        struct Invariant { string id; string description; }
-        function bail(Invariant calldata invariant) external;
     }
 }
 
@@ -178,8 +173,5 @@ where
                 rate_limit: Some(c.config.rateLimit),
             },
         ),
-
-        // Invariant
-        VmCalls::bail(c) => bail::handle(state, c.invariant),
     }
 }

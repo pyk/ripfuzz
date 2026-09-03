@@ -3,8 +3,8 @@
 > Status: DRAFT
 
 `ripfuzz test` compiles a single Solidity harness file, deploys it as a test
-contract on a sandbox chain, runs its optional `setup()`, and fuzzes for failed
-assertions. Use it when you want to know *which assertions can break*, not just
+contract on a sandbox chain, runs its optional `setup()`, and fuzzes for broken
+invariants. Use it when you want to know *which invariants can break*, not just
 *how bad a value can get*.
 
 ```bash
@@ -13,29 +13,29 @@ ripfuzz test path/to/Contract.sol:Contract
 ```
 
 The fuzzer generates stateful sequences of your handler functions, checks
-Solidity `assert` panics (`Panic(0x01)`) both inside the handlers and inside
-`invariant_*` functions, and reports every distinct failed assertion with the
-shortest sequence that reproduces it. Other reverts are plain control flow
-(e.g. `require` guards) and never reported.
+`invariant_*` functions after every call, and reports every distinct
+`BrokenInvariantError` revert with the shortest sequence that reproduces it.
+Other reverts are plain control flow (e.g. `require` guards) and never
+reported.
 
 ## When to use `test` vs `max`
 
 | Question                              | Command                  | Harness declares |
 | :------------------------------------ | :----------------------- | :--------------- |
-| Which assertions can fail, and where? | `ripfuzz test <harness>` | `invariant_*`    |
+| Which invariants can fail, and where? | `ripfuzz test <harness>` | `invariant_*`    |
 | What is the largest reachable value?  | `ripfuzz max <harness>`  | `value()`        |
 
 Typical `test` use cases:
 
 - **Protocol invariants.** Check accounting identities, conservation of assets,
   and access-control boundaries after arbitrary handler sequences.
-- **Assertion hunting.** Find reachable `assert` failures inside handler
-  bodies, not only in dedicated invariant functions.
+- **Inline checks.** Report broken invariants from handler bodies, not only in
+  dedicated invariant functions.
 - **Regression proofing.** Keep the corpus between runs, so a campaign replays
   every previously discovered path and reports regressions fast.
 
 If you need a number ("what is the highest value that can be reached?"), use
-`ripfuzz max`. If you need the list of broken assertions, use `ripfuzz test`.
+`ripfuzz max`. If you need the list of broken invariants, use `ripfuzz test`.
 
 ## Writing a test harness
 
@@ -46,6 +46,8 @@ one or more handler functions:
 ```solidity
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
+
+error BrokenInvariantError(string id, string description);
 
 contract VaultHarness {
     uint256 public total;
@@ -62,7 +64,9 @@ contract VaultHarness {
 
     function invariant_total_nonzero() external view {
         // Invariant. Appended after every handler call.
-        assert(total < type(uint256).max);
+        if (total >= type(uint256).max) {
+            revert BrokenInvariantError({id: "TOTAL-NONZERO", description: "total must stay below uint256 max"});
+        }
     }
 
     function summary() external {
@@ -79,21 +83,21 @@ Rules:
 - `setup`, `summary`, and every `invariant_*` must take no arguments and must
   not be `payable`.
 - Handler calls revert all the time (failed `require`, custom errors); that is
-  expected. Only a `Panic(0x01)` from a failed `assert` is a finding.
+  expected. Only a `BrokenInvariantError` revert is a finding.
 
 Semantics:
 
 - **Invariants are checks, not calls.** After each committed handler call,
   every `invariant_*` function runs on a throwaway clone of the current state.
   Invariant state changes are never committed, invariants never consume
-  `--max-calls`, and a panic there is reported with the sequence that produced
+  `--max-calls`, and a revert there is reported with the sequence that produced
   the state.
-- **Findings are distinct assertions.** Findings are deduplicated by the
-  panicking function and the revert output, so the campaign reports each
-  distinct failed assertion once, no matter how many paths reach it.
-- **Shrinking preserves the panic.** Every finding's sequence is shrunk in
-  parallel; a candidate is accepted only when a clean-state replay still panics
-  with the exact same revert output.
+- **Findings are distinct ids.** Findings are deduplicated by the
+  `BrokenInvariantError` id, so the campaign reports each distinct id once, no
+  matter how many paths reach it.
+- **Shrinking preserves the finding.** Every finding's sequence is shrunk in
+  parallel; a candidate is accepted only when a clean-state replay still
+  reverts with the exact same id.
 
 ## Running it
 
@@ -120,12 +124,12 @@ Key flags:
 | `--max-calls`    | `8`               | Max handler calls per sequence            |
 | `--threads`      | `1`               | Parallel fuzzer workers                   |
 | `--timeout`      | none              | Wall-clock timeout for fuzzing            |
-| `--max-failures` | `256`             | Distinct failed assertions to collect     |
+| `--max-failures` | `256`             | Distinct broken invariants to collect     |
 | `--corpus-dir`   | `.ripfuzz/corpus` | Where interesting sequences are persisted |
 
-Exit code is `0` even when assertions fail. Findings are results, not campaign
-errors. The command fails only on harness validation errors, a failed
-deployment, or a failed `setup`.
+Exit code is `0` even when broken invariants are found. Findings are results,
+not campaign errors. The command fails only on harness validation errors, a
+failed deployment, or a failed `setup`.
 
 ## Understanding the result
 
@@ -149,8 +153,8 @@ broken invariant GATED-BYTES32 saved to .ripfuzz/traces/...
 
 What to look at:
 
-- **`new broken invariant`**: the `rvm.bail` id, emitted once per distinct
-  finding.
+- **`new broken invariant`**: the `BrokenInvariantError` id, emitted once per
+  distinct finding.
 - **Shrunk sequences**: the minimal handler calls that still reproduce each
   broken invariant, replayed with tracing at the end of the campaign so the
   console shows the logs emitted on the way to the failure.
@@ -170,4 +174,4 @@ What to look at:
   sharing
 - [Glossary](../glossary.md): campaign, fuzzer, shrinker, coverage terms
 - [`ripfuzz max`](../max/README.md): maximize a harness value instead of
-  checking assertions
+  checking invariants

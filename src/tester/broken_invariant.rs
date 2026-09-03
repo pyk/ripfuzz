@@ -2,8 +2,8 @@
 //! collection that tracks them across fuzzer threads, and the reporter that
 //! re-runs a broken invariant and saves its execution trace.
 //!
-//! A broken invariant is an explicit `rvm.bail` report emitted by a handler
-//! call or by an `invariant_*` call checked after each handler call.
+//! A broken invariant is an explicit `BrokenInvariantError` revert emitted by
+//! a handler call or by an `invariant_*` call checked after each handler call.
 //!
 //! ```rust,no_run
 //! use ripfuzz::tester::{BrokenInvariant, Sequence};
@@ -31,7 +31,7 @@ use crate::evm::{Chain, ExecutionTraceWriter, Trace, TraceContext, Transaction};
 use crate::tester::Sequence;
 
 /// One broken invariant: the calls that reproduce it, ending with the
-/// bail-emitting call, and the explicit metadata.
+/// reverting call, and the explicit metadata.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BrokenInvariant {
     sequence: Sequence,
@@ -58,14 +58,14 @@ impl BrokenInvariant {
     }
 
     /// Set the calls that reproduce the broken invariant, ending with the
-    /// bail-emitting call.
+    /// reverting call.
     pub fn with_calls(mut self, sequence: Sequence) -> Self {
         self.sequence = sequence;
         self
     }
 
     /// The calls that reproduce the broken invariant, ending with the
-    /// bail-emitting call.
+    /// reverting call.
     pub fn sequence(&self) -> &Sequence {
         &self.sequence
     }
@@ -180,7 +180,7 @@ impl SharedBrokenInvariants {
 /// execution trace under `{root}/.ripfuzz/traces`.
 ///
 /// The re-run transaction batch is the broken invariant's sequence, whose
-/// last call is the bail-emitting trigger, plus the optional summary call.
+/// last call is the reverting trigger, plus the optional summary call.
 ///
 /// ```rust,no_run
 /// use ripfuzz::tester::{BrokenInvariant, BrokenInvariantReporter};
@@ -267,7 +267,7 @@ impl BrokenInvariantReporter {
             );
         }
 
-        // 3. Execute the re-run, the bail-emitting trigger is expected and
+        // 3. Execute the re-run, the reverting trigger is expected and
         //    does not invalidate the logs of the calls before it.
         let output = rerun_chain.exec(&transactions)?;
 

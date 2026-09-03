@@ -26,15 +26,15 @@
 //!
 //! The inspector does not distinguish between different transaction
 //! outcomes (return true, return false, stop, out of gas) beyond
-//! "reverted or not". This is sufficient for Ripfuzz because invariants
-//! are checked via `assert` panic, not via return value.
+//! "reverted or not". This is sufficient for Ripfuzz because findings are
+//! reverts (`BrokenInvariantError`), not return values.
 //!
 //! The inspector records these signals so the fuzzer can decide whether
 //! a mutated sequence is worth keeping in the corpus.
 
 use alloy_primitives::ruint::UintTryTo;
 use revm::{
-    bytecode::opcode::{INVALID, JUMP, JUMPI, REVERT},
+    bytecode::opcode::{JUMP, JUMPI},
     interpreter::{Interpreter, interpreter::EthInterpreter, interpreter_types::Jumps},
 };
 
@@ -44,9 +44,6 @@ use revm::interpreter::interpreter_types::InputsTr;
 use crate::evm::coverage::edge::{call_edge_marker, edge_marker};
 use crate::evm::coverage::exec::{ExecutionContractCoverage, ExecutionCoverage};
 use crate::evm::coverage::id::CoverageId;
-
-/// Solidity `Panic(uint256)` selector: keccak256("Panic(uint256)")[:4]
-const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71];
 
 /// Convert a U256 stack value to usize without using `ok()`.
 #[allow(clippy::manual_ok_err)]
@@ -67,7 +64,6 @@ pub struct Inspector {
     current_contract: Option<CoverageId>,
     contract_stack: Vec<Option<CoverageId>>,
     last_pc: usize,
-    last_taken_jump_pc: Option<usize>,
     is_initcode: bool,
 }
 
@@ -79,7 +75,6 @@ impl Inspector {
             current_contract: None,
             contract_stack: Vec::new(),
             last_pc: 0,
-            last_taken_jump_pc: None,
             is_initcode: false,
         }
     }
@@ -130,7 +125,6 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
                 }
             };
             self.current_contract = Some(id);
-            self.last_taken_jump_pc = None;
             self.local.contracts.entry(id).or_insert_with(|| {
                 let mut coverage = ExecutionContractCoverage::new(interp.bytecode.len());
                 coverage.bytecode = interp.bytecode.original_bytes().to_vec();
@@ -146,29 +140,6 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
         let Some(contract_id) = self.current_contract else {
             return;
         };
-        if interp.bytecode.opcode() == INVALID {
-            self.local
-                .panic_pcs
-                .push((contract_id, self.last_taken_jump_pc.unwrap_or(pc)));
-        }
-        if interp.bytecode.opcode() == REVERT {
-            let stack = interp.stack.data();
-            let len = stack.len();
-            if len >= 2 {
-                let offset = stack[len - 1];
-                let size = stack[len - 2];
-                if let (Some(offset), Some(size)) = (u256_to_usize(offset), u256_to_usize(size))
-                    && size == 36
-                {
-                    let data = interp.memory.slice_len(offset, 36);
-                    if data.len() >= 36 && data[..4] == PANIC_SELECTOR && data[35] == 0x01 {
-                        self.local
-                            .panic_pcs
-                            .push((contract_id, self.last_taken_jump_pc.unwrap_or(pc)));
-                    }
-                }
-            }
-        }
         let Some(coverage) = self.local.contracts.get_mut(&contract_id) else {
             return;
         };
@@ -201,7 +172,6 @@ impl<CTX> revm::inspector::Inspector<CTX, EthInterpreter> for Inspector {
                 true
             };
             if taken && let Some(dst) = dest {
-                self.last_taken_jump_pc = Some(pc);
                 let marker = edge_marker(pc, dst);
                 coverage
                     .jump_edges
