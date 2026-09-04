@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use clap::Parser;
 use tracing::info;
 
@@ -40,18 +40,18 @@ impl Command {
         let download = fetcher.download()?;
         info!("dependency {} hash {}", self.name, download.hash());
 
-        // 4. Refuse to replace a dependency whose recorded hash differs, so a
-        //    moving URL cannot silently change the sources a project builds
-        //    against.
+        // 4. Report a changed hash instead of erroring, so re-running `fetch`
+        //    against a moving URL updates the pin. The rewritten config in
+        //    step 6 records the downloaded hash.
         if let Some(existing) = config.dependencies.get(&self.name)
             && existing.hash != download.hash()
         {
-            bail!(
-                "hash mismatch for dependency `{}`: `{}` expects {}, downloaded archive has {}",
+            info!(
+                "dependency {} hash changed from {} to {}, updating {}",
                 self.name,
-                CONFIG_FILE,
                 existing.hash,
-                download.hash()
+                download.hash(),
+                CONFIG_FILE
             );
         }
 

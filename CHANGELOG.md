@@ -12,8 +12,8 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 - `ripfuzz fetch <name> <url>` downloads and extracts a tar.gz dependency into
   `.ripfuzz/dependencies/<name>`, hashes the archive as a sha2-256 multihash,
-  and records it under `[dependencies]` in `ripfuzz.toml`. Refuses to replace a
-  dependency whose recorded hash differs.
+  and records it under `[dependencies]` in `ripfuzz.toml`. Re-running `fetch`
+  for a recorded dependency updates its URL and hash instead of erroring.
 
 - `ripfuzz test`, `ripfuzz max`, and `ripfuzz exec` now remap each dependency
   name onto its extracted sources, so
