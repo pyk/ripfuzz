@@ -14,6 +14,10 @@ use ripfuzz::cli::max::Command;
 
 const HARNESS: &str =
     "fixtures/maxer/harness-deployment/HarnessWithIncrement.sol:HarnessWithIncrement";
+const INTERNAL_LIB: &str =
+    "fixtures/maxer/harness-deployment/HarnessWithInternalLib.sol:HarnessWithInternalLib";
+const EXTERNAL_LIB: &str =
+    "fixtures/maxer/harness-deployment/HarnessWithExternalLib.sol:HarnessWithExternalLib";
 const REVERTING: &str = "fixtures/maxer/harness-deployment/HarnessWithRevertingConstructor.sol:HarnessWithRevertingConstructor";
 const REVERTING_SETUP: &str =
     "fixtures/maxer/harness-deployment/HarnessWithRevertingSetup.sol:HarnessWithRevertingSetup";
@@ -50,6 +54,25 @@ fn max_compiles_and_deploys_harness() {
     command(HARNESS)
         .run()
         .expect("max should compile and deploy the harness");
+}
+
+/// A harness importing a library with only internal functions must compile
+/// and deploy without linking, since solc inlines internal library calls
+/// into the harness bytecode.
+#[test]
+fn max_compiles_and_deploys_harness_with_internal_lib() {
+    command(INTERNAL_LIB)
+        .run()
+        .expect("max should compile and deploy the harness with an internal lib");
+}
+
+/// A harness importing a library with external functions must deploy the
+/// library first, link its address into the harness initcode, and deploy.
+#[test]
+fn max_compiles_and_deploys_harness_with_external_lib() {
+    command(EXTERNAL_LIB)
+        .run()
+        .expect("max should compile, link, and deploy the harness with an external lib");
 }
 
 /// A harness whose constructor reverts must fail deployment with a clear

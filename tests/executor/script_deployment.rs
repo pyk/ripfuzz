@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use ripfuzz::cli::exec::Command;
 
 const SCRIPT: &str = "fixtures/executor/script-deployment/ScriptExecutes.sol";
+const INTERNAL_LIB: &str = "fixtures/executor/script-deployment/ScriptWithInternalLib.sol";
+const EXTERNAL_LIB: &str = "fixtures/executor/script-deployment/ScriptWithExternalLib.sol";
 const REVERTING: &str = "fixtures/executor/script-deployment/ScriptWithRevertingConstructor.sol";
 const REVERTING_SETUP: &str = "fixtures/executor/script-deployment/ScriptWithRevertingSetup.sol";
 const REVERTING_EXEC: &str = "fixtures/executor/script-deployment/ScriptWithRevertingExec.sol";
@@ -35,6 +37,35 @@ fn exec_compiles_and_runs_script() {
     command(SCRIPT)
         .run()
         .expect("exec should compile and run the script");
+
+    assert!(
+        traces_contain(".ripfuzz/traces", "ExecRan"),
+        "a saved trace must contain the exec event"
+    );
+}
+
+/// A harness importing a library with only internal functions must compile,
+/// deploy, and execute without linking, since solc inlines internal library
+/// calls into the script bytecode.
+#[test]
+fn exec_compiles_and_runs_script_with_internal_lib() {
+    command(INTERNAL_LIB)
+        .run()
+        .expect("exec should compile and run the script with an internal lib");
+
+    assert!(
+        traces_contain(".ripfuzz/traces", "ExecRan"),
+        "a saved trace must contain the exec event"
+    );
+}
+
+/// A script importing a library with external functions must deploy the
+/// library first, link its address into the script initcode, and execute.
+#[test]
+fn exec_compiles_and_runs_script_with_external_lib() {
+    command(EXTERNAL_LIB)
+        .run()
+        .expect("exec should compile, link, and run the script with an external lib");
 
     assert!(
         traces_contain(".ripfuzz/traces", "ExecRan"),

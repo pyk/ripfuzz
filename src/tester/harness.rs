@@ -31,7 +31,7 @@ use alloy_json_abi::{Function, JsonAbi, StateMutability};
 use anyhow::{Context, Result, ensure};
 
 use crate::compilers::solc::SolcOutput;
-use crate::evm::DeployInput;
+use crate::evm::{DeployInput, DeployLibraryInput, Linker};
 use crate::harness::HarnessId;
 
 /// A compiled harness validated and structured for the `test` command.
@@ -44,6 +44,7 @@ pub struct TestHarness {
     summary: Option<Function>,
     invariants: Vec<Function>,
     handlers: Vec<Function>,
+    libraries: Vec<DeployLibraryInput>,
 }
 
 impl TryFrom<&SolcOutput> for TestHarness {
@@ -94,7 +95,10 @@ impl TryFrom<&SolcOutput> for TestHarness {
             id
         );
 
-        // 4. Reject a constructor with arguments or payable.
+        // 4. Resolve linked libraries from the compilation output.
+        let libraries = Linker::resolve_libraries(solc_output)?;
+
+        // 5. Reject a constructor with arguments or payable.
         if let Some(constructor) = &abi.constructor {
             ensure!(
                 constructor.inputs.is_empty(),
@@ -108,12 +112,12 @@ impl TryFrom<&SolcOutput> for TestHarness {
             );
         }
 
-        // 5. Capture the optional `setup` and `summary` functions and check
+        // 6. Capture the optional `setup` and `summary` functions and check
         //    their arguments and mutability.
         let setup = capture_optional(id, &abi, "setup")?;
         let summary = capture_optional(id, &abi, "summary")?;
 
-        // 6. Capture the `invariant_*` functions, sorted by name for stable
+        // 7. Capture the `invariant_*` functions, sorted by name for stable
         //    reporting, and check their arguments and mutability.
         let mut invariants: Vec<Function> = abi
             .functions()
@@ -136,7 +140,7 @@ impl TryFrom<&SolcOutput> for TestHarness {
             );
         }
 
-        // 7. Capture the fuzzable handler functions, excluding `setup`,
+        // 8. Capture the fuzzable handler functions, excluding `setup`,
         //    `summary`, and `invariant_*`.
         let handlers = abi
             .functions()
@@ -156,6 +160,7 @@ impl TryFrom<&SolcOutput> for TestHarness {
             summary,
             invariants,
             handlers,
+            libraries,
         })
     }
 }
@@ -211,11 +216,19 @@ impl TestHarness {
     pub fn handlers(&self) -> &[Function] {
         &self.handlers
     }
+
+    /// The libraries linked into the harness initcode, resolved from the
+    /// compilation output.
+    pub fn libraries(&self) -> &[DeployLibraryInput] {
+        &self.libraries
+    }
 }
 
 impl From<&TestHarness> for DeployInput {
     fn from(test_harness: &TestHarness) -> Self {
-        DeployInput::new(&test_harness.initcode)
+        let mut deploy_input = DeployInput::new(&test_harness.initcode);
+        deploy_input.libraries = test_harness.libraries.clone();
+        deploy_input
     }
 }
 
@@ -457,5 +470,40 @@ mod tests {
 
         let deploy_input: DeployInput = (&test_harness).into();
         assert_eq!(deploy_input.initcode, "0x6080");
+    }
+
+    #[test]
+    fn resolves_linked_libraries() {
+        let solc_output = solc_output(json!({
+            "src/Harness.sol": {
+                "Harness": {
+                    "abi": [],
+                    "evm": {
+                        "bytecode": {
+                            "object": "0x6080",
+                            "linkReferences": {
+                                "src/MathLib.sol": {
+                                    "MathLib": [{"start": 116, "length": 20}]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "src/MathLib.sol": {
+                "MathLib": {
+                    "abi": [],
+                    "evm": {"bytecode": {"object": "0x6081"}}
+                }
+            }
+        }));
+        let test_harness = TestHarness::try_from(&solc_output).unwrap();
+
+        assert_eq!(test_harness.libraries().len(), 1);
+        assert_eq!(test_harness.libraries()[0].id, "src/MathLib.sol:MathLib");
+        assert_eq!(test_harness.libraries()[0].initcode, "0x6081");
+        let deploy_input: DeployInput = (&test_harness).into();
+        assert_eq!(deploy_input.libraries.len(), 1);
+        assert_eq!(deploy_input.libraries[0].id, "src/MathLib.sol:MathLib");
     }
 }

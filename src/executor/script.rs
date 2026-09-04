@@ -23,7 +23,7 @@ use alloy_json_abi::{Function, JsonAbi, StateMutability};
 use anyhow::{Context, Result, ensure};
 
 use crate::compilers::solc::SolcOutput;
-use crate::evm::DeployInput;
+use crate::evm::{DeployInput, DeployLibraryInput, Linker};
 use crate::harness::HarnessId;
 
 /// A compiled script validated and structured for the `exec` command.
@@ -33,6 +33,7 @@ pub struct Script {
     initcode: String,
     exec: Function,
     setup: Option<Function>,
+    libraries: Vec<DeployLibraryInput>,
 }
 
 impl TryFrom<&SolcOutput> for Script {
@@ -83,7 +84,10 @@ impl TryFrom<&SolcOutput> for Script {
             id
         );
 
-        // 4. Check the constructor. An implicit constructor is absent from the
+        // 4. Resolve linked libraries from the compilation output.
+        let libraries = Linker::resolve_libraries(solc_output)?;
+
+        // 5. Check the constructor. An implicit constructor is absent from the
         //    ABI, so only explicit definitions are validated here.
         if let Some(constructor) = &abi.constructor {
             ensure!(
@@ -98,7 +102,7 @@ impl TryFrom<&SolcOutput> for Script {
             );
         }
 
-        // 5. Capture the optional `setup` function and reject invalid
+        // 6. Capture the optional `setup` function and reject invalid
         //    definitions, including overloads.
         if let Some(setups) = abi.function("setup") {
             for setup in setups {
@@ -120,7 +124,7 @@ impl TryFrom<&SolcOutput> for Script {
             .and_then(|functions| functions.first())
             .cloned();
 
-        // 6. Resolve the `exec` function and reject overloads.
+        // 7. Resolve the `exec` function and reject overloads.
         let candidates = abi
             .function("exec")
             .with_context(|| format!("script contract `{}` must define an `exec` function", id))?;
@@ -132,7 +136,7 @@ impl TryFrom<&SolcOutput> for Script {
         );
         let exec = candidates[0].clone();
 
-        // 7. Check the `exec` arguments and mutability. Internal and private
+        // 8. Check the `exec` arguments and mutability. Internal and private
         //    functions are absent from the ABI, so the remaining invalid
         //    mutabilities are `payable`, `view`, and `pure`.
         ensure!(
@@ -152,6 +156,7 @@ impl TryFrom<&SolcOutput> for Script {
             initcode: initcode.clone(),
             exec,
             setup,
+            libraries,
         })
     }
 }
@@ -171,11 +176,19 @@ impl Script {
     pub fn setup(&self) -> Option<&Function> {
         self.setup.as_ref()
     }
+
+    /// The libraries linked into the script initcode, resolved from the
+    /// compilation output.
+    pub fn libraries(&self) -> &[DeployLibraryInput] {
+        &self.libraries
+    }
 }
 
 impl From<&Script> for DeployInput {
     fn from(script: &Script) -> Self {
-        DeployInput::new(&script.initcode)
+        let mut deploy_input = DeployInput::new(&script.initcode);
+        deploy_input.libraries = script.libraries.clone();
+        deploy_input
     }
 }
 
@@ -398,5 +411,39 @@ mod tests {
 
         let deploy_input: DeployInput = (&script).into();
         assert_eq!(deploy_input.initcode, "0x6080");
+    }
+
+    #[test]
+    fn resolves_linked_libraries() {
+        let solc_output = solc_output(json!({
+            "src/Script.sol": {
+                "Script": {
+                    "abi": serde_json::to_value(JsonAbi::parse(["function exec()"]).unwrap()).unwrap(),
+                    "evm": {
+                        "bytecode": {
+                            "object": "0x6080",
+                            "linkReferences": {
+                                "src/MathLib.sol": {
+                                    "MathLib": [{"start": 116, "length": 20}]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "src/MathLib.sol": {
+                "MathLib": {
+                    "abi": [],
+                    "evm": {"bytecode": {"object": "0x6081"}}
+                }
+            }
+        }));
+        let script = Script::try_from(&solc_output).unwrap();
+
+        assert_eq!(script.libraries().len(), 1);
+        assert_eq!(script.libraries()[0].id, "src/MathLib.sol:MathLib");
+        let deploy_input: DeployInput = (&script).into();
+        assert_eq!(deploy_input.libraries.len(), 1);
+        assert_eq!(deploy_input.libraries[0].id, "src/MathLib.sol:MathLib");
     }
 }

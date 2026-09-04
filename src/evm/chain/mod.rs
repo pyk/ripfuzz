@@ -15,6 +15,7 @@ use revm::{
 };
 
 pub use crate::evm::chain::broken_invariant::BrokenInvariant;
+pub use crate::evm::chain::linker::Linker;
 
 pub use crate::evm::chain::config::ChainConfig;
 

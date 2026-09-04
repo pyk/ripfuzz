@@ -24,7 +24,7 @@ use alloy_json_abi::{Function, JsonAbi, StateMutability};
 use anyhow::{Context, Result, ensure};
 
 use crate::compilers::solc::SolcOutput;
-use crate::evm::DeployInput;
+use crate::evm::{DeployInput, DeployLibraryInput, Linker};
 use crate::harness::HarnessId;
 
 /// A compiled harness validated and structured for the `max` command.
@@ -36,6 +36,7 @@ pub struct MaxHarness {
     value: Function,
     setup: Option<Function>,
     summary: Option<Function>,
+    libraries: Vec<DeployLibraryInput>,
 }
 
 impl TryFrom<&SolcOutput> for MaxHarness {
@@ -86,7 +87,10 @@ impl TryFrom<&SolcOutput> for MaxHarness {
             id
         );
 
-        // 4. Reject `invariant_*` functions.
+        // 4. Resolve linked libraries from the compilation output.
+        let libraries = Linker::resolve_libraries(solc_output)?;
+
+        // 5. Reject `invariant_*` functions.
         let invariants: Vec<&str> = abi
             .functions()
             .filter(|function| function.name.starts_with("invariant_"))
@@ -99,7 +103,7 @@ impl TryFrom<&SolcOutput> for MaxHarness {
             invariants.join(", ")
         );
 
-        // 5. Resolve the `value` function and reject overloads.
+        // 6. Resolve the `value` function and reject overloads.
         let candidates = abi
             .function("value")
             .with_context(|| format!("max harness `{}` must define a `value` function", id))?;
@@ -111,7 +115,7 @@ impl TryFrom<&SolcOutput> for MaxHarness {
         );
         let value = candidates[0].clone();
 
-        // 6. Check the `value` mutability and return type.
+        // 7. Check the `value` mutability and return type.
         ensure!(
             matches!(
                 value.state_mutability,
@@ -133,7 +137,7 @@ impl TryFrom<&SolcOutput> for MaxHarness {
             value.outputs[0].ty
         );
 
-        // 7. Capture the optional `setup` and `summary` functions.
+        // 8. Capture the optional `setup` and `summary` functions.
         let setup = abi
             .function("setup")
             .and_then(|functions| functions.first())
@@ -150,6 +154,7 @@ impl TryFrom<&SolcOutput> for MaxHarness {
             value,
             setup,
             summary,
+            libraries,
         })
     }
 }
@@ -180,6 +185,12 @@ impl MaxHarness {
         self.summary.as_ref()
     }
 
+    /// The libraries linked into the harness initcode, resolved from the
+    /// compilation output.
+    pub fn libraries(&self) -> &[DeployLibraryInput] {
+        &self.libraries
+    }
+
     /// The fuzzable handler functions, excluding `value`, `setup`, and
     /// `summary`.
     pub fn handlers(&self) -> Vec<Function> {
@@ -195,7 +206,9 @@ impl MaxHarness {
 
 impl From<&MaxHarness> for DeployInput {
     fn from(max_harness: &MaxHarness) -> Self {
-        DeployInput::new(&max_harness.initcode)
+        let mut deploy_input = DeployInput::new(&max_harness.initcode);
+        deploy_input.libraries = max_harness.libraries.clone();
+        deploy_input
     }
 }
 
@@ -428,5 +441,40 @@ mod tests {
 
         let deploy_input: DeployInput = (&max_harness).into();
         assert_eq!(deploy_input.initcode, "0x6080");
+    }
+
+    #[test]
+    fn resolves_linked_libraries() {
+        let abi = JsonAbi::parse(["function value() view returns (uint256)"]).unwrap();
+        let solc_output = solc_output(json!({
+            "src/Harness.sol": {
+                "Harness": {
+                    "abi": serde_json::to_value(&abi).unwrap(),
+                    "evm": {
+                        "bytecode": {
+                            "object": "0x6080",
+                            "linkReferences": {
+                                "src/MathLib.sol": {
+                                    "MathLib": [{"start": 116, "length": 20}]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "src/MathLib.sol": {
+                "MathLib": {
+                    "abi": [],
+                    "evm": {"bytecode": {"object": "0x6081"}}
+                }
+            }
+        }));
+        let max_harness = MaxHarness::try_from(&solc_output).unwrap();
+
+        assert_eq!(max_harness.libraries().len(), 1);
+        assert_eq!(max_harness.libraries()[0].id, "src/MathLib.sol:MathLib");
+        let deploy_input: DeployInput = (&max_harness).into();
+        assert_eq!(deploy_input.libraries.len(), 1);
+        assert_eq!(deploy_input.libraries[0].id, "src/MathLib.sol:MathLib");
     }
 }

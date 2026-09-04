@@ -22,6 +22,10 @@ const REVERTING_SETUP: &str =
     "fixtures/tester/harness-deployment/HarnessWithRevertingSetup.sol:HarnessWithRevertingSetup";
 const SUMMARY: &str =
     "fixtures/tester/harness-deployment/HarnessWithSummary.sol:HarnessWithSummary";
+const INTERNAL_LIB: &str =
+    "fixtures/tester/harness-deployment/HarnessWithInternalLib.sol:HarnessWithInternalLib";
+const EXTERNAL_LIB: &str =
+    "fixtures/tester/harness-deployment/HarnessWithExternalLib.sol:HarnessWithExternalLib";
 const WRONG_NAME: &str = "fixtures/tester/harness-deployment/HarnessWithIncrement.sol:DoesNotExist";
 
 fn command(harness: &str) -> Command {
@@ -52,6 +56,28 @@ fn test_compiles_and_deploys_harness() {
     let broken_invariants = command(HARNESS)
         .run()
         .expect("test should compile and deploy the harness");
+    assert!(broken_invariants.is_empty(), "no invariant should break");
+}
+
+/// A harness importing a library with only internal functions must compile,
+/// deploy, and fuzz without linking, since solc inlines internal library
+/// calls into the harness bytecode.
+#[test]
+fn test_compiles_and_deploys_harness_with_internal_lib() {
+    let broken_invariants = command(INTERNAL_LIB)
+        .run()
+        .expect("test should compile and deploy the harness with an internal lib");
+    assert!(broken_invariants.is_empty(), "no invariant should break");
+}
+
+/// A harness importing a library with external functions must deploy the
+/// library first, link its address into the harness initcode, and fuzz
+/// without broken invariants.
+#[test]
+fn test_compiles_and_deploys_harness_with_external_lib() {
+    let broken_invariants = command(EXTERNAL_LIB)
+        .run()
+        .expect("test should compile, link, and deploy the harness with an external lib");
     assert!(broken_invariants.is_empty(), "no invariant should break");
 }
 

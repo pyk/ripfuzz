@@ -23,6 +23,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 - `ripfuzz init` now also creates a `.gitignore` with `.ripfuzz` and `.env`
   entries. An existing `.gitignore` gets only its missing entries appended.
 
+- `ripfuzz test`, `ripfuzz max`, and `ripfuzz exec` now deploy contracts that
+  use Solidity libraries. Libraries with only internal functions are inlined by
+  solc and need no deployment, while libraries with external functions are
+  detected from the compilation link references, deployed first, and linked
+  into the initcode, including nested library dependencies.
+
 ### Changed
 
 - Broken invariants are now reported by reverting with the

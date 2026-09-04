@@ -14,7 +14,7 @@
 pub use chain::ChainConfig;
 pub use chain::DEFAULT_DEPLOYER;
 pub use chain::{
-    Chain, DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput, ExecOutput,
+    Chain, DeployInput, DeployLibraryInput, DeployLibraryOutput, DeployOutput, ExecOutput, Linker,
     SetupInput, SetupOutput, Transaction,
 };
 pub use cheatcode::CheatcodeConfig;
