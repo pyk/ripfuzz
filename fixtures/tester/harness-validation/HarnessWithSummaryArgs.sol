@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.36;
+pragma solidity 0.8.36;
 
 contract HarnessWithSummaryArgs {
     function deposit(uint256 amount) external pure {
