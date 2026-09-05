@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use alloy_sol_types::SolCall;
 use revm::primitives::Bytes;
-use ripfuzz::{
+use ripfuzz::evm::{
     Chain, ChainConfig, DeployInput, ForkDBConfig, MockTransport, SetupInput, Transaction,
 };
 use serde_json::json;

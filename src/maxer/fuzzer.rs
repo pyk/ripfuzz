@@ -12,7 +12,7 @@
 //!
 //! ```rust,no_run
 //! use ripfuzz::maxer::{Corpus, Fuzzer, Sequence, Value};
-//! use ripfuzz::{Chain, ChainConfig, SharedCoverage};
+//! use ripfuzz::evm::{Chain, ChainConfig, SharedCoverage};
 //! use alloy_primitives::U256;
 //!
 //! # let chain = Chain::empty(ChainConfig::default());

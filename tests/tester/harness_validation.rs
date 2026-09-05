@@ -4,8 +4,8 @@
 use revm::primitives::Bytes;
 
 use ripfuzz::compilers::solc::{Solc, SolcOutput};
+use ripfuzz::evm::{DeployInput, TraceContext};
 use ripfuzz::tester::TestHarness;
-use ripfuzz::{DeployInput, TraceContext};
 
 const VERSION: &str = "0.8.36";
 const DIR: &str = "fixtures/tester/harness-validation";

@@ -5,7 +5,7 @@
 //! the call selector.
 //!
 //! ```no_run
-//! use ripfuzz::Evmole;
+//! use ripfuzz::evm::Evmole;
 //! let runtime_code: &[u8] = &[];
 //! let extracted = Evmole::extract(runtime_code);
 //! let _ = extracted.arguments(&[0u8; 4]);

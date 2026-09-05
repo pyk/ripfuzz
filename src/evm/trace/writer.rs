@@ -6,7 +6,7 @@
 //! file naming and error reporting.
 //!
 //! ```rust,no_run
-//! use ripfuzz::{ExecutionTraceWriter, Trace, TraceContext};
+//! use ripfuzz::evm::{ExecutionTraceWriter, Trace, TraceContext};
 //!
 //! # let trace: Trace = todo!();
 //! let writer = ExecutionTraceWriter::new(std::path::Path::new("."))

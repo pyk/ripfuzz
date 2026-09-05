@@ -5,7 +5,7 @@
 //! same file naming and error reporting.
 //!
 //! ```rust,no_run
-//! use ripfuzz::{CoverageReport, CoverageWriter};
+//! use ripfuzz::evm::{CoverageReport, CoverageWriter};
 //!
 //! # let report: CoverageReport = todo!();
 //! let writer = CoverageWriter::new(std::path::Path::new("."));

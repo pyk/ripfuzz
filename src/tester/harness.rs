@@ -15,7 +15,7 @@
 //!
 //! ```rust,no_run
 //! use ripfuzz::tester::TestHarness;
-//! use ripfuzz::{Chain, ChainConfig};
+//! use ripfuzz::evm::{Chain, ChainConfig};
 //!
 //! # fn main() -> anyhow::Result<()> {
 //! # let solc_output: ripfuzz::compilers::solc::SolcOutput = todo!();

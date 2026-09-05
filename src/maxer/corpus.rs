@@ -6,7 +6,7 @@
 //!
 //! ```rust,no_run
 //! use ripfuzz::maxer::{Corpus, Sequence, Value};
-//! use ripfuzz::{Chain, ChainConfig};
+//! use ripfuzz::evm::{Chain, ChainConfig};
 //! use alloy_primitives::U256;
 //! use fastrand::Rng;
 //!

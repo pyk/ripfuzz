@@ -14,7 +14,7 @@
 //! ```rust,no_run
 //! use alloy_primitives::Address;
 //! use ripfuzz::tester::Shrinker;
-//! use ripfuzz::{Chain, ChainConfig};
+//! use ripfuzz::evm::{Chain, ChainConfig};
 //!
 //! # fn main() -> anyhow::Result<()> {
 //! # let chain = Chain::empty(ChainConfig::default());

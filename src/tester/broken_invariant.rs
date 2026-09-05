@@ -184,7 +184,7 @@ impl SharedBrokenInvariants {
 ///
 /// ```rust,no_run
 /// use ripfuzz::tester::{BrokenInvariant, BrokenInvariantReporter};
-/// use ripfuzz::{Chain, ChainConfig, TraceContext};
+/// use ripfuzz::evm::{Chain, ChainConfig, TraceContext};
 ///
 /// # let chain = Chain::empty(ChainConfig::default());
 /// # let broken = BrokenInvariant::new().with_id("INV-001");

@@ -1,7 +1,5 @@
 //! CLI command definitions.
 
-pub use crate::config::Config;
-
 pub mod exec;
 pub mod fetch;
 pub mod init;

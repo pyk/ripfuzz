@@ -8,10 +8,10 @@ use std::sync::Arc;
 use alloy_sol_types::SolCall;
 use revm::primitives::Bytes;
 use ripfuzz::compilers::solc::{Solc, SolcOutput};
-use ripfuzz::harness::HarnessId;
-use ripfuzz::{
+use ripfuzz::evm::{
     Chain, ChainConfig, DeployInput, ForkDBConfig, MockTransport, SetupInput, Transaction,
 };
+use ripfuzz::harness::HarnessId;
 use serde_json::json;
 
 alloy_sol_types::sol! {

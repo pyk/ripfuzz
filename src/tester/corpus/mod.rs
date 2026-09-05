@@ -10,7 +10,7 @@
 //!
 //! ```rust,no_run
 //! use ripfuzz::tester::{Corpus, Sequence};
-//! use ripfuzz::{Chain, ChainConfig};
+//! use ripfuzz::evm::{Chain, ChainConfig};
 //! use fastrand::Rng;
 //!
 //! let corpus = Corpus::new();

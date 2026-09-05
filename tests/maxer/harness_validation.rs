@@ -4,8 +4,8 @@
 use revm::primitives::Bytes;
 
 use ripfuzz::compilers::solc::{Solc, SolcOutput};
+use ripfuzz::evm::{DeployInput, TraceContext};
 use ripfuzz::maxer::MaxHarness;
-use ripfuzz::{DeployInput, TraceContext};
 
 const VERSION: &str = "0.8.36";
 const DIR: &str = "fixtures/maxer/harness-validation";
