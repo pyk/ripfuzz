@@ -43,6 +43,14 @@ challenges: # Run challenge tests
 	@echo "Running tester challenges"
 	@cargo test --quiet --test tester -- --ignored challenges
 
+.PHONY: doc
+doc: # Build docs and serve them
+	@echo "Run doc build"
+	@cargo doc --no-deps
+	@IP=$$(python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(("8.8.8.8", 80)); print(s.getsockname()[0])'); \
+	echo "Serving docs on http://$$IP:8000/ripfuzz/"; \
+	cd target/doc && python3 -m http.server 8000 --bind 0.0.0.0
+
 # Catch-all target to handle extra arguments passed to make
 %:
 	@
