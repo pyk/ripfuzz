@@ -26,6 +26,8 @@ enum Commands {
     Test(Box<cli::test::Command>),
     /// Find maximum value.
     Max(Box<cli::max::Command>),
+    /// Inspect compiled contracts.
+    Inspect(cli::inspect::Command),
 }
 
 fn main() -> ExitCode {
@@ -47,6 +49,7 @@ fn main() -> ExitCode {
         Commands::Exec(command) => command.run(),
         Commands::Test(command) => command.run().map(|_| ()),
         Commands::Max(command) => command.run().map(|_| ()),
+        Commands::Inspect(command) => command.run(),
     };
 
     if let Err(e) = result {

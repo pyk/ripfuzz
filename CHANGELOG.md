@@ -10,6 +10,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz inspect external-functions <contract>` prints a report of every
+  externally callable function of a contract as a markdown table with its name,
+  selector, mutability, modifiers, and source location. The report classifies
+  functions into mutable, view, callback, and special sections. The inspector
+  reuses the shared solc pipeline, so a cached compilation skips solc entirely.
+
 - Compiled solc outputs are now cached under a hash of the solc version and the
   standard JSON input at `{out}/{hash}.json`. Compilations with identical
   sources, settings, and compiler version reuse the cached output without

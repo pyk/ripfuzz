@@ -5,6 +5,7 @@ pub use crate::config::Config;
 pub mod exec;
 pub mod fetch;
 pub mod init;
+pub mod inspect;
 pub mod max;
 pub mod test;
 
