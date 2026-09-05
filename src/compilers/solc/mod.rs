@@ -199,11 +199,9 @@ impl Solc {
             target.display()
         );
 
-        // 3. Ensure the solc binary is installed and log the compile plan.
+        // 3. Log the compile plan. The executor installs the binary and runs
+        //    solc only when no cached output covers the compilation.
         let out_dir = self.out_dir();
-        let installer = SolcInstaller::new(version);
-        installer.ensure_installed()?;
-
         info!("compiling harness {}", strip_dot_prefix(&target));
 
         // 4. Resolve the transitive sources and build the solc input.
@@ -228,11 +226,12 @@ impl Solc {
         }
         let input = input.build();
 
-        // 5. Run solc.
+        // 5. Run solc or reuse a cached compilation.
         let output = SolcExecutor::new()
             .with_version(version)
             .with_root(&root)
             .with_input(input)
+            .with_cache(&out_dir)
             .exec()?;
 
         // 6. Resolve the target path relative to the root. The solc output

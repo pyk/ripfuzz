@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ripfuzz::compilers::solc::{Solc, SolcOutput};
 use ripfuzz::config::Config;
@@ -59,6 +59,38 @@ fn contains_bytecode(path: &Path) -> bool {
         })
         .unwrap_or("");
     !bytecode.is_empty() && bytecode != "0x"
+}
+
+#[test]
+fn reuses_cached_output_for_identical_input() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("out");
+    let solc = Solc::new()
+        .with_version(VERSION)
+        .with_target("fixtures/compilers/solc/HarnessWithNoImports.sol")
+        .with_out(&out);
+
+    // 1. Two compilations of the same input produce a single cache entry.
+    let _ = solc.clone().compile().unwrap();
+    let _ = solc.clone().compile().unwrap();
+    let mut entries: Vec<PathBuf> = fs::read_dir(&out)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    assert_eq!(entries.len(), 1, "expected one cache entry");
+    let cache_path = entries.remove(0);
+
+    // 2. The cached output is returned without running solc.
+    fs::write(&cache_path, "{\"contracts\":{},\"sources\":{}}").unwrap();
+    let cached = solc.clone().compile().unwrap();
+    assert!(cached.output.contracts.is_empty());
+
+    // 3. Removing the cache recompiles the harness.
+    fs::remove_file(&cache_path).unwrap();
+    let recompiled = solc.compile().unwrap();
+    assert!(!initcode(&recompiled).is_empty());
 }
 
 #[test]

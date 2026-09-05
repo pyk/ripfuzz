@@ -10,6 +10,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- Compiled solc outputs are now cached under a hash of the solc version and the
+  standard JSON input at `{out}/{hash}.json`. Compilations with identical
+  sources, settings, and compiler version reuse the cached output without
+  running solc again.
+
 - `ripfuzz fetch <name> <url>` downloads and extracts a tar.gz dependency into
   `.ripfuzz/dependencies/<name>`, hashes the archive as a sha2-256 multihash,
   and records it under `[dependencies]` in `ripfuzz.toml`. Re-running `fetch`
