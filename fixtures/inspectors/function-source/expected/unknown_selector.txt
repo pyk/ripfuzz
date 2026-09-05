@@ -1,0 +1,8 @@
+selector `deadbeef` not found in contract `App`, available selectors:
+  75cb2672  configure(address)
+  abb014ab  kind(uint256)
+  3da89302  mid((uint256,uint256))
+  8da5cb5b  owner()
+  57de26a4  read()
+  55241077  setValue(uint256)
+  2ddbd13a  total()

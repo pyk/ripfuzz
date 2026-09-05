@@ -19,7 +19,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use solc::StandardJSONOutput;
 use solc::abi::{Component, Function as AbiFunction, Item, Param, StateMutability};
 use solc::ast::{
@@ -27,11 +27,9 @@ use solc::ast::{
     VariableDeclaration, Visibility,
 };
 
-use crate::compilers::solc::{
-    RemappingsResolver, SolcExecutor, SourceResolver, StandardJSONInputBuilder,
-};
 use crate::config::Config;
 use crate::harness::HarnessId;
+use crate::inspectors::CompiledTarget;
 
 /// Source location of a resolved function declaration.
 #[derive(Debug, Clone)]
@@ -269,72 +267,11 @@ impl ExternalFunctionsInspector {
 
     /// Inspects the external functions of `target`.
     pub fn inspect(&self, target: &HarnessId) -> Result<ExternalFunctionsOutput> {
-        // 1. Resolve the target source path relative to the root.
-        let target_path = self.root.join(&target.path);
-        ensure!(
-            target_path.is_file(),
-            "contract file `{}` not found",
-            target.path.display()
-        );
-        let canonical_root = self
-            .root
-            .canonicalize()
-            .unwrap_or_else(|_| self.root.clone());
-        let canonical_target = target_path
-            .canonicalize()
-            .unwrap_or_else(|_| target_path.clone());
-        let source_path = canonical_target
-            .strip_prefix(&canonical_root)
-            .unwrap_or(&canonical_target)
-            .to_path_buf();
+        // 1. Compile the target or reuse a cached compilation.
+        let compiled = CompiledTarget::compile(&self.root, &self.config, target)?;
 
-        // 2. Resolve remappings and the transitive sources of the target.
-        let remappings = RemappingsResolver::load(&self.root)?
-            .with_remappings(self.config.compile_remappings())?;
-        let sources = SourceResolver::new()
-            .with_root(&self.root)
-            .with_remappings(remappings.clone())
-            .resolve(&target_path)?;
-
-        // 3. Build the standard JSON input with the project compile
-        //    settings, so the cache key matches a direct compilation of the
-        //    same target.
-        let mut input = StandardJSONInputBuilder::new()
-            .with_sources(sources.clone())
-            .with_remappings(remappings.solc_remappings())
-            .with_evm_version(self.config.solc.evm_version.clone())
-            .with_optimizer(self.config.solc.optimizer, self.config.solc.optimizer_runs);
-        if self.config.solc.via_ir {
-            input = input.with_via_ir(true);
-        }
-        let input = input.build();
-
-        // 4. Run solc or reuse a cached compilation.
-        let out_dir = resolve_out_dir(&self.root, &self.config);
-        let output = SolcExecutor::new()
-            .with_version(&self.config.solc.version)
-            .with_root(&self.root)
-            .with_input(input)
-            .with_cache(out_dir)
-            .exec()?;
-
-        // 5. Extract the target contract from the compilation output.
-        let contract = output.contracts.get(&source_path).with_context(|| {
-            format!(
-                "contract file `{}` not found in compilation output",
-                source_path.display()
-            )
-        })?;
-        let contract_output = contract.get(&target.name).with_context(|| {
-            let mut names: Vec<String> = contract.keys().map(|name| name.to_owned()).collect();
-            names.sort();
-            format!(
-                "contract `{}` not found in `{}`, available contracts: {}",
-                target.name,
-                source_path.display(),
-                names.join(", ")
-            )
-        })?;
+        // 2. Extract the target contract ABI and method selectors.
+        let contract_output = compiled.contract(target)?;
         let abi = contract_output.abi.as_ref().with_context(|| {
             format!(
                 "contract `{}` has no ABI in the compilation output",
@@ -347,8 +284,8 @@ impl ExternalFunctionsInspector {
             .and_then(|evm| evm.method_identifiers.clone())
             .unwrap_or_default();
 
-        // 6. Index the compiled ASTs and classify every ABI item.
-        let index = FunctionIndex::build(&output, &sources);
+        // 3. Index the compiled ASTs and classify every ABI item.
+        let index = FunctionIndex::build(&compiled.output, &compiled.sources);
         let mut mutable = Vec::new();
         let mut view = Vec::new();
         let mut callback = Vec::new();
@@ -424,22 +361,12 @@ impl ExternalFunctionsInspector {
 
         Ok(ExternalFunctionsOutput {
             contract_name: target.name.clone(),
-            source_file: source_path.display().to_string(),
+            source_file: compiled.source_path.display().to_string(),
             mutable,
             view,
             callback,
             special,
         })
-    }
-}
-
-/// Output directory for cached compilations, resolved against the root.
-fn resolve_out_dir(root: &Path, config: &Config) -> PathBuf {
-    let out = &config.solc.out;
-    if out.is_absolute() {
-        out.clone()
-    } else {
-        root.join(out)
     }
 }
 

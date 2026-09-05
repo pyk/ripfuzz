@@ -1,0 +1,21 @@
+# App - read Source Code
+
+Source path: `src/App.sol:43`
+
+```solidity
+function read() external view returns (uint256) {
+    return total;
+}
+```
+
+---
+
+## Variable: `total`
+
+Source path: `src/Base.sol:8`
+
+```solidity
+/// @notice The current total.
+uint256 public total
+```
+

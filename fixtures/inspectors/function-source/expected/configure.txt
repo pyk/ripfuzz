@@ -1,0 +1,57 @@
+# App - configure Source Code
+
+Source path: `src/App.sol:38`
+
+```solidity
+function configure(address newOwner) external payable onlyOwner {
+    owner = newOwner;
+    emit ValueChanged(total);
+}
+```
+
+---
+
+## Event: `ValueChanged`
+
+Source path: `src/App.sol:13`
+
+```solidity
+/// @notice Emitted when the value changes.
+event ValueChanged(uint256 indexed newValue);
+```
+
+---
+
+## Modifier: `onlyOwner`
+
+Source path: `src/App.sol:33`
+
+```solidity
+modifier onlyOwner() {
+    require(msg.sender == owner, "not owner");
+    _;
+}
+```
+
+---
+
+## Variable: `owner`
+
+Source path: `src/App.sol:31`
+
+```solidity
+/// @notice The owner gate.
+address public owner
+```
+
+---
+
+## Variable: `total`
+
+Source path: `src/Base.sol:8`
+
+```solidity
+/// @notice The current total.
+uint256 public total
+```
+

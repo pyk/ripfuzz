@@ -1,0 +1,62 @@
+# App - mid Source Code
+
+Source path: `src/App.sol:47`
+
+```solidity
+function mid(Point memory point) external view returns (uint256) {
+    return _mid(point);
+}
+```
+
+---
+
+## Error: `Empty`
+
+Source path: `src/App.sol:10`
+
+```solidity
+/// @notice Thrown when the amount is zero.
+error Empty();
+```
+
+---
+
+## Function: `_mid`
+
+Source path: `src/App.sol:51`
+
+```solidity
+function _mid(Point memory point) internal view returns (uint256) {
+    uint256 sum = point.x + point.y;
+    if (sum == 0) {
+        revert Empty();
+    }
+    return (sum * PRECISION) / 2;
+}
+```
+
+---
+
+## Struct: `Point`
+
+Source path: `src/App.sol:22`
+
+```solidity
+/// @notice A point in space.
+struct Point {
+    uint256 x;
+    uint256 y;
+}
+```
+
+---
+
+## Variable: `PRECISION`
+
+Source path: `src/App.sol:28`
+
+```solidity
+/// @notice The scaling factor.
+uint256 internal constant PRECISION = 1e18
+```
+
