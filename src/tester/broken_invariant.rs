@@ -27,6 +27,7 @@ use parking_lot::Mutex;
 use revm::primitives::Bytes;
 use tracing::info;
 
+use crate::cli::RunId;
 use crate::evm::{Chain, ExecutionTraceWriter, Trace, TraceContext, Transaction};
 use crate::tester::Sequence;
 
@@ -202,6 +203,7 @@ pub struct BrokenInvariantReporter {
     trace_context: Option<TraceContext>,
     address: Option<Address>,
     summary: Option<Function>,
+    run_id: Option<RunId>,
 }
 
 impl BrokenInvariantReporter {
@@ -213,6 +215,7 @@ impl BrokenInvariantReporter {
             trace_context: None,
             address: None,
             summary: None,
+            run_id: None,
         }
     }
 
@@ -237,6 +240,13 @@ impl BrokenInvariantReporter {
     /// Set the optional summary call appended after the sequence.
     pub fn with_summary(mut self, summary: Option<&Function>) -> Self {
         self.summary = summary.cloned();
+        self
+    }
+
+    /// Name traces after the run so artifacts of one campaign share their
+    /// filename stem. Without it each trace gets a timestamped id.
+    pub fn with_run_id(mut self, run_id: &RunId) -> Self {
+        self.run_id = Some(run_id.clone());
         self
     }
 
@@ -288,8 +298,11 @@ impl BrokenInvariantReporter {
     /// path relative to the root for logging.
     fn save_trace(&self, trace_context: &TraceContext, trace: &Trace) -> Result<PathBuf> {
         // 1. Write the execution trace through the shared trace writer.
-        let writer =
+        let mut writer =
             ExecutionTraceWriter::new(&self.root).with_trace_context(trace_context.clone());
+        if let Some(run) = &self.run_id {
+            writer = writer.with_run_id(run);
+        }
         let trace_file = writer.write(trace)?;
 
         // 2. Return the path relative to the root so logs stay portable.

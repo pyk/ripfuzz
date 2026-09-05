@@ -160,8 +160,10 @@ What to look at:
   console shows the logs emitted on the way to the failure.
 - **Trace files**: one per finding under `.ripfuzz/traces`, plus the optional
   `summary` run when no broken invariant was found.
-- **Coverage report**: `lcov.info` with line and function hits for the whole
-  campaign, written to `.ripfuzz/coverage` at the end of the run.
+- **Coverage report**: line and function hits for the whole campaign, written
+  per run to `.ripfuzz/coverage` at the end of the run.
+- **Run id**: the log file, traces, coverage report, and statistics of one
+  campaign share their filename stem, so every file of a run is grouped by its id.
 - **Fuzzing statistics**: per-handler and per-invariant call counts, wall time
   min/max/avg, RPC cache usage, and reverts grouped by decoded message, written
   to `.ripfuzz/stats` at the end of the run.

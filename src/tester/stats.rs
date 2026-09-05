@@ -40,6 +40,7 @@ use anyhow::{Context, Result};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
+use crate::cli::RunId;
 use crate::evm::TransactionResult;
 
 alloy_sol_types::sol! {
@@ -551,6 +552,7 @@ fn classify(result: &TransactionResult) -> Option<(String, String)> {
 pub struct StatsWriter {
     root: Option<PathBuf>,
     stats: Option<Stats>,
+    run_id: Option<RunId>,
 }
 
 impl StatsWriter {
@@ -568,6 +570,13 @@ impl StatsWriter {
     /// Set the statistics report to save.
     pub fn with_stats(mut self, stats: Stats) -> Self {
         self.stats = Some(stats);
+        self
+    }
+
+    /// Name the report after the run so artifacts of one campaign share
+    /// their filename stem. Without it the report gets a timestamped id.
+    pub fn with_run_id(mut self, run_id: &RunId) -> Self {
+        self.run_id = Some(run_id.clone());
         self
     }
 
@@ -594,12 +603,23 @@ impl StatsWriter {
         let stats_dir = root.join(".ripfuzz").join("stats");
         fs::create_dir_all(&stats_dir)?;
 
-        // 4. Write the timestamped report file and return its absolute path.
-        let timestamp = jiff::Timestamp::now().as_second();
-        let stats_file = stats_dir.join(format!("{timestamp}-{}.json", stats_id()));
+        // 4. Write the report file and return its absolute path.
+        let stats_file = stats_dir.join(self.file_name());
         fs::write(&stats_file, report)
             .with_context(|| format!("failed to write {}", stats_file.display()))?;
         Ok(absolute(stats_file)?)
+    }
+
+    /// Statistics file name for this writer, without the parent directory.
+    fn file_name(&self) -> String {
+        // 1. Share the run stem when the command minted one.
+        if let Some(run) = &self.run_id {
+            return format!("{run}.json");
+        }
+
+        // 2. Fall back to a timestamped id for standalone use.
+        let timestamp = jiff::Timestamp::now().as_second();
+        format!("{timestamp}-{}.json", stats_id())
     }
 }
 
@@ -883,6 +903,26 @@ mod tests {
             err.to_string(),
             "stats not set, call StatsWriter::new().with_stats(..)"
         );
+    }
+
+    #[test]
+    fn file_name_uses_the_run_stem_when_set() {
+        let writer = StatsWriter::new().with_run_id(&RunId::new());
+
+        assert!(writer.file_name().ends_with(".json"));
+        assert_eq!(
+            writer.file_name(),
+            format!("{}.json", writer.run_id.unwrap().stem())
+        );
+    }
+
+    #[test]
+    fn file_name_falls_back_to_a_timestamped_id() {
+        let name = StatsWriter::new().file_name();
+        let (timestamp, id) = name.strip_suffix(".json").unwrap().split_once('-').unwrap();
+
+        assert!(timestamp.parse::<i64>().is_ok());
+        assert_eq!(id.len(), 8);
     }
 
     #[test]

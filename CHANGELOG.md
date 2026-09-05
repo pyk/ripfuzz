@@ -55,6 +55,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   min/max/avg, RPC cache hits/misses/wait, and reverts grouped by decoded kind
   and message.
 
+- `ripfuzz test` now names every per-run artifact after a single run id, so the
+  log file, execution traces, coverage report, and fuzzing statistics of one
+  campaign share their filename stem under `.ripfuzz`. The coverage report is
+  saved per run as `.ripfuzz/coverage/{run}.info` instead of overwriting
+  `lcov.info`, while the corpus keeps persisting across runs. and message.
+
 ### Changed
 
 - Broken invariants are now reported by reverting with the

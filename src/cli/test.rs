@@ -8,13 +8,13 @@ use clap::Parser;
 use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
+use crate::cli::{HarnessId, RunId};
 use crate::compilers::solc::Solc;
 use crate::config::Config;
 use crate::evm::{
     Chain, ChainConfig, CoverageReporter, CoverageWriter, ExecutionTraceWriter, ForkDBConfig,
     SetupInput, SharedCoverage, TraceContext, Transaction,
 };
-use crate::harness::HarnessId;
 use crate::logger::Logger;
 use crate::tester::{
     BrokenInvariant, BrokenInvariantReporter, Corpus, Fuzzer, Replayer, RpcSummary,
@@ -76,13 +76,16 @@ pub struct Command {
 impl Command {
     /// Run the `test` command and return the shrunk broken invariants.
     pub fn run(&self) -> Result<Vec<BrokenInvariant>> {
-        // 1. Initialize logging. Quiet mode writes the file layer only, so a
-        //    subscriber installed by an earlier caller (e.g. a test binary)
-        //    cannot leak events into the terminal.
+        // 1. Mint the run id shared by every per-run artifact, then initialize
+        //    logging. Quiet mode writes the file layer only, so a subscriber
+        //    installed by an earlier caller (e.g. a test binary) cannot leak
+        //    events into the terminal.
+        let run = RunId::new();
         Logger::new()
             .with_root(&self.root)
             .with_quiet(self.quiet)
             .with_level(self.log_level)
+            .with_run_id(&run)
             .init()?;
 
         // 2. Load configuration relative to the project root.
@@ -126,8 +129,9 @@ impl Command {
         for (address, label) in labels {
             trace_context = trace_context.with_label(address, label);
         }
-        let trace_writer =
-            ExecutionTraceWriter::new(&root).with_trace_context(trace_context.clone());
+        let trace_writer = ExecutionTraceWriter::new(&root)
+            .with_trace_context(trace_context.clone())
+            .with_run_id(&run);
 
         // 7. Create the shared coverage map so the deployment and setup calls
         //    below seed the baseline the fuzzers measure new edges against.
@@ -264,7 +268,8 @@ impl Command {
             .with_chain(&chain)
             .with_trace_context(&trace_context)
             .with_address(address)
-            .with_summary(test_harness.summary());
+            .with_summary(test_harness.summary())
+            .with_run_id(&run);
         for broken in &broken_invariants {
             reporter.report(broken)?;
         }
@@ -295,7 +300,9 @@ impl Command {
             .shared_coverage(coverage)
             .base_project_path(&root)
             .build();
-        let coverage_file = CoverageWriter::new(&root).write(&report)?;
+        let coverage_file = CoverageWriter::new(&root)
+            .with_run_id(&run)
+            .write(&report)?;
         info!(
             "coverage report saved to {}",
             strip_dot_prefix(coverage_file.display().to_string())
@@ -357,6 +364,7 @@ impl Command {
         let stats_file = StatsWriter::new()
             .with_root(&root)
             .with_stats(stats)
+            .with_run_id(&run)
             .write()?;
         info!(
             "fuzzing statistics saved to {}",

@@ -6,7 +6,8 @@
 //! keeps every field.
 //!
 //! By default the log file is `{root}/.ripfuzz/logs/{unix-timestamp}-{id}.log`,
-//! matching execution-trace naming.
+//! matching execution-trace naming. Commands that mint a [`RunId`](crate::cli::RunId)
+//! pass it via `with_run_id` so the log file is `{root}/.ripfuzz/logs/{run}.log`.
 //!
 //! ```rust,no_run
 //! use ripfuzz::logger::Logger;
@@ -37,6 +38,8 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::fmt::format::FormatFields;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::prelude::*;
+
+use crate::cli::RunId;
 
 /// Field formatter for stderr: drop bulky payloads and secret-bearing URL paths.
 struct ConsoleFields;
@@ -168,6 +171,7 @@ pub struct Logger {
     level: tracing::Level,
     log_file: LogFile,
     disabled: bool,
+    run_id: Option<RunId>,
 }
 
 impl Default for Logger {
@@ -186,6 +190,7 @@ impl Logger {
             level: tracing::Level::INFO,
             log_file: LogFile::Default,
             disabled: false,
+            run_id: None,
         }
     }
 
@@ -225,6 +230,25 @@ impl Logger {
         self
     }
 
+    /// Name the log file after the run so artifacts of one campaign share
+    /// their filename stem. Without it the log file gets a timestamped id.
+    pub fn with_run_id(mut self, run_id: &RunId) -> Self {
+        self.run_id = Some(run_id.clone());
+        self
+    }
+
+    /// Log file name for this logger, without the parent directory.
+    fn file_name(&self) -> String {
+        // 1. Share the run stem when the command minted one.
+        if let Some(run) = &self.run_id {
+            return format!("{run}.log");
+        }
+
+        // 2. Fall back to a timestamped id for standalone use.
+        let timestamp = jiff::Timestamp::now().as_second();
+        format!("{timestamp}-{}.log", log_id())
+    }
+
     /// Install the global tracing subscriber.
     ///
     /// Terminal output is written to stderr unless `quiet` is set. A formatted
@@ -241,12 +265,11 @@ impl Logger {
             LogFile::Off => None,
             LogFile::Path(path) => Some(open_log_file(path)?),
             LogFile::Default => {
-                let timestamp = jiff::Timestamp::now().as_second();
                 let path = self
                     .root
                     .join(".ripfuzz")
                     .join("logs")
-                    .join(format!("{timestamp}-{}.log", log_id()));
+                    .join(self.file_name());
                 Some(open_log_file(&path)?)
             }
         };
@@ -415,6 +438,26 @@ mod tests {
             out,
             " WARN transient RPC error; retrying batch retry=1 retries=3 backoff_ms=100 items=18 url=https://eth-mainnet.g.alchemy.com/v2/secret-key request=[{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"eth_getBalance\",\"params\":[\"0xabc\"]}] error=RPC error 429: JSON-RPC response contains error object: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":429,\"message\":\"rate limited\"}}\n"
         );
+    }
+
+    #[test]
+    fn file_name_uses_the_run_stem_when_set() {
+        let logger = Logger::new().with_run_id(&RunId::new());
+
+        assert!(logger.file_name().ends_with(".log"));
+        assert_eq!(
+            logger.file_name(),
+            format!("{}.log", logger.run_id.unwrap().stem())
+        );
+    }
+
+    #[test]
+    fn file_name_falls_back_to_a_timestamped_id() {
+        let name = Logger::new().file_name();
+        let (timestamp, id) = name.strip_suffix(".log").unwrap().split_once('-').unwrap();
+
+        assert!(timestamp.parse::<i64>().is_ok());
+        assert_eq!(id.len(), 8);
     }
 
     /// `disable_log_file` must not create `.ripfuzz` state, so commands like
