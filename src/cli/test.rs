@@ -1,7 +1,7 @@
 //! `test` CLI command implementation.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
@@ -17,8 +17,8 @@ use crate::evm::{
 use crate::harness::HarnessId;
 use crate::logger::Logger;
 use crate::tester::{
-    BrokenInvariant, BrokenInvariantReporter, Corpus, Fuzzer, Replayer, SharedBrokenInvariants,
-    Shrinker, TestHarness,
+    BrokenInvariant, BrokenInvariantReporter, Corpus, Fuzzer, Replayer, RpcSummary,
+    SharedBrokenInvariants, Shrinker, Stats, StatsMetadata, StatsWriter, TestHarness,
 };
 
 /// Find broken invariants.
@@ -199,6 +199,7 @@ impl Command {
         info!("corpus loaded & replayed");
 
         // 12. Fuzz for broken invariants within the stop conditions.
+        let fuzz_started = Instant::now();
         let shared_broken_invariants = SharedBrokenInvariants::new(self.max_failures);
         let fuzzer = Fuzzer::new()
             .with_chain(chain.clone())
@@ -224,6 +225,8 @@ impl Command {
                 return Err(err);
             }
         };
+
+        let fuzz_duration = fuzz_started.elapsed();
 
         // 13. Shrink every broken invariant's sequence while the broken invariant
         //     still reproduces.
@@ -296,6 +299,68 @@ impl Command {
         info!(
             "coverage report saved to {}",
             strip_dot_prefix(coverage_file.display().to_string())
+        );
+
+        // 18. Save the fuzzing statistics report under `.ripfuzz/stats`.
+        let handler_entries = output.stats.handler_stats(test_harness.handlers());
+        let invariant_entries = output.stats.invariant_stats(test_harness.invariants());
+        let metadata = StatsMetadata {
+            harness: test_harness.id().name.clone(),
+            address: address.to_string(),
+            chain_id: chain.cfg_env().chain_id,
+            seed,
+            threads: self.threads,
+            max_runs: self.max_fuzz_runs,
+            max_calls: self.max_calls,
+            timeout_secs: self.timeout,
+            duration_secs: fuzz_duration.as_secs_f64(),
+            total_sequences: output.runs,
+            total_handler_calls: handler_entries.iter().map(|entry| entry.calls()).sum(),
+            total_invariant_checks: invariant_entries.iter().map(|entry| entry.calls()).sum(),
+            broken_invariants: broken_invariants.len(),
+            rpc: RpcSummary::new()
+                .with_hits(
+                    handler_entries
+                        .iter()
+                        .map(|entry| entry.rpc().hits())
+                        .sum::<u64>()
+                        + invariant_entries
+                            .iter()
+                            .map(|entry| entry.rpc().hits())
+                            .sum::<u64>(),
+                )
+                .with_misses(
+                    handler_entries
+                        .iter()
+                        .map(|entry| entry.rpc().misses())
+                        .sum::<u64>()
+                        + invariant_entries
+                            .iter()
+                            .map(|entry| entry.rpc().misses())
+                            .sum::<u64>(),
+                )
+                .with_wait_ns(
+                    handler_entries
+                        .iter()
+                        .map(|entry| entry.rpc().wait_ns())
+                        .sum::<u64>()
+                        + invariant_entries
+                            .iter()
+                            .map(|entry| entry.rpc().wait_ns())
+                            .sum::<u64>(),
+                ),
+        };
+        let stats = Stats::new()
+            .with_metadata(metadata)
+            .with_handlers_stats(handler_entries)
+            .with_invariants_stats(invariant_entries);
+        let stats_file = StatsWriter::new()
+            .with_root(&root)
+            .with_stats(stats)
+            .write()?;
+        info!(
+            "fuzzing statistics saved to {}",
+            strip_dot_prefix(stats_file.display().to_string())
         );
 
         Ok(broken_invariants)

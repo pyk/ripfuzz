@@ -48,6 +48,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   detected from the compilation link references, deployed first, and linked
   into the initcode, including nested library dependencies.
 
+- `ripfuzz test` now saves a fuzzing statistics report to
+  `.ripfuzz/stats/{unix-timestamp}-{id}.json` at the end of each campaign. The
+  report groups campaign metadata (harness, chain id, seed, budgets, totals)
+  with per-handler and per-invariant entries carrying call counts, wall time
+  min/max/avg, RPC cache hits/misses/wait, and reverts grouped by decoded kind
+  and message.
+
 ### Changed
 
 - Broken invariants are now reported by reverting with the

@@ -162,6 +162,9 @@ What to look at:
   `summary` run when no broken invariant was found.
 - **Coverage report**: `lcov.info` with line and function hits for the whole
   campaign, written to `.ripfuzz/coverage` at the end of the run.
+- **Fuzzing statistics**: per-handler and per-invariant call counts, wall time
+  min/max/avg, RPC cache usage, and reverts grouped by decoded message, written
+  to `.ripfuzz/stats` at the end of the run.
 - **Log file**: full campaign log under `.ripfuzz/logs`.
 - **Corpus**: interesting sequences persist between campaigns, so the next run
   starts from known paths instead of rediscovering them.

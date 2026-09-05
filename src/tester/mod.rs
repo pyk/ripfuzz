@@ -7,7 +7,7 @@
 //!
 //! ```rust,no_run
 //! use ripfuzz::tester::{BrokenInvariant, Corpus, Fuzzer, Shrinker, SharedBrokenInvariants, TestHarness};
-//! use ripfuzz::{Chain, ChainConfig, SharedCoverage};
+//! use ripfuzz::evm::{Chain, ChainConfig, SharedCoverage};
 //!
 //! # let solc_output: ripfuzz::compilers::solc::SolcOutput = todo!();
 //! # let chain = Chain::empty(ChainConfig::default());
@@ -31,9 +31,14 @@ pub use corpus::{Call, Corpus, EntrySnapshot, LiteralExtractor, Replayer, Sequen
 pub use fuzzer::{Fuzzer, Output};
 pub use harness::TestHarness;
 pub use shrinker::Shrinker;
+pub use stats::{
+    FunctionStats, RevertSummary, RpcSummary, SharedStats, Stats, StatsMetadata, StatsWriter,
+    WallTime,
+};
 
 mod broken_invariant;
 mod corpus;
 mod fuzzer;
 mod harness;
 mod shrinker;
+mod stats;

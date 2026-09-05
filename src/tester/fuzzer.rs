@@ -19,7 +19,7 @@
 //!
 //! ```rust,no_run
 //! use ripfuzz::tester::{Corpus, Fuzzer, SharedBrokenInvariants};
-//! use ripfuzz::{Chain, ChainConfig, SharedCoverage};
+//! use ripfuzz::evm::{Chain, ChainConfig, SharedCoverage};
 //!
 //! # let chain = Chain::empty(ChainConfig::default());
 //! # let corpus = Corpus::new();
@@ -49,7 +49,7 @@ use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
 use crate::evm::{Chain, CoverageUpdate, SharedCoverage, Transaction, TransactionResult};
-use crate::tester::{BrokenInvariant, Call, Corpus, Sequence, SharedBrokenInvariants};
+use crate::tester::{BrokenInvariant, Call, Corpus, Sequence, SharedBrokenInvariants, SharedStats};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
@@ -167,7 +167,11 @@ impl Fuzzer {
 
     /// Run fuzzing and return the broken invariants collected.
     pub fn run(self) -> Result<Output> {
-        // 1. Require the execution context.
+        // 1. Require the execution context with fresh function statistics.
+        let stats = SharedStats::new(
+            self.handlers.as_ref().map_or(0, Vec::len),
+            self.invariants.as_ref().map_or(0, Vec::len),
+        );
         let execution = Execution {
             chain: self
                 .chain
@@ -198,6 +202,7 @@ impl Fuzzer {
             max_runs: self.max_runs.unwrap_or(0),
             max_calls: self.max_calls.unwrap_or(8),
             timeout: self.timeout,
+            stats,
         };
 
         // 2. Seed the shared stop signals.
@@ -335,6 +340,7 @@ struct Execution {
     corpus: Corpus,
     coverage: SharedCoverage,
     broken_invariants: SharedBrokenInvariants,
+    stats: SharedStats,
     seed: u64,
     threads: usize,
     max_runs: u64,
@@ -350,6 +356,8 @@ pub struct Output {
     pub runs: u64,
     /// The distinct broken invariants in discovery order.
     pub broken_invariants: Vec<BrokenInvariant>,
+    /// The per-function statistics collected across all threads.
+    pub stats: SharedStats,
 }
 
 /// State shared across fuzzers.
@@ -428,6 +436,7 @@ impl Shared {
         Output {
             runs: self.runs(),
             broken_invariants: execution.broken_invariants.all(),
+            stats: execution.stats.clone(),
         }
     }
 }
@@ -550,6 +559,15 @@ fn execute_sequence(
         let mut exec = chain.exec(std::slice::from_ref(&tx))?;
         shared.record_call();
         shared.record_gas(&exec.results);
+
+        // 1a. Attribute the handler result to its function statistics.
+        if let Some(handler) = execution
+            .handlers
+            .iter()
+            .position(|handler| handler.selector() == call.function().selector())
+        {
+            execution.stats.record_handler(handler, &exec.results[0]);
+        }
         if let Some(coverage) = exec.coverage.take() {
             let update = execution.coverage.merge(&coverage);
             new_edges += score(&update);
@@ -584,12 +602,16 @@ fn execute_sequence(
             .collect();
         let mut exec = invariant_chain.exec(&transactions)?;
         shared.record_gas(&exec.results);
+        // 3a. Attribute each invariant result to its function statistics.
+        for (result_index, result) in exec.results.iter().enumerate() {
+            execution.stats.record_invariant(result_index, result);
+        }
         if let Some(coverage) = exec.coverage.take() {
             let update = execution.coverage.merge(&coverage);
             new_edges += score(&update);
         }
         for (idx, function) in execution.invariants.iter().enumerate() {
-            // 3a. Record reports emitted during invariants. The sequence ends
+            // 3b. Record reports emitted during invariants. The sequence ends
             //     with the invariant check call that reverted.
             if idx < exec.broken_invariants.len() {
                 for report in &exec.broken_invariants[idx] {
