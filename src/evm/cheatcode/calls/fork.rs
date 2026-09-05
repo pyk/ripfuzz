@@ -252,11 +252,11 @@ mod tests {
     use revm::primitives::Bytes;
     use serde_json::json;
 
+    use crate::cli::HarnessId;
     use crate::compilers::solc::{Solc, SolcOutput};
     use crate::evm::SharedCoverage;
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::forkdb::{ForkDBConfig, MockTransport};
-    use crate::harness::HarnessId;
 
     fn compile_fixture(root: &str, target: &str) -> SolcOutput {
         let id = HarnessId::try_from(target).unwrap();

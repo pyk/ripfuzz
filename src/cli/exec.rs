@@ -7,6 +7,7 @@ use clap::Parser;
 use revm::primitives::Bytes;
 use tracing::{error, info};
 
+use crate::cli::HarnessId;
 use crate::compilers::solc::Solc;
 use crate::config::Config;
 use crate::evm::{
@@ -14,7 +15,6 @@ use crate::evm::{
     Transaction,
 };
 use crate::executor::Script;
-use crate::harness::HarnessId;
 use crate::logger::Logger;
 
 /// Execute a script contract.

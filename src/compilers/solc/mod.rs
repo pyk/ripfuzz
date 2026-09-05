@@ -24,7 +24,7 @@ pub use installer::SolcInstaller;
 pub use remappings::RemappingsResolver;
 pub use source::SourceResolver;
 
-use crate::harness::HarnessId;
+use crate::cli::HarnessId;
 
 pub mod exec;
 pub mod input;

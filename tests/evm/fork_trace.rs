@@ -9,11 +9,11 @@ use std::path::PathBuf;
 use alloy_primitives::Address;
 use alloy_sol_types::SolCall;
 use revm::primitives::Bytes;
+use ripfuzz::cli::HarnessId;
 use ripfuzz::compilers::solc::{Solc, SolcOutput};
 use ripfuzz::evm::{
     Chain, ChainConfig, DeployInput, ForkDBConfig, SetupInput, TraceContext, Transaction,
 };
-use ripfuzz::harness::HarnessId;
 
 // ---------------------------------------------------------------------------
 // Fork mode constants (Base mainnet)

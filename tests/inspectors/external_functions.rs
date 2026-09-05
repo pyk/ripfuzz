@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use ripfuzz::config::Config;
-use ripfuzz::harness::HarnessId;
+use ripfuzz::cli::HarnessId;
 use ripfuzz::inspectors::ExternalFunctionsInspector;
 
 const VERSION: &str = "0.8.36";

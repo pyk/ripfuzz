@@ -113,7 +113,7 @@ impl Linker {
 mod tests {
     use alloy_primitives::keccak256;
 
-    use crate::harness::HarnessId;
+    use crate::cli::HarnessId;
 
     use super::*;
 

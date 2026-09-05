@@ -6,7 +6,7 @@
 //!
 //! ```rust
 //! use ripfuzz::config::Config;
-//! use ripfuzz::harness::HarnessId;
+//! use ripfuzz::cli::HarnessId;
 //! use ripfuzz::inspectors::ExternalFunctionsInspector;
 //!
 //! let root = std::path::Path::new(".");
@@ -27,8 +27,8 @@ use solc::ast::{
     VariableDeclaration, Visibility,
 };
 
+use crate::cli::HarnessId;
 use crate::config::Config;
-use crate::harness::HarnessId;
 use crate::inspectors::CompiledTarget;
 
 /// Source location of a resolved function declaration.

@@ -1913,9 +1913,9 @@ mod tests {
     use alloy_primitives::{Address, B256, U256, keccak256};
     use revm::primitives::{Bytes, Log, LogData};
 
+    use crate::cli::HarnessId;
     use crate::compilers::solc::{Solc, SolcOutput};
     use crate::evm::cheatcode::VM_ADDRESS;
-    use crate::harness::HarnessId;
 
     use super::TraceContext;
 

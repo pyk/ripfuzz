@@ -3,7 +3,7 @@
 //! [`HarnessId`] identifies a harness by source path and contract name.
 //!
 //! ```rust
-//! use ripfuzz::harness::HarnessId;
+//! use ripfuzz::cli::HarnessId;
 //!
 //! let id = HarnessId::try_from("src/MyHarness.sol:MyHarness")?;
 //! # Ok::<(), anyhow::Error>(())

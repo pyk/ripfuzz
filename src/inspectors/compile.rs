@@ -6,7 +6,7 @@
 //!
 //! ```rust
 //! use ripfuzz::config::Config;
-//! use ripfuzz::harness::HarnessId;
+//! use ripfuzz::cli::HarnessId;
 //! use ripfuzz::inspectors::CompiledTarget;
 //!
 //! let root = std::path::Path::new(".");
@@ -22,11 +22,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, ensure};
 use solc::{ContractOutput, StandardJSONOutput};
 
+use crate::cli::HarnessId;
 use crate::compilers::solc::{
     RemappingsResolver, SolcExecutor, SourceResolver, StandardJSONInputBuilder,
 };
 use crate::config::Config;
-use crate::harness::HarnessId;
 
 /// The compiled output of a harness target.
 pub struct CompiledTarget {

@@ -23,9 +23,9 @@
 use alloy_json_abi::{Function, JsonAbi, StateMutability};
 use anyhow::{Context, Result, ensure};
 
+use crate::cli::HarnessId;
 use crate::compilers::solc::SolcOutput;
 use crate::evm::{DeployInput, DeployLibraryInput, Linker};
-use crate::harness::HarnessId;
 
 /// A compiled harness validated and structured for the `max` command.
 #[derive(Debug, Clone)]

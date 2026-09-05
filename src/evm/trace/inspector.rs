@@ -245,10 +245,10 @@ mod tests {
 
     use alloy_primitives::U256;
 
+    use crate::cli::HarnessId;
     use crate::compilers::solc::{Solc, SolcOutput};
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, DeployLibraryInput};
     use crate::evm::trace::{CallFrameKind, TraceContext};
-    use crate::harness::HarnessId;
 
     struct TestCase {
         artifact_id: &'static str,

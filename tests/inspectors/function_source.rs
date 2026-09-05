@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use ripfuzz::cli::HarnessId;
 use ripfuzz::config::Config;
-use ripfuzz::harness::HarnessId;
 use ripfuzz::inspectors::FunctionSourceInspector;
 
 const VERSION: &str = "0.8.36";

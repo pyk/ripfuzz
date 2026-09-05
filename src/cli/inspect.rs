@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+use crate::cli::HarnessId;
 use crate::config::Config;
-use crate::harness::HarnessId;
 use crate::inspectors::{ExternalFunctionsInspector, FunctionSourceInspector};
 use crate::logger::Logger;
 

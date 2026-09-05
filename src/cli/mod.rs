@@ -1,11 +1,17 @@
 //! CLI command definitions.
 
+pub use harness_id::HarnessId;
+pub use run_id::RunId;
+
 pub mod exec;
 pub mod fetch;
 pub mod init;
 pub mod inspect;
 pub mod max;
 pub mod test;
+
+mod harness_id;
+mod run_id;
 
 /// Default thread count for commands that fuzz across threads.
 ///

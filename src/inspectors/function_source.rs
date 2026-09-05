@@ -8,7 +8,7 @@
 //!
 //! ```rust
 //! use ripfuzz::config::Config;
-//! use ripfuzz::harness::HarnessId;
+//! use ripfuzz::cli::HarnessId;
 //! use ripfuzz::inspectors::FunctionSourceInspector;
 //!
 //! let root = std::path::Path::new(".");
@@ -29,8 +29,8 @@ use solc::ast::{
     SourceUnit, SourceUnitNode, Statement, TypeName, VariableDeclaration, Visibility,
 };
 
+use crate::cli::HarnessId;
 use crate::config::Config;
-use crate::harness::HarnessId;
 use crate::inspectors::CompiledTarget;
 
 /// Kind of a resolved declaration, driving the section headings.

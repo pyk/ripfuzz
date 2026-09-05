@@ -9,13 +9,13 @@ use clap::Parser;
 use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
+use crate::cli::HarnessId;
 use crate::compilers::solc::Solc;
 use crate::config::Config;
 use crate::evm::{
     Chain, ChainConfig, CoverageReporter, CoverageWriter, ExecutionTraceWriter, ForkDBConfig,
     SetupInput, SharedCoverage, TraceContext, Transaction,
 };
-use crate::harness::HarnessId;
 use crate::logger::Logger;
 use crate::maxer::{Best, Corpus, CorpusReplayer, Fuzzer, MaxHarness, Sequence, Shrinker, Value};
 

@@ -37,9 +37,9 @@ use fastrand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use crate::cli::HarnessId;
 use crate::compilers::solc::SolcOutput;
 use crate::evm::{Chain, SharedCoverage};
-use crate::harness::HarnessId;
 
 mod call;
 mod literal;

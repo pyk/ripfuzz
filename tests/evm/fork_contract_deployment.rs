@@ -13,8 +13,8 @@ use ripfuzz::evm::{
 };
 use serde_json::json;
 
+use ripfuzz::cli::HarnessId;
 use ripfuzz::compilers::solc::{Solc, SolcOutput};
-use ripfuzz::harness::HarnessId;
 
 fn compile_fixture(root: &str, target: &str) -> SolcOutput {
     let id = HarnessId::try_from(target).unwrap();

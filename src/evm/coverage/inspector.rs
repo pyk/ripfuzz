@@ -247,11 +247,11 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
+    use crate::cli::HarnessId;
     use crate::compilers::solc::{Solc, SolcOutput};
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::coverage::SharedCoverage;
     use crate::evm::coverage::edge::call_edge_marker;
-    use crate::harness::HarnessId;
 
     alloy_sol_types::sol! {
         interface CoverageBranch {

@@ -9,12 +9,12 @@ use std::path::Path;
 use alloy_primitives::U256;
 use alloy_sol_types::SolCall;
 use revm::primitives::{Address, Bytes};
+use ripfuzz::cli::HarnessId;
 use ripfuzz::compilers::solc::{Solc, SolcOutput};
 use ripfuzz::evm::{
     Chain, ChainConfig, CoverageReport, CoverageReporter, DeployInput, DeployLibraryInput,
     SetupInput, SharedCoverage, Transaction,
 };
-use ripfuzz::harness::HarnessId;
 
 const ROOT: &str = "fixtures/evm/coverage-reporter";
 const VERSION: &str = "0.8.36";

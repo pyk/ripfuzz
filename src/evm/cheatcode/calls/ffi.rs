@@ -49,11 +49,11 @@ mod tests {
     use alloy_sol_types::SolCall;
     use revm::primitives::Bytes;
 
+    use crate::cli::HarnessId;
     use crate::compilers::solc::{Solc, SolcOutput};
     use crate::evm::chain::{Chain, ChainConfig, DeployInput, SetupInput, Transaction};
     use crate::evm::cheatcode::calls::ffi;
     use crate::evm::cheatcode::state::ExecutionState;
-    use crate::harness::HarnessId;
 
     fn compile_fixture(root: &str, target: &str) -> SolcOutput {
         let id = HarnessId::try_from(target).unwrap();
