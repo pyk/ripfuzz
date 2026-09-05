@@ -78,6 +78,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   sequences instead of 256. A new `--max-shrink-runs` flag decouples the
   shrinker budget from the fuzzing budget and defaults to 10,000 attempts.
 
+- Log lines that reference artifacts (corpus, coverage, trace, stats) now print
+  paths relative to the project root instead of raw `Path::display()` output,
+  so absolute writer paths render as e.g. `.ripfuzz/stats/run.json`.
+
 ### Fixed
 
 - Concurrent `ripfuzz` invocations compiling the identical input no longer fail

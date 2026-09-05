@@ -7,7 +7,7 @@ use clap::Parser;
 use revm::primitives::Bytes;
 use tracing::{error, info};
 
-use crate::cli::HarnessId;
+use crate::cli::{HarnessId, display_path};
 use crate::compilers::solc::Solc;
 use crate::config::Config;
 use crate::evm::{
@@ -158,7 +158,7 @@ impl Command {
         info!(
             "execution trace for {} saved to {}",
             script.id(),
-            trace_file.display()
+            display_path(&root, &trace_file)
         );
 
         Ok(())

@@ -9,7 +9,7 @@ use clap::Parser;
 use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
-use crate::cli::HarnessId;
+use crate::cli::{HarnessId, display_path};
 use crate::compilers::solc::Solc;
 use crate::config::Config;
 use crate::evm::{
@@ -204,10 +204,7 @@ impl Command {
         // 11. Load the persisted corpus so mutations start from known sequences.
         let corpus_path = corpus_path(&root, &self.corpus_dir, &self.harness)?;
         let corpus = Corpus::new();
-        info!(
-            "loading corpus {}",
-            strip_dot_prefix(corpus_path.display().to_string())
-        );
+        info!("loading corpus {}", display_path(&root, &corpus_path));
         let loaded = corpus.load(&corpus_path, &max_harness.handlers())?;
         let entries = match loaded {
             1 => "1 corpus entry".to_string(),
@@ -324,7 +321,7 @@ impl Command {
         let coverage_file = CoverageWriter::new(&root).write(&report)?;
         info!(
             "coverage report saved to {}",
-            strip_dot_prefix(coverage_file.display().to_string())
+            display_path(&root, &coverage_file)
         );
 
         // 17. Run the summary function if the harness defines one.
@@ -363,7 +360,7 @@ impl Command {
         info!(
             "execution trace for {} saved to {}",
             max_harness.id(),
-            trace_file.display()
+            display_path(&root, &trace_file)
         );
 
         Ok(best)
@@ -395,18 +392,4 @@ fn corpus_path(
         .file_name()
         .context("harness path has no file name")?;
     Ok(base.join(file_name).join(&harness.name).join("corpus.json"))
-}
-
-fn strip_dot_prefix(path: impl AsRef<Path>) -> String {
-    let mut display = path.as_ref().display().to_string();
-    loop {
-        if let Some(stripped) = display.strip_prefix("./") {
-            display = stripped.to_owned();
-        } else if let Some(stripped) = display.strip_prefix(".\\") {
-            display = stripped.to_owned();
-        } else {
-            break;
-        }
-    }
-    display
 }

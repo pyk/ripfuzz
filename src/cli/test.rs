@@ -1,6 +1,6 @@
 //! `test` CLI command implementation.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -8,7 +8,7 @@ use clap::Parser;
 use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
-use crate::cli::{HarnessId, RunId};
+use crate::cli::{HarnessId, RunId, display_path};
 use crate::compilers::solc::Solc;
 use crate::config::Config;
 use crate::evm::{
@@ -178,10 +178,7 @@ impl Command {
             .with_harness(&self.harness)
             .with_handlers(test_harness.handlers().to_vec())
             .with_solc_output(&solc_output);
-        info!(
-            "loading corpus {}",
-            strip_dot_prefix(corpus.path()?.display().to_string())
-        );
+        info!("loading corpus {}", display_path(&root, &corpus.path()?));
         let loaded = corpus.load()?;
         let entries = match loaded {
             1 => "1 corpus entry".to_string(),
@@ -255,7 +252,7 @@ impl Command {
         };
         info!(
             "corpus saved: {entries} to {}",
-            strip_dot_prefix(corpus.path()?.display().to_string())
+            display_path(&root, &corpus.path()?)
         );
 
         // 15. Re-run every broken invariant on a traced chain clone and save its
@@ -290,7 +287,7 @@ impl Command {
             info!(
                 "execution trace for {} saved to {}",
                 test_harness.id(),
-                trace_file.display()
+                display_path(&root, &trace_file)
             );
         }
 
@@ -305,7 +302,7 @@ impl Command {
             .write(&report)?;
         info!(
             "coverage report saved to {}",
-            strip_dot_prefix(coverage_file.display().to_string())
+            display_path(&root, &coverage_file)
         );
 
         // 18. Save the fuzzing statistics report under `.ripfuzz/stats`.
@@ -368,23 +365,9 @@ impl Command {
             .write()?;
         info!(
             "fuzzing statistics saved to {}",
-            strip_dot_prefix(stats_file.display().to_string())
+            display_path(&root, &stats_file)
         );
 
         Ok(broken_invariants)
     }
-}
-
-fn strip_dot_prefix(path: impl AsRef<Path>) -> String {
-    let mut display = path.as_ref().display().to_string();
-    loop {
-        if let Some(stripped) = display.strip_prefix("./") {
-            display = stripped.to_owned();
-        } else if let Some(stripped) = display.strip_prefix(".\\") {
-            display = stripped.to_owned();
-        } else {
-            break;
-        }
-    }
-    display
 }
