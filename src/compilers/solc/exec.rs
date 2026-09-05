@@ -281,8 +281,10 @@ fn write_cache(path: impl AsRef<Path>, output: &str) -> Result<()> {
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
 
-    // 2. Write the temporary file and swap it into place.
-    let tmp = path.with_extension("json.tmp");
+    // 2. Write the temporary file and swap it into place. The temporary
+    //    name is unique per writer, so concurrent compilations of the same
+    //    input never rename the same temporary file twice.
+    let tmp = path.with_extension(format!("json.{}.tmp", fastrand::u64(..)));
     fs::write(&tmp, output).with_context(|| format!("failed to write {}", tmp.display()))?;
     fs::rename(&tmp, path).with_context(|| format!("failed to write {}", path.display()))
 }

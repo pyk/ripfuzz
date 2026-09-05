@@ -67,6 +67,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Fixed
 
+- Concurrent `ripfuzz` invocations compiling the identical input no longer fail
+  with `failed to write ./.ripfuzz/solc/<hash>.json`. The compilation cache now
+  writes each entry through a temporary file with a unique name, so parallel
+  writers never rename the same temporary file twice.
+
 - `ripfuzz init` now installs stderr logging so command errors appear in the
   console. It writes no log file, keeping a fresh project free of `.ripfuzz`
   state.
