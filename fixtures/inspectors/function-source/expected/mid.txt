@@ -1,6 +1,6 @@
-# App - mid Source Code
+# Harness - mid Source Code
 
-Source path: `src/App.sol:47`
+Source path: `src/Harness.sol:47`
 
 ```solidity
 function mid(Point memory point) external view returns (uint256) {
@@ -12,7 +12,7 @@ function mid(Point memory point) external view returns (uint256) {
 
 ## Error: `Empty`
 
-Source path: `src/App.sol:10`
+Source path: `src/Harness.sol:10`
 
 ```solidity
 /// @notice Thrown when the amount is zero.
@@ -23,7 +23,7 @@ error Empty();
 
 ## Function: `_mid`
 
-Source path: `src/App.sol:51`
+Source path: `src/Harness.sol:51`
 
 ```solidity
 function _mid(Point memory point) internal view returns (uint256) {
@@ -39,7 +39,7 @@ function _mid(Point memory point) internal view returns (uint256) {
 
 ## Struct: `Point`
 
-Source path: `src/App.sol:22`
+Source path: `src/Harness.sol:22`
 
 ```solidity
 /// @notice A point in space.
@@ -53,7 +53,7 @@ struct Point {
 
 ## Variable: `PRECISION`
 
-Source path: `src/App.sol:28`
+Source path: `src/Harness.sol:28`
 
 ```solidity
 /// @notice The scaling factor.

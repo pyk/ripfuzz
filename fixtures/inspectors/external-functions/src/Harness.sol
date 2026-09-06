@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "./Base.sol";
 
-contract App is Base {
+contract Harness is Base {
     address public owner;
 
     modifier onlyOwner() {

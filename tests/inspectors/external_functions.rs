@@ -14,7 +14,7 @@ fn setup_project() -> (tempfile::TempDir, PathBuf) {
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/inspectors/external-functions/src");
     fs::create_dir_all(root.join("src")).unwrap();
-    for file in ["Base.sol", "App.sol"] {
+    for file in ["Base.sol", "Harness.sol"] {
         fs::copy(fixture.join(file), root.join("src").join(file)).unwrap();
     }
     fs::write(
@@ -29,7 +29,7 @@ fn setup_project() -> (tempfile::TempDir, PathBuf) {
 fn inspects_external_functions_across_inheritance() {
     let (_tmp, root) = setup_project();
     let config = Config::new().with_root(&root).load("ripfuzz.toml").unwrap();
-    let target = HarnessId::try_from("src/App.sol:App").unwrap();
+    let target = HarnessId::try_from("src/Harness.sol:Harness").unwrap();
 
     let output = ExternalFunctionsInspector::new(&root, config.clone())
         .inspect(&target)
@@ -45,7 +45,7 @@ fn inspects_external_functions_across_inheritance() {
 fn inspect_reuses_the_cached_compilation() {
     let (_tmp, root) = setup_project();
     let config = Config::new().with_root(&root).load("ripfuzz.toml").unwrap();
-    let target = HarnessId::try_from("src/App.sol:App").unwrap();
+    let target = HarnessId::try_from("src/Harness.sol:Harness").unwrap();
 
     let first = ExternalFunctionsInspector::new(&root, config.clone())
         .inspect(&target)
@@ -82,7 +82,7 @@ fn inspect_reuses_the_cached_compilation() {
 fn inspect_errors_for_unknown_contract_name() {
     let (_tmp, root) = setup_project();
     let config = Config::new().with_root(&root).load("ripfuzz.toml").unwrap();
-    let target = HarnessId::try_from("src/App.sol:Missing").unwrap();
+    let target = HarnessId::try_from("src/Harness.sol:Missing").unwrap();
 
     let err = ExternalFunctionsInspector::new(&root, config)
         .inspect(&target)
@@ -91,6 +91,6 @@ fn inspect_errors_for_unknown_contract_name() {
 
     assert_eq!(
         err,
-        "contract `Missing` not found in `src/App.sol`, available contracts: App"
+        "contract `Missing` not found in `src/Harness.sol`, available contracts: Harness"
     );
 }

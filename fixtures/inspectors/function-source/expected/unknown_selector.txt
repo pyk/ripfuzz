@@ -1,4 +1,4 @@
-selector `deadbeef` not found in contract `App`, available selectors:
+selector `deadbeef` not found in contract `Harness`, available selectors:
   75cb2672  configure(address)
   abb014ab  kind(uint256)
   3da89302  mid((uint256,uint256))

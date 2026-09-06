@@ -3,9 +3,9 @@ pragma solidity ^0.8.0;
 
 import "./Base.sol";
 
-/// @title App fixture
+/// @title Harness fixture
 /// @notice Fixture contract exercising every symbol kind of the inspector.
-contract App is Base {
+contract Harness is Base {
     /// @notice Thrown when the amount is zero.
     error Empty();
 

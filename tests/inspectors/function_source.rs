@@ -14,7 +14,7 @@ fn setup_project() -> (tempfile::TempDir, PathBuf) {
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/inspectors/function-source/src");
     fs::create_dir_all(root.join("src")).unwrap();
-    for file in ["Base.sol", "App.sol"] {
+    for file in ["Base.sol", "Harness.sol"] {
         fs::copy(fixture.join(file), root.join("src").join(file)).unwrap();
     }
     fs::write(
@@ -28,7 +28,7 @@ fn setup_project() -> (tempfile::TempDir, PathBuf) {
 /// Inspects `selector` on the fixture app, returning the rendered report.
 fn inspect(root: &Path, selector: &str) -> String {
     let config = Config::new().with_root(root).load("ripfuzz.toml").unwrap();
-    let target = HarnessId::try_from("src/App.sol:App").unwrap();
+    let target = HarnessId::try_from("src/Harness.sol:Harness").unwrap();
     FunctionSourceInspector::new(root, config)
         .inspect(&target, selector)
         .map(|output| format!("{output}\n"))
@@ -83,7 +83,7 @@ fn inspect_errors_for_an_unknown_selector() {
     let (_tmp, root) = setup_project();
 
     let config = Config::new().with_root(&root).load("ripfuzz.toml").unwrap();
-    let target = HarnessId::try_from("src/App.sol:App").unwrap();
+    let target = HarnessId::try_from("src/Harness.sol:Harness").unwrap();
     let error = FunctionSourceInspector::new(&root, config)
         .inspect(&target, "deadbeef")
         .unwrap_err()
