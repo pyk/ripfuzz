@@ -20,6 +20,8 @@ enum Commands {
     Init(cli::init::Command),
     /// Fetch and install a dependency.
     Fetch(cli::fetch::Command),
+    /// Compile a contract and print warnings.
+    Compile(cli::compile::Command),
     /// Execute a script contract.
     Exec(Box<cli::exec::Command>),
     /// Find broken invariants.
@@ -46,6 +48,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Commands::Init(command) => command.run(),
         Commands::Fetch(command) => command.run(),
+        Commands::Compile(command) => command.run(),
         Commands::Exec(command) => command.run(),
         Commands::Test(command) => command.run().map(|_| ()),
         Commands::Max(command) => command.run().map(|_| ()),

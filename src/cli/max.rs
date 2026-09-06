@@ -105,6 +105,9 @@ impl Command {
             .with_via_ir(config.solc.via_ir)
             .with_remappings(remappings)
             .compile()?;
+        for warning in solc_output.warnings() {
+            warn!("{warning}");
+        }
 
         // 4. Validate the compiled output against the max harness rules.
         let max_harness = MaxHarness::try_from(&solc_output)?;

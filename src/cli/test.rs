@@ -121,6 +121,9 @@ impl Command {
             .with_via_ir(config.solc.via_ir)
             .with_remappings(remappings)
             .compile()?;
+        for warning in solc_output.warnings() {
+            warn!("{warning}");
+        }
 
         // 4. Validate the compiled output against the test harness rules.
         let test_harness = TestHarness::try_from(&solc_output)?;

@@ -10,6 +10,15 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz compile <contract>` compiles a contract through the shared solc
+  pipeline and logs any warnings, so diagnostics that do not fail the build are
+  visible without running `test`, `max`, or `exec`. Errors still fail the
+  command with the compiler output. A cached compilation skips solc entirely.
+
+- `ripfuzz test`, `ripfuzz max`, and `ripfuzz exec` now log solc warnings after
+  compilation, so diagnostics that do not fail the build stay visible in
+  campaign output.
+
 - `ripfuzz inspect storage-layout <contract>` prints the storage layout of a
   contract as a markdown table with each variable's name, type, slot, offset,
   and byte size, read directly from the `storageLayout` of the compilation

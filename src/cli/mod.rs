@@ -5,6 +5,7 @@ use std::path::{Path, absolute};
 pub use harness_id::HarnessId;
 pub use run_id::RunId;
 
+pub mod compile;
 pub mod exec;
 pub mod fetch;
 pub mod init;

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail, ensure};
 use clap::Parser;
 use revm::primitives::Bytes;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::cli::{HarnessId, display_path};
 use crate::compilers::solc::Solc;
@@ -78,6 +78,9 @@ impl Command {
             .with_via_ir(config.solc.via_ir)
             .with_remappings(remappings)
             .compile()?;
+        for warning in solc_output.warnings() {
+            warn!("{warning}");
+        }
 
         // 5. Validate the compiled output against the exec script rules.
         let script = Script::try_from(&solc_output)?;

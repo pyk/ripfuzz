@@ -15,7 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
-use solc::{ContractOutput, EvmVersion, StandardJSONOutput};
+use solc::{ContractOutput, EvmVersion, Severity, StandardJSONOutput};
 use tracing::info;
 
 pub use exec::SolcExecutor;
@@ -63,6 +63,20 @@ impl SolcOutput {
                 self.id.path.display(),
                 names.join(", ")
             )
+        })
+    }
+
+    /// Formatted solc warnings of the compilation.
+    ///
+    /// Errors never appear here because compilation fails when any are
+    /// reported.
+    pub fn warnings(&self) -> Vec<&str> {
+        self.output.errors.as_ref().map_or(Vec::new(), |errors| {
+            errors
+                .iter()
+                .filter(|err| matches!(err.severity, Severity::Warning))
+                .map(|err| err.formatted_message.as_deref().unwrap_or(&err.message))
+                .collect()
         })
     }
 
