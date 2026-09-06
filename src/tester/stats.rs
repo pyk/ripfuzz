@@ -34,13 +34,14 @@ use std::path::{Path, PathBuf, absolute};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use alloy_json_abi::Function;
+use alloy_json_abi::{Function, JsonAbi};
 use alloy_sol_types::SolError;
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::cli::RunId;
+use crate::compilers::solc::SolcOutput;
 use crate::evm::TransactionResult;
 
 alloy_sol_types::sol! {
@@ -49,38 +50,240 @@ alloy_sol_types::sol! {
     error BrokenInvariantError(string id, string description);
 }
 
-/// One grouped revert: the decoded kind and message with its call count.
+/// One grouped revert with its call count.
+///
+/// Each kind carries only its own data:
+///
+/// - `Error` holds the selector and the decoded string
+/// - `Panic` holds the selector and the code as hex
+/// - `CustomError` holds the selector and the resolved error name
+/// - `BrokenInvariantError` holds the selector and `{id}: {description}`
+/// - `UnknownRevert` holds the raw output as `0x` prefixed hex
+/// - `EmptyRevert` and `Halt` hold no data
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RevertSummary {
-    kind: String,
-    message: String,
-    count: u64,
+#[serde(tag = "kind")]
+pub enum RevertSummary {
+    Error {
+        selector: String,
+        message: String,
+        count: u64,
+    },
+    Panic {
+        selector: String,
+        code: String,
+        count: u64,
+    },
+    CustomError {
+        selector: String,
+        name: String,
+        count: u64,
+    },
+    BrokenInvariantError {
+        selector: String,
+        message: String,
+        count: u64,
+    },
+    UnknownRevert {
+        message: String,
+        count: u64,
+    },
+    EmptyRevert {
+        count: u64,
+    },
+    Halt {
+        count: u64,
+    },
 }
 
 impl RevertSummary {
-    /// Create a grouped revert entry.
-    pub fn new(kind: &str, message: &str, count: u64) -> Self {
-        Self {
-            kind: kind.to_owned(),
-            message: message.to_owned(),
-            count,
+    /// The revert kind, one of `Error`, `Panic`, `CustomError`,
+    /// `BrokenInvariantError`, `UnknownRevert`, `EmptyRevert`, or `Halt`.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Error { .. } => "Error",
+            Self::Panic { .. } => "Panic",
+            Self::CustomError { .. } => "CustomError",
+            Self::BrokenInvariantError { .. } => "BrokenInvariantError",
+            Self::UnknownRevert { .. } => "UnknownRevert",
+            Self::EmptyRevert { .. } => "EmptyRevert",
+            Self::Halt { .. } => "Halt",
         }
     }
 
-    /// The revert kind, one of `Error`, `Panic`, `CustomError`,
-    /// `BrokenInvariantError`, `EmptyRevert`, `Halt`, or `UnknownRevert`.
-    pub fn kind(&self) -> &str {
-        &self.kind
+    /// The 4-byte selector as `0x` prefixed hex, when the kind carries one.
+    pub fn selector(&self) -> Option<&str> {
+        match self {
+            Self::Error { selector, .. }
+            | Self::Panic { selector, .. }
+            | Self::CustomError { selector, .. }
+            | Self::BrokenInvariantError { selector, .. } => Some(selector),
+            Self::UnknownRevert { .. } | Self::EmptyRevert { .. } | Self::Halt { .. } => None,
+        }
     }
 
-    /// The decoded message. Empty for kinds without a payload.
-    pub fn message(&self) -> &str {
-        &self.message
+    /// The resolved custom error name, when the kind carries one.
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Self::CustomError { name, .. } => Some(name),
+            _ => None,
+        }
     }
 
-    /// The number of calls that reverted with this kind and message.
+    /// The decoded payload, when the kind carries one.
+    pub fn message(&self) -> Option<&str> {
+        match self {
+            Self::Error { message, .. }
+            | Self::BrokenInvariantError { message, .. }
+            | Self::UnknownRevert { message, .. } => Some(message),
+            _ => None,
+        }
+    }
+
+    /// The panic code as hex, when the revert is a panic.
+    pub fn code(&self) -> Option<&str> {
+        match self {
+            Self::Panic { code, .. } => Some(code),
+            _ => None,
+        }
+    }
+
+    /// The number of calls that reverted with this kind and data.
     pub fn count(&self) -> u64 {
-        self.count
+        match self {
+            Self::Error { count, .. }
+            | Self::Panic { count, .. }
+            | Self::CustomError { count, .. }
+            | Self::BrokenInvariantError { count, .. }
+            | Self::UnknownRevert { count, .. }
+            | Self::EmptyRevert { count, .. }
+            | Self::Halt { count, .. } => *count,
+        }
+    }
+
+    /// Build a summary from a grouping key and its call count.
+    fn from_key(key: &RevertKey, count: u64) -> Self {
+        // 1. Copy the key data into the matching variant.
+        match key {
+            RevertKey::Error { selector, message } => Self::Error {
+                selector: selector.clone(),
+                message: message.clone(),
+                count,
+            },
+            RevertKey::Panic { selector, code } => Self::Panic {
+                selector: selector.clone(),
+                code: code.clone(),
+                count,
+            },
+            RevertKey::CustomError { selector } => Self::CustomError {
+                selector: selector.clone(),
+                name: String::new(),
+                count,
+            },
+            RevertKey::BrokenInvariantError { selector, message } => Self::BrokenInvariantError {
+                selector: selector.clone(),
+                message: message.clone(),
+                count,
+            },
+            RevertKey::UnknownRevert { message } => Self::UnknownRevert {
+                message: message.clone(),
+                count,
+            },
+            RevertKey::EmptyRevert => Self::EmptyRevert { count },
+            RevertKey::Halt => Self::Halt { count },
+        }
+    }
+}
+
+/// Grouping key for revert counts, one variant per revert kind without the count.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum RevertKey {
+    Error { selector: String, message: String },
+    Panic { selector: String, code: String },
+    CustomError { selector: String },
+    BrokenInvariantError { selector: String, message: String },
+    UnknownRevert { message: String },
+    EmptyRevert,
+    Halt,
+}
+
+/// Selector to error name lookup built from compilation output.
+///
+/// [`ErrorResolver::from_solc_output`] collects every custom error across all
+/// compiled contracts so statistics can resolve a revert selector to its
+/// Solidity name without touching fuzzer logic.
+///
+/// ```rust,no_run
+/// use ripfuzz::tester::ErrorResolver;
+///
+/// # let solc_output: ripfuzz::compilers::solc::SolcOutput = todo!();
+/// let error_resolver = ErrorResolver::from_solc_output(&solc_output);
+/// println!("{:?}", error_resolver.name("0x77c522ea"));
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct ErrorResolver {
+    names: HashMap<String, String>,
+}
+
+impl ErrorResolver {
+    /// Create an empty resolver.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Build a resolver from every custom error in the compilation output.
+    pub fn from_solc_output(output: &SolcOutput) -> Self {
+        // 1. Walk every contract in the compilation unit.
+        let mut error_resolver = Self::new();
+        for contracts in output.output.contracts.values() {
+            for contract in contracts.values() {
+                // 2. Skip contracts without an ABI.
+                let Some(abi) = contract.abi.as_ref() else {
+                    continue;
+                };
+                // 3. Convert the solc ABI into the alloy representation.
+                //    Contracts without a decodable ABI are skipped.
+                let json = serde_json::to_value(&abi.items).unwrap_or_default();
+                let abi: JsonAbi = serde_json::from_value(json).unwrap_or_default();
+                error_resolver = error_resolver.with_abi(abi);
+            }
+        }
+        error_resolver
+    }
+
+    /// Add every custom error from one contract ABI.
+    pub fn with_abi(mut self, abi: JsonAbi) -> Self {
+        // 1. Consume the ABI so error names move without cloning.
+        for errors in abi.errors.into_values() {
+            for error in errors {
+                // 2. Keep the first name for a selector.
+                //    The same selector implies the same signature.
+                let selector = format!("0x{}", hex::encode(error.selector().as_slice()));
+                self.names.entry(selector).or_insert(error.name);
+            }
+        }
+        self
+    }
+
+    /// Resolve a selector to its error name.
+    pub fn name(&self, selector: &str) -> Option<&str> {
+        self.names.get(selector).map(String::as_str)
+    }
+
+    /// Fill the resolved error name for every custom error entry.
+    pub fn resolve(&self, stats: &mut [FunctionStats]) {
+        // 1. Walk every grouped revert in every function entry.
+        for entry in stats {
+            for revert in &mut entry.reverts {
+                // 2. Resolve custom errors with an empty name only.
+                //    Unknown selectors keep an empty name.
+                if let RevertSummary::CustomError { selector, name, .. } = revert
+                    && name.is_empty()
+                    && let Some(resolved) = self.name(selector)
+                {
+                    *name = resolved.to_owned();
+                }
+            }
+        }
     }
 }
 
@@ -215,7 +418,7 @@ impl FunctionStats {
         self.rpc
     }
 
-    /// Reverts grouped by decoded kind and message, most frequent first.
+    /// Reverts grouped by kind and data, most frequent first.
     pub fn reverts(&self) -> &[RevertSummary] {
         &self.reverts
     }
@@ -314,7 +517,7 @@ struct FunctionCounters {
     rpc_hits: AtomicU64,
     rpc_misses: AtomicU64,
     rpc_wait_ns: AtomicU64,
-    revert_counts: Mutex<HashMap<(String, String), u64>>,
+    revert_counts: Mutex<HashMap<RevertKey, u64>>,
 }
 
 impl FunctionCounters {
@@ -355,13 +558,9 @@ impl FunctionCounters {
         let wait_ns = u64::try_from(result.rpc.wait.as_nanos()).unwrap_or(u64::MAX);
         self.rpc_wait_ns.fetch_add(wait_ns, Ordering::Relaxed);
 
-        // 3. Group the revert by its decoded kind and message.
-        if let Some((kind, message)) = classify(result) {
-            *self
-                .revert_counts
-                .lock()
-                .entry((kind, message))
-                .or_insert(0) += 1;
+        // 3. Group the revert by its kind and data.
+        if let Some(key) = classify(result) {
+            *self.revert_counts.lock().entry(key).or_insert(0) += 1;
         }
     }
 
@@ -372,19 +571,22 @@ impl FunctionCounters {
         let total_ns = self.wall_total_ns.load(Ordering::Relaxed);
         let min_ns = self.wall_min_ns.load(Ordering::Relaxed);
 
-        // 2. Group the reverts by kind and message, most frequent first.
+        // 2. Group the reverts by kind and data, most frequent first.
         let mut reverts: Vec<RevertSummary> = self
             .revert_counts
             .lock()
             .iter()
-            .map(|((kind, message), count)| RevertSummary::new(kind, message, *count))
+            .map(|(key, count)| RevertSummary::from_key(key, *count))
             .collect();
         reverts.sort_by(|left, right| {
             right
                 .count()
                 .cmp(&left.count())
                 .then_with(|| left.kind().cmp(right.kind()))
-                .then_with(|| left.message().cmp(right.message()))
+                .then_with(|| left.selector().cmp(&right.selector()))
+                .then_with(|| left.name().cmp(&right.name()))
+                .then_with(|| left.message().cmp(&right.message()))
+                .then_with(|| left.code().cmp(&right.code()))
         });
 
         // 3. Build the entry with zeroed timings when nothing was recorded.
@@ -477,15 +679,15 @@ fn selector_hex(function: &Function) -> String {
 
 /// Classify a failed call by its decoded revert.
 ///
-/// Returns `None` for successful calls. The kinds are:
+/// Returns `None` for successful calls. Each key carries only its kind data:
 ///
-/// - `BrokenInvariantError` with `{id}: {description}`
-/// - `Error` with the decoded string message
-/// - `Panic` with the code as hex
-/// - `CustomError` with the selector as `0x` prefixed hex
-/// - `EmptyRevert` and `Halt` without a message
+/// - `BrokenInvariantError` with its selector and `{id}: {description}`
+/// - `Error` with its selector and the decoded string
+/// - `Panic` with its selector and the code as hex
+/// - `CustomError` with the selector, the name resolves later
+/// - `EmptyRevert` and `Halt` without data
 /// - `UnknownRevert` with the raw output as `0x` prefixed hex
-fn classify(result: &TransactionResult) -> Option<(String, String)> {
+fn classify(result: &TransactionResult) -> Option<RevertKey> {
     // 1. Skip successful calls, they carry no revert.
     if result.success {
         return None;
@@ -493,10 +695,10 @@ fn classify(result: &TransactionResult) -> Option<(String, String)> {
 
     // 2. Classify missing output as a halt and empty output as an empty revert.
     let Some(output) = result.output.as_ref() else {
-        return Some((String::from("Halt"), String::new()));
+        return Some(RevertKey::Halt);
     };
     if output.is_empty() {
-        return Some((String::from("EmptyRevert"), String::new()));
+        return Some(RevertKey::EmptyRevert);
     }
 
     // 3. Decode the explicit broken invariant report.
@@ -508,28 +710,36 @@ fn classify(result: &TransactionResult) -> Option<(String, String)> {
         } else {
             format!("{}: {}", broken.id, broken.description)
         };
-        return Some((String::from("BrokenInvariantError"), message));
+        return Some(RevertKey::BrokenInvariantError {
+            selector: format!("0x{}", hex::encode(BrokenInvariantError::SELECTOR)),
+            message,
+        });
     }
 
     // 4. Decode the standard Error and Panic reverts.
     if let Ok(error) = Error::abi_decode(output) {
-        return Some((String::from("Error"), error.message));
+        return Some(RevertKey::Error {
+            selector: format!("0x{}", hex::encode(Error::SELECTOR)),
+            message: error.message,
+        });
     }
     if let Ok(panic) = Panic::abi_decode(output) {
-        return Some((String::from("Panic"), format!("{:#x}", panic.code)));
+        return Some(RevertKey::Panic {
+            selector: format!("0x{}", hex::encode(Panic::SELECTOR)),
+            code: format!("{:#x}", panic.code),
+        });
     }
 
     // 5. Fall back to the custom error selector.
+    //    The name resolves later from the compilation output.
     if output.len() >= 4 {
-        return Some((
-            String::from("CustomError"),
-            format!("0x{}", hex::encode(&output[..4])),
-        ));
+        return Some(RevertKey::CustomError {
+            selector: format!("0x{}", hex::encode(&output[..4])),
+        });
     }
-    Some((
-        String::from("UnknownRevert"),
-        format!("0x{}", hex::encode(output)),
-    ))
+    Some(RevertKey::UnknownRevert {
+        message: format!("0x{}", hex::encode(output)),
+    })
 }
 
 /// Writes fuzzing statistics to `{root}/.ripfuzz/stats`.
@@ -714,13 +924,27 @@ mod tests {
         stats.record_handler(0, &revert(panic_output(17), 10, RpcStats::default()));
 
         let entries = stats.handler_stats(&handlers);
+        let error_selector = format!("0x{}", hex::encode(Error::SELECTOR));
+        let panic_selector = format!("0x{}", hex::encode(Panic::SELECTOR));
 
         assert_eq!(
             entries[0].reverts(),
             &[
-                RevertSummary::new("Error", "low", 2),
-                RevertSummary::new("Error", "high", 1),
-                RevertSummary::new("Panic", "0x11", 1),
+                RevertSummary::Error {
+                    selector: error_selector.clone(),
+                    message: String::from("low"),
+                    count: 2,
+                },
+                RevertSummary::Error {
+                    selector: error_selector,
+                    message: String::from("high"),
+                    count: 1,
+                },
+                RevertSummary::Panic {
+                    selector: panic_selector,
+                    code: String::from("0x11"),
+                    count: 1,
+                },
             ]
         );
     }
@@ -767,9 +991,14 @@ mod tests {
         assert_eq!(handler_entries[0].revert_calls(), 0);
         assert_eq!(invariant_entries[0].calls(), 1);
         assert_eq!(invariant_entries[0].revert_calls(), 1);
+        let broken_selector = format!("0x{}", hex::encode(BrokenInvariantError::SELECTOR));
         assert_eq!(
             invariant_entries[0].reverts(),
-            &[RevertSummary::new("BrokenInvariantError", "ID-1: bad", 1)]
+            &[RevertSummary::BrokenInvariantError {
+                selector: broken_selector,
+                message: String::from("ID-1: bad"),
+                count: 1,
+            }]
         );
     }
 
@@ -801,15 +1030,59 @@ mod tests {
 
         let entries = stats.handler_stats(&handlers);
 
-        assert_eq!(entries[0].reverts(), &[RevertSummary::new("Halt", "", 1)]);
+        assert_eq!(entries[0].reverts(), &[RevertSummary::Halt { count: 1 }]);
         assert_eq!(
             entries[1].reverts(),
-            &[RevertSummary::new("EmptyRevert", "", 1)]
+            &[RevertSummary::EmptyRevert { count: 1 }]
         );
         assert_eq!(
             entries[2].reverts(),
-            &[RevertSummary::new("CustomError", "0xdeadbeef", 1)]
+            &[RevertSummary::CustomError {
+                selector: String::from("0xdeadbeef"),
+                name: String::new(),
+                count: 1,
+            }]
         );
+    }
+
+    #[test]
+    fn resolves_custom_error_names_from_abi() {
+        let stats = SharedStats::new(1, 0);
+        let handlers = [function("a()")];
+        stats.record_handler(
+            0,
+            &revert(vec![0x77, 0xc5, 0x22, 0xea, 0x01], 10, RpcStats::default()),
+        );
+        stats.record_handler(
+            0,
+            &revert(vec![0xde, 0xad, 0xbe, 0xef, 0x01], 10, RpcStats::default()),
+        );
+
+        let mut entries = stats.handler_stats(&handlers);
+        let abi = JsonAbi::parse(["error ChainAllocationMismatch(uint256)"]).unwrap();
+        let error_resolver = ErrorResolver::new().with_abi(abi);
+        error_resolver.resolve(&mut entries);
+
+        assert_eq!(
+            entries[0].reverts(),
+            &[
+                RevertSummary::CustomError {
+                    selector: String::from("0x77c522ea"),
+                    name: String::from("ChainAllocationMismatch"),
+                    count: 1,
+                },
+                RevertSummary::CustomError {
+                    selector: String::from("0xdeadbeef"),
+                    name: String::new(),
+                    count: 1,
+                },
+            ]
+        );
+        assert_eq!(
+            error_resolver.name("0x77c522ea"),
+            Some("ChainAllocationMismatch")
+        );
+        assert_eq!(error_resolver.name("0xdeadbeef"), None);
     }
 
     #[test]
@@ -855,7 +1128,11 @@ mod tests {
             revert_calls: 1,
             wall_time_ns: WallTime::new(10, 30, 20),
             rpc: RpcSummary::new(),
-            reverts: vec![RevertSummary::new("Error", "low", 1)],
+            reverts: vec![RevertSummary::Error {
+                selector: String::from("0x08c379a0"),
+                message: String::from("low"),
+                count: 1,
+            }],
         }
     }
 

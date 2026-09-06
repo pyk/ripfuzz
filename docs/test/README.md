@@ -195,8 +195,8 @@ What to look at:
 - **Run id**: the log file, traces, coverage report, and statistics of one
   campaign share their filename stem, so every file of a run is grouped by its id.
 - **Fuzzing statistics**: per-handler and per-invariant call counts, wall time
-  min/max/avg, RPC cache usage, and reverts grouped by decoded message, written
-  to `.ripfuzz/stats` at the end of the run.
+  min/max/avg, RPC cache usage, and reverts grouped by kind with each kind
+  holding its own data, written to `.ripfuzz/stats` at the end of the run.
 - **Log file**: full campaign log under `.ripfuzz/logs`.
 - **Corpus**: interesting sequences persist between campaigns, so the next run
   starts from known paths instead of rediscovering them.

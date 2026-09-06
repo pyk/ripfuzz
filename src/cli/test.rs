@@ -17,7 +17,7 @@ use crate::evm::{
 };
 use crate::logger::Logger;
 use crate::tester::{
-    BrokenInvariant, BrokenInvariantReporter, Corpus, Fuzzer, Replayer, RpcSummary,
+    BrokenInvariant, BrokenInvariantReporter, Corpus, ErrorResolver, Fuzzer, Replayer, RpcSummary,
     SharedBrokenInvariants, Shrinker, Stats, StatsMetadata, StatsWriter, StopOnPanic, StopOnRevert,
     TestHarness,
 };
@@ -327,8 +327,13 @@ impl Command {
         );
 
         // 18. Save the fuzzing statistics report under `.ripfuzz/stats`.
-        let handler_entries = output.stats.handler_stats(test_harness.handlers());
-        let invariant_entries = output.stats.invariant_stats(test_harness.invariants());
+        //     Custom error selectors resolve to their Solidity names from
+        //     the compilation output so reverts stay easy to debug.
+        let mut handler_entries = output.stats.handler_stats(test_harness.handlers());
+        let mut invariant_entries = output.stats.invariant_stats(test_harness.invariants());
+        let error_resolver = ErrorResolver::from_solc_output(&solc_output);
+        error_resolver.resolve(&mut handler_entries);
+        error_resolver.resolve(&mut invariant_entries);
         let metadata = StatsMetadata {
             harness: test_harness.id().name.clone(),
             address: address.to_string(),

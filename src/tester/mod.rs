@@ -32,8 +32,8 @@ pub use fuzzer::{Fuzzer, Output};
 pub use harness::TestHarness;
 pub use shrinker::Shrinker;
 pub use stats::{
-    FunctionStats, RevertSummary, RpcSummary, SharedStats, Stats, StatsMetadata, StatsWriter,
-    WallTime,
+    ErrorResolver, FunctionStats, RevertSummary, RpcSummary, SharedStats, Stats, StatsMetadata,
+    StatsWriter, WallTime,
 };
 pub use stop::{PANIC_PREFIX, REVERT_PREFIX, StopOnPanic, StopOnRevert};
 

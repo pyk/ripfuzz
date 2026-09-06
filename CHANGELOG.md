@@ -89,6 +89,11 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   `--stop-on-panic 0x01` stops only on that panic code, accepting decimal or
   `0x`-prefixed hex codes. selector.
 
+- `ripfuzz test` statistics now group reverts as a tagged `kind` enum where
+  each kind holds only its own data: `Error` with selector and message, `Panic`
+  with selector and code, `CustomError` with selector and the resolved error
+  name, and `BrokenInvariantError` with selector and message.
+
 ### Changed
 
 - Broken invariants are now reported by reverting with the
