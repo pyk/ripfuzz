@@ -40,7 +40,7 @@ use anyhow::{Context, Result};
 use tracing::{error, info};
 
 use crate::evm::Chain;
-use crate::tester::{BrokenInvariant, Sequence};
+use crate::tester::{BrokenInvariant, Sequence, StopOnRevert};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
@@ -331,6 +331,23 @@ fn reproduces(
     sequence: &Sequence,
     broken: &BrokenInvariant,
 ) -> Result<bool> {
+    // 1. Stop-on-revert findings reproduce when the last call still emits the
+    //    recorded revert.
+    if StopOnRevert::is_revert_finding(broken.id()) {
+        // checkrs: allow(clone_in_loops) each candidate replays on a clean state
+        let mut chain = execution.chain.clone();
+        let transactions = sequence.transactions(execution.target, execution.deployer);
+        if transactions.is_empty() {
+            return Ok(false);
+        }
+        let exec = chain.exec(&transactions)?;
+        let Some(last) = exec.results.last() else {
+            return Ok(false);
+        };
+        return Ok(StopOnRevert::matches_expected(last, broken.id()));
+    }
+
+    // 2. Broken invariants reproduce on the exact id.
     // checkrs: allow(clone_in_loops) each candidate replays on a clean state
     let mut chain = execution.chain.clone();
     let transactions = sequence.transactions(execution.target, execution.deployer);

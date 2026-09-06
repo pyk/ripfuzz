@@ -44,6 +44,7 @@ fn command(harness: &str) -> Command {
         max_calls: 8,
         timeout: None,
         max_failures: 8,
+        stop_on_revert: None,
         corpus_dir,
         quiet: true,
         log_level: tracing::Level::INFO,

@@ -139,6 +139,7 @@ fn gated_by_literals_finds_every_assertion() {
         max_calls: 8,
         timeout: Some(120),
         max_failures: 32,
+        stop_on_revert: None,
         corpus_dir: corpus_dir.clone(),
         quiet: true,
         log_level: tracing::Level::INFO,

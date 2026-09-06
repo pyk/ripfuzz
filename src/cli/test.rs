@@ -18,7 +18,7 @@ use crate::evm::{
 use crate::logger::Logger;
 use crate::tester::{
     BrokenInvariant, BrokenInvariantReporter, Corpus, Fuzzer, Replayer, RpcSummary,
-    SharedBrokenInvariants, Shrinker, Stats, StatsMetadata, StatsWriter, TestHarness,
+    SharedBrokenInvariants, Shrinker, Stats, StatsMetadata, StatsWriter, StopOnRevert, TestHarness,
 };
 
 /// Find broken invariants.
@@ -59,6 +59,13 @@ pub struct Command {
     /// Stop fuzzing after this many distinct broken invariants.
     #[arg(long, default_value_t = 256, value_name = "COUNT")]
     pub max_failures: usize,
+
+    /// Stop fuzzing on the first reverted call.
+    ///
+    /// Without a value, any revert stops the campaign. With a `0x`-prefixed
+    /// 4-byte selector, only reverts starting with that selector stop it.
+    #[arg(long, num_args = 0..=1, default_missing_value = "any", value_name = "SELECTOR")]
+    pub stop_on_revert: Option<StopOnRevert>,
 
     /// Directory to load and save the corpus.
     #[arg(long, default_value = ".ripfuzz/corpus", value_name = "PATH")]
@@ -215,6 +222,7 @@ impl Command {
             .with_max_runs(self.max_fuzz_runs)
             .with_max_calls(self.max_calls)
             .with_timeout(self.timeout.map(Duration::from_secs))
+            .with_stop_on_revert(self.stop_on_revert)
             .with_seed(seed);
         let output = match fuzzer.run() {
             Ok(output) => output,

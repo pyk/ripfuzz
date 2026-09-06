@@ -49,7 +49,9 @@ use revm::primitives::Bytes;
 use tracing::{error, info, warn};
 
 use crate::evm::{Chain, CoverageUpdate, SharedCoverage, Transaction, TransactionResult};
-use crate::tester::{BrokenInvariant, Call, Corpus, Sequence, SharedBrokenInvariants, SharedStats};
+use crate::tester::{
+    BrokenInvariant, Call, Corpus, Sequence, SharedBrokenInvariants, SharedStats, StopOnRevert,
+};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
@@ -77,6 +79,7 @@ pub struct Fuzzer {
     max_runs: Option<u64>,
     max_calls: Option<usize>,
     timeout: Option<Duration>,
+    stop_on_revert: Option<StopOnRevert>,
 }
 
 impl Fuzzer {
@@ -165,6 +168,12 @@ impl Fuzzer {
         self
     }
 
+    /// Stop fuzzing on the first reverted call matching the filter.
+    pub fn with_stop_on_revert(mut self, stop_on_revert: Option<StopOnRevert>) -> Self {
+        self.stop_on_revert = stop_on_revert;
+        self
+    }
+
     /// Run fuzzing and return the broken invariants collected.
     pub fn run(self) -> Result<Output> {
         // 1. Require the execution context with fresh function statistics.
@@ -202,6 +211,7 @@ impl Fuzzer {
             max_runs: self.max_runs.unwrap_or(0),
             max_calls: self.max_calls.unwrap_or(8),
             timeout: self.timeout,
+            stop_on_revert: self.stop_on_revert,
             stats,
         };
 
@@ -232,6 +242,9 @@ impl Fuzzer {
             "fuzzing started: {threads}, {} runs, max {} calls, {invariants}, {timeout}",
             execution.max_runs, execution.max_calls,
         );
+        if let Some(filter) = &execution.stop_on_revert {
+            info!("stop on revert: {filter}");
+        }
 
         // 4. Spawn fuzzers with split run budgets.
         let budgets = split_runs(execution.max_runs, execution.threads);
@@ -346,6 +359,7 @@ struct Execution {
     max_runs: u64,
     max_calls: usize,
     timeout: Option<Duration>,
+    stop_on_revert: Option<StopOnRevert>,
 }
 
 /// The fuzzer outcome: the number of executed sequences and the distinct
@@ -588,6 +602,22 @@ fn execute_sequence(
             }
         }
 
+        // 2a. Halt on a reverted handler call matching the stop filter.
+        //     The finding id carries the revert identity so shrinking
+        //     preserves the exact revert.
+        if let Some(filter) = &execution.stop_on_revert
+            && filter.matches(&exec.results[0])
+        {
+            let sequence_prefix = Sequence::new(sequence.calls()[..=index].to_vec());
+            let broken = BrokenInvariant::new()
+                .with_calls(sequence_prefix)
+                .with_id(&filter.finding_id(&exec.results[0]));
+            execution.broken_invariants.try_add(&broken);
+            info!("stop on revert {}", broken.id());
+            shared.request_stop();
+            return Ok(());
+        }
+
         // 3. Check the invariants on a throwaway clone of the post-call
         //    state, skipping the clone when there is nothing to check.
         if execution.invariants.is_empty() {
@@ -626,6 +656,25 @@ fn execute_sequence(
                     if execution.broken_invariants.try_add(&broken) {
                         info!("found broken invariant {}", broken.id());
                     }
+                }
+            }
+        }
+
+        // 3c. Halt on a reverted invariant call matching the stop filter.
+        if let Some(filter) = &execution.stop_on_revert {
+            for (idx, function) in execution.invariants.iter().enumerate() {
+                if idx < exec.results.len() && filter.matches(&exec.results[idx]) {
+                    let mut calls = sequence.calls()[..=index].to_vec();
+                    // checkrs: allow(clone_in_loops) the revert finding must own its data
+                    calls.push(Call::new(function.clone(), DynSolValue::Tuple(vec![])));
+                    let sequence_prefix = Sequence::new(calls);
+                    let broken = BrokenInvariant::new()
+                        .with_calls(sequence_prefix)
+                        .with_id(&filter.finding_id(&exec.results[idx]));
+                    execution.broken_invariants.try_add(&broken);
+                    info!("stop on revert {}", broken.id());
+                    shared.request_stop();
+                    return Ok(());
                 }
             }
         }

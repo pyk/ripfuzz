@@ -67,6 +67,13 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   saved per run as `.ripfuzz/coverage/{run}.info` instead of overwriting
   `lcov.info`, while the corpus keeps persisting across runs. and message.
 
+- `ripfuzz test --stop-on-revert` stops the campaign on the first reverted
+  handler or invariant call and records it as a `REVERT:` finding that is
+  shrunk and traced like a broken invariant. Without a value it stops on any
+  revert except `BrokenInvariantError` reports, while
+  `--stop-on-revert 0xaa9a98df` stops only on reverts starting with that 4-byte
+  selector.
+
 ### Changed
 
 - Broken invariants are now reported by reverting with the

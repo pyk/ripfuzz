@@ -118,14 +118,29 @@ ripfuzz test src/VaultHarness.sol:VaultHarness \
 
 Key flags:
 
-| Flag             | Default           | Meaning                                   |
-| :--------------- | :---------------- | :---------------------------------------- |
-| `--max-runs`     | `256`             | Total sequences fuzzed across all threads |
-| `--max-calls`    | `8`               | Max handler calls per sequence            |
-| `--threads`      | `1`               | Parallel fuzzer workers                   |
-| `--timeout`      | none              | Wall-clock timeout for fuzzing            |
-| `--max-failures` | `256`             | Distinct broken invariants to collect     |
-| `--corpus-dir`   | `.ripfuzz/corpus` | Where interesting sequences are persisted |
+| Flag               | Default           | Meaning                                            |
+| :----------------- | :---------------- | :------------------------------------------------- |
+| `--max-runs`       | `256`             | Total sequences fuzzed across all threads          |
+| `--max-calls`      | `8`               | Max handler calls per sequence                     |
+| `--threads`        | `1`               | Parallel fuzzer workers                            |
+| `--timeout`        | none              | Wall-clock timeout for fuzzing                     |
+| `--max-failures`   | `256`             | Distinct broken invariants to collect              |
+| `--corpus-dir`     | `.ripfuzz/corpus` | Where interesting sequences are persisted          |
+| `--stop-on-revert` | none              | Stop on the first revert, optionally filtered by a |
+|                    |                   | `0x`-prefixed 4-byte selector (e.g. `0xaa9a98df`)  |
+
+Stop on the first revert when unexpected reverts need debugging. Without a
+value, any reverted handler or invariant call stops the campaign, except
+`BrokenInvariantError` reports which are findings already. With a selector,
+only reverts starting with it stop the campaign:
+
+```bash
+ripfuzz test src/VaultHarness.sol:VaultHarness --stop-on-revert
+ripfuzz test src/VaultHarness.sol:VaultHarness --stop-on-revert 0xaa9a98df
+```
+
+The matching revert is recorded as a `REVERT:` finding, then shrunk and traced
+like a broken invariant.
 
 Exit code is `0` even when broken invariants are found. Findings are results,
 not campaign errors. The command fails only on harness validation errors, a

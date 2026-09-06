@@ -35,6 +35,7 @@ pub use stats::{
     FunctionStats, RevertSummary, RpcSummary, SharedStats, Stats, StatsMetadata, StatsWriter,
     WallTime,
 };
+pub use stop::{REVERT_PREFIX, StopOnRevert};
 
 mod broken_invariant;
 mod corpus;
@@ -42,3 +43,4 @@ mod fuzzer;
 mod harness;
 mod shrinker;
 mod stats;
+mod stop;
