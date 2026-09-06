@@ -39,8 +39,8 @@ use alloy_primitives::Address;
 use anyhow::{Context, Result};
 use tracing::{error, info};
 
-use crate::evm::Chain;
-use crate::tester::{BrokenInvariant, Sequence, StopOnRevert};
+use crate::evm::{Chain, TransactionResult};
+use crate::tester::{BrokenInvariant, Sequence, StopOnPanic, StopOnRevert};
 
 /// Interval between progress logs.
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(3);
@@ -323,6 +323,18 @@ impl SharedShrink {
     }
 }
 
+/// Replay the sequence on a clean chain and return its last result, if any.
+fn replay_last(execution: &Execution, sequence: &Sequence) -> Result<Option<TransactionResult>> {
+    // checkrs: allow(clone_in_loops) each candidate replays on a clean state
+    let mut chain = execution.chain.clone();
+    let transactions = sequence.transactions(execution.target, execution.deployer);
+    if transactions.is_empty() {
+        return Ok(None);
+    }
+    let exec = chain.exec(&transactions)?;
+    Ok(exec.results.last().cloned())
+}
+
 /// Whether replaying the candidate sequence on a clean chain still emits the
 /// broken invariant's exact id. The sequence ends with the reverting call, so
 /// replaying it alone must reproduce the finding.
@@ -331,20 +343,23 @@ fn reproduces(
     sequence: &Sequence,
     broken: &BrokenInvariant,
 ) -> Result<bool> {
-    // 1. Stop-on-revert findings reproduce when the last call still emits the
-    //    recorded revert.
+    // 1. Stop findings reproduce when the last call still emits the recorded
+    //    failure.
+    //
+    // 1a. Revert findings reproduce on the recorded revert.
     if StopOnRevert::is_revert_finding(broken.id()) {
-        // checkrs: allow(clone_in_loops) each candidate replays on a clean state
-        let mut chain = execution.chain.clone();
-        let transactions = sequence.transactions(execution.target, execution.deployer);
-        if transactions.is_empty() {
-            return Ok(false);
-        }
-        let exec = chain.exec(&transactions)?;
-        let Some(last) = exec.results.last() else {
+        let Some(last) = replay_last(execution, sequence)? else {
             return Ok(false);
         };
-        return Ok(StopOnRevert::matches_expected(last, broken.id()));
+        return Ok(StopOnRevert::matches_expected(&last, broken.id()));
+    }
+
+    // 1b. Panic findings reproduce on the recorded panic code.
+    if StopOnPanic::is_panic_finding(broken.id()) {
+        let Some(last) = replay_last(execution, sequence)? else {
+            return Ok(false);
+        };
+        return Ok(StopOnPanic::matches_expected(&last, broken.id()));
     }
 
     // 2. Broken invariants reproduce on the exact id.

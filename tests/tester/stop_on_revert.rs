@@ -32,6 +32,7 @@ fn command(stop_on_revert: Option<StopOnRevert>) -> Command {
         timeout: None,
         max_failures: 8,
         stop_on_revert,
+        stop_on_panic: None,
         corpus_dir,
         quiet: true,
         log_level: tracing::Level::INFO,

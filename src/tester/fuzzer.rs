@@ -50,7 +50,8 @@ use tracing::{error, info, warn};
 
 use crate::evm::{Chain, CoverageUpdate, SharedCoverage, Transaction, TransactionResult};
 use crate::tester::{
-    BrokenInvariant, Call, Corpus, Sequence, SharedBrokenInvariants, SharedStats, StopOnRevert,
+    BrokenInvariant, Call, Corpus, Sequence, SharedBrokenInvariants, SharedStats, StopOnPanic,
+    StopOnRevert,
 };
 
 /// Interval between progress logs.
@@ -80,6 +81,7 @@ pub struct Fuzzer {
     max_calls: Option<usize>,
     timeout: Option<Duration>,
     stop_on_revert: Option<StopOnRevert>,
+    stop_on_panic: Option<StopOnPanic>,
 }
 
 impl Fuzzer {
@@ -174,6 +176,12 @@ impl Fuzzer {
         self
     }
 
+    /// Stop fuzzing on the first panicking call matching the filter.
+    pub fn with_stop_on_panic(mut self, stop_on_panic: Option<StopOnPanic>) -> Self {
+        self.stop_on_panic = stop_on_panic;
+        self
+    }
+
     /// Run fuzzing and return the broken invariants collected.
     pub fn run(self) -> Result<Output> {
         // 1. Require the execution context with fresh function statistics.
@@ -212,6 +220,7 @@ impl Fuzzer {
             max_calls: self.max_calls.unwrap_or(8),
             timeout: self.timeout,
             stop_on_revert: self.stop_on_revert,
+            stop_on_panic: self.stop_on_panic,
             stats,
         };
 
@@ -244,6 +253,9 @@ impl Fuzzer {
         );
         if let Some(filter) = &execution.stop_on_revert {
             info!("stop on revert: {filter}");
+        }
+        if let Some(filter) = &execution.stop_on_panic {
+            info!("stop on panic: {filter}");
         }
 
         // 4. Spawn fuzzers with split run budgets.
@@ -360,6 +372,7 @@ struct Execution {
     max_calls: usize,
     timeout: Option<Duration>,
     stop_on_revert: Option<StopOnRevert>,
+    stop_on_panic: Option<StopOnPanic>,
 }
 
 /// The fuzzer outcome: the number of executed sequences and the distinct
@@ -618,6 +631,20 @@ fn execute_sequence(
             return Ok(());
         }
 
+        // 2b. Halt on a panicking handler call matching the stop filter.
+        if let Some(filter) = &execution.stop_on_panic
+            && filter.matches(&exec.results[0])
+        {
+            let sequence_prefix = Sequence::new(sequence.calls()[..=index].to_vec());
+            let broken = BrokenInvariant::new()
+                .with_calls(sequence_prefix)
+                .with_id(&filter.finding_id(&exec.results[0]));
+            execution.broken_invariants.try_add(&broken);
+            info!("stop on panic {}", broken.id());
+            shared.request_stop();
+            return Ok(());
+        }
+
         // 3. Check the invariants on a throwaway clone of the post-call
         //    state, skipping the clone when there is nothing to check.
         if execution.invariants.is_empty() {
@@ -673,6 +700,25 @@ fn execute_sequence(
                         .with_id(&filter.finding_id(&exec.results[idx]));
                     execution.broken_invariants.try_add(&broken);
                     info!("stop on revert {}", broken.id());
+                    shared.request_stop();
+                    return Ok(());
+                }
+            }
+        }
+
+        // 3d. Halt on a panicking invariant call matching the stop filter.
+        if let Some(filter) = &execution.stop_on_panic {
+            for (idx, function) in execution.invariants.iter().enumerate() {
+                if idx < exec.results.len() && filter.matches(&exec.results[idx]) {
+                    let mut calls = sequence.calls()[..=index].to_vec();
+                    // checkrs: allow(clone_in_loops) the panic finding must own its data
+                    calls.push(Call::new(function.clone(), DynSolValue::Tuple(vec![])));
+                    let sequence_prefix = Sequence::new(calls);
+                    let broken = BrokenInvariant::new()
+                        .with_calls(sequence_prefix)
+                        .with_id(&filter.finding_id(&exec.results[idx]));
+                    execution.broken_invariants.try_add(&broken);
+                    info!("stop on panic {}", broken.id());
                     shared.request_stop();
                     return Ok(());
                 }

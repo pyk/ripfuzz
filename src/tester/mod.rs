@@ -35,7 +35,7 @@ pub use stats::{
     FunctionStats, RevertSummary, RpcSummary, SharedStats, Stats, StatsMetadata, StatsWriter,
     WallTime,
 };
-pub use stop::{REVERT_PREFIX, StopOnRevert};
+pub use stop::{PANIC_PREFIX, REVERT_PREFIX, StopOnPanic, StopOnRevert};
 
 mod broken_invariant;
 mod corpus;

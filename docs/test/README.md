@@ -128,6 +128,8 @@ Key flags:
 | `--corpus-dir`     | `.ripfuzz/corpus` | Where interesting sequences are persisted          |
 | `--stop-on-revert` | none              | Stop on the first revert, optionally filtered by a |
 |                    |                   | `0x`-prefixed 4-byte selector (e.g. `0xaa9a98df`)  |
+| `--stop-on-panic`  | none              | Stop on the first Solidity panic, optionally       |
+|                    |                   | filtered by code (e.g. `0x01` for assertions)      |
 
 Stop on the first revert when unexpected reverts need debugging. Without a
 value, any reverted handler or invariant call stops the campaign, except
@@ -141,6 +143,19 @@ ripfuzz test src/VaultHarness.sol:VaultHarness --stop-on-revert 0xaa9a98df
 
 The matching revert is recorded as a `REVERT:` finding, then shrunk and traced
 like a broken invariant.
+
+The same shape works for Solidity panics. Without a value, any panic stops the
+campaign, while a code stops only that panic (`0x01` is a failed assertion,
+`0x11` is arithmetic overflow):
+
+```bash
+ripfuzz test src/VaultHarness.sol:VaultHarness --stop-on-panic
+ripfuzz test src/VaultHarness.sol:VaultHarness --stop-on-panic 0x01
+```
+
+The matching panic is recorded as a `PANIC:` finding carrying its code. When
+both flags are set, the revert filter is checked first. like a broken
+invariant.
 
 Exit code is `0` even when broken invariants are found. Findings are results,
 not campaign errors. The command fails only on harness validation errors, a

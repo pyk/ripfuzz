@@ -18,7 +18,8 @@ use crate::evm::{
 use crate::logger::Logger;
 use crate::tester::{
     BrokenInvariant, BrokenInvariantReporter, Corpus, Fuzzer, Replayer, RpcSummary,
-    SharedBrokenInvariants, Shrinker, Stats, StatsMetadata, StatsWriter, StopOnRevert, TestHarness,
+    SharedBrokenInvariants, Shrinker, Stats, StatsMetadata, StatsWriter, StopOnPanic, StopOnRevert,
+    TestHarness,
 };
 
 /// Find broken invariants.
@@ -66,6 +67,14 @@ pub struct Command {
     /// 4-byte selector, only reverts starting with that selector stop it.
     #[arg(long, num_args = 0..=1, default_missing_value = "any", value_name = "SELECTOR")]
     pub stop_on_revert: Option<StopOnRevert>,
+
+    /// Stop fuzzing on the first panicking call.
+    ///
+    /// Without a value, any Solidity panic stops the campaign. With a panic
+    /// code in decimal or `0x`-prefixed hex, only panics with that code stop
+    /// it (e.g. `0x01` for failed assertions).
+    #[arg(long, num_args = 0..=1, default_missing_value = "any", value_name = "CODE")]
+    pub stop_on_panic: Option<StopOnPanic>,
 
     /// Directory to load and save the corpus.
     #[arg(long, default_value = ".ripfuzz/corpus", value_name = "PATH")]
@@ -223,6 +232,7 @@ impl Command {
             .with_max_calls(self.max_calls)
             .with_timeout(self.timeout.map(Duration::from_secs))
             .with_stop_on_revert(self.stop_on_revert)
+            .with_stop_on_panic(self.stop_on_panic)
             .with_seed(seed);
         let output = match fuzzer.run() {
             Ok(output) => output,

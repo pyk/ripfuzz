@@ -74,6 +74,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   `--stop-on-revert 0xaa9a98df` stops only on reverts starting with that 4-byte
   selector.
 
+- `ripfuzz test --stop-on-panic` stops the campaign on the first Solidity panic
+  and records it as a `PANIC:` finding carrying the panic code, shrunk and
+  traced like a broken invariant. Without a value it stops on any panic, while
+  `--stop-on-panic 0x01` stops only on that panic code, accepting decimal or
+  `0x`-prefixed hex codes. selector.
+
 ### Changed
 
 - Broken invariants are now reported by reverting with the

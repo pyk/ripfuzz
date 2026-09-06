@@ -21,6 +21,7 @@ fn command(corpus_dir: &Path) -> Command {
         timeout: Some(120),
         max_failures: 32,
         stop_on_revert: None,
+        stop_on_panic: None,
         corpus_dir: corpus_dir.to_path_buf(),
         quiet: true,
         log_level: tracing::Level::INFO,
