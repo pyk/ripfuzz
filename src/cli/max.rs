@@ -316,6 +316,7 @@ impl Command {
         info!("corpus saved: {entries} to {}", corpus_path.display());
 
         // 16. Write the campaign coverage report.
+        info!("generating coverage report");
         let report = CoverageReporter::new()
             .solc_output(&solc_output)
             .shared_coverage(coverage)

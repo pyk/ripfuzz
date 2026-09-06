@@ -313,6 +313,7 @@ impl Command {
         }
 
         // 17. Write the campaign coverage report.
+        info!("generating coverage report");
         let report = CoverageReporter::new()
             .solc_output(&solc_output)
             .shared_coverage(coverage)

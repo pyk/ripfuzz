@@ -115,6 +115,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   paths relative to the project root instead of raw `Path::display()` output,
   so absolute writer paths render as e.g. `.ripfuzz/stats/run.json`.
 
+- `ripfuzz test` and `ripfuzz max` now log `generating coverage report` before
+  building the coverage report, so large codebases no longer look stalled
+  between the corpus save and the coverage save.
+
 ### Fixed
 
 - Concurrent `ripfuzz` invocations compiling the identical input no longer fail
