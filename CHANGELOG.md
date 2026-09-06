@@ -10,6 +10,12 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `ripfuzz inspect storage-layout <contract>` prints the storage layout of a
+  contract as a markdown table with each variable's name, type, slot, offset,
+  and byte size, read directly from the `storageLayout` of the compilation
+  output. The inspector reuses the shared solc pipeline, so a cached
+  compilation skips solc entirely.
+
 - `ripfuzz inspect function-source <contract> <selector>` prints the complete
   source of the function selected by its 4-byte selector together with every
   symbol it references: internal functions, modifiers, structs, enums, errors,

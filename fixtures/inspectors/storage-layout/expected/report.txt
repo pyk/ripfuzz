@@ -1,0 +1,17 @@
+# Harness Storage Layout
+
+- Contract: `Harness`
+- File: `src/Harness.sol`
+
+## Summary
+
+- 6 storage variables
+
+| # | Name       | Type                          | Slot | Offset | Bytes |
+| --: | :--------- | :---------------------------- | :--- | :----- | :---- |
+| 1 | `total`    | `uint256`                     | 0    | 0      | 32    |
+| 2 | `balances` | `mapping(address => uint256)` | 1    | 0      | 32    |
+| 3 | `owner`    | `address`                     | 2    | 0      | 20    |
+| 4 | `cap`      | `uint128`                     | 3    | 0      | 16    |
+| 5 | `floor`    | `uint128`                     | 3    | 16     | 16    |
+| 6 | `amounts`  | `uint256[]`                   | 4    | 0      | 32    |
