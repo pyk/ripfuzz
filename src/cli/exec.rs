@@ -78,8 +78,10 @@ impl Command {
             .with_via_ir(config.solc.via_ir)
             .with_remappings(remappings)
             .compile()?;
-        for warning in solc_output.warnings() {
-            warn!("{warning}");
+        if config.solc.show_warning {
+            for warning in solc_output.warnings() {
+                warn!("{warning}");
+            }
         }
 
         // 5. Validate the compiled output against the exec script rules.

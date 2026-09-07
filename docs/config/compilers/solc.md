@@ -28,6 +28,7 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 via_ir = true
+show_warning = true
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "@uniswap/=node_modules/@uniswap/",
@@ -42,6 +43,7 @@ remappings = [
 | `optimizer`      | `false`         | Enable the optimizer                             |
 | `optimizer_runs` | `200`           | Number of optimizer runs                         |
 | `via_ir`         | `false`         | Compile through the IR-based pipeline            |
+| `show_warning`   | `false`         | Show solc warnings in command output             |
 | `remappings`     | `[]`            | Import path mappings, as `prefix=target` entries |
 
 Relative `out` paths resolve against the project root.
@@ -70,6 +72,13 @@ cost of slower compilation. `optimizer_runs` only matters when `optimizer` is
 `via_ir` compiles through the new IR-based code generation pipeline. It
 produces better optimization at the cost of slower compilation, and is required
 for some Yul-level features.
+
+### `show_warning`
+
+`show_warning` controls whether `ripfuzz compile`, `ripfuzz test`,
+`ripfuzz max`, and `ripfuzz exec` log solc warnings after compilation. It
+defaults to `false`, so warnings stay hidden unless the user opts in with
+`show_warning = true`.
 
 ### `remappings`
 

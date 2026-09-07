@@ -10,6 +10,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+- `[solc] show_warning` controls whether `ripfuzz compile`, `ripfuzz test`,
+  `ripfuzz max`, and `ripfuzz exec` log solc warnings after compilation. It
+  defaults to `false`, set it to `true` to show warnings.
+
 - `ripfuzz compile <contract>` compiles a contract through the shared solc
   pipeline and logs any warnings, so diagnostics that do not fail the build are
   visible without running `test`, `max`, or `exec`. Errors still fail the
@@ -95,6 +99,10 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
   name, and `BrokenInvariantError` with selector and message.
 
 ### Changed
+
+- Solc warnings are now hidden by default in `ripfuzz compile`, `ripfuzz test`,
+  `ripfuzz max`, and `ripfuzz exec` output. Set `[solc] show_warning = true` in
+  `ripfuzz.toml` to log them.
 
 - Broken invariants are now reported by reverting with the
   `BrokenInvariantError` custom error instead of the `rvm.bail(Invariant)`

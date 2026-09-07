@@ -66,18 +66,20 @@ impl Command {
         // 4. Validate the target contract exists in the compilation output.
         solc_output.contract()?;
 
-        // 5. Log solc warnings so diagnostics that do not fail the build
-        //    stay visible, then summarize the result.
-        let warnings = solc_output.warnings();
-        for warning in &warnings {
-            warn!("{warning}");
-        }
-        if !warnings.is_empty() {
-            info!(
-                "compilation successful with {} warning{}",
-                warnings.len(),
-                if warnings.len() == 1 { "" } else { "s" }
-            );
+        // 5. Log solc warnings when enabled, so diagnostics that do not
+        //    fail the build stay visible only when the user opts in.
+        if config.solc.show_warning {
+            let warnings = solc_output.warnings();
+            for warning in &warnings {
+                warn!("{warning}");
+            }
+            if !warnings.is_empty() {
+                info!(
+                    "compilation successful with {} warning{}",
+                    warnings.len(),
+                    if warnings.len() == 1 { "" } else { "s" }
+                );
+            }
         }
 
         Ok(())

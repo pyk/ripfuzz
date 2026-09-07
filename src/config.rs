@@ -68,6 +68,7 @@ pub struct Dependency {
 /// optimizer = true
 /// optimizer_runs = 200
 /// via_ir = true
+/// show_warning = true
 /// remappings = [
 ///     "@openzeppelin/=lib/openzeppelin-contracts/",
 ///     "@uniswap/=node_modules/@uniswap/",
@@ -102,6 +103,11 @@ pub struct SolcConfig {
     /// Defaults to `false`.
     #[serde(default)]
     pub via_ir: bool,
+
+    /// Show solc warnings in `compile`, `test`, `max`, and `exec` output.
+    /// Defaults to `false`.
+    #[serde(default)]
+    pub show_warning: bool,
 
     /// Map import paths to actual file locations. Takes precedence over
     /// remappings with the same prefix in `{root}/remappings.txt`.
@@ -228,6 +234,7 @@ impl SolcConfig {
             optimizer: false,
             optimizer_runs: default_optimizer_runs(),
             via_ir: false,
+            show_warning: false,
             remappings: Vec::new(),
         }
     }
@@ -293,6 +300,7 @@ mod tests {
                     optimizer: false,
                     optimizer_runs: 200,
                     via_ir: false,
+                    show_warning: false,
                     remappings: Vec::new(),
                 },
                 dependencies: BTreeMap::new(),
@@ -312,6 +320,7 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 via_ir = true
+show_warning = true
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "@uniswap/=node_modules/@uniswap/",
@@ -326,6 +335,7 @@ remappings = [
         assert!(config.solc.optimizer);
         assert_eq!(config.solc.optimizer_runs, 200);
         assert!(config.solc.via_ir);
+        assert!(config.solc.show_warning);
         assert_eq!(
             config.solc.remappings,
             vec![
@@ -375,7 +385,7 @@ remappings = [
         assert_eq!(err.to_string(), "failed to parse config");
         assert_eq!(
             err.root_cause().to_string(),
-            "TOML parse error at line 3, column 1\n  |\n3 | foo = 1\n  | ^^^\nunknown field `foo`, expected one of `version`, `out`, `evm_version`, `optimizer`, `optimizer_runs`, `via_ir`, `remappings`\n"
+            "TOML parse error at line 3, column 1\n  |\n3 | foo = 1\n  | ^^^\nunknown field `foo`, expected one of `version`, `out`, `evm_version`, `optimizer`, `optimizer_runs`, `via_ir`, `show_warning`, `remappings`\n"
         );
     }
 
