@@ -10,6 +10,14 @@ Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.9.6] - 2026-09-11
+
+### Added
+
 - `[solc] show_warning` controls whether `ripfuzz compile`, `ripfuzz test`,
   `ripfuzz max`, and `ripfuzz exec` log solc warnings after compilation. It
   defaults to `false`, set it to `true` to show warnings.
@@ -512,7 +520,8 @@ Initial public release
   `SharedCorpus`, `CorpusReplayer`, and `CoverageReporter` types for
   programmatic use
 
-[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.5...HEAD
+[unreleased]: https://github.com/pyk/ripfuzz/compare/v0.9.6...HEAD
+[0.9.6]: https://github.com/pyk/ripfuzz/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/pyk/ripfuzz/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/pyk/ripfuzz/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/pyk/ripfuzz/compare/v0.9.2...v0.9.3
